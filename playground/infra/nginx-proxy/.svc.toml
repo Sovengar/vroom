@@ -1,0 +1,5 @@
+name = "nginx-proxy"
+group = ""
+command = "docker run --rm -p 8080:80 nginx:alpine"
+port = 8080
+process_pattern = ""

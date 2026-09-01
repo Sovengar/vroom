@@ -1,0 +1,5 @@
+name = "web-frontend"
+group = "tienda"
+command = "node server.js"
+port = 5173
+process_pattern = ""

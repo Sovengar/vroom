@@ -1,0 +1,5 @@
+name = "orders-api-springboot"
+group = "tienda"
+command = "mvn spring-boot:run"
+port = 8084
+process_pattern = ""

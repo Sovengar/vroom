@@ -309,13 +309,13 @@ La TUI SHALL mostrar una vista de logs con un viewport que hace tail del fichero
 
 ### R17: Abrir logs externamente
 
-La TUI SHALL ofrecer una acción (tecla `o`) para abrir el directorio de logs del servicio en el explorador de archivos del sistema.
+La TUI SHALL ofrecer una acción (tecla `o`) que suspende la TUI y abre ambos ficheros de log del servicio (`stdout.log` y `stderr.log`) en el editor del usuario (`$VISUAL`, `$EDITOR`, default `nvim`) en split vertical (`-O`), con el foco en el stream seleccionado en la vista de logs. Al cerrar el editor, la TUI SHALL restaurarse intacta. Para editores no tipo vim el flag `-O` se omite.
 
-#### S17.1: Abrir directorio
+#### S17.1: Editar logs en el editor
 
 - GIVEN un servicio con logs en `~/.local/state/svc/services/{hash}/`
 - WHEN el usuario pulsa `o`
-- THEN ejecuta `xdg-open` (Linux) sobre el directorio de logs
+- THEN la TUI se suspende, se abre el editor con ambos ficheros en split vertical (foco según stream activo), y al salir la TUI se restaura intacta
 
 ---
 
@@ -323,45 +323,50 @@ La TUI SHALL ofrecer una acción (tecla `o`) para abrir el directorio de logs de
 
 ### R18: Playground de proyectos ficticios
 
-El repositorio SHALL incluir un playground versionado en `testdata/playground/` con proyectos ficticios mínimos y ejecutables, cada uno con su `.svc.toml`. Sirve como fixture para el smoke test manual, para tests de integración (scanner/manifest sin spawn) y como demo.
+El repositorio SHALL incluir un playground versionado en `playground/` (raíz del repo) con proyectos ficticios, cada uno con su `.svc.toml`. Sirve como fixture para el smoke test manual, para tests de integración (scanner/manifest sin spawn) y como demo.
 
 **Estructura:**
 
 ```
-testdata/playground/
+playground/
 ├── apps/
-│   ├── api-java/         # Java: pom.xml (marker), Main.java con com.sun.net.httpserver
-│   │                     # command = "java src/main/java/com/example/Main.java" (single-file launch, Java 11+)
-│   │                     # port = 8081, group = "tienda"
-│   ├── api-go/           # Go: go.mod, net/http hello
-│   │                     # command = "go run main.go", port = 8082, group = ""
-│   ├── api-python/       # Python: requirements.txt (marker), app.py con http.server stdlib (sin deps)
-│   │                     # command = "python3 app.py", port = 8083, group = ""
-│   └── web-frontend/     # Node: package.json, server.js sirviendo index.html con http module (sin npm install)
-│                         # command = "node server.js", port = 5173, group = "tienda"
+│   ├── products-api-java/        # Java: pom.xml (marker), stdlib com.sun.net.httpserver
+│   │                             # command = "java src/main/java/com/example/Main.java" (single-file, Java 11+)
+│   │                             # port = 8081, group = "tienda"
+│   ├── orders-api-springboot/    # Java/Spring Boot: pom.xml (spring-boot-starter-web)
+│   │                             # command = "mvn spring-boot:run" (requiere JDK 17+ y Maven; primera
+│   │                             # ejecución descarga dependencias)
+│   │                             # port = 8084, group = "tienda"
+│   ├── billing-api-go/           # Go: go.mod, net/http hello
+│   │                             # command = "go run main.go", port = 8082, group = ""
+│   ├── inventory-api-python/     # Python: requirements.txt (marker), app.py con http.server stdlib
+│   │                             # command = "python3 app.py", port = 8083, group = ""
+│   └── web-frontend/             # Node: package.json, server.js con http module (sin npm install)
+│                                 # command = "node server.js", port = 5173, group = "tienda"
 ├── servers/
-│   ├── httpserver-1/     # Python: requirements.txt, command = "python3 -m http.server 8090", port = 8090, group = ""
-│   └── httpserver-2/     # Go: go.mod, command = "go run main.go", port = 8091, group = ""
+│   ├── search-api-python/        # Python: requirements.txt, command = "python3 -m http.server 8090", port = 8090
+│   └── auth-api-go/              # Go: go.mod, command = "go run main.go", port = 8091, group = ""
 └── infra/
-    └── nginx-proxy/      # Docker: sin marcador de lenguaje (lenguaje "otro"), command = "docker run --rm -p 8080:80 nginx:alpine"
-                          # port = 8080, group = ""
+    └── nginx-proxy/              # Docker: sin marcador de lenguaje (lenguaje "otro"), command = "docker run --rm -p 8080:80 nginx:alpine"
+                                  # port = 8080, group = ""
 ```
 
 **Qué ejercita el playground:**
 
 | Aspecto validado | Fixture |
 |------------------|---------|
-| Marcadores Java/Go/Python/JS | api-java, api-go, api-python, web-frontend |
+| Marcadores Java/Go/Python/JS | products-api-java, billing-api-go, inventory-api-python, web-frontend |
+| Spring Boot real (logs de arranque, Maven) | orders-api-springboot |
 | Proyecto sin marcador conocido ("otro") pero configurable | nginx-proxy |
-| Agrupación backend+frontend (group = "tienda") | api-java + web-frontend |
-| Comandos heterogéneos: binario directo, `go run`, script python, node, **docker** | todos |
-| Detección por puerto | todos (8080-8091, 5173) |
+| Agrupación backend+frontend (group = "tienda") | products-api-java + orders-api-springboot + web-frontend |
+| Comandos heterogéneos: binario directo, `go run`, script python, node, **maven**, **docker** | todos |
+| Detección por puerto | todos (8080-8084, 5173, 8090-8091) |
 | Servicio dentro de Docker | nginx-proxy |
 
 **Restricciones de los fixtures:**
-- Cero dependencias externas de build (sin `npm install`, sin `mvn install`, sin `pip install`): solo stdlib/biblioteca estándar de cada lenguaje
+- Cero dependencias externas de build, **excepto** `orders-api-springboot` (Spring Boot requiere Maven y descarga de dependencias en la primera ejecución — excepción explícita aprobada)
 - Cada proyecto tiene `.svc.toml` con `name`, `command`, `port` y (cuando aplica) `group`
-- Los puertos (8080, 8081-8083, 5173, 8090-8091) no deben colisionar entre sí
+- Los puertos (8080-8084, 5173, 8090-8091) no deben colisionar entre sí
 
 #### S18.1: Listado correcto del playground
 
@@ -436,3 +441,13 @@ testdata/playground/
 | AC7 | Hash de ruta evita colisiones | Unit test de hash |
 | AC8 | Tests unitarios cubren parsing, hash, detección | `go test ./...` |
 | AC9 | Playground completo: 8 proyectos detectados con lenguajes/grupos correctos, ciclo completo start→cerrar→reabrir→stop, y nginx en Docker arrancado/detenido | Smoke test sobre `testdata/playground/` (S18.1-S18.3) |
+
+---
+
+## Revisiones
+
+### R1 (post-implementación v1.1)
+
+- **R14/R15/S8.3/S15.1 — tecla `s` contextual**: la UI usa un único keybind `s` como toggle (start si stopped, stop si running/unknown) en lugar de teclas separadas de start/stop. El mensaje de S15.1 ("ya está ejecutándose") queda inalcanzable vía UI: el guard anti doble-start es estructural (el toggle nunca arranca un servicio running). S8.3 ("ya detenido") igualmente no es alcanzable vía UI; el no-op seguro permanece a nivel de `stopCmd`/Manager. `R` (restart) y `r` (refresh) no cambian.
+- **R17 — `o` abre el editor**: sustituye xdg-open del directorio por apertura de ambos ficheros de log en `$VISUAL`/`$EDITOR` (default nvim) con split vertical; ver R17 reescrita arriba.
+- **S18.1/AC9 — "8 proyectos"**: la estructura original de R18 definía 7 fixtures pero S18.1/AC9 hablaban de 8. **Resuelto**: se añadió `orders-api-springboot` (grupo `tienda`, port 8084) a petición del usuario → 8 fixtures reales. El playground se movió a `playground/` (raíz del repo) y los fixtures renombrados a nombres descriptivos (`<dominio>-api-<lenguaje>`). Excepción documentada a la regla cero-deps: el fixture Spring Boot requiere Maven.

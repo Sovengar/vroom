@@ -1,0 +1,5 @@
+name = "search-api-python"
+group = ""
+command = "python3 -m http.server 8090"
+port = 8090
+process_pattern = ""

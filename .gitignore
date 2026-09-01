@@ -1,0 +1,14 @@
+# Build artifacts
+target/
+bin/
+dist/
+node_modules/
+*.class
+
+# Go
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/

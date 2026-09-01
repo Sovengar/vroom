@@ -1,0 +1,1 @@
+# Marker: este proyecto usa Python. Sin dependencias externas (solo stdlib).

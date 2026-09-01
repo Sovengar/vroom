@@ -1,0 +1,5 @@
+name = "billing-api-go"
+group = ""
+command = "go run main.go"
+port = 8082
+process_pattern = ""
