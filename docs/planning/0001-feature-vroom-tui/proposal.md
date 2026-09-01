@@ -10,7 +10,7 @@ Desarrollar una TUI en Go con Bubbletea que permita al desarrollador gestionar s
 - Escaneo de proyectos desde CWD con 2 niveles de recursividad (no rutas fijas)
 - Detección automática de lenguaje por marcadores (pom.xml, go.mod, package.json, etc.)
 - Daemonización de servicios con setsid/PGID que sobreviven al cierre de TUI
-- Estado persistente en `~/.local/state/svc/` con clave hash de ruta
+- Estado persistente en `~/.local/state/vroom/` con clave hash de ruta
 - Acciones: iniciar, detener (SIGTERM→SIGKILL con timeout), reiniciar, ver logs
 - Modo descubrimiento: proyectos sin manifiesto visibles como "sin configurar"
 - Vista de logs en tiempo real dentro de la TUI
@@ -26,7 +26,7 @@ Desarrollar una TUI en Go con Bubbletea que permita al desarrollador gestionar s
 ## Capabilities
 
 ### New Capabilities
-- `manifest-parsing`: Parsing de manifiestos `.svc.toml` con schema en inglés, validación de campos requeridos/opcionales, y defaults
+- `manifest-parsing`: Parsing de manifiestos `.vroom.toml` con schema en inglés, validación de campos requeridos/opcionales, y defaults
 - `project-scanning`: Escaneo recursivo desde CWD con detección de lenguaje por marcadores de proyecto
 - `process-management`: Daemonización con setsid, gestión de PID/PGID, graceful shutdown (SIGTERM→SIGKILL), verificación de procesos vivos
 - `state-persistence`: Estado persistente en disco con clave hash de ruta, estructura de directorios para servicios, logs, y metadata
@@ -42,10 +42,10 @@ None — proyecto nuevo.
 ### Arquitectura de módulos
 
 ```
-svc/
-├── cmd/svc/main.go              # Entry point, inicialización
+vroom/
+├── cmd/vroom/main.go              # Entry point, inicialización
 ├── internal/
-│   ├── manifest/                # Parsing y validación de .svc.toml
+│   ├── manifest/                # Parsing y validación de .vroom.toml
 │   │   ├── manifest.go          # Structs, parse, validate
 │   │   └── manifest_test.go
 │   ├── scanner/                 # Escaneo de directorios
@@ -73,7 +73,7 @@ svc/
 **Flujo de dependencias:**
 ```
 tui → scanner, manifest, process, state, group
-scanner → manifest (para parsear .svc.toml encontrado)
+scanner → manifest (para parsear .vroom.toml encontrado)
 process → state (para registrar/verificar PID)
 state → hash (para generar claves de servicio)
 ```
@@ -93,7 +93,7 @@ graph TD
     E --> I[state/hash.go]
     
     subgraph "Estado en disco"
-        J[~/.local/state/svc/services/{hash}/]
+        J[~/.local/state/vroom/services/{hash}/]
         K[pid, pgid, meta.json, logs]
     end
     
@@ -111,7 +111,7 @@ graph TD
    - `daemon_unix.go` (`//go:build unix`): `SysProcAttr{Setsid: true}`, `kill(-pgid, SIGTERM/SIGKILL)`, lectura de starttime en `/proc/{pid}/stat`
    - `daemon_windows.go` (`//go:build windows`): placeholder documentado para v2 con `CREATE_NEW_PROCESS_GROUP + DETACHED_PROCESS`, kill de árbol con `taskkill /T /F` o Job Objects, graceful stop best-effort (CTRL_BREAK_EVENT; no hay SIGTERM en Windows)
 2. **`gopsutil` (pure Go, sin cgo)** para liveness y creation-time del proceso: funciona igual en Linux y Windows → la verificación anti PID-reuse es portable sin duplicar lógica. Este motivo justifica la dependencia (en un escenario Linux-only se usaría `/proc` con stdlib).
-3. **Directorio de estado multiplataforma**: resolver en runtime — Linux: `$XDG_STATE_HOME/svc` (default `~/.local/state/svc`); Windows (futuro): `%LOCALAPPDATA%\svc\state`.
+3. **Directorio de estado multiplataforma**: resolver en runtime — Linux: `$XDG_STATE_HOME/vroom` (default `~/.local/state/vroom`); Windows (futuro): `%LOCALAPPDATA%\vroom\state`.
 4. **Lo ya portable de serie**: Bubbletea/Lipgloss/Bubbles (soportan Windows Terminal), scanner (`filepath.WalkDir`), TOML, check de puerto (`net.DialTimeout`).
 
 **Semántica de stop por plataforma** (documentada, solo implementada en unix para v1):
@@ -121,7 +121,7 @@ graph TD
 | Graceful | SIGTERM al PGID, timeout 5s | CTRL_BREAK_EVENT al grupo, timeout |
 | Forzado | SIGKILL al PGID | `taskkill /T /F` o TerminateJobObject |
 
-## Schema del manifiesto `.svc.toml`
+## Schema del manifiesto `.vroom.toml`
 
 | Campo | Tipo | Requerido | Default | Descripción |
 |-------|------|-----------|---------|-------------|
@@ -149,7 +149,7 @@ process_pattern = "vsocial-api"
 ## Modelo de procesos
 
 ### Daemonización
-1. Parsear `command` del `.svc.toml`
+1. Parsear `command` del `.vroom.toml`
 2. Ejecutar via `sh -c "{command}"` para soporte de pipes/redirecciones
 3. Llamar `setsid()` en el proceso hijo para crear nuevo session leader
 4. Redirigir stdout/stderr a ficheros de log en el directorio de estado
@@ -168,7 +168,7 @@ process_pattern = "vsocial-api"
 - Continúa ejecutándose independientemente
 
 ### Re-adjunta al reabrir TUI
-1. Leer directorio de estado `~/.local/state/svc/services/`
+1. Leer directorio de estado `~/.local/state/vroom/services/`
 2. Para cada servicio registrado:
    - Leer PID de `pid` file
    - Verificar si el proceso está vivo (`/proc/{pid}/status` o `kill -0`)
@@ -192,7 +192,7 @@ process_pattern = "vsocial-api"
 ## Layout del directorio de estado
 
 ```
-~/.local/state/svc/
+~/.local/state/vroom/
 ├── services/
 │   ├── {hash}/                          # Hash corto del path absoluto (8 chars sha256)
 │   │   ├── meta.json                    # {"name": "vsocial-api", "project_path": "/home/user/dev/vsocial", "group": "vsocial", ...}
@@ -204,7 +204,7 @@ process_pattern = "vsocial-api"
 ├── config/
 │   └── state.json                       # Estado global de la TUI
 └── logs/
-    └── svc-tui.log                      # Log de la propia TUI
+    └── vroom-tui.log                      # Log de la propia TUI
 ```
 
 **Clave de servicio = hash de ruta:**
@@ -221,7 +221,7 @@ process_pattern = "vsocial-api"
 | `github.com/charmbracelet/bubbletea` | v2 | Framework TUI |
 | `github.com/charmbracelet/lipgloss` | latest | Estilos y layout |
 | `github.com/charmbracelet/bubbles` | latest | Componentes (viewport, list, etc.) |
-| `github.com/BurntSushi/toml` | v1 | Parsing de `.svc.toml` |
+| `github.com/BurntSushi/toml` | v1 | Parsing de `.vroom.toml` |
 | `github.com/shirou/gopsutil` | v3 | Liveness + creation-time del proceso, portable Linux/Windows (pure Go, sin cgo) |
 
 **Manejo de puertos:**
@@ -255,7 +255,7 @@ return alive
 | PID reuse: proceso muerto, PID reciclado por otro | Media | gopsutil: comparar creation-time del PID contra el registrado en `meta.json` (portable) |
 | Zombies: proceso hijo termina pero padre no hace wait | Baja | Usar `setsid()` para desacoplar; el init del sistema reapa zombies |
 | Servicios que hacen fork de hijos | Media | Matar por PGID (group kill), no solo PID |
-| Permisos de escritura en `~/.local/state/svc/` | Baja | Crear directorios al inicio con permisos 0755; error claro si falla |
+| Permisos de escritura en `~/.local/state/vroom/` | Baja | Crear directorios al inicio con permisos 0755; error claro si falla |
 | Puerto en uso por otro servicio | Media | Verificar puerto antes de start; mostrar warning si conflict |
 | Manifiesto malformado | Alta | Parsing con defaults razonables; mostrar error en TUI sin crashear |
 | Path muy largo para hash (overflow de directorio) | Baja | SHA-256 siempre produce 64 hex chars; truncar a 8 es seguro |
@@ -269,7 +269,7 @@ return alive
 | cgo para procesos | Complejidad de compilación; CGO_ENABLED=1 rompe cross-compile |
 | Clave de servicio = nombre directo | Colisiones con proyectos homónimos en diferentes paths |
 | SQLite para estado | Overkill; JSON en disco es suficiente y más fácil de inspeccionar |
-| Config centralizada por workspace | Contradice el diseño descentralizado (cada proyecto tiene su .svc.toml) |
+| Config centralizada por workspace | Contradice el diseño descentralizado (cada proyecto tiene su .vroom.toml) |
 
 ## Plan de verificación
 
@@ -279,8 +279,8 @@ return alive
 - **Edge cases**: servicio que crashea inmediatamente, puerto en uso, manifiesto incompleto, permisos denegados, reapertura tras crash
 
 ### Smoke test manual
-1. Crear proyecto de prueba con `.svc.toml`
-2. Ejecutar `svc` desde el directorio padre
+1. Crear proyecto de prueba con `.vroom.toml`
+2. Ejecutar `vroom` desde el directorio padre
 3. Verificar que el proyecto aparece en la lista
 4. Iniciar servicio → verificar que aparece como `running`
 5. Cerrar TUI → verificar que el proceso sigue vivo (`ps aux | grep`)
@@ -291,20 +291,20 @@ return alive
 
 | Area | Impacto | Descripción |
 |------|---------|-------------|
-| `cmd/svc/` | Nuevo | Entry point de la aplicación |
-| `internal/manifest/` | Nuevo | Parsing y validación de `.svc.toml` |
+| `cmd/vroom/` | Nuevo | Entry point de la aplicación |
+| `internal/manifest/` | Nuevo | Parsing y validación de `.vroom.toml` |
 | `internal/scanner/` | Nuevo | Escaneo recursivo de proyectos |
 | `internal/process/` | Nuevo | Daemonización y gestión de procesos |
 | `internal/state/` | Nuevo | Estado persistente en disco |
 | `internal/group/` | Nuevo | Lógica de agrupación por campo group |
 | `internal/tui/` | Nuevo | Capa de presentación con Bubbletea |
-| `~/.local/state/svc/` | Nuevo | Directorio de estado en tiempo de ejecución |
+| `~/.local/state/vroom/` | Nuevo | Directorio de estado en tiempo de ejecución |
 
 ## Rollback Plan
 
-1. Detener todos los servicios daemonizados: `svc stop --all` (o kill manual por PID)
-2. Eliminar directorio de estado: `rm -rf ~/.local/state/svc/`
-3. El código fuente permanece en `feat/svc-tui`; la rama main no se ve afectada
+1. Detener todos los servicios daemonizados: `vroom stop --all` (o kill manual por PID)
+2. Eliminar directorio de estado: `rm -rf ~/.local/state/vroom/`
+3. El código fuente permanece en `feat/vroom-tui`; la rama main no se ve afectada
 4. No hay dependencias externas que limpiar (binario autocontenido)
 
 ## Success Criteria

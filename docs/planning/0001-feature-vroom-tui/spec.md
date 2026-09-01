@@ -1,4 +1,4 @@
-# Especificación: svc TUI
+# Especificación: vroom TUI
 
 ## Propósito
 
@@ -8,31 +8,31 @@ TUI en Go + Bubbletea v2 que escanea el CWD (2 niveles), detecta proyectos por m
 
 ## Capability: manifest-parsing
 
-### R1: Schema del manifiesto `.svc.toml`
+### R1: Schema del manifiesto `.vroom.toml`
 
-El sistema SHALL parsear ficheros `.svc.toml` con campos en inglés: `name` (string, requerido), `group` (string, default `""`), `command` (string, requerido), `port` (integer, default `0`), `process_pattern` (string, default `""`). Campos no reconocidos se ignoran.
+El sistema SHALL parsear ficheros `.vroom.toml` con campos en inglés: `name` (string, requerido), `group` (string, default `""`), `command` (string, requerido), `port` (integer, default `0`), `process_pattern` (string, default `""`). Campos no reconocidos se ignoran.
 
 #### S1.1: Parsing exitoso
 
-- GIVEN un fichero `.svc.toml` válido con name y command
+- GIVEN un fichero `.vroom.toml` válido con name y command
 - WHEN el sistema lo parsea
 - THEN devuelve un manifest con todos los campos tipados y defaults aplicados
 
 #### S1.2: Campo requerido faltante
 
-- GIVEN un fichero `.svc.toml` sin campo `name` o sin campo `command`
+- GIVEN un fichero `.vroom.toml` sin campo `name` o sin campo `command`
 - WHEN el sistema lo parsea
 - THEN retorna error de validación con campo faltante identificado, sin crashear
 
 #### S1.3: Puerto fuera de rango
 
-- GIVEN un `.svc.toml` con `port = 99999`
+- GIVEN un `.vroom.toml` con `port = 99999`
 - WHEN el sistema valida
 - THEN retorna error indicando que port debe ser 0 o 1-65535
 
 #### S1.4: Campos vacíos opcionales
 
-- GIVEN un `.svc.toml` con `group = ""` y `process_pattern = ""`
+- GIVEN un `.vroom.toml` con `group = ""` y `process_pattern = ""`
 - WHEN el sistema lo parsea
 - THEN aplica defaults vacíos sin error
 
@@ -89,7 +89,7 @@ El sistema SHALL reconocer los siguientes marcadores:
 
 ### R4: Directorio de estado
 
-El sistema SHALL persistir estado en `~/.local/state/svc/services/{hash}/` donde hash = primeros 8 hex chars de SHA-256 del path absoluto del proyecto.
+El sistema SHALL persistir estado en `~/.local/state/vroom/services/{hash}/` donde hash = primeros 8 hex chars de SHA-256 del path absoluto del proyecto.
 
 #### S4.1: Colisión de nombres
 
@@ -131,7 +131,7 @@ El sistema SHALL escribir `meta.json` con el siguiente schema:
 
 ### R6: Eliminación de `config/state.json`
 
-El sistema SHALL NOT usar `config/state.json` para estado global de la TUI. El estado por servicio ya cubre la información necesaria. Preferencias de UI (ordenación, servicio seleccionado) se persistirán en `~/.config/svc/config.toml` (futuro, fuera de alcance v1).
+El sistema SHALL NOT usar `config/state.json` para estado global de la TUI. El estado por servicio ya cubre la información necesaria. Preferencias de UI (ordenación, servicio seleccionado) se persistirán en `~/.config/vroom/config.toml` (futuro, fuera de alcance v1).
 
 ---
 
@@ -227,7 +227,7 @@ La TUI SHALL mostrar una lista de proyectos con: nombre del proyecto, badge de l
 
 #### S11.1: Proyectos con y sin manifiesto
 
-- GIVEN proyectos con `.svc.toml` y proyectos sin él
+- GIVEN proyectos con `.vroom.toml` y proyectos sin él
 - WHEN la TUI muestra la lista
 - THEN los sin manifiesto aparecen como "sin configurar" con estilo deshabilitado
 
@@ -235,7 +235,7 @@ La TUI SHALL mostrar una lista de proyectos con: nombre del proyecto, badge de l
 
 - GIVEN un proyecto sin manifiesto seleccionado
 - WHEN el usuario pulsa la tecla de start
-- THEN no ejecuta acción y muestra mensaje "Proyecto sin manifiesto — crea un .svc.toml para habilitar"
+- THEN no ejecuta acción y muestra mensaje "Proyecto sin manifiesto — crea un .vroom.toml para habilitar"
 
 ### R12: Navegación por teclado
 
@@ -313,7 +313,7 @@ La TUI SHALL ofrecer una acción (tecla `o`) que suspende la TUI y abre ambos fi
 
 #### S17.1: Editar logs en el editor
 
-- GIVEN un servicio con logs en `~/.local/state/svc/services/{hash}/`
+- GIVEN un servicio con logs en `~/.local/state/vroom/services/{hash}/`
 - WHEN el usuario pulsa `o`
 - THEN la TUI se suspende, se abre el editor con ambos ficheros en split vertical (foco según stream activo), y al salir la TUI se restaura intacta
 
@@ -323,7 +323,7 @@ La TUI SHALL ofrecer una acción (tecla `o`) que suspende la TUI y abre ambos fi
 
 ### R18: Playground de proyectos ficticios
 
-El repositorio SHALL incluir un playground versionado en `playground/` (raíz del repo) con proyectos ficticios, cada uno con su `.svc.toml`. Sirve como fixture para el smoke test manual, para tests de integración (scanner/manifest sin spawn) y como demo.
+El repositorio SHALL incluir un playground versionado en `playground/` (raíz del repo) con proyectos ficticios, cada uno con su `.vroom.toml`. Sirve como fixture para el smoke test manual, para tests de integración (scanner/manifest sin spawn) y como demo.
 
 **Estructura:**
 
@@ -365,7 +365,7 @@ playground/
 
 **Restricciones de los fixtures:**
 - Cero dependencias externas de build, **excepto** `orders-api-springboot` (Spring Boot requiere Maven y descarga de dependencias en la primera ejecución — excepción explícita aprobada)
-- Cada proyecto tiene `.svc.toml` con `name`, `command`, `port` y (cuando aplica) `group`
+- Cada proyecto tiene `.vroom.toml` con `name`, `command`, `port` y (cuando aplica) `group`
 - Los puertos (8080-8084, 5173, 8090-8091) no deben colisionar entre sí
 
 #### S18.1: Listado correcto del playground
@@ -392,7 +392,7 @@ playground/
 
 ### S-T1: Manifiesto malformado
 
-- GIVEN un `.svc.toml` con sintaxis TOML inválida
+- GIVEN un `.vroom.toml` con sintaxis TOML inválida
 - WHEN el scanner lo encuentra
 - THEN registra el proyecto como "sin configurar" con warning en log de la TUI, sin crashear
 
@@ -416,7 +416,7 @@ playground/
 
 ### S-T5: Permisos denegados en directorio de estado
 
-- GIVEN `~/.local/state/svc/` sin permisos de escritura
+- GIVEN `~/.local/state/vroom/` sin permisos de escritura
 - WHEN la TUI intenta crear directorio de servicio
 - THEN muestra error claro y sugiere verificar permisos, sin crashear
 

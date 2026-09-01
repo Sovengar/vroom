@@ -3,8 +3,8 @@ package tui
 import (
 	"strings"
 
-	"svc/internal/group"
-	"svc/internal/scanner"
+	"vroom/internal/group"
+	"vroom/internal/scanner"
 )
 
 // renderList dibuja la lista principal (spec R11): nombre, badge de
@@ -12,10 +12,10 @@ import (
 // reducidos se degrada: sin columna de lenguaje y ayuda compacta.
 func (m Model) renderList() string {
 	var b strings.Builder
-	b.WriteString(styleTitle.Render(trunc("svc — projects in "+m.root, m.width)) + "\n\n")
+	b.WriteString(styleTitle.Render(trunc("vroom — projects in "+m.root, m.width)) + "\n\n")
 
 	if len(m.entries) == 0 {
-		msg := "No projects detected (scanning for language markers and .svc.toml up to 2 levels)"
+		msg := "No projects detected (scanning for language markers and .vroom.toml up to 2 levels)"
 		b.WriteString(styleDim.Render(trunc(msg, m.width)) + "\n")
 	}
 

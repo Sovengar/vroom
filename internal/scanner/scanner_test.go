@@ -92,7 +92,7 @@ func TestScanDetectsDepth2(t *testing.T) {
 func TestScanManifestOnlyIsOtro(t *testing.T) {
 	tr := newTree(t).
 		mkdir("nginx-proxy").
-		file("nginx-proxy/.svc.toml", "name = \"nginx-proxy\"\ncommand = \"docker run --rm -p 8080:80 nginx:alpine\"\nport = 8080\n")
+		file("nginx-proxy/.vroom.toml", "name = \"nginx-proxy\"\ncommand = \"docker run --rm -p 8080:80 nginx:alpine\"\nport = 8080\n")
 	projects, err := Scan(tr.path())
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +183,7 @@ func TestScanSkipsHiddenAndJunkDirs(t *testing.T) {
 // S-T1
 func TestScanMalformedManifest(t *testing.T) {
 	tr := newTree(t).
-		file("broken/.svc.toml", "name = [toml roto").
+		file("broken/.vroom.toml", "name = [toml roto").
 		file("broken/go.mod", "module broken\n")
 	projects, err := Scan(tr.path())
 	if err != nil {

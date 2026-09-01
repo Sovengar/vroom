@@ -2,7 +2,7 @@
 // recursividad (spec R2/R3).
 //
 // Un directorio es proyecto si contiene un marcador de lenguaje
-// (pom.xml, go.mod, package.json, ...) o un manifiesto .svc.toml.
+// (pom.xml, go.mod, package.json, ...) o un manifiesto .vroom.toml.
 // Proyectos con manifiesto están "configurados"; los demás se muestran
 // como "sin configurar" (modo descubrimiento).
 package scanner
@@ -15,7 +15,7 @@ import (
 	"sort"
 	"strings"
 
-	"svc/internal/manifest"
+	"vroom/internal/manifest"
 )
 
 // Project es un proyecto detectado en el escaneo.
@@ -24,9 +24,9 @@ type Project struct {
 	Name     string // nombre del directorio
 	Language string // Java, Go, JavaScript, Python, Rust u "otro"
 
-	Configured  bool               // .svc.toml parseado con éxito
+	Configured  bool               // .vroom.toml parseado con éxito
 	Manifest    *manifest.Manifest // nil si no configurado
-	ManifestErr string             // error de parseo si .svc.toml malformado (S-T1)
+	ManifestErr string             // error de parseo si .vroom.toml malformado (S-T1)
 }
 
 // marker asocia un fichero marcador con el lenguaje mostrado.

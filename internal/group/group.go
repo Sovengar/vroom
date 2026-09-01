@@ -1,7 +1,7 @@
 // Package group agrupa proyectos por el campo group del manifiesto (spec R10).
 package group
 
-import "svc/internal/scanner"
+import "vroom/internal/scanner"
 
 // Entry es una fila renderizable de la lista de proyectos.
 // Group no vacío indica que el proyecto pertenece a un grupo: la vista

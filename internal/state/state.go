@@ -8,7 +8,7 @@
 //	{base}/services/{hash}/stdout.log   stdout capturado
 //	{base}/services/{hash}/stderr.log   stderr capturado
 //
-// base se resuelve en runtime: $XDG_STATE_HOME/svc (default ~/.local/state/svc)
+// base se resuelve en runtime: $XDG_STATE_HOME/vroom (default ~/.local/state/vroom)
 // en Linux; portable a otras plataformas sin cambiar el código.
 package state
 
@@ -49,16 +49,16 @@ type Store struct {
 }
 
 // DefaultBaseDir resuelve el directorio base de estado según plataforma:
-// $XDG_STATE_HOME/svc si está definida, si no ~/.local/state/svc.
+// $XDG_STATE_HOME/vroom si está definida, si no ~/.local/state/vroom.
 func DefaultBaseDir() (string, error) {
 	if x := os.Getenv("XDG_STATE_HOME"); x != "" {
-		return filepath.Join(x, "svc"), nil
+		return filepath.Join(x, "vroom"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("could not resolve user home directory: %w", err)
 	}
-	return filepath.Join(home, ".local", "state", "svc"), nil
+	return filepath.Join(home, ".local", "state", "vroom"), nil
 }
 
 // NewStore crea el store usando DefaultBaseDir y asegura services/.

@@ -10,10 +10,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"svc/internal/manifest"
-	"svc/internal/process"
-	"svc/internal/scanner"
-	"svc/internal/state"
+	"vroom/internal/manifest"
+	"vroom/internal/process"
+	"vroom/internal/scanner"
+	"vroom/internal/state"
 )
 
 // stubManager permite forzar resultados de Evaluate en tests del modelo.
@@ -53,9 +53,9 @@ func newTestModel(t *testing.T) (Model, *state.Store) {
 		}
 	}
 	writeFile("tienda-api/go.mod", "module api\n")
-	writeFile("tienda-api/.svc.toml", "name = \"tienda-api\"\ngroup = \"tienda\"\ncommand = \"go run main.go\"\nport = 8081\n")
+	writeFile("tienda-api/.vroom.toml", "name = \"tienda-api\"\ngroup = \"tienda\"\ncommand = \"go run main.go\"\nport = 8081\n")
 	writeFile("tienda-web/package.json", "{}\n")
-	writeFile("tienda-web/.svc.toml", "name = \"tienda-web\"\ngroup = \"tienda\"\ncommand = \"node server.js\"\nport = 5173\n")
+	writeFile("tienda-web/.vroom.toml", "name = \"tienda-web\"\ngroup = \"tienda\"\ncommand = \"node server.js\"\nport = 5173\n")
 	writeFile("suelto/go.mod", "module suelto\n")
 
 	store := state.NewStoreAt(t.TempDir())
@@ -384,7 +384,7 @@ func TestRenderList(t *testing.T) {
 	m.services[m.entries[m.cursor].Project.Path].Status = statusRunning
 
 	out := m.View().Content
-	if !strings.Contains(out, "svc — projects in") {
+	if !strings.Contains(out, "vroom — projects in") {
 		t.Error("falta título")
 	}
 	for _, want := range []string{"tienda-api", "Go", "tienda-web", "JavaScript", "suelto", "unconfigured", "running"} {

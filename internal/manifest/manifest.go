@@ -1,4 +1,4 @@
-// Package manifest parsea y valida manifiestos .svc.toml.
+// Package manifest parsea y valida manifiestos .vroom.toml.
 //
 // Schema (campos en inglés, campos desconocidos se ignoran):
 //
@@ -18,9 +18,9 @@ import (
 )
 
 // FileName es el nombre del fichero de manifiesto por proyecto.
-const FileName = ".svc.toml"
+const FileName = ".vroom.toml"
 
-// Manifest representa el contenido de un .svc.toml.
+// Manifest representa el contenido de un .vroom.toml.
 type Manifest struct {
 	Name           string `toml:"name"`
 	Group          string `toml:"group"`
@@ -41,7 +41,7 @@ func Parse(path string) (*Manifest, error) {
 	return &m, nil
 }
 
-// Exists reporta si dir contiene un .svc.toml.
+// Exists reporta si dir contiene un .vroom.toml.
 func Exists(dir string) bool {
 	_, err := os.Stat(filepath.Join(dir, FileName))
 	return err == nil

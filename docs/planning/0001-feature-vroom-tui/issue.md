@@ -12,7 +12,7 @@
 - Escaneo de proyectos con 2 niveles de recursividad
 - Detección automática de lenguaje (Java, Go, JS, Python, Rust, etc.)
 - Gestión de servicios daemonizados que sobreviven al cierre de la TUI
-- Estado persistente en disco (~/.local/state/svc/)
+- Estado persistente en disco (~/.local/state/vroom/)
 - Acciones: iniciar, detener (SIGTERM → SIGKILL), reiniciar, ver logs
 - Modo descubrimiento para proyectos sin configurar
 
@@ -30,7 +30,7 @@
 - [ ] Al reabrir la TUI, se re-adjunta al estado persistente y verifica procesos vivos
 - [ ] Se puede iniciar un servicio y ver su log en tiempo real dentro de la TUI
 - [ ] Se puede detener un servicio por SIGTERM y forzar con SIGKILL tras timeout
-- [ ] Proyectos sin manifiesto .svc.toml se muestran como "sin configurar" pero son visibles
+- [ ] Proyectos sin manifiesto .vroom.toml se muestran como "sin configurar" pero son visibles
 - [ ] El layout del directorio de estado permite recuperar logs e histórico de servicios
 
 ## Decisiones Técnicas Cerradas
@@ -38,18 +38,18 @@
 | Decisión | Valor | Justificación |
 |----------|-------|---------------|
 | Lenguaje | Go + Bubbletea v2 + Lipgloss + Bubbles | Stack probado para TUIs, ecosistema rico |
-| Ubicación | ~/dev/projects/svc (rama feat/svc-tui) | Ya creado, repo inicializado |
+| Ubicación | ~/dev/projects/vroom (rama feat/vroom-tui) | Ya creado, repo inicializado |
 | Ejecución | Híbrida daemonizada (setsid / process group propio) | Servicios sobreviven al cierre de TUI |
-| Estado | ~/.local/state/svc/ (PID/PGID + metadatos + logs) | XDG compliant, persistente |
+| Estado | ~/.local/state/vroom/ (PID/PGID + metadatos + logs) | XDG compliant, persistente |
 | Detección | PID/PGID vivo + check de puerto/patrón de proceso | Cubre servicios iniciados fuera de la TUI |
 | Stop | SIGTERM → SIGKILL con timeout | Graceful shutdown con fallback |
 | Logs | Tail de fichero + acción para abrir externamente | Balance entre integración y flexibilidad |
 
 ## Propuestas para Puntos Abiertos
 
-### 1. Manifiesto por proyecto: `.svc.toml`
+### 1. Manifiesto por proyecto: `.vroom.toml`
 
-**Propuesta:** Fichero `.svc.toml` en la raíz del proyecto.
+**Propuesta:** Fichero `.vroom.toml` en la raíz del proyecto.
 
 **Justificación:**
 - Consistente con cdx-rs (usa TOML)
@@ -78,7 +78,7 @@ logs_dir = "./logs"  # relativo al proyecto
 
 ### 3. Proyectos sin manifiesto: modo descubrimiento
 
-**Propuesta:** Mostrar todos los proyectos detectados, marcando los sin `.svc.toml` como "sin configurar" (estilo gris/deshabilitado).
+**Propuesta:** Mostrar todos los proyectos detectados, marcando los sin `.vroom.toml` como "sin configurar" (estilo gris/deshabilitado).
 
 **Justificación:**
 - No penaliza la exploración inicial
@@ -88,7 +88,7 @@ logs_dir = "./logs"  # relativo al proyecto
 
 ### 4. Multi-módulo Maven: manifiesto en raíz del padre
 
-**Propuesta:** Un único `.svc.toml` en la raíz del proyecto padre (ej: vsocial/), con campos que describan el conjunto.
+**Propuesta:** Un único `.vroom.toml` en la raíz del proyecto padre (ej: vsocial/), con campos que describan el conjunto.
 
 **Justificación:**
 - Evita duplicación de configuración
@@ -100,7 +100,7 @@ logs_dir = "./logs"  # relativo al proyecto
 
 **Propuesta:**
 ```
-~/.local/state/svc/
+~/.local/state/vroom/
 ├── services/
 │   ├── {service-name}/
 │   │   ├── pid          # PID del proceso principal
@@ -112,7 +112,7 @@ logs_dir = "./logs"  # relativo al proyecto
 ├── config/
 │   └── state.json       # estado global de la TUI
 └── logs/
-    └── svc-tui.log      # log de la propia TUI
+    └── vroom-tui.log      # log de la propia TUI
 ```
 
 **Justificación:**
@@ -126,7 +126,7 @@ logs_dir = "./logs"  # relativo al proyecto
 **Propuesta:** El comando del manifiesto se ejecuta via `sh -c "{comando}"` en un proceso desacoplado (setsid). El proceso queda daemonizado con logs capturados.
 
 **Flujo:**
-1. Parsear comando del `.svc.toml`
+1. Parsear comando del `.vroom.toml`
 2. Crear proceso hijo con setsid() para nuevo session leader
 3. Redirigir stdout/stderr a ficheros de log
 4. Registrar PID/PGID en estado
@@ -136,11 +136,11 @@ logs_dir = "./logs"  # relativo al proyecto
 
 ## Task Breakdown
 
-1. **Modelo de datos y parsing de manifiestos** — Definir structs Go para proyecto/servicio, implementar parser TOML para `.svc.toml`
+1. **Modelo de datos y parsing de manifiestos** — Definir structs Go para proyecto/servicio, implementar parser TOML para `.vroom.toml`
 
 2. **Escaneo de directorios con recursividad** — Implementar walker que detecte proyectos por marcadores de lenguaje (pom.xml, go.mod, package.json, etc.) con 2 niveles de profundidad
 
-3. **Estado persistente y detección de procesos** — Sistema de PID/PGID en `~/.local/state/svc/`, verificación de procesos vivos, check de puerto/patrón
+3. **Estado persistente y detección de procesos** — Sistema de PID/PGID en `~/.local/state/vroom/`, verificación de procesos vivos, check de puerto/patrón
 
 4. **Daemonización de servicios** — Implementar spawn desacoplado con setsid, gestión de process groups, captura de logs
 
@@ -165,7 +165,7 @@ logs_dir = "./logs"  # relativo al proyecto
 
 ## Assumptions
 
-- El usuario tiene permisos de escritura en `~/.local/state/svc/`
+- El usuario tiene permisos de escritura en `~/.local/state/vroom/`
 - Los proyectos marcados con Build (Java), Build (JS), Requirements (Python), etc. son válidos para detección
 - El formato TOML es aceptable para el manifiesto (consistente con cdx-rs)
 - Los servicios daemonizados no requieren autenticación o permisos especiales

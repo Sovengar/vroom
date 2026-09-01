@@ -46,7 +46,7 @@ func (m Model) renderService() string {
 		}
 		row("logs:", m.store.ServiceDir(p.Path))
 	} else {
-		b.WriteString("\n" + styleWarn.Render("No manifest — create a .svc.toml to enable") + "\n")
+		b.WriteString("\n" + styleWarn.Render("No manifest — create a .vroom.toml to enable") + "\n")
 		if p.ManifestErr != "" {
 			b.WriteString(styleWarn.Render(trunc("parse error: "+p.ManifestErr, m.width)) + "\n")
 		}
@@ -61,7 +61,7 @@ func (m Model) renderService() string {
 }
 
 func exampleManifest(name string) string {
-	return fmt.Sprintf(`# %s/.svc.toml
+	return fmt.Sprintf(`# %s/.vroom.toml
 name = "%s"
 group = ""
 command = "go run main.go"

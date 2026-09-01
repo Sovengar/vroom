@@ -30,8 +30,8 @@ func TestDefaultBaseDirRespectsXDGStateHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dir != filepath.Join("/tmp/xdg-state", "svc") {
-		t.Errorf("dir = %q, want /tmp/xdg-state/svc", dir)
+	if dir != filepath.Join("/tmp/xdg-state", "vroom") {
+		t.Errorf("dir = %q, want /tmp/xdg-state/vroom", dir)
 	}
 }
 
@@ -110,7 +110,7 @@ func TestLoadMetaMissing(t *testing.T) {
 
 func TestRegisterAndClearPid(t *testing.T) {
 	s := NewStoreAt(t.TempDir())
-	path := "/home/user/dev/svc-x"
+	path := "/home/user/dev/vroom-x"
 
 	if err := s.RegisterPid(path, 4242, 4242); err != nil {
 		t.Fatal(err)

@@ -1,4 +1,4 @@
-# svc
+# vroom
 
 TUI en Go + Bubbletea para gestionar servicios de múltiples proyectos desde un solo punto.
 Escanea el directorio actual (2 niveles de recursividad), detecta proyectos por marcadores
@@ -9,7 +9,7 @@ de la terminal**, con logs en vivo y detección de estado (PID + puerto + patró
 ## Instalación
 
 ```bash
-go build -o ~/.local/bin/svc ./cmd/svc
+go build -o ~/.local/bin/vroom ./cmd/vroom
 ```
 
 Requisitos en runtime: Linux (v1), shell POSIX, `xdg-open` no requerido.
@@ -20,7 +20,7 @@ El repo incluye `playground/` con 8 proyectos ficticios listos para probar todo 
 
 ```bash
 cd playground
-svc
+vroom
 ```
 
 | Proyecto | Lenguaje | Grupo | Puerto | Comando |
@@ -38,7 +38,7 @@ Notas:
 - `orders-api-springboot` requiere **JDK 17+ y Maven**; la primera ejecución descarga
   dependencias (verás todo el log de arranque de Spring en la vista de logs).
 - `nginx-proxy` requiere Docker.
-- Cada proyecto define su servicio en un `.svc.toml` — así se configura el tuyo:
+- Cada proyecto define su servicio en un `.vroom.toml` — así se configura el tuyo:
 
 ```toml
 name = "mi-servicio"
@@ -64,7 +64,7 @@ process_pattern = ""        # patrón pgrep (opcional)
 ## Estado y logs
 
 ```
-~/.local/state/svc/services/{hash}/   # hash = 8 hex de SHA-256 del path del proyecto
+~/.local/state/vroom/services/{hash}/   # hash = 8 hex de SHA-256 del path del proyecto
 ├── meta.json    # nombre, pid, pgid, puerto, estado...
 ├── pid, pgid    # credenciales del proceso (se limpian al detener)
 ├── stdout.log   # stdout del servicio
@@ -81,4 +81,4 @@ go test ./...        # unit + integración
 go vet ./...
 ```
 
-Spec funcional completa: `docs/planning/0001-feature-svc-tui/`.
+Spec funcional completa: `docs/planning/0001-feature-vroom-tui/`.

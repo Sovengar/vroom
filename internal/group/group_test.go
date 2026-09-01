@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"svc/internal/manifest"
-	"svc/internal/scanner"
+	"vroom/internal/manifest"
+	"vroom/internal/scanner"
 )
 
 // proj crea un proyecto configurado con el group dado; group "" = sin manifiesto.
@@ -61,7 +61,7 @@ func TestArrangeGroupsTogether(t *testing.T) {
 
 // S10.2: grupo con un único miembro también muestra header.
 func TestArrangeSingleMemberGroup(t *testing.T) {
-	a := proj("backend-svc", "backend")
+	a := proj("backend-vroom", "backend")
 	entries := Arrange([]scanner.Project{a})
 	if len(entries) != 1 || entries[0].Group != "backend" {
 		t.Fatalf("got %+v", entries)

@@ -1,4 +1,4 @@
-module svc
+module vroom
 
 go 1.26.3
 

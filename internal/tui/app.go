@@ -13,10 +13,10 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
-	"svc/internal/group"
-	"svc/internal/process"
-	"svc/internal/scanner"
-	"svc/internal/state"
+	"vroom/internal/group"
+	"vroom/internal/process"
+	"vroom/internal/scanner"
+	"vroom/internal/state"
 )
 
 const (
@@ -554,7 +554,7 @@ func (m Model) toggleSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if !p.Configured { // S11.2
-		m.notify("No manifest — create a .svc.toml to enable")
+		m.notify("No manifest — create a .vroom.toml to enable")
 		return m, nil
 	}
 	sv := m.services[p.Path]
@@ -578,7 +578,7 @@ func (m Model) restartSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if !p.Configured {
-		m.notify("No manifest — create a .svc.toml to enable")
+		m.notify("No manifest — create a .vroom.toml to enable")
 		return m, nil
 	}
 	sv := m.services[p.Path]
@@ -672,7 +672,7 @@ func statusBadge(p scanner.Project, sv *ServiceState) string {
 		}
 	}
 	if p.ManifestErr != "" {
-		return styleWarn.Render("⚠ invalid .svc.toml")
+		return styleWarn.Render("⚠ invalid .vroom.toml")
 	}
 	return styleUnconfigured.Render("· unconfigured")
 }
