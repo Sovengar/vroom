@@ -22,7 +22,7 @@ func TestParseValidAppliesDefaults(t *testing.T) {
 	path := writeManifest(t, `
 name = "vsocial-api"
 group = "vsocial"
-command = "go run main.go"
+command_start = "go run main.go"
 port = 8080
 process_pattern = "vsocial-api"
 `)
@@ -42,7 +42,7 @@ process_pattern = "vsocial-api"
 func TestParseMinimalValid(t *testing.T) {
 	path := writeManifest(t, `
 name = "mi-servicio"
-command = "./start.sh"
+command_start = "./start.sh"
 `)
 	m, err := Parse(path)
 	if err != nil {
@@ -60,8 +60,8 @@ func TestParseMissingRequiredFields(t *testing.T) {
 		content string
 		wantErr string
 	}{
-		{"sin name", `command = "go run main.go"`, "name"},
-		{"sin command", `name = "x"`, "command"},
+		{"sin name", `command_start = "go run main.go"`, "name"},
+		{"sin command_start", `name = "x"`, "command_start"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -88,7 +88,7 @@ func TestParsePortOutOfRange(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			content := fmt.Sprintf("name = \"x\"\ncommand = \"y\"\nport = %d\n", tt.port)
+			content := fmt.Sprintf("name = \"x\"\ncommand_start = \"y\"\nport = %d\n", tt.port)
 			path := writeManifest(t, content)
 			_, err := Parse(path)
 			if err == nil {
@@ -106,7 +106,7 @@ func TestParseEmptyOptionals(t *testing.T) {
 	path := writeManifest(t, `
 name = "x"
 group = ""
-command = "y"
+command_start = "y"
 port = 0
 process_pattern = ""
 `)
@@ -119,15 +119,16 @@ process_pattern = ""
 	}
 }
 
-// 0003 R26: install/build son comandos one-shot opcionales (pueden ser
-// `mise run ...` o cualquier comando); su ausencia no invalida el
-// manifiesto.
-func TestParseInstallBuild(t *testing.T) {
+// 0003 R26: command_install/command_build son comandos one-shot
+// opcionales (pueden ser `mise run ...` o cualquier comando); su
+// ausencia no invalida el manifiesto. command_stop igualmente opcional.
+func TestParseInstallBuildStop(t *testing.T) {
 	path := writeManifest(t, `
 name = "web-frontend"
-command = "node server.js"
-install = "pnpm install"
-build = "mise run build"
+command_start = "node server.js"
+command_install = "pnpm install"
+command_build = "mise run build"
+command_stop = "docker stop web-frontend"
 `)
 	m, err := Parse(path)
 	if err != nil {
@@ -136,20 +137,23 @@ build = "mise run build"
 	if m.Install != "pnpm install" || m.Build != "mise run build" {
 		t.Errorf("install/build mal parseados: %+v", m)
 	}
+	if m.Stop != "docker stop web-frontend" {
+		t.Errorf("stop mal parseado: %+v", m)
+	}
 
-	minimal, err := Parse(writeManifest(t, "name = \"x\"\ncommand = \"y\"\n"))
+	minimal, err := Parse(writeManifest(t, "name = \"x\"\ncommand_start = \"y\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if minimal.Install != "" || minimal.Build != "" {
-		t.Errorf("install/build deben default a vacío: %+v", minimal)
+	if minimal.Install != "" || minimal.Build != "" || minimal.Stop != "" {
+		t.Errorf("install/build/stop deben default a vacío: %+v", minimal)
 	}
 }
 
 func TestParseUnknownFieldsIgnored(t *testing.T) {
 	path := writeManifest(t, `
 name = "x"
-command = "y"
+command_start = "y"
 future_field = "algo"
 another = 42
 `)

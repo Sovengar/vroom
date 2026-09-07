@@ -92,7 +92,7 @@ func TestScanDetectsDepth2(t *testing.T) {
 func TestScanManifestOnlyIsOtro(t *testing.T) {
 	tr := newTree(t).
 		mkdir("nginx-proxy").
-		file("nginx-proxy/.vroom.toml", "name = \"nginx-proxy\"\ncommand = \"docker run --rm -p 8080:80 nginx:alpine\"\nport = 8080\n")
+		file("nginx-proxy/.vroom.toml", "name = \"nginx-proxy\"\ncommand_start = \"docker run --rm -p 8080:80 nginx:alpine\"\nport = 8080\n")
 	projects, err := Scan(tr.path())
 	if err != nil {
 		t.Fatal(err)

@@ -96,17 +96,17 @@ func writeTestTree(t *testing.T, jobs bool) string {
 			t.Fatal(err)
 		}
 	}
-	manifestAPI := "name = \"tienda-api\"\ngroup = \"tienda\"\ncommand = \"go run main.go\"\nport = 8081\n"
+	manifestAPI := "name = \"tienda-api\"\ngroup = \"tienda\"\ncommand_start = \"go run main.go\"\nport = 8081\n"
 	if jobs {
-		manifestAPI += "install = \"echo installing\"\nbuild = \"echo building\"\n"
+		manifestAPI += "command_install = \"echo installing\"\ncommand_build = \"echo building\"\n"
 	}
 	writeFile("tienda-api/go.mod", "module api\n")
 	writeFile("tienda-api/.vroom.toml", manifestAPI)
 	writeFile("tienda-api/.git/HEAD", "ref: refs/heads/main\n")
 	writeFile("tienda-web/package.json", "{}\n")
-	manifestWeb := "name = \"tienda-web\"\ngroup = \"tienda\"\ncommand = \"node server.js\"\nport = 5173\n"
+	manifestWeb := "name = \"tienda-web\"\ngroup = \"tienda\"\ncommand_start = \"node server.js\"\nport = 5173\n"
 	if jobs {
-		manifestWeb += "install = \"echo installing web\"\nbuild = \"echo building web\"\n"
+		manifestWeb += "command_install = \"echo installing web\"\ncommand_build = \"echo building web\"\n"
 	}
 	writeFile("tienda-web/.vroom.toml", manifestWeb)
 	if jobs {

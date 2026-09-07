@@ -1,5 +1,5 @@
 name = "auth-api-go"
 group = ""
-command = "go run main.go"
+command_start = "go run main.go"
 port = 8091
 process_pattern = ""

@@ -363,11 +363,20 @@ func startCmd(store *state.Store, manager process.Manager, p scanner.Project) te
 	}
 }
 
-func stopCmd(store *state.Store, manager process.Manager, path string) tea.Cmd {
+// stopCmd para un servicio: si el manifiesto define command_stop lo
+// ejecuta primero (parada graciosa para servicios donde matar el PGID
+// no basta, ej. `docker stop`), y después aplica siempre el shutdown
+// de limpieza (S8.1/S8.2: SIGTERM al PGID, timeout 5s, SIGKILL).
+func stopCmd(store *state.Store, manager process.Manager, path, stopCommand string) tea.Cmd {
 	return func() tea.Msg {
+		var cmdErr error
+		if stopCommand != "" {
+			if _, _, err := runLogged("stop", stopCommand, path, store.StdoutLog(path), store.StderrLog(path)); err != nil {
+				cmdErr = err // se notifica, pero el stop de limpieza sigue
+			}
+		}
 		meta, err := store.LoadMeta(path)
 		if err == nil && meta.Pgid > 0 {
-			// S8.1/S8.2: SIGTERM al PGID, timeout 5s, SIGKILL al PGID.
 			_ = manager.Stop(process.StopSpec{Pgid: meta.Pgid, Timeout: process.DefaultStopTimeout})
 		}
 		if err := store.ClearPid(path); err != nil {
@@ -379,7 +388,7 @@ func stopCmd(store *state.Store, manager process.Manager, path string) tea.Cmd {
 			meta.Pgid = 0
 			_ = store.SaveMeta(path, meta)
 		}
-		return stoppedMsg{path: path}
+		return stoppedMsg{path: path, err: cmdErr}
 	}
 }
 
@@ -427,49 +436,62 @@ func jobBanner(kind, text string) string {
 	return fmt.Sprintf("── vroom ▶ %s: %s ──", kind, text)
 }
 
-// jobCmd ejecuta un comando one-shot (build/install/task, spec 0003
-// R27): escribe un banner, lanza `sh -c` con salida en append a los
+// runLogged ejecuta un comando one-shot con `sh -c` en workDir (0003
+// R27): escribe un banner, lanza el comando con salida en append a los
 // logs del servicio (visibles en la pestaña Console vía el tail
-// existente) y devuelve jobMsg con el exit code.
+// existente) y añade un footer con el resultado. Devuelve la duración,
+// el exit code (0 si ok o fallo de lanzamiento) y el error de ejecución.
+func runLogged(kind, command, workDir, stdoutPath, stderrPath string) (time.Duration, int, error) {
+	if dir := filepath.Dir(stdoutPath); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return 0, 0, err
+		}
+	}
+	if err := appendLine(stdoutPath, jobBanner(kind, command)); err != nil {
+		return 0, 0, err
+	}
+	start := time.Now()
+	cmd := exec.Command("sh", "-c", command)
+	cmd.Dir = workDir
+	out, err := os.OpenFile(stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer out.Close()
+	errF, err := os.OpenFile(stderrPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer errF.Close()
+	cmd.Stdout = out
+	cmd.Stderr = errF
+	runErr := cmd.Run()
+	elapsed := time.Since(start).Round(10 * time.Millisecond)
+	if runErr != nil {
+		exitCode := 0
+		var exitErr *exec.ExitError
+		if errors.As(runErr, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		}
+		_ = appendLine(stdoutPath, fmt.Sprintf("── vroom ✗ %s failed (exit %d, %s) ──", kind, exitCode, elapsed))
+		return elapsed, exitCode, runErr
+	}
+	_ = appendLine(stdoutPath, fmt.Sprintf("── vroom ✓ %s ok (%s) ──", kind, elapsed))
+	return elapsed, 0, nil
+}
+
+// jobCmd ejecuta un comando one-shot (build/install/task, spec 0003
+// R27) sobre runLogged y devuelve jobMsg con el exit code.
 func jobCmd(path, kind, command, workDir, stdoutPath, stderrPath string) tea.Cmd {
 	return func() tea.Msg {
-		if dir := filepath.Dir(stdoutPath); dir != "" {
-			if err := os.MkdirAll(dir, 0o755); err != nil {
-				return jobMsg{path: path, kind: kind, command: command, err: err}
-			}
-		}
-		if err := appendLine(stdoutPath, jobBanner(kind, command)); err != nil {
-			return jobMsg{path: path, kind: kind, command: command, err: err}
-		}
-		start := time.Now()
-		cmd := exec.Command("sh", "-c", command)
-		cmd.Dir = workDir
-		out, err := os.OpenFile(stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		elapsed, exitCode, err := runLogged(kind, command, workDir, stdoutPath, stderrPath)
+		msg := jobMsg{path: path, kind: kind, command: command, exitCode: exitCode, elapsed: elapsed}
 		if err != nil {
-			return jobMsg{path: path, kind: kind, command: command, err: err}
-		}
-		defer out.Close()
-		errF, err := os.OpenFile(stderrPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-		if err != nil {
-			return jobMsg{path: path, kind: kind, command: command, err: err}
-		}
-		defer errF.Close()
-		cmd.Stdout = out
-		cmd.Stderr = errF
-		runErr := cmd.Run()
-		elapsed := time.Since(start).Round(10 * time.Millisecond)
-		msg := jobMsg{path: path, kind: kind, command: command, elapsed: elapsed}
-		if runErr != nil {
 			var exitErr *exec.ExitError
-			if errors.As(runErr, &exitErr) {
-				msg.exitCode = exitErr.ExitCode()
-			} else {
-				msg.err = runErr
+			if !errors.As(err, &exitErr) {
+				msg.err = err // fallo de lanzamiento (I/O), no del comando
 			}
-			_ = appendLine(stdoutPath, fmt.Sprintf("── vroom ✗ %s failed (exit %d, %s) ──", kind, msg.exitCode, elapsed))
-			return msg
 		}
-		_ = appendLine(stdoutPath, fmt.Sprintf("── vroom ✓ %s ok (%s) ──", kind, elapsed))
 		return msg
 	}
 }
@@ -969,7 +991,7 @@ func (m Model) toggleSelected() (tea.Model, tea.Cmd) {
 	case statusRunning, statusUnknown:
 		sv.Status = statusStopping
 		m.clearMessage()
-		return m, stopCmd(m.store, m.manager, p.Path)
+		return m, stopCmd(m.store, m.manager, p.Path, p.Manifest.Stop)
 	case statusStarting, statusStopping:
 		return m, nil // en tránsito: ignorar
 	default: // stopped
@@ -1005,7 +1027,7 @@ func (m Model) toggleGroup(g string) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, startCmd(m.store, m.manager, p))
 		case !anyStopped && (sv.Status == statusRunning || sv.Status == statusUnknown):
 			sv.Status = statusStopping
-			cmds = append(cmds, stopCmd(m.store, m.manager, p.Path))
+			cmds = append(cmds, stopCmd(m.store, m.manager, p.Path, manifestStop(p)))
 		}
 	}
 	return m, tea.Batch(cmds...)
@@ -1049,7 +1071,16 @@ func (m Model) restartSelected() (tea.Model, tea.Cmd) {
 	}
 	m.pendingRestart[p.Path] = true
 	sv.Status = statusStopping
-	return m, stopCmd(m.store, m.manager, p.Path)
+	return m, stopCmd(m.store, m.manager, p.Path, p.Manifest.Stop)
+}
+
+// manifestStop devuelve el command_stop del manifiesto ("" si no hay
+// manifiesto; defenses para llamadas por grupo).
+func manifestStop(p scanner.Project) string {
+	if p.Manifest == nil {
+		return ""
+	}
+	return p.Manifest.Stop
 }
 
 // openLogEditor abre ambos logs del servicio seleccionado en el editor
@@ -1090,7 +1121,7 @@ func (m Model) runInstall() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if p.Manifest.Install == "" {
-		m.notify(`no install command — set install = "..." in .vroom.toml`)
+		m.notify(`no install command — set command_install = "..." in .vroom.toml`)
 		return m, nil
 	}
 	return m.launchJob("install", p.Manifest.Install)
@@ -1110,7 +1141,7 @@ func (m Model) runBuild() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if p.Manifest.Build == "" {
-		m.notify(`no build command — set build = "..." in .vroom.toml`)
+		m.notify(`no build command — set command_build = "..." in .vroom.toml`)
 		return m, nil
 	}
 	return m.launchJob("build", p.Manifest.Build)

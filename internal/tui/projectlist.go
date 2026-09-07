@@ -109,6 +109,6 @@ func treeDot(p scanner.Project, sv *ServiceState) string {
 // configurar.
 func exampleManifest(name string) string {
 	return fmt.Sprintf(`name = %q
-command = "go run main.go"
+command_start = "go run main.go"
 port = 0`, name)
 }

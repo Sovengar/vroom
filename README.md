@@ -57,19 +57,25 @@ Notas:
 - `orders-api-springboot` requiere **JDK 17+ y Maven**; la primera ejecución descarga
   dependencias (verás todo el log de arranque de Spring en la vista de logs).
 - `nginx-proxy` requiere Docker.
-- `web-frontend` incluye `install`/`build` en su manifiesto y un `mise.toml` con
+- `web-frontend` incluye `command_install`/`command_build` en su manifiesto y un `mise.toml` con
   tasks (y uno oculto) para probar `b`, `i` y el picker de `t` sin configurar nada.
 - Cada proyecto define su servicio en un `.vroom.toml` — así se configura el tuyo:
 
 ```toml
 name = "mi-servicio"
-group = ""                  # vacío = sin agrupar
-command = "go run main.go"
-port = 8080                 # para detección (0 = deshabilitado)
-process_pattern = ""        # patrón pgrep (opcional)
-install = "npm install"     # one-shot con la tecla i (opcional)
-build = "mise run build"    # one-shot con la tecla b (opcional)
+group = ""                       # vacío = sin agrupar
+command_start = "go run main.go"
+port = 8080                      # para detección (0 = deshabilitado)
+process_pattern = ""             # patrón pgrep (opcional)
+command_install = "npm install"  # one-shot con la tecla i (opcional)
+command_build = "mise run build" # one-shot con la tecla b (opcional)
+command_stop = "docker stop x"   # parada graciosa con la tecla s (opcional)
 ```
+
+`command_stop` es para servicios donde matar el process group no basta (el
+proceso hijo sobrevive al kill, ej. un contenedor Docker): al pulsar `s`, vroom
+ejecuta ese comando primero (con banner, visible en la consola) y después aplica
+el shutdown de limpieza habitual (SIGTERM → 5s → SIGKILL al PGID).
 
 ## Keybindings
 
@@ -79,8 +85,8 @@ build = "mise run build"    # one-shot con la tecla b (opcional)
 | `enter` | Colapsar/expandir el grupo seleccionado |
 | `s` | **Start/stop** (toggle contextual; sobre un grupo, a todos sus miembros) |
 | `R` | Restart (stop → start con timeout) |
-| `b` | **Build**: comando one-shot del manifiesto (`build = "..."`) |
-| `i` | **Install**: comando one-shot del manifiesto (`install = "..."`) |
+| `b` | **Build**: comando one-shot del manifiesto (`command_build = "..."`) |
+| `i` | **Install**: comando one-shot del manifiesto (`command_install = "..."`) |
 | `t` | **Tasks**: picker de tasks del `mise.toml` (ver [mise](#integración-con-mise-opcional)) |
 | `a` | **Ask AI**: pregunta a un agente (opencode/pi/hermes) con tu prompt → chat nuevo; el despacho es configurable ([config global](#configuración-global-ask-ai)) |
 | `C` | **Clear**: limpia la consola en memoria (los ficheros conservan el histórico) |
@@ -146,7 +152,8 @@ solo con `.vroom.toml`. La integración existe en dos puntos, y ambos son opt-in
 
 1. **`b` (build) e `i` (install)** ejecutan el comando que tú pongas en el
    manifiesto, con `sh -c` en el directorio del proyecto. Si prefieres mise,
-   escribes `build = "mise run build"`; si prefieres pnpm, `build = "pnpm build"`.
+   escribes `command_build = "mise run build"`; si prefieres pnpm,
+   `command_build = "pnpm build"`.
    vroom nunca añade `mise run` por su cuenta.
 2. **`t` (tasks)** lista los tasks de la sección `[tasks.*]` del `mise.toml` del
    proyecto (parseo directo del fichero; listar **no** necesita el binario). Al
@@ -172,9 +179,9 @@ run = "pnpm dev"
 ```toml
 # .vroom.toml
 name = "web-frontend"
-command = "pnpm dev"          # o "mise run serve"
-install = "mise run install"  # tecla i
-build = "mise run build"      # tecla b
+command_start = "pnpm dev"          # o "mise run serve"
+command_install = "mise run install" # tecla i
+command_build = "mise run build"     # tecla b
 port = 5173
 ```
 
