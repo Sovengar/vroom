@@ -185,9 +185,20 @@ por servicio y stream SHALL estar limitado (buffer con cap de ~192KB).
 
 #### S19.7: Servicio parado
 
-- GIVEN el servicio seleccionado parado
+- GIVEN un servicio seleccionado parado
 - WHEN la consola se muestra
 - THEN se ve el histórico persistente de logs (los ficheros sobreviven)
+
+#### S19.8: CR emulation
+
+- GIVEN un log con retornos de carro sueltos (progreso de Maven tipo
+  `Progress...\rDownloaded from X: URL`, spinners) o líneas CRLF
+- WHEN el contenido se vuelca al viewport
+- THEN se emula la semántica de terminal por línea: cada segmento tras `\r`
+  reescribe desde la columna 0 (solo es visible lo que un terminal
+  mostraría), `\r\n` se normaliza a `\n` conservando el texto, y un `\r`
+  colgante al final no borra la línea. Sin esto, el renderer pinta desde la
+  columna 0 e invade el panel del árbol
 
 ### R23: Consola mergeada aproximada
 
