@@ -9,17 +9,21 @@ import (
 	"vroom/internal/config"
 )
 
-// Resolve sin overrides devuelve los 3 built-in.
+// Resolve sin overrides devuelve los 4 built-in.
 func TestResolveBuiltins(t *testing.T) {
 	got := Resolve(nil)
-	if len(got) != 3 {
-		t.Fatalf("agents = %d, want 3", len(got))
+	if len(got) != 4 {
+		t.Fatalf("agents = %d, want 4", len(got))
 	}
-	if got[0].Name != "opencode" || got[1].Name != "pi" || got[2].Name != "hermes" {
+	if got[0].Name != "opencode" || got[1].Name != "pi" || got[2].Name != "hermes" || got[3].Name != "jcode" {
 		t.Errorf("orden/identidad incorrecta: %+v", got)
 	}
 	if !reflect.DeepEqual(got[2].Cmd, []string{"hermes", "chat", "-q", "{prompt}"}) {
 		t.Errorf("cmd hermes = %v", got[2].Cmd)
+	}
+	// jcode: TUI sin prompt inicial → run one-shot con el prompt.
+	if !reflect.DeepEqual(got[3].Cmd, []string{"jcode", "run", "{prompt}"}) {
+		t.Errorf("cmd jcode = %v", got[3].Cmd)
 	}
 }
 

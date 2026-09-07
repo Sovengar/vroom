@@ -17,6 +17,12 @@ import (
 // FileName es el nombre del fichero de configuración global.
 const FileName = "config.toml"
 
+// defaultAskPrompt es el template con el que se prellena el input del
+// prompt de ask AI (spec 0005 R35). Placeholders: {name} (nombre del
+// proyecto), {dir} (ruta del proyecto) y {logs} (directorio del servicio
+// con stdout.log/stderr.log). Vacío desactiva el prefill.
+const defaultAskPrompt = "Given the app {name} with logs in {logs}, "
+
 // AgentConfig define un agente de IA ejecutable (spec 0004 R32):
 // plantilla de comando donde {prompt} ocupa un argumento argv completo.
 type AgentConfig struct {
@@ -37,6 +43,9 @@ type AskConfig struct {
 	// Placeholders: {dir} (proyecto, quoteado), {agent} (nombre),
 	// {cmd} (comando del agente, quoteado).
 	LauncherCmd string `toml:"launcher_cmd"`
+	// Prompt es el template con el que se prellena el input del prompt
+	// (spec 0005 R35). Vacío desactiva el prefill.
+	Prompt string `toml:"prompt"`
 
 	// Agents reemplaza los agentes built-in si tiene entradas.
 	Agents map[string]AgentConfig `toml:"agents"`
@@ -58,6 +67,7 @@ func Defaults() Config {
 			Direction: "right",
 			Target:    "pane",
 			Focus:     false,
+			Prompt:    defaultAskPrompt,
 		},
 	}
 }
@@ -109,6 +119,9 @@ func withDefaults(cfg Config) Config {
 	}
 	if cfg.Ask.Target == "" {
 		cfg.Ask.Target = "pane"
+	}
+	if cfg.Ask.Prompt == "" {
+		cfg.Ask.Prompt = defaultAskPrompt
 	}
 	return cfg
 }

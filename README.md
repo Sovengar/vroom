@@ -90,12 +90,15 @@ el shutdown de limpieza habitual (SIGTERM → 5s → SIGKILL al PGID).
 | `b` | **Build**: comando one-shot del manifiesto (`command_build = "..."`) |
 | `i` | **Install**: comando one-shot del manifiesto (`command_install = "..."`) |
 | `t` | **Tasks**: picker de tasks del `mise.toml` (ver [mise](#integración-con-mise-opcional)) |
-| `a` | **Ask AI**: pregunta a un agente (opencode/pi/hermes) con tu prompt → chat nuevo; el despacho es configurable ([config global](#configuración-global-ask-ai)) |
+| `a` | **Ask AI**: pregunta a un agente (opencode/pi/hermes/jcode) con tu prompt → chat nuevo; el input se prellena con contexto de la app ([config global](#configuración-global-ask-ai)); el despacho es configurable |
 | `C` | **Clear**: limpia la consola en memoria (los ficheros conservan el histórico) |
 | `1` / `2` | Pestaña Console / Threads (`tab` cicla) |
 | `c` | Modo de consola: merged → stdout → stderr |
 | `pgup`/`pgdn`, `g`/`G` | Scroll de consola con teclado (pausa el follow; `G` lo reactiva) |
 | rueda del mouse | Scroll de consola (3 líneas por click; hasta el final reactiva el follow) |
+
+Las líneas de log más largas que el panel se envuelven (soft wrap): el contenido
+completo es visible y el color se conserva en las líneas de continuación.
 | `l` | Abrir ambos logs en el editor (`$VISUAL`/`$EDITOR`, default nvim, split vertical) — `o` alias |
 | `r` | Refresh forzado |
 | `q`/`Esc` | Salir (`Esc` cierra primero el prompt/picker) |
@@ -114,6 +117,7 @@ direction = "right"   # split de herdr: right | down
 target = "pane"       # pane | tab
 focus = false         # false = --no-focus (vroom conserva el foco)
 # launcher_cmd = "tmux new-window -c {dir} -n vroom-{agent} -- {cmd}"  # solo custom
+# prompt = "Given the app {name} with logs in {logs}, "  # prefill del input; "" desactiva
 
 # Opcional: reemplaza los agentes built-in
 [ask.agents.opencode]
@@ -122,6 +126,8 @@ cmd = "opencode --prompt {prompt}"
 cmd = "pi {prompt}"
 [ask.agents.hermes]
 cmd = "hermes chat -q {prompt}"
+[ask.agents.jcode]
+cmd = "jcode run {prompt}"
 ```
 
 **Cómo abre vroom el agente** (patrón de worktrunk: el binario del agente con el
@@ -145,6 +151,13 @@ el picker):
 | opencode | `opencode --prompt "<prompt>"` |
 | pi | `pi "<prompt>"` |
 | hermes | `hermes chat -q "<prompt>"` (en TTY la sesión queda interactiva) |
+| jcode | `jcode run "<prompt>"` (one-shot: responde y termina; su TUI no acepta prompt inicial) |
+
+**Prefill del prompt**: al abrir el input de ask, vroom asume que la petición va
+sobre la app seleccionada y prellena el template `[ask] prompt` con los
+placeholders `{name}` (proyecto), `{dir}` (ruta) y `{logs}` (directorio del
+servicio con `stdout.log`/`stderr.log`); el cursor queda al final para que
+escribas tu petición. Con `prompt = ""` el input queda vacío.
 
 Un config malformado no rompe nada: vroom aplica defaults y notifica el error al arrancar.
 

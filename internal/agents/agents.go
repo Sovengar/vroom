@@ -24,12 +24,15 @@ type Agent struct {
 const promptPlaceholder = "{prompt}"
 
 // Builtins devuelve los agentes por defecto con las invocaciones
-// verificadas para "chat nuevo + prompt inicial".
+// verificadas para "chat nuevo + prompt inicial". jcode no acepta prompt
+// inicial en su TUI interactiva, así que usa `run` (one-shot: responde
+// y termina).
 func Builtins() []Agent {
 	return []Agent{
 		{Name: "opencode", Cmd: []string{"opencode", "--prompt", promptPlaceholder}},
 		{Name: "pi", Cmd: []string{"pi", promptPlaceholder}},
 		{Name: "hermes", Cmd: []string{"hermes", "chat", "-q", promptPlaceholder}},
+		{Name: "jcode", Cmd: []string{"jcode", "run", promptPlaceholder}},
 	}
 }
 

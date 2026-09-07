@@ -196,6 +196,9 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 	m.entries = group.Arrange(projects)
 	m.tree = m.buildTree()
 	m.updateLayout()
+	// Wrap de líneas largas en la consola (spec 0005 R33): el viewport
+	// corta ANSI-aware y conserva el estilo en las líneas de continuación.
+	m.consoleView.SoftWrap = true
 	return m
 }
 
@@ -1277,7 +1280,7 @@ func (m Model) openAsk() (tea.Model, tea.Cmd) {
 	}
 	m.askAgents = agents.Available(agents.Resolve(m.cfg.Ask.Agents))
 	if len(m.askAgents) == 0 {
-		m.notify("no AI agent found in PATH (opencode, pi, hermes)")
+		m.notify("no AI agent found in PATH (opencode, pi, hermes, jcode)")
 		return m, nil
 	}
 	if len(m.askAgents) == 1 {
@@ -1294,12 +1297,37 @@ func (m Model) openAsk() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// startAskPrompt abre el modal de prompt para el agente elegido.
+// startAskPrompt abre el modal de prompt para el agente elegido. El
+// input se prellena con el template del config (spec 0005 R35):
+// [ask] prompt con placeholders {name}/{dir}/{logs}; vacío → sin prefill.
+// El width del input se fija al interior del modal para que su ventana
+// horizontal siga al cursor (con width 0 el View() vuelca el valor
+// entero y el truncado del box escondía el cursor del prefill).
 func (m Model) startAskPrompt(ag agents.Agent) (tea.Model, tea.Cmd) {
 	m.askAgent = ag
 	m.askPromptOpen = true
 	m.promptInput.Reset()
+	m.promptInput.SetWidth(askInnerW(m.width) - 3) // prompt "› " + celda del cursor al final
+	if tmpl := m.cfg.Ask.Prompt; tmpl != "" {
+		if p := m.selected(); p != nil {
+			m.promptInput.SetValue(expandAskPrompt(tmpl, p.Name, p.Path, m.store.ServiceDir(p.Path)))
+			m.promptInput.CursorEnd()
+		}
+	}
 	return m, m.promptInput.Focus()
+}
+
+// expandAskPrompt sustituye los placeholders del template de ask: {name}
+// (proyecto), {dir} (ruta del proyecto) y {logs} (directorio del servicio
+// con stdout.log/stderr.log). Los placeholders desconocidos quedan tal
+// cual para no sorprender.
+func expandAskPrompt(tmpl, name, dir, logs string) string {
+	r := strings.NewReplacer(
+		"{name}", name,
+		"{dir}", dir,
+		"{logs}", logs,
+	)
+	return r.Replace(tmpl)
 }
 
 // askKey maneja las teclas del modal de prompt: el texto va al input,

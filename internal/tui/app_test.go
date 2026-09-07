@@ -68,6 +68,23 @@ func isolateConfig(t *testing.T) {
 	t.Setenv("VROOM_CONFIG", filepath.Join(t.TempDir(), "absent-config.toml"))
 }
 
+// newTestModelWithConfig construye el modelo leyendo la config del
+// contenido dado (para probar claves del config.toml, ej. el prefill
+// de ask, spec 0005 R35).
+func newTestModelWithConfig(t *testing.T, content string) (Model, *state.Store) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VROOM_CONFIG", path)
+	store := state.NewStoreAt(t.TempDir())
+	m := New(store, &stubManager{}, writeTestTree(t, false))
+	m.width, m.height = 100, 30
+	m.updateLayout()
+	return m, store
+}
+
 // fakeBin escribe un binario ejecutable falso en un directorio nuevo y
 // devuelve el directorio (para usar como PATH).
 func fakeBin(t *testing.T, names ...string) string {
@@ -1557,6 +1574,7 @@ func TestAskPromptGuards(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, _ := press(m, "a")
+	m2.promptInput.SetValue("") // el prefill default (R35) deja el input no vacío
 
 	m3, _ := press(m2, "enter")
 	if !m3.askPromptOpen || !strings.Contains(m3.message, "empty prompt") {
@@ -1610,5 +1628,96 @@ func TestAskOnGroup(t *testing.T) {
 	m2, _ := press(m, "a")
 	if !strings.Contains(m2.message, "select a service") {
 		t.Errorf("a sobre grupo: msg=%q", m2.message)
+	}
+}
+
+// El prefill default (R35) rellena el input con el template builtin
+// expandido: {name} → nombre del proyecto, {logs} → dir del servicio.
+func TestAskPromptPrefillDefault(t *testing.T) {
+	t.Setenv("PATH", fakeBin(t, "pi"))
+	m, store := newTestModel(t)
+	m = moveCursorTo(t, m, "tienda-api")
+	m2, _ := press(m, "a")
+	if !m2.askPromptOpen {
+		t.Fatal("a debe abrir el prompt")
+	}
+	got := m2.promptInput.Value()
+	if !strings.Contains(got, "Given the app tienda-api") {
+		t.Errorf("prefill sin nombre del proyecto: %q", got)
+	}
+	if !strings.Contains(got, store.ServiceDir(pathOfSelected(t, m2))) {
+		t.Errorf("prefill sin dir de logs: %q", got)
+	}
+	if pos := m2.promptInput.Position(); pos < len(got) {
+		// El cursor debe quedar al final (donde el usuario escribe).
+		t.Errorf("cursor = %d, want %d (final)", pos, len(got))
+	}
+}
+
+// Un template custom del config se expande con name/dir/logs.
+func TestAskPromptPrefillCustom(t *testing.T) {
+	t.Setenv("PATH", fakeBin(t, "pi"))
+	m, _ := newTestModelWithConfig(t, `[ask]
+prompt = "About {name} in {dir}, logs at {logs}: "
+`)
+	m = moveCursorTo(t, m, "tienda-api")
+	m2, _ := press(m, "a")
+	got := m2.promptInput.Value()
+	wantName := "About tienda-api in "
+	if !strings.HasPrefix(got, wantName) {
+		t.Errorf("prefill = %q, want prefix %q", got, wantName)
+	}
+	if !strings.HasSuffix(got, ": ") {
+		t.Errorf("prefill debe terminar con el sufijo del template: %q", got)
+	}
+}
+
+// prompt = "" en config → sin prefill (comportamiento pre-R35).
+func TestAskPromptPrefillEmpty(t *testing.T) {
+	t.Setenv("PATH", fakeBin(t, "pi"))
+	m, _ := newTestModelWithConfig(t, "[ask]\nprompt = \"\"\n")
+	m = moveCursorTo(t, m, "tienda-api")
+	m2, _ := press(m, "a")
+	if !m2.askPromptOpen || m2.promptInput.Value() != "" {
+		t.Errorf("prompt vacío debe dejar el input limpio: open=%v value=%q", m2.askPromptOpen, m2.promptInput.Value())
+	}
+}
+
+// R33: las líneas largas de la consola se envuelven (soft wrap) en vez
+// de truncarse al borde derecho.
+func TestConsoleSoftWrap(t *testing.T) {
+	m, _ := newTestModel(t)
+	m = moveCursorTo(t, m, "tienda-api")
+	if !m.consoleView.SoftWrap {
+		t.Fatal("el viewport de consola debe tener SoftWrap activado")
+	}
+	tail := "END-MARKER-XYZ"
+	long := strings.Repeat("abcdefghij", 30) + " " + tail // 310 runes > rightW
+	m.setConsoleContent(long)
+	rendered := m.consoleView.View()
+	if !strings.Contains(rendered, tail) {
+		t.Error("el final de la línea larga debe ser visible tras el wrap")
+	}
+	for _, line := range strings.Split(strings.TrimRight(rendered, "\n"), "\n") {
+		if w := lipglossWidth(line); w > m.rightW {
+			t.Errorf("línea de %d celdas excede rightW=%d: %q", w, m.rightW, line)
+		}
+	}
+}
+
+// R33: el contenido pre-estilizado conserva el color en la continuación
+// (ansi.Cut re-emite las secuencias previas al corte).
+func TestConsoleSoftWrapKeepsStyle(t *testing.T) {
+	m, _ := newTestModel(t)
+	m = moveCursorTo(t, m, "tienda-api")
+	styled := styleLineError.Render(strings.Repeat("error text ", 40))
+	m.setConsoleContent(styled)
+	rendered := m.consoleView.View()
+	lines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
+	if len(lines) < 2 {
+		t.Fatal("la línea estilizada larga debe envolver en ≥2 líneas")
+	}
+	if !strings.Contains(lines[1], "\x1b[") {
+		t.Errorf("la línea de continuación perdió el estilo ANSI: %q", lines[1])
 	}
 }

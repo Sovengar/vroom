@@ -25,6 +25,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Ask.Launcher != "auto" || cfg.Ask.Direction != "right" || cfg.Ask.Target != "pane" || cfg.Ask.Focus {
 		t.Errorf("defaults incorrectos: %+v", cfg.Ask)
 	}
+	if cfg.Ask.Prompt == "" {
+		t.Error("prompt default no debe estar vacío (prefill R35)")
+	}
+	if !strings.Contains(cfg.Ask.Prompt, "{name}") || !strings.Contains(cfg.Ask.Prompt, "{logs}") {
+		t.Errorf("prompt default sin placeholders: %q", cfg.Ask.Prompt)
+	}
 	if cfg.Err != nil {
 		t.Errorf("Err = %v, want nil", cfg.Err)
 	}
@@ -84,6 +90,35 @@ func TestLoadInvalidEnums(t *testing.T) {
 				t.Errorf("Err = %v, want %q", cfg.Err, tt.want)
 			}
 		})
+	}
+}
+
+// prompt = "" explícito desactiva el prefill; un template custom se
+// respeta tal cual (spec 0005 R35).
+func TestLoadPromptTemplate(t *testing.T) {
+	custom := withConfig(t, `[ask]
+prompt = "About {name} in {dir}, logs {logs}: "
+`)
+	if custom.Err != nil {
+		t.Fatalf("Err = %v", custom.Err)
+	}
+	if custom.Ask.Prompt != "About {name} in {dir}, logs {logs}: " {
+		t.Errorf("prompt custom = %q", custom.Ask.Prompt)
+	}
+
+	empty := withConfig(t, `[ask]
+prompt = ""
+`)
+	if empty.Err != nil {
+		t.Fatalf("Err = %v", empty.Err)
+	}
+	if empty.Ask.Prompt != "" {
+		t.Errorf("prompt explícito vacío debe quedarse vacío, got %q", empty.Ask.Prompt)
+	}
+
+	broken := withConfig(t, "esto no es [toml")
+	if broken.Ask.Prompt == "" {
+		t.Error("config malformado debe devolver el prompt default")
 	}
 }
 
