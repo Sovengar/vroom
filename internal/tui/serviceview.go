@@ -5,28 +5,31 @@ import (
 	"strings"
 )
 
-// renderService dibuja el detalle del servicio seleccionado.
-// Los valores largos (rutas) se recortan conservando el final para
-// adaptarse al ancho del terminal.
-func (m Model) renderService() string {
-	var b strings.Builder
+// detailsLines renderiza el panel de detalles del servicio seleccionado
+// (spec 0002 R21): campos de 0001 + rama git. Las líneas se recortan al
+// ancho del panel y la altura la fija detailsHeight en rightLines.
+func (m Model) detailsLines(w int) []string {
+	var lines []string
 
 	p := m.selected()
 	if p == nil {
-		b.WriteString(styleDim.Render("No project selected") + "\n")
-		b.WriteString("\n" + styleHelp.Render(helpLine(viewService, m.width)) + "\n")
-		return b.String()
+		if g := m.selectedGroup(); g != "" { // R24: resumen del grupo
+			return m.groupDetailsLines(g, w)
+		}
+		return []string{styleDim.Render("No project selected")}
 	}
 	sv := m.services[p.Path]
+	lines = append(lines, trunc(p.Name, w)+"  "+statusBadge(*p, sv))
 
-	b.WriteString(styleTitle.Render(trunc(p.Name, m.width)) + "  " + statusBadge(*p, sv) + "\n\n")
-
-	valueW := max(12, m.width-17)
+	valueW := max(8, w-11)
 	row := func(label, value string) {
-		b.WriteString(styleLabel.Render(pad(label, 16)) + truncTail(value, valueW) + "\n")
+		lines = append(lines, styleLabel.Render(pad(label, 10))+truncTail(value, valueW))
 	}
 	row("path:", p.Path)
 	row("language:", p.Language)
+	if b := m.branches[p.Path]; b != "" { // R21: rama git
+		row("branch:", b)
+	}
 	if p.Manifest != nil && p.Manifest.Group != "" {
 		row("group:", p.Manifest.Group)
 	}
@@ -46,25 +49,45 @@ func (m Model) renderService() string {
 		}
 		row("logs:", m.store.ServiceDir(p.Path))
 	} else {
-		b.WriteString("\n" + styleWarn.Render("No manifest — create a .vroom.toml to enable") + "\n")
-		if p.ManifestErr != "" {
-			b.WriteString(styleWarn.Render(trunc("parse error: "+p.ManifestErr, m.width)) + "\n")
-		}
-		b.WriteString("\n" + styleDim.Render(exampleManifest(p.Name)) + "\n")
+		lines = append(lines, styleWarn.Render("No manifest — create a .vroom.toml"))
+		lines = append(lines, styleDim.Render(trunc(exampleManifest(p.Name), w)))
 	}
 
-	b.WriteString("\n" + styleHelp.Render(helpLine(viewService, m.width)) + "\n")
-	if m.message != "" {
-		b.WriteString(styleMsg.Render(trunc("ℹ "+m.message, m.width)) + "\n")
+	// Recortar al alto del panel; cada línea al ancho visible.
+	if len(lines) > detailsHeight {
+		lines = lines[:detailsHeight]
 	}
-	return b.String()
+	for i := range lines {
+		lines[i] = truncANSI(lines[i], w)
+	}
+	return lines
 }
 
-func exampleManifest(name string) string {
-	return fmt.Sprintf(`# %s/.vroom.toml
-name = "%s"
-group = ""
-command = "go run main.go"
-port = 0
-process_pattern = ""`, name, name)
+// groupDetailsLines muestra el resumen del grupo seleccionado (R24):
+// conteo running/total y los miembros con su punto de estado.
+func (m Model) groupDetailsLines(g string, w int) []string {
+	r, n := m.groupStats(g)
+	lines := []string{trunc(fmt.Sprintf("%s (%d/%d)", g, r, n), w)}
+	lines = append(lines,
+		styleLabel.Render(pad("services:", 10))+fmt.Sprintf("%d", n),
+		styleLabel.Render(pad("running:", 10))+fmt.Sprintf("%d", r),
+	)
+	for _, p := range m.groupMembers(g) {
+		lines = append(lines, treeDot(p, m.services[p.Path])+" "+trunc(p.Name, w-3))
+	}
+	if len(lines) > detailsHeight {
+		lines = lines[:detailsHeight]
+	}
+	for i := range lines {
+		lines[i] = truncANSI(lines[i], w)
+	}
+	return lines
+}
+
+// pad rellena s con espacios a n runes (para etiquetas sin ANSI).
+func pad(s string, n int) string {
+	if len(s) >= n {
+		return s
+	}
+	return s + strings.Repeat(" ", n-len(s))
 }

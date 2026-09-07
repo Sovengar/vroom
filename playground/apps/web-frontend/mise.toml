@@ -1,0 +1,19 @@
+# Tasks de mise para probar el picker de vroom (tecla t).
+# Requiere `mise` instalado para EJECUTARlos (`mise run <task>`);
+# listarlos en el picker solo parsea este fichero.
+
+[tasks.install]
+description = "Instala dependencias (simulado)"
+run = "echo 'mise: installing web-frontend'"
+
+[tasks.build]
+description = "Build de producción (simulado)"
+run = "echo 'mise: building web-frontend'"
+
+[tasks.serve]
+description = "Sirve el frontend en 5173"
+run = "node server.js"
+
+[tasks.internal]
+hide = true
+run = "echo 'no debe aparecer en el picker'"

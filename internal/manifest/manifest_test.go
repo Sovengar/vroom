@@ -119,6 +119,33 @@ process_pattern = ""
 	}
 }
 
+// 0003 R26: install/build son comandos one-shot opcionales (pueden ser
+// `mise run ...` o cualquier comando); su ausencia no invalida el
+// manifiesto.
+func TestParseInstallBuild(t *testing.T) {
+	path := writeManifest(t, `
+name = "web-frontend"
+command = "node server.js"
+install = "pnpm install"
+build = "mise run build"
+`)
+	m, err := Parse(path)
+	if err != nil {
+		t.Fatalf("parse inesperado: %v", err)
+	}
+	if m.Install != "pnpm install" || m.Build != "mise run build" {
+		t.Errorf("install/build mal parseados: %+v", m)
+	}
+
+	minimal, err := Parse(writeManifest(t, "name = \"x\"\ncommand = \"y\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if minimal.Install != "" || minimal.Build != "" {
+		t.Errorf("install/build deben default a vacío: %+v", minimal)
+	}
+}
+
 func TestParseUnknownFieldsIgnored(t *testing.T) {
 	path := writeManifest(t, `
 name = "x"

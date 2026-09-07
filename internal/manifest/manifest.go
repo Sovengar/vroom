@@ -7,6 +7,8 @@
 //	command         string  requerido
 //	port            int     default 0 (0 = deshabilitado, si no 1-65535)
 //	process_pattern string  default ""
+//	install         string  default "" (comando one-shot de la tecla i)
+//	build           string  default "" (comando one-shot de la tecla b)
 package manifest
 
 import (
@@ -27,6 +29,8 @@ type Manifest struct {
 	Command        string `toml:"command"`
 	Port           int    `toml:"port"`
 	ProcessPattern string `toml:"process_pattern"`
+	Install        string `toml:"install"` // comando one-shot (tecla i); puede ser `mise run install`
+	Build          string `toml:"build"`   // comando one-shot (tecla b); puede ser `mise run build`
 }
 
 // Parse lee y valida el manifiesto en path.

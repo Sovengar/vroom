@@ -3,3 +3,5 @@ group = "tienda"
 command = "node server.js"
 port = 5173
 process_pattern = ""
+install = "echo installing web-frontend"
+build = "mise run build"
