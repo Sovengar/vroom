@@ -161,15 +161,16 @@ func (m Model) pickerBox() string {
 }
 
 // askInnerW es el ancho interior del modal ask (compartido entre el
-// render del box y el width del input): crece con la pantalla hasta un
-// cap (88) para que el prefill del template (spec 0005 R35) sea legible.
+// render del box y el width del textarea): crece con la pantalla hasta
+// un cap (110) para que el prefill del template (spec 0005 R35) quepa
+// en una línea en pantallas normales.
 func askInnerW(width int) int {
-	innerW := 56
+	innerW := 72
 	if w := width - 14; w > innerW {
 		innerW = w
 	}
-	if innerW > 88 {
-		innerW = 88
+	if innerW > 110 {
+		innerW = 110
 	}
 	if innerW < 28 {
 		innerW = 28
@@ -177,16 +178,16 @@ func askInnerW(width int) int {
 	return innerW
 }
 
-// askBox renderiza el modal del prompt de ask AI (0004 R32). El input
-// renderiza su propia ventana alrededor del cursor (width fijado en
-// startAskPrompt), así que truncANSI queda como no-op y el cursor al
-// final del prefill siempre es visible.
+// askBox renderiza el modal del prompt de ask AI (0004 R32). El
+// textarea es multi-línea con alto dinámico (crece con el contenido
+// hasta el cap de pantalla, luego scroll interno) y llega ya
+// dimensionado por sizeAskPrompt, así que se renderiza sin truncar.
 func (m Model) askBox() string {
 	innerW := askInnerW(m.width)
 	lines := []string{
 		styleTitle.Render(trunc("ask "+m.askAgent.Name+" — "+m.pickerTitle(), innerW)),
 		"",
-		truncANSI(m.promptInput.View(), innerW),
+		m.promptInput.View(),
 		"",
 		styleDim.Render("enter launch · esc cancel"),
 	}

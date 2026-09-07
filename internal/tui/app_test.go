@@ -1633,6 +1633,7 @@ func TestAskOnGroup(t *testing.T) {
 
 // El prefill default (R35) rellena el input con el template builtin
 // expandido: {name} → nombre del proyecto, {logs} → dir del servicio.
+// Teclear añade al final (comportamiento editable real).
 func TestAskPromptPrefillDefault(t *testing.T) {
 	t.Setenv("PATH", fakeBin(t, "pi"))
 	m, store := newTestModel(t)
@@ -1648,9 +1649,9 @@ func TestAskPromptPrefillDefault(t *testing.T) {
 	if !strings.Contains(got, store.ServiceDir(pathOfSelected(t, m2))) {
 		t.Errorf("prefill sin dir de logs: %q", got)
 	}
-	if pos := m2.promptInput.Position(); pos < len(got) {
-		// El cursor debe quedar al final (donde el usuario escribe).
-		t.Errorf("cursor = %d, want %d (final)", pos, len(got))
+	m3, _ := press(m2, "X")
+	if !strings.HasSuffix(m3.promptInput.Value(), "X") {
+		t.Errorf("teclear debe añadir al final del prefill: %q", m3.promptInput.Value())
 	}
 }
 
@@ -1680,6 +1681,34 @@ func TestAskPromptPrefillEmpty(t *testing.T) {
 	m2, _ := press(m, "a")
 	if !m2.askPromptOpen || m2.promptInput.Value() != "" {
 		t.Errorf("prompt vacío debe dejar el input limpio: open=%v value=%q", m2.askPromptOpen, m2.promptInput.Value())
+	}
+}
+
+// R35: el textarea del prompt crece con el contenido hasta el cap de
+// pantalla (16) y ahí se queda (scroll interno), nunca lo excede.
+func TestAskPromptDynamicHeight(t *testing.T) {
+	t.Setenv("PATH", fakeBin(t, "pi"))
+	m, _ := newTestModel(t)
+	m.width, m.height = 100, 40
+	m = moveCursorTo(t, m, "tienda-api")
+	m2, _ := press(m, "a")
+	if !m2.askPromptOpen {
+		t.Fatal("a debe abrir el prompt")
+	}
+	if m2.promptInput.Height() != 6 {
+		t.Errorf("alto inicial = %d, want 6 (grande de inicio)", m2.promptInput.Height())
+	}
+	// Contenido que envuelve en ~11 filas visuales: crece.
+	m3 := m2
+	m3.promptInput.SetValue(strings.Repeat("ab ", 300) + "TAIL1")
+	if m3.promptInput.Height() < 10 {
+		t.Errorf("alto tras prefill largo = %d, want >10 (crece con el contenido)", m3.promptInput.Height())
+	}
+	// Contenido mayor que el cap: el alto se clava en 16, no crece más.
+	m4 := m3
+	m4.promptInput.SetValue(strings.Repeat("ab ", 600) + "TAIL2")
+	if m4.promptInput.Height() != 16 {
+		t.Errorf("alto tras contenido enorme = %d, want 16 (cap)", m4.promptInput.Height())
 	}
 }
 

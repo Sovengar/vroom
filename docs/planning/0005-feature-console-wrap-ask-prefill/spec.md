@@ -103,9 +103,13 @@ devolver el template default.
 - WHEN se expande
 - THEN `{foo}` queda literal en el input
 
-#### S35.6: ancho del modal
+#### S35.6: modal grande con alto dinámico
 
-- GIVEN una pantalla suficientemente ancha
-- WHEN se renderiza el modal de prompt
-- THEN el ancho interior crece con la pantalla hasta un cap (88) para que
-  el prefill sea legible; en pantallas estrechas se ajusta sin desbordar
+- GIVEN el modal de prompt de ask AI
+- WHEN se renderiza
+- THEN el input es un textarea multi-línea que arranca con 6 filas
+  (grande de inicio), crece automáticamente con el contenido hasta un
+  cap de 16 filas (o el alto de pantalla si es menor) y, más allá del
+  cap, hace scroll interno con el cursor siempre visible; el ancho
+  interior crece con la pantalla hasta un cap (110) para que el prefill
+  sea legible

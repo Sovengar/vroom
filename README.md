@@ -157,7 +157,9 @@ el picker):
 sobre la app seleccionada y prellena el template `[ask] prompt` con los
 placeholders `{name}` (proyecto), `{dir}` (ruta) y `{logs}` (directorio del
 servicio con `stdout.log`/`stderr.log`); el cursor queda al final para que
-escribas tu petición. Con `prompt = ""` el input queda vacío.
+escribas tu petición. El input es multi-línea: arranca grande, crece con el
+contenido hasta un cap y luego hace scroll interno. Con `prompt = ""` el input
+queda vacío.
 
 Un config malformado no rompe nada: vroom aplica defaults y notifica el error al arrancar.
 

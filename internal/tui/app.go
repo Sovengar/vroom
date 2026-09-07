@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
@@ -32,8 +32,10 @@ const (
 	maxConsoleBytes = 192 * 1024             // cap del buffer por stream (S19.6)
 	treeWidth       = 30                     // ancho fijo de la columna de árbol (R18)
 	detailsWidthMin = 40                     // ancho mínimo de la zona derecha para detalles (S18.3)
-	detailsHeight   = 12                     // altura fija del panel de detalles
+	detailsHeight   = 12                     // alto fijo del panel de detalles
 	wheelLines      = 3                      // líneas por click de rueda en la consola
+	askMinHeight    = 6                      // filas iniciales del textarea del ask (R35: grande de inicio)
+	askMaxHeightCap = 16                     // cap absoluto del textarea del ask
 )
 
 // groupConsoleHint es el placeholder de consola con un grupo seleccionado.
@@ -129,7 +131,7 @@ type Model struct {
 	askAgents     []agents.Agent
 	askAgent      agents.Agent
 	askPromptOpen bool
-	promptInput   textinput.Model
+	promptInput   textarea.Model // multi-línea: alto dinámico + scroll (0005 R35)
 
 	bodyH        int // alto de la zona de cuerpo (árbol + panel derecho)
 	rightW       int // ancho del panel derecho
@@ -153,16 +155,19 @@ func (m *Model) clearMessage() {
 func New(store *state.Store, manager process.Manager, root string) Model {
 	projects, err := scanner.Scan(root)
 	cfg := config.Load()
-	ti := textinput.New()
-	ti.Placeholder = "what should the agent do?"
-	ti.Prompt = "› "
+	ta := textarea.New()
+	ta.Placeholder = "what should the agent do?"
+	ta.Prompt = "› "
+	ta.ShowLineNumbers = false
+	ta.DynamicHeight = true // crece con el contenido hasta MaxHeight; luego scroll
+	ta.MinHeight = askMinHeight
 	m := Model{
 		root:           root,
 		store:          store,
 		manager:        manager,
 		cfg:            cfg,
 		askLauncher:    launcher.New(cfg.Ask),
-		promptInput:    ti,
+		promptInput:    ta,
 		services:       make(map[string]*ServiceState, len(projects)),
 		pendingRestart: make(map[string]bool),
 		jobs:           make(map[string]string),
@@ -1298,23 +1303,38 @@ func (m Model) openAsk() (tea.Model, tea.Cmd) {
 }
 
 // startAskPrompt abre el modal de prompt para el agente elegido. El
-// input se prellena con el template del config (spec 0005 R35):
-// [ask] prompt con placeholders {name}/{dir}/{logs}; vacío → sin prefill.
-// El width del input se fija al interior del modal para que su ventana
-// horizontal siga al cursor (con width 0 el View() vuelca el valor
-// entero y el truncado del box escondía el cursor del prefill).
+// input (textarea multi-línea) se prellena con el template del config
+// (spec 0005 R35): [ask] prompt con placeholders {name}/{dir}/{logs};
+// vacío → sin prefill. El alto crece con el contenido hasta el cap de
+// pantalla; más allá, el textarea hace scroll interno.
 func (m Model) startAskPrompt(ag agents.Agent) (tea.Model, tea.Cmd) {
 	m.askAgent = ag
 	m.askPromptOpen = true
 	m.promptInput.Reset()
-	m.promptInput.SetWidth(askInnerW(m.width) - 3) // prompt "› " + celda del cursor al final
+	m.sizeAskPrompt()
 	if tmpl := m.cfg.Ask.Prompt; tmpl != "" {
 		if p := m.selected(); p != nil {
 			m.promptInput.SetValue(expandAskPrompt(tmpl, p.Name, p.Path, m.store.ServiceDir(p.Path)))
-			m.promptInput.CursorEnd()
+			m.promptInput.MoveToEnd()
 		}
 	}
 	return m, m.promptInput.Focus()
+}
+
+// sizeAskPrompt dimensiona el textarea del prompt al modal actual: el
+// ancho interior (el prompt "› " lo reserva SetWidth internamente) y el
+// cap de alto según la pantalla (MinHeight fija el tamaño inicial).
+// Debe llamarse tras cualquier cambio de Prompt/ancho y antes del Focus.
+func (m *Model) sizeAskPrompt() {
+	m.promptInput.SetWidth(askInnerW(m.width))
+	maxH := m.height - 8 // título + blank + hint + bordes + margen
+	if maxH > askMaxHeightCap {
+		maxH = askMaxHeightCap
+	}
+	if maxH < askMinHeight {
+		maxH = askMinHeight
+	}
+	m.promptInput.MaxHeight = maxH
 }
 
 // expandAskPrompt sustituye los placeholders del template de ask: {name}
