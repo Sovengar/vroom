@@ -33,6 +33,7 @@ const (
 	treeWidth       = 30                     // ancho fijo de la columna de árbol (R18)
 	detailsWidthMin = 40                     // ancho mínimo de la zona derecha para detalles (S18.3)
 	detailsHeight   = 12                     // altura fija del panel de detalles
+	wheelLines      = 3                      // líneas por click de rueda en la consola
 )
 
 // groupConsoleHint es el placeholder de consola con un grupo seleccionado.
@@ -549,7 +550,8 @@ func (m Model) View() tea.View {
 		content = overlay(content, m.pickerBox(), m.width, m.height)
 	}
 	v := tea.NewView(content)
-	v.AltScreen = true // dashboard a pantalla completa (0002 R18)
+	v.AltScreen = true                    // dashboard a pantalla completa (0002 R18)
+	v.MouseMode = tea.MouseModeCellMotion // rueda del mouse: scroll de consola
 	return v
 }
 
@@ -678,6 +680,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
+	}
+	return m, nil
+}
+
+// handleMouse procesa la rueda del mouse sobre la consola (pgup/pgdn
+// no requieren modo mouse): scroll por líneas; girar hacia abajo hasta
+// el final reactiva el follow (S19.4).
+func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if m.activeTab != tabConsole {
+		return m, nil
+	}
+	switch msg.Mouse().Button {
+	case tea.MouseWheelUp:
+		m.consoleFollow = false
+		m.consoleView.ScrollUp(wheelLines)
+	case tea.MouseWheelDown:
+		m.consoleView.ScrollDown(wheelLines)
+		if m.consoleView.AtBottom() {
+			m.consoleFollow = true
+		}
 	}
 	return m, nil
 }

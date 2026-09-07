@@ -15,8 +15,10 @@ Un único dashboard estilo panel "Services" de IntelliJ:
   grupos seleccionables y colapsables con `enter` (colapsado muestra
   `grupo (running/total)`), filas compactas de glifo + nombre (⚠ = sin
   manifiesto); `s` sobre un grupo arranca/para todos sus miembros.
-- **Panel de detalles** (derecha, fijo): ruta, rama git,
-  comando, puerto, PID y logs.
+- **Panel de detalles** (derecha, fijo, dos columnas): a la izquierda
+  ruta, lenguaje, rama git, grupo, puerto, patrón, PID y logs; a la
+  derecha los comandos del manifiesto (`start`/`stop`/`install`/`build`,
+  con `—` los no configurados).
 - **Panel inferior con pestañas**:
   - `Console` — stdout + stderr mergeados en tiempo real (tail incremental
     cada 400ms, auto-follow, pausa al hacer scroll-up). `t` alterna merged/
@@ -92,7 +94,8 @@ el shutdown de limpieza habitual (SIGTERM → 5s → SIGKILL al PGID).
 | `C` | **Clear**: limpia la consola en memoria (los ficheros conservan el histórico) |
 | `1` / `2` | Pestaña Console / Threads (`tab` cicla) |
 | `c` | Modo de consola: merged → stdout → stderr |
-| `pgup`/`pgdn`, `g`/`G` | Scroll de consola (pausa el follow; `G` lo reactiva) |
+| `pgup`/`pgdn`, `g`/`G` | Scroll de consola con teclado (pausa el follow; `G` lo reactiva) |
+| rueda del mouse | Scroll de consola (3 líneas por click; hasta el final reactiva el follow) |
 | `l` | Abrir ambos logs en el editor (`$VISUAL`/`$EDITOR`, default nvim, split vertical) — `o` alias |
 | `r` | Refresh forzado |
 | `q`/`Esc` | Salir (`Esc` cierra primero el prompt/picker) |

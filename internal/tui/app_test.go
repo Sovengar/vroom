@@ -555,7 +555,7 @@ func TestRenderDashboard(t *testing.T) {
 		}
 	}
 	// El panel de detalles (abierto por defecto) muestra los campos base.
-	for _, want := range []string{"language:", "branch:", "main", "command:"} {
+	for _, want := range []string{"language:", "branch:", "main", "start:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("el panel de detalles no contiene %q", want)
 		}
@@ -577,6 +577,26 @@ func TestDetailsShowsBranch(t *testing.T) {
 		if strings.Contains(l, "branch:") {
 			t.Error("proyecto sin repo no debe mostrar branch")
 		}
+	}
+}
+
+// El panel de detalles muestra los 4 comandos del manifiesto en la
+// columna derecha; los no configurados aparecen atenuados.
+func TestDetailsShowsCommands(t *testing.T) {
+	m, _ := newJobsTestModel(t)
+	m = moveCursorTo(t, m, "tienda-web")
+	joined := strings.Join(m.detailsLines(m.rightW), "\n")
+	for _, want := range []string{"start:", "node server.js", "install:", "echo installing web", "build:", "echo building web"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("detalles sin %q: %q", want, joined)
+		}
+	}
+	if !strings.Contains(joined, "stop:") {
+		t.Errorf("detalles sin la fila stop: %q", joined)
+	}
+	// La fila stop sin configurar no debe filtrar el valor de otro campo.
+	if strings.Contains(joined, "docker") {
+		t.Errorf("stop sin configurar no debe mostrar valor: %q", joined)
 	}
 }
 
@@ -660,6 +680,66 @@ func TestConsoleFollowPause(t *testing.T) {
 	m3, _ := press(m2, "G")
 	if !m3.consoleFollow {
 		t.Error("G debe reactivar el follow")
+	}
+}
+
+// pgup y pgdown hacen scroll real de la consola (S19.4).
+func TestConsolePageScroll(t *testing.T) {
+	m, _ := newTestModel(t)
+	m = moveCursorTo(t, m, "tienda-api")
+	m.consoleView.SetHeight(5) // antes de setConsoleContent: GotoBottom respeta el alto
+	m.setConsoleContent(strings.Repeat("line\n", 100))
+
+	m2, _ := press(m, "pgup")
+	if m2.consoleView.YOffset() == 0 {
+		t.Error("pgup debe desplazar la vista")
+	}
+	if m2.consoleFollow {
+		t.Error("pgup debe pausar el follow")
+	}
+	m3, _ := press(m2, "pgdown")
+	if !m3.consoleView.AtBottom() {
+		t.Errorf("pgdown debe desplazar la vista hacia abajo: yOffset=%d", m3.consoleView.YOffset())
+	}
+}
+
+// La rueda del mouse hace scroll de la consola: arriba pausa el follow,
+// abajo hasta el final lo reactiva (S19.4).
+func TestMouseWheelScroll(t *testing.T) {
+	m, _ := newTestModel(t)
+	m = moveCursorTo(t, m, "tienda-api")
+	m.consoleView.SetHeight(5) // antes de setConsoleContent: GotoBottom respeta el alto
+	m.setConsoleContent(strings.Repeat("line\n", 100))
+
+	next, _ := m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	m2 := next.(Model)
+	if m2.consoleFollow {
+		t.Error("rueda arriba debe pausar el follow")
+	}
+	if m2.consoleView.YOffset() == 0 {
+		t.Error("rueda arriba debe desplazar la vista")
+	}
+
+	// Vuelta al final: la vista debe quedar pegada abajo y con follow.
+	for i := 0; i < 100; i++ {
+		next, _ = m2.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+		m2 = next.(Model)
+	}
+	if !m2.consoleView.AtBottom() || m2.consoleView.YOffset() == 0 {
+		t.Errorf("rueda abajo debe llevar al final: yOffset=%d", m2.consoleView.YOffset())
+	}
+	if !m2.consoleFollow {
+		t.Error("rueda abajo hasta el final debe reactivar el follow")
+	}
+
+	// Rueda fuera de la consola: ignorada (nada cambia).
+	before := m2.consoleView.YOffset()
+	m4 := m2
+	m4.activeTab = tabThreads
+	next, _ = m4.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	m5 := next.(Model)
+	if !m5.consoleFollow || m5.consoleView.YOffset() != before {
+		t.Error("la rueda en Threads no debe tocar la consola")
 	}
 }
 
