@@ -88,3 +88,50 @@ func TestArrangeGroupInsertedAfterFirstSeen(t *testing.T) {
 		t.Errorf("orden = %q, want x,a,b,y", got)
 	}
 }
+
+// Regresión: con grupos intercalados, el índice del último miembro de un
+// grupo quedaba obsoleto al insertar otro grupo antes de él; la siguiente
+// inserción caía dentro de un bloque ajeno y lo partía en dos (header
+// duplicado en la TUI). Cada grupo debe emitirse como un único bloque.
+func TestArrangeInterleavedGroupsSingleBlock(t *testing.T) {
+	projects := []scanner.Project{
+		proj("b1", "backend"), proj("b2", "backend"), proj("f1", "frontend"),
+		proj("b3", "backend"), proj("f2", "frontend"), proj("solo", ""),
+		proj("infra1", "infra"), proj("solo2", ""), proj("b4", "backend"),
+		proj("b5", "backend"), proj("b6", "backend"), proj("f3", "frontend"),
+		proj("f4", "frontend"), proj("f5", "frontend"),
+	}
+
+	entries := Arrange(projects)
+	if len(entries) != len(projects) {
+		t.Fatalf("len = %d, want %d", len(entries), len(projects))
+	}
+
+	// Un solo header por grupo: ningún grupo reaparece tras haber
+	// cerrado su bloque.
+	seen := make(map[string]bool)
+	for i, e := range entries {
+		if !IsGroupHeader(entries, i) {
+			continue
+		}
+		if seen[e.Group] {
+			t.Errorf("grupo %q tiene más de un bloque (header en %d)", e.Group, i)
+		}
+		seen[e.Group] = true
+	}
+	for _, g := range []string{"backend", "frontend", "infra"} {
+		if !seen[g] {
+			t.Errorf("grupo %q no tiene header", g)
+		}
+	}
+
+	// Orden esperado: bloques completos en la posición del primer miembro.
+	var order []string
+	for _, e := range entries {
+		order = append(order, e.Project.Name)
+	}
+	want := "b1,b2,b3,b4,b5,b6,f1,f2,f3,f4,f5,solo,infra1,solo2"
+	if got := strings.Join(order, ","); got != want {
+		t.Errorf("orden = %q, want %q", got, want)
+	}
+}
