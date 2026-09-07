@@ -32,4 +32,10 @@ var (
 	// Modal del picker de tasks (0003 R28): fila del cursor con el
 	// mismo estilo invertido que la pestaña activa.
 	stylePickerCursor = styleTabActive
+
+	// Resaltado de consola estilo IntelliJ: línea con ERROR→rojo vivo,
+	// WARN→amarillo; el ruido (debug/trace, stack traces, [INFO] Maven)
+	// reutiliza styleDim.
+	styleLineError = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	styleLineWarn  = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
 )

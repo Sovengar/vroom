@@ -41,6 +41,53 @@ func sanitizeConsole(s string) string {
 	return strings.Join(lines, "\n")
 }
 
+// highlightConsole aplica resaltado estilo IntelliJ al buffer saneado:
+// línea con ERROR→rojo, WARN→amarillo y ruido (debug/trace, stack traces
+// de la JVM, prefijo [INFO] de Maven)→gris tenue; el resto queda default.
+// Va después de sanitizeConsole para que los escapes ANSI nunca convivan
+// con \r y truncANSI siga midiendo bien. Detección por subcadenas en
+// orden de prioridad: barata (~ms para el cap de 192KB) y agnóstica del
+// lenguaje (Spring Boot, Maven, Go, Python...).
+func highlightConsole(s string) string {
+	if s == "" {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		if h := highlightLine(l); h != l {
+			lines[i] = h
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// highlightLine decide el estilo de una línea: ERROR gana sobre WARN,
+// que gana sobre DEBUG/TRACE, y después el ruido de stack/Maven.
+func highlightLine(l string) string {
+	if l == "" {
+		return l
+	}
+	switch {
+	case strings.Contains(l, "ERROR"):
+		return styleLineError.Render(l)
+	case strings.Contains(l, "WARN"):
+		return styleLineWarn.Render(l)
+	case strings.Contains(l, "DEBUG"), strings.Contains(l, "TRACE"):
+		return styleDim.Render(l)
+	case isStackTraceLine(l), strings.HasPrefix(l, "[INFO]"):
+		return styleDim.Render(l)
+	}
+	return l
+}
+
+// isStackTraceLine detecta los frames del stack trace de la JVM y su
+// cabecera "Caused by:".
+func isStackTraceLine(l string) bool {
+	return strings.HasPrefix(l, "\tat ") ||
+		strings.HasPrefix(l, "\t... ") ||
+		strings.HasPrefix(l, "Caused by: ")
+}
+
 // emulateCarriageReturns emula un terminal dentro de una línea: cada
 // segmento tras \r reescribe desde la columna 0, sobrescribiendo lo
 // previo (y extendiéndolo si es más largo). Un \r colgante al final no

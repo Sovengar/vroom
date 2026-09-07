@@ -958,13 +958,14 @@ func (m *Model) consoleStateFor(path string) *consoleState {
 
 // setConsoleContent vuelca el buffer al viewport respetando el modo de
 // follow: si está pausado se conserva el offset de scroll (S19.4). El
-// contenido pasa por el saneo de CR antes de renderizarse (S19.8).
+// contenido pasa por el saneo de CR y el resaltado de niveles antes de
+// renderizarse (S19.8).
 func (m *Model) setConsoleContent(content string) {
 	if content == "" {
 		content = "No logs available" // S16.2 heredado
 	}
 	y := m.consoleView.YOffset()
-	m.consoleView.SetContent(sanitizeConsole(content))
+	m.consoleView.SetContent(highlightConsole(sanitizeConsole(content)))
 	if m.consoleFollow {
 		m.consoleView.GotoBottom()
 	} else {
