@@ -31,7 +31,7 @@ func (m Model) renderDashboard() string {
 	var b strings.Builder
 	b.WriteString(styleTitle.Render(trunc("vroom — projects in "+m.root, m.width)) + "\n")
 
-	tree, _ := m.treeLines()
+	tree := m.treeColumnLines()
 	right := m.rightLines()
 	for i := 0; i < m.bodyH; i++ {
 		l := ""
@@ -44,7 +44,7 @@ func (m Model) renderDashboard() string {
 		}
 		b.WriteString(padW(l, treeWidth) + styleSep.Render("│") + r + "\n")
 	}
-	b.WriteString(styleHelp.Render(trunc(dashboardHelp(m.width), m.width)) + "\n")
+	b.WriteString(styleHelp.Render(trunc(dashboardHelp(m.width, m.cfg.Keybindings), m.width)) + "\n")
 	if m.message != "" {
 		b.WriteString(styleMsg.Render(trunc("ℹ "+m.message, m.width)))
 	}
@@ -274,6 +274,64 @@ func (m Model) pickerRows(maxRows, w int) (rows []string, more int) {
 		}
 	}
 	return rows, len(items) - (end - start)
+}
+
+// ---- Filtro del árbol (spec 0007 R40/R43/R44) ----
+
+// filterBarVisible reporta si la barra del filtro ocupa la primera línea
+// de la columna del árbol: box abierto o filtro aplicado.
+func (m Model) filterBarVisible() bool {
+	return m.filterOpen || m.filterText != ""
+}
+
+// treeVis es el alto visible del árbol (R44): la barra consume su
+// primera línea cuando es visible.
+func (m Model) treeVis() int {
+	if m.filterBarVisible() {
+		return m.bodyH - 1
+	}
+	return m.bodyH
+}
+
+// treeColumnLines compone las líneas de la columna de árbol: rebanadas
+// por treeTop (fix S44.1: el auto-scroll de S18.5 ahora sí tiene efecto
+// visual), capadas al alto visible y, si la barra es visible, con el
+// filtro en la línea 0 (S44.2) y "no matches" si el árbol quedó vacío
+// (S41.5). El clamp de top evita rebanar fuera cuando el árbol se
+// reduce (plegado) con un treeTop ya obsoleto.
+func (m Model) treeColumnLines() []string {
+	tree, _ := m.treeLines()
+	visH := m.bodyH
+	var extra []string
+	if m.filterBarVisible() {
+		visH = m.treeVis()
+		extra = []string{m.filterBar()}
+		if len(m.tree) == 0 {
+			extra = append(extra, styleDim.Render("no matches"))
+		}
+	}
+	top := m.treeTop
+	if top > len(tree)-1 {
+		top = len(tree) - 1
+	}
+	if top < 0 {
+		top = 0
+	}
+	tree = tree[top:]
+	if len(tree) > visH {
+		tree = tree[:visH]
+	}
+	return append(extra, tree...)
+}
+
+// filterBar dibuja la línea de filtro: el input (prompt "/" + cursor)
+// si el box está abierto; con filtro aplicado, el indicador persistente
+// `⌕ texto · n` en dim (n = proyectos matcheados, S43.1).
+func (m Model) filterBar() string {
+	if m.filterOpen {
+		return m.filterInput.View()
+	}
+	return styleDim.Render(trunc(fmt.Sprintf("⌕ %s · %d", m.filterText, len(m.entries)), treeWidth-2))
 }
 
 // overlay compone box centrado sobre base sin perder el contenido

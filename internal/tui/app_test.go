@@ -37,8 +37,9 @@ func (s *stubManager) Evaluate(spec process.EvalSpec) process.Status {
 var _ process.Manager = (*stubManager)(nil)
 
 // newTestModel construye un árbol temporal con 3 proyectos:
-// tienda-api (Go, group tienda, con repo git), tienda-web (JavaScript,
-// group tienda) y suelto (Go, sin manifiesto). Devuelve el modelo y store.
+// tienda-api (Go, primary_group tienda, con repo git), tienda-web
+// (JavaScript, primary_group tienda) y suelto (Go, sin manifiesto).
+// Devuelve el modelo y store.
 func newTestModel(t *testing.T) (Model, *state.Store) {
 	t.Helper()
 	isolateConfig(t)
@@ -113,7 +114,7 @@ func writeTestTree(t *testing.T, jobs bool) string {
 			t.Fatal(err)
 		}
 	}
-	manifestAPI := "name = \"tienda-api\"\ngroup = \"tienda\"\ncommand_start = \"go run main.go\"\nport = 8081\n"
+	manifestAPI := "name = \"tienda-api\"\nprimary_group = \"tienda\"\ncommand_start = \"go run main.go\"\nport = 8081\n"
 	if jobs {
 		manifestAPI += "command_install = \"echo installing\"\ncommand_build = \"echo building\"\n"
 	}
@@ -121,7 +122,7 @@ func writeTestTree(t *testing.T, jobs bool) string {
 	writeFile("tienda-api/.vroom.toml", manifestAPI)
 	writeFile("tienda-api/.git/HEAD", "ref: refs/heads/main\n")
 	writeFile("tienda-web/package.json", "{}\n")
-	manifestWeb := "name = \"tienda-web\"\ngroup = \"tienda\"\ncommand_start = \"node server.js\"\nport = 5173\n"
+	manifestWeb := "name = \"tienda-web\"\nprimary_group = \"tienda\"\ncommand_start = \"node server.js\"\nport = 5173\n"
 	if jobs {
 		manifestWeb += "command_install = \"echo installing web\"\ncommand_build = \"echo building web\"\n"
 	}
@@ -166,9 +167,20 @@ func findCursor(m Model, name string) int {
 	return -1
 }
 
-func findGroup(m Model, name string) int {
+// findPrimary devuelve el índice del header primario con ese nombre.
+func findPrimary(m Model, name string) int {
 	for i, it := range m.tree {
-		if it.kind == itemGroup && it.group == name {
+		if it.kind == itemPrimary && it.primary == name {
+			return i
+		}
+	}
+	return -1
+}
+
+// findSecondary devuelve el índice del header secundario del par dado.
+func findSecondary(m Model, primary, secondary string) int {
+	for i, it := range m.tree {
+		if it.kind == itemSecondary && it.primary == primary && it.secondary == secondary {
 			return i
 		}
 	}
@@ -472,16 +484,20 @@ func TestDetailsAlwaysVisible(t *testing.T) {
 	}
 }
 
-// R24: enter sobre un servicio no hace nada.
-func TestEnterOnServiceNoop(t *testing.T) {
+// 0006 S38.4: enter sobre un proyecto pliega el contenedor más interno;
+// aquí (sin secundario en el árbol base) su primario. No emite comandos.
+func TestEnterOnProjectTogglesInnermost(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, cmd := press(m, "enter")
 	if cmd != nil {
-		t.Error("enter sobre servicio no debe emitir comando")
+		t.Error("plegar no debe emitir comandos")
 	}
-	if m2.cursor != m.cursor || len(m2.tree) != len(m.tree) {
-		t.Error("enter sobre servicio no debe cambiar el árbol")
+	if !m2.collapsed["tienda"] {
+		t.Fatal("enter sobre el proyecto (sin secundario) debe plegar su primario tienda")
+	}
+	if len(m2.tree) != 2 { // header tienda + suelto
+		t.Errorf("árbol colapsado: %d filas, want 2", len(m2.tree))
 	}
 }
 
@@ -957,11 +973,11 @@ func TestThreadsSamplingError(t *testing.T) {
 
 // Help responsive: completa en ancho amplio, compacta y truncada en estrecho.
 func TestHelpResponsive(t *testing.T) {
-	full := dashboardHelp(200)
+	full := dashboardHelp(200, nil) // nil = defaults
 	if !strings.Contains(full, "start/stop") || !strings.Contains(full, "refresh") {
 		t.Errorf("help completa inesperada: %q", full)
 	}
-	narrow := dashboardHelp(40)
+	narrow := dashboardHelp(40, nil)
 	if strings.Contains(narrow, "refresh") {
 		t.Errorf("en estrecho no debe caber refresh: %q", narrow)
 	}
@@ -1060,8 +1076,8 @@ func TestResolveEditor(t *testing.T) {
 // La ayuda menciona `l logfile`, las pestañas, el colapso de grupos y
 // las acciones de 0003/0004; `d` (toggle) desapareció.
 func TestHelpWording(t *testing.T) {
-	full := dashboardHelp(200)
-	for _, want := range []string{"l logfile", "1/2 tabs", "enter collapse", "b build", "i install", "t tasks", "a ask", "C clear"} {
+	full := dashboardHelp(200, nil) // nil = defaults
+	for _, want := range []string{"l logfile", "1/2 tabs", "enter collapse", "b build", "i install", "t tasks", "a ask", "C clear", "/ filter", "! shell"} {
 		if !strings.Contains(full, want) {
 			t.Errorf("help sin %q: %q", want, full)
 		}
@@ -1071,13 +1087,133 @@ func TestHelpWording(t *testing.T) {
 	}
 }
 
+// ---- Keybindings configurables (spec 0008) ----
+
+// R50.1 + R51.1 + 0009 R52: con defaults la help reproduce el texto
+// histórico más el segmento de la terminal embebida, y las teclas
+// disparan sus acciones (los tests existentes lo cubren uno a uno).
+func TestHelpDefaultsDerived(t *testing.T) {
+	want := "j/k move · / filter · enter collapse · s start/stop · R restart · b build · i install · t tasks · a ask · ! shell · C clear · 1/2 tabs · c stream · l logfile · r refresh · q quit"
+	if got := dashboardHelp(200, nil); got != want {
+		t.Errorf("help defaults = %q, want %q", got, want)
+	}
+}
+
+// R51.2: la help refleja un remap (x start/stop, no s start/stop).
+func TestHelpRemapped(t *testing.T) {
+	kb := map[string]string{"start_stop": "x"}
+	full := dashboardHelp(200, kb)
+	if !strings.Contains(full, "x start/stop") {
+		t.Errorf("help sin x start/stop: %q", full)
+	}
+	if strings.Contains(full, "s start/stop") {
+		t.Errorf("help aún menciona s start/stop: %q", full)
+	}
+}
+
+// R46.2/S50.2: remap de start_stop a "x" — x dispara el toggle y s queda
+// libre.
+func TestRemappedStartStop(t *testing.T) {
+	m, _ := newTestModelWithConfig(t, "[keybindings]\nstart_stop = \"x\"\n")
+	m = moveCursorTo(t, m, "tienda-api")
+	path := pathOfSelected(t, m)
+
+	m2, cmd := press(m, "x")
+	if cmd == nil {
+		t.Fatal("x debe lanzar el start (start_stop remapeado)")
+	}
+	if m2.services[path].Status != statusStarting {
+		t.Errorf("status = %q, want starting", m2.services[path].Status)
+	}
+
+	// s dejó de estar asignada: no dispara nada.
+	m3, cmd2 := press(m2, "s")
+	if cmd2 != nil {
+		t.Error("s removida no debe lanzar nada")
+	}
+	if m3.services[path].Status != statusStarting {
+		t.Errorf("s no debe alterar el estado, got %q", m3.services[path].Status)
+	}
+}
+
+// R50.2: remap de tasks a "m" — m abre el picker (sin mise.toml notifica
+// como lo haría t hoy) y t queda libre.
+func TestRemappedTasks(t *testing.T) {
+	m, _ := newTestModelWithConfig(t, "[keybindings]\ntasks = \"m\"\n")
+	m = moveCursorTo(t, m, "tienda-web")
+
+	m2, _ := press(m, "m")
+	if !strings.Contains(m2.message, "no mise.toml") {
+		t.Errorf("m debe disparar openPicker: msg=%q", m2.message)
+	}
+
+	m3, _ := newTestModelWithConfig(t, "[keybindings]\ntasks = \"m\"\n")
+	m3 = moveCursorTo(t, m3, "tienda-web")
+	m4, _ := press(m3, "t")
+	if m4.message != "" || m4.pickerOpen {
+		t.Errorf("t removida no debe disparar nada: open=%v msg=%q", m4.pickerOpen, m4.message)
+	}
+}
+
+// R50.4: con un remap activo, las universales siguen operando (1/2
+// pestañas, / filtro, enter plegado, tab cicla).
+func TestUniversalsWithRemap(t *testing.T) {
+	m, _ := newTestModelWithConfig(t, "[keybindings]\nstart_stop = \"x\"\nrestart = \"z\"\n")
+
+	m2, _ := press(m, "2")
+	if m2.activeTab != tabThreads {
+		t.Error("tecla 2 debe activar Threads aun con remap")
+	}
+	m3, _ := press(m2, "/")
+	if !m3.filterOpen {
+		t.Error("/ debe abrir el filtro aun con remap")
+	}
+	m4, _ := press(m3, "esc") // limpia el filtro (vacío) y cierra
+	if m4.filterOpen {
+		t.Error("esc debe cerrar el filtro")
+	}
+	// enter plega el grupo bajo el cursor (header del primario; el
+	// árbol base arranca con el proyecto inline suelto, no con un header).
+	m4b := m4
+	m4b.cursor = findPrimary(m4b, "tienda")
+	m5, _ := press(m4b, "enter")
+	if len(m5.tree) == len(m4b.tree) {
+		t.Error("enter debe plegar el grupo aun con remap")
+	}
+	m6, _ := press(m5, "tab")
+	if m6.activeTab != tabConsole {
+		t.Error("tab debe ciclar a Console aun con remap")
+	}
+}
+
+// R50.3: el alias fijo `o` abre los logs; si el config reclama "o" para
+// otra acción, gana la acción configurada.
+func TestLogsAliasFixed(t *testing.T) {
+	// Alias con defaults: o abre los logs (cmd del editor) como l.
+	m, _ := newTestModel(t)
+	m = moveCursorTo(t, m, "tienda-api")
+	m2, cmd := press(m, "o")
+	if cmd == nil {
+		t.Fatal("alias o debe abrir el editor de logs")
+	}
+	_ = m2
+
+	// "o" reclamada por el config: dispara la acción configurada.
+	m3, _ := newTestModelWithConfig(t, "[keybindings]\ninstall = \"o\"\n")
+	m3 = moveCursorTo(t, m3, "suelto") // unconfigured → notify de manifiesto
+	m4, _ := press(m3, "o")
+	if !strings.Contains(m4.message, "No manifest") {
+		t.Errorf("o reclamada por install debe disparar install: msg=%q", m4.message)
+	}
+}
+
 // ---- Grupos seleccionables y colapsables (0002 R24) ----
 
 // Seleccionar un grupo y colapsarlo con enter: los miembros se ocultan
 // y el header muestra running/total; enter de nuevo los expande.
 func TestGroupCollapse(t *testing.T) {
 	m, _ := newTestModel(t)
-	gi := findGroup(m, "tienda")
+	gi := findPrimary(m, "tienda")
 	if gi < 0 {
 		t.Fatal("grupo tienda no encontrado en el árbol")
 	}
@@ -1126,7 +1262,7 @@ func TestGroupCollapse(t *testing.T) {
 // running (toggle de grupo, R24).
 func TestGroupToggleAll(t *testing.T) {
 	m, _ := newTestModel(t)
-	m.cursor = findGroup(m, "tienda")
+	m.cursor = findPrimary(m, "tienda")
 
 	// Ambos stopped → start de ambos.
 	m2, cmd := press(m, "s")
@@ -1159,7 +1295,7 @@ func TestGroupToggleAll(t *testing.T) {
 // Panel de info sobre grupo: resumen con conteo y miembros.
 func TestGroupDetails(t *testing.T) {
 	m, _ := newTestModel(t)
-	m.cursor = findGroup(m, "tienda")
+	m.cursor = findPrimary(m, "tienda")
 	m.services[pathOfSelectedNamed(t, m, "tienda-api")].Status = statusRunning
 
 	lines := m.detailsLines(m.rightW)
@@ -1174,7 +1310,7 @@ func TestGroupDetails(t *testing.T) {
 // Consola con grupo seleccionado: placeholder, no logs.
 func TestGroupConsolePlaceholder(t *testing.T) {
 	m, _ := newTestModel(t)
-	m.cursor = findGroup(m, "tienda")
+	m.cursor = findPrimary(m, "tienda")
 	next, _ := m.onSelect()
 	m2 := next.(Model)
 	if !strings.Contains(m2.consoleView.View(), "group selected") {
@@ -1192,6 +1328,254 @@ func pathOfSelectedNamed(t *testing.T, m Model, name string) string {
 		t.Fatalf("proyecto %s no encontrado", name)
 	}
 	return m.tree[idx].project.Path
+}
+
+// ---- Agrupación jerárquica de dos niveles (0006 R36-R39) ----
+
+// newNestedTestModel construye un árbol con primarios y secundarios:
+// tienda (backend: tienda-api, tienda-billing; sin secundario:
+// tienda-inventory; frontend: tienda-web), otros (backend: otros-api) y
+// suelto sin manifiesto. Tienda y otros comparten el nombre de
+// secundario "backend" para verificar claves sin colisión (S38.6).
+// Filas esperadas: P otros, S backend, otros-api, suelto, P tienda,
+// S backend, tienda-api, tienda-billing, tienda-inventory, S frontend,
+// tienda-web.
+func newNestedTestModel(t *testing.T) Model {
+	t.Helper()
+	isolateConfig(t)
+	root := t.TempDir()
+	write := func(rel, content string) {
+		full := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mf := func(name, primary, secondary, command, port string) string {
+		out := "name = \"" + name + "\"\nprimary_group = \"" + primary + "\"\n"
+		if secondary != "" {
+			out += "secondary_group = \"" + secondary + "\"\n"
+		}
+		return out + "command_start = \"" + command + "\"\nport = " + port + "\n"
+	}
+	write("tienda-api/go.mod", "module api\n")
+	write("tienda-api/.vroom.toml", mf("tienda-api", "tienda", "backend", "go run main.go", "8081"))
+	write("tienda-billing/go.mod", "module billing\n")
+	write("tienda-billing/.vroom.toml", mf("tienda-billing", "tienda", "backend", "go run main.go", "8082"))
+	write("tienda-inventory/requirements.txt", "flask\n")
+	write("tienda-inventory/.vroom.toml", mf("tienda-inventory", "tienda", "", "python3 app.py", "8083"))
+	write("tienda-web/package.json", "{}\n")
+	write("tienda-web/.vroom.toml", mf("tienda-web", "tienda", "frontend", "node server.js", "5173"))
+	write("otros-api/go.mod", "module otros\n")
+	write("otros-api/.vroom.toml", mf("otros-api", "otros", "backend", "go run main.go", "8091"))
+	write("suelto/go.mod", "module suelto\n")
+
+	m := New(state.NewStoreAt(t.TempDir()), &stubManager{}, root)
+	m.width, m.height = 100, 30
+	m.updateLayout()
+	return m
+}
+
+// S38.1: header primario en columna 0 y secundario indentado 2 espacios.
+func TestNestedTreeRender(t *testing.T) {
+	m := newNestedTestModel(t)
+	tree, _ := m.treeLines()
+	joined := strings.Join(tree, "\n")
+	for _, want := range []string{"▾ otros", "▾ tienda", "▾ frontend"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("falta header %q: %q", want, joined)
+		}
+	}
+	// Los dos headers secundarios "backend" van indentados: 4 espacios
+	// visibles antes del glifo (cursor 2 + indent 2); el primario, 2.
+	if got := strings.Count(joined, "▾ backend"); got != 2 {
+		t.Errorf("esperaba 2 headers backend (tienda y otros), got %d: %q", got, joined)
+	}
+	for _, line := range tree {
+		if !strings.Contains(line, "▾ backend") {
+			continue
+		}
+		if !strings.HasPrefix(line, "    ") {
+			t.Fatalf("el header secundario debe ir indentado 2 espacios extra: %q", line)
+		}
+	}
+}
+
+// S38.2: plegar un secundario oculta solo sus proyectos; el primario y
+// sus otros secundarios siguen visibles.
+func TestSecondaryCollapse(t *testing.T) {
+	m := newNestedTestModel(t)
+	si := findSecondary(m, "tienda", "backend")
+	if si < 0 {
+		t.Fatal("header tienda/backend no encontrado")
+	}
+	m.cursor = si
+	m2, cmd := press(m, "enter")
+	if cmd != nil {
+		t.Error("colapsar no debe emitir comandos")
+	}
+	if !m2.collapsed["tienda/backend"] {
+		t.Fatal("enter sobre el secundario debe plegarlo")
+	}
+	if m2.cursor != si {
+		t.Errorf("cursor = %d, want %d (el header conserva su índice)", m2.cursor, si)
+	}
+	tree, _ := m2.treeLines()
+	joined := strings.Join(tree, "\n")
+	if !strings.Contains(joined, "▸ backend") {
+		t.Errorf("el header colapsado debe usar ▸: %q", joined)
+	}
+	for _, name := range []string{"tienda-api", "tienda-billing"} {
+		if strings.Contains(joined, name) {
+			t.Errorf("%s debe estar oculto: %q", name, joined)
+		}
+	}
+	for _, want := range []string{"▾ tienda", "tienda-inventory", "▾ frontend", "tienda-web", "otros-api"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("%s debe seguir visible: %q", want, joined)
+		}
+	}
+}
+
+// S38.3: plegar el primario oculta también sus headers secundarios.
+func TestPrimaryCollapseHidesSecondaries(t *testing.T) {
+	m := newNestedTestModel(t)
+	pi := findPrimary(m, "tienda")
+	m.cursor = pi
+	m2, _ := press(m, "enter")
+	if !m2.collapsed["tienda"] {
+		t.Fatal("enter sobre el primario debe plegarlo")
+	}
+	tree, _ := m2.treeLines()
+	joined := strings.Join(tree, "\n")
+	for _, want := range []string{"tienda-api", "tienda-billing", "tienda-inventory", "tienda-web", "▾ frontend"} {
+		if strings.Contains(joined, want) {
+			t.Errorf("%q no debe verse con el primario plegado: %q", want, joined)
+		}
+	}
+	// El primario plegado y los bloques de otros siguen visibles
+	// (incluido su header backend, otro primario).
+	for _, want := range []string{"▸ tienda", "▾ otros", "▾ backend", "otros-api"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("%s debe seguir visible: %q", want, joined)
+		}
+	}
+}
+
+// S38.4: enter sobre un proyecto con secundario pliega el secundario,
+// no el primario; sobre uno sin secundario, el primario.
+func TestEnterOnProjectInnermostNested(t *testing.T) {
+	m := newNestedTestModel(t)
+	m = moveCursorTo(t, m, "tienda-api")
+	m2, _ := press(m, "enter")
+	if !m2.collapsed["tienda/backend"] || m2.collapsed["tienda"] {
+		t.Fatal("enter sobre proyecto con secundario debe plegar el secundario, no el primario")
+	}
+	m3 := moveCursorTo(t, m2, "tienda-inventory")
+	m4, _ := press(m3, "enter")
+	if !m4.collapsed["tienda"] {
+		t.Fatal("enter sobre proyecto sin secundario debe plegar su primario")
+	}
+}
+
+// S38.5: el conteo del primario suma a todos sus secundarios.
+func TestPrimaryCountIncludesSecondaries(t *testing.T) {
+	m := newNestedTestModel(t)
+	m.services[pathOfSelectedNamed(t, m, "tienda-api")].Status = statusRunning
+	m.cursor = findPrimary(m, "tienda")
+	m2, _ := press(m, "enter")
+	tree, _ := m2.treeLines()
+	if !strings.Contains(strings.Join(tree, "\n"), "tienda (1/4)") {
+		t.Errorf("el primario debe contar 4 miembros (backend 2 + inventory + frontend 1): %q",
+			strings.Join(tree, "\n"))
+	}
+}
+
+// S38.6: plegar tienda/backend no pliega otros/backend (claves
+// compuestas sin colisión).
+func TestSecondaryCollapseKeysNoCollision(t *testing.T) {
+	m := newNestedTestModel(t)
+	m.cursor = findSecondary(m, "tienda", "backend")
+	m2, _ := press(m, "enter")
+	tree, _ := m2.treeLines()
+	joined := strings.Join(tree, "\n")
+	if !strings.Contains(joined, "▸ backend") {
+		t.Errorf("tienda/backend debe plegarse: %q", joined)
+	}
+	if !strings.Contains(joined, "otros-api") {
+		t.Errorf("otros/backend debe seguir abierto: %q", joined)
+	}
+}
+
+// S39.2: s sobre el primario aplica el toggle a todos sus miembros,
+// incluidos los de todos sus secundarios.
+func TestPrimaryToggleAllSecondaries(t *testing.T) {
+	m := newNestedTestModel(t)
+	m.cursor = findPrimary(m, "tienda")
+	m2, cmd := press(m, "s")
+	if cmd == nil {
+		t.Fatal("s sobre primario con parados debe emitir starts")
+	}
+	for _, name := range []string{"tienda-api", "tienda-billing", "tienda-inventory", "tienda-web"} {
+		if sv := m2.services[pathOfSelectedNamed(t, m2, name)]; sv.Status != statusStarting {
+			t.Errorf("%s: estado = %s, want starting", name, sv.Status)
+		}
+	}
+}
+
+// S39.3: s sobre el secundario aplica solo a los miembros de ese
+// secundario.
+func TestSecondaryToggleScoped(t *testing.T) {
+	m := newNestedTestModel(t)
+	m.services[pathOfSelectedNamed(t, m, "tienda-web")].Status = statusRunning
+	m.cursor = findSecondary(m, "tienda", "backend")
+	m2, cmd := press(m, "s")
+	if cmd == nil {
+		t.Fatal("s sobre secundario con parados debe emitir starts")
+	}
+	for _, name := range []string{"tienda-api", "tienda-billing"} {
+		if sv := m2.services[pathOfSelectedNamed(t, m2, name)]; sv.Status != statusStarting {
+			t.Errorf("%s: estado = %s, want starting", name, sv.Status)
+		}
+	}
+	if sv := m2.services[pathOfSelectedNamed(t, m2, "tienda-web")]; sv.Status != statusRunning {
+		t.Errorf("tienda-web (frontend) no debe tocarse: %s", sv.Status)
+	}
+}
+
+// S39.1: el panel de detalles del secundario lista solo sus miembros.
+func TestSecondaryDetails(t *testing.T) {
+	m := newNestedTestModel(t)
+	m.cursor = findSecondary(m, "tienda", "backend")
+	m.services[pathOfSelectedNamed(t, m, "tienda-api")].Status = statusRunning
+
+	joined := strings.Join(m.detailsLines(m.rightW), "\n")
+	for _, want := range []string{"backend (1/2)", "services:", "running:", "tienda-api", "tienda-billing"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("detalle del secundario sin %q: %q", want, joined)
+		}
+	}
+	for _, no := range []string{"tienda-web", "tienda-inventory"} {
+		if strings.Contains(joined, no) {
+			t.Errorf("no debe listar miembros de otros nodos: %q", no)
+		}
+	}
+}
+
+// S39.4: la fila group: del panel de detalles muestra el compuesto
+// primario/secundario (o solo el primario sin secundario).
+func TestDetailsGroupComposite(t *testing.T) {
+	m := newNestedTestModel(t)
+	m = moveCursorTo(t, m, "tienda-api")
+	if joined := strings.Join(m.detailsLines(m.rightW), "\n"); !strings.Contains(joined, "tienda/backend") {
+		t.Errorf("detalles sin compuesto primario/secundario: %q", joined)
+	}
+	m2 := moveCursorTo(t, m, "tienda-inventory")
+	if joined := strings.Join(m2.detailsLines(m2.rightW), "\n"); strings.Contains(joined, "tienda/backend") {
+		t.Errorf("primario sin secundario no debe mostrar compuesto: %q", joined)
+	}
 }
 
 // ---- Jobs one-shot (0003 R26/R27) ----
@@ -1313,7 +1697,7 @@ func TestJobBusyBlock(t *testing.T) {
 // b/i/t sobre grupo o unconfigured notifican en vez de fallar.
 func TestJobsGuards(t *testing.T) {
 	m, _ := newJobsTestModel(t)
-	m.cursor = findGroup(m, "tienda")
+	m.cursor = findPrimary(m, "tienda")
 	m2, cmd := press(m, "b")
 	if cmd != nil || !strings.Contains(m2.message, "select a service") {
 		t.Errorf("b sobre grupo: cmd=%v msg=%q", cmd, m2.message)
@@ -1503,7 +1887,7 @@ func TestClearConsole(t *testing.T) {
 
 func TestClearConsoleGuards(t *testing.T) {
 	m, _ := newTestModel(t)
-	m.cursor = findGroup(m, "tienda")
+	m.cursor = findPrimary(m, "tienda")
 	m2, _ := press(m, "C")
 	if !strings.Contains(m2.message, "select a service") {
 		t.Errorf("C sobre grupo: msg=%q", m2.message)
@@ -1624,7 +2008,7 @@ func TestAskDispatchHerdr(t *testing.T) {
 func TestAskOnGroup(t *testing.T) {
 	t.Setenv("PATH", fakeBin(t, "pi"))
 	m, _ := newTestModel(t)
-	m.cursor = findGroup(m, "tienda")
+	m.cursor = findPrimary(m, "tienda")
 	m2, _ := press(m, "a")
 	if !strings.Contains(m2.message, "select a service") {
 		t.Errorf("a sobre grupo: msg=%q", m2.message)
@@ -1748,5 +2132,266 @@ func TestConsoleSoftWrapKeepsStyle(t *testing.T) {
 	}
 	if !strings.Contains(lines[1], "\x1b[") {
 		t.Errorf("la línea de continuación perdió el estilo ANSI: %q", lines[1])
+	}
+}
+
+// ---- Filtro del árbol con "/" (0007) ----
+
+// writeFilterTree extiende el árbol base con un secondary_group en
+// tienda-web (frontend) para probar el match por secundario (S41.3).
+func writeFilterTree(t *testing.T) string {
+	t.Helper()
+	root := writeTestTree(t, false)
+	manifest := "name = \"tienda-web\"\nprimary_group = \"tienda\"\nsecondary_group = \"frontend\"\ncommand_start = \"node server.js\"\nport = 5173\n"
+	if err := os.WriteFile(filepath.Join(root, "tienda-web", ".vroom.toml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// newFilterTestModel construye el modelo sobre el árbol con secundario.
+// Árbol completo: suelto, tienda ▸ api, tienda ▸ frontend ▸ web.
+func newFilterTestModel(t *testing.T) Model {
+	t.Helper()
+	isolateConfig(t)
+	store := state.NewStoreAt(t.TempDir())
+	m := New(store, &stubManager{}, writeFilterTree(t))
+	m.width, m.height = 100, 30
+	m.updateLayout()
+	return m
+}
+
+// typeFilter teclea s carácter a carácter en el filtro abierto
+// (filtrado en vivo, S40.3).
+func typeFilter(m Model, s string) Model {
+	for _, r := range s {
+		next, _ := press(m, string(r))
+		m = next
+	}
+	return m
+}
+
+// S40.1/S40.2: "/" abre la barra inline; las teclas van al input (q no
+// sale) y el placeholder es visible; sin texto el árbol queda intacto.
+func TestFilterOpenCapturesKeys(t *testing.T) {
+	m, _ := newTestModel(t)
+	m2, _ := press(m, "/")
+	if !m2.filterOpen {
+		t.Fatal("/ debe abrir el filtro")
+	}
+	if m2.filterInput.Value() != "" {
+		t.Errorf("el filtro abre vacío, got %q", m2.filterInput.Value())
+	}
+	if len(m2.tree) != 4 {
+		t.Errorf("abrir el filtro no debe alterar el árbol, filas = %d", len(m2.tree))
+	}
+	// El cursor virtual consume la 1ª letra del placeholder, así que el
+	// render contiene "/" + cursor + "ilter…".
+	if !strings.Contains(m2.renderDashboard(), "ilter…") {
+		t.Error("la barra debe mostrar el placeholder filter…")
+	}
+	m3 := typeFilter(m2, "q")
+	if !m3.filterOpen {
+		t.Error("q debe insertarse en el input, no cerrar el filtro")
+	}
+	if m3.filterInput.Value() != "q" {
+		t.Errorf("input = %q, want q", m3.filterInput.Value())
+	}
+}
+
+// S40.4: reabrir con "/" conserva el texto aplicado.
+func TestFilterReopenKeepsText(t *testing.T) {
+	m, _ := newTestModel(t)
+	m2, _ := press(m, "/")
+	m3 := typeFilter(m2, "tienda")
+	m4, _ := press(m3, "enter")
+	m5, _ := press(m4, "/")
+	if !m5.filterOpen || m5.filterInput.Value() != "tienda" {
+		t.Errorf("reabrir debe prellenar el input, got open=%v value=%q", m5.filterOpen, m5.filterInput.Value())
+	}
+}
+
+// S41.1/S41.2: match por nombre (case-insensitive) y por primary_group.
+func TestFilterMatchNameAndPrimary(t *testing.T) {
+	m, _ := newTestModel(t)
+	m2, _ := press(m, "/")
+	m3 := typeFilter(m2, "TIENDA")
+	// árbol: header tienda + api + web (suelto no matchea)
+	if len(m3.tree) != 3 {
+		t.Fatalf("filas = %d, want 3", len(m3.tree))
+	}
+	if findCursor(m3, "suelto") != -1 {
+		t.Error("suelto no debe matchear TIENDA")
+	}
+	if findCursor(m3, "tienda-api") < 0 || findCursor(m3, "tienda-web") < 0 {
+		t.Error("tienda-api y tienda-web deben matchear TIENDA")
+	}
+}
+
+// S41.3: match por secondary_group (el texto no aparece en ningún
+// nombre ni en el primario).
+func TestFilterMatchSecondary(t *testing.T) {
+	m := newFilterTestModel(t)
+	m2, _ := press(m, "/")
+	m3 := typeFilter(m2, "front")
+	// árbol: header tienda + header frontend + tienda-web
+	if len(m3.tree) != 3 {
+		t.Fatalf("filas = %d, want 3", len(m3.tree))
+	}
+	if findSecondary(m3, "tienda", "frontend") < 0 {
+		t.Error("el header frontend debe aparecer con el filtro front")
+	}
+	if findCursor(m3, "tienda-web") < 0 {
+		t.Error("tienda-web debe matchear por su secundario")
+	}
+	if findCursor(m3, "tienda-api") != -1 || findCursor(m3, "suelto") != -1 {
+		t.Error("solo tienda-web debe matchear front")
+	}
+}
+
+// S41.4: los headers solo aparecen con miembros que matchean.
+func TestFilterHeadersOnlyWithMembers(t *testing.T) {
+	m := newFilterTestModel(t)
+	m2, _ := press(m, "/")
+	m3 := typeFilter(m2, "api")
+	// árbol: header tienda + tienda-api; el secundario frontend queda
+	// sin miembros y no aparece
+	if len(m3.tree) != 2 {
+		t.Fatalf("filas = %d, want 2", len(m3.tree))
+	}
+	if findSecondary(m3, "tienda", "frontend") != -1 {
+		t.Error("el header frontend no debe aparecer sin miembros que matcheen")
+	}
+	if findCursor(m3, "tienda-api") < 0 {
+		t.Error("tienda-api debe matchear")
+	}
+}
+
+// S41.5: sin matches el árbol queda vacío y el render muestra la línea
+// "no matches".
+func TestFilterNoMatches(t *testing.T) {
+	m, _ := newTestModel(t)
+	m2, _ := press(m, "/")
+	m3 := typeFilter(m2, "zzz")
+	if len(m3.tree) != 0 {
+		t.Fatalf("filas = %d, want 0", len(m3.tree))
+	}
+	if !strings.Contains(m3.renderDashboard(), "no matches") {
+		t.Error("el render debe mostrar la línea no matches")
+	}
+}
+
+// S42.1/S43.1: enter cierra el box aplicando el filtro; la barra queda
+// como indicador persistente `⌕ texto · n`.
+func TestFilterEnterApplies(t *testing.T) {
+	m, _ := newTestModel(t)
+	m2, _ := press(m, "/")
+	m3 := typeFilter(m2, "tienda")
+	m4, _ := press(m3, "enter")
+	if m4.filterOpen {
+		t.Error("enter debe cerrar el box")
+	}
+	if m4.filterText != "tienda" {
+		t.Errorf("filterText = %q, want tienda", m4.filterText)
+	}
+	if len(m4.tree) != 3 {
+		t.Errorf("el árbol debe seguir filtrado, filas = %d", len(m4.tree))
+	}
+	if !strings.Contains(m4.renderDashboard(), "⌕ tienda · 2") {
+		t.Error("la barra debe mostrar el indicador ⌕ tienda · 2")
+	}
+}
+
+// S42.2: esc dentro del box cierra limpiando (árbol completo).
+func TestFilterEscInBoxClears(t *testing.T) {
+	m, _ := newTestModel(t)
+	m2, _ := press(m, "/")
+	m3 := typeFilter(m2, "tienda")
+	m4, _ := press(m3, "esc")
+	if m4.filterOpen {
+		t.Error("esc debe cerrar el box")
+	}
+	if m4.filterText != "" {
+		t.Errorf("filterText = %q, want vacío", m4.filterText)
+	}
+	if len(m4.tree) != 4 {
+		t.Errorf("el árbol debe restaurarse completo, filas = %d", len(m4.tree))
+	}
+}
+
+// S42.3: esc con filtro aplicado limpia el filtro y NO sale de la TUI.
+func TestFilterEscAppliedDoesNotQuit(t *testing.T) {
+	m, _ := newTestModel(t)
+	m2, _ := press(m, "/")
+	m3 := typeFilter(m2, "tienda")
+	m4, _ := press(m3, "enter")
+	m5, cmd := press(m4, "esc")
+	if cmd != nil {
+		t.Error("esc con filtro aplicado no debe salir de la TUI")
+	}
+	if m5.filterText != "" || len(m5.tree) != 4 {
+		t.Errorf("esc debe limpiar el filtro, text=%q filas=%d", m5.filterText, len(m5.tree))
+	}
+}
+
+// S42.4: esc sin filtro sigue saliendo (0002 R30, sin cambios).
+func TestFilterEscWithoutFilterQuits(t *testing.T) {
+	m, _ := newTestModel(t)
+	_, cmd := press(m, "esc")
+	if cmd == nil {
+		t.Error("esc sin filtro debe salir de la TUI")
+	}
+}
+
+// S43.2: al filtrar, cursor y treeTop se resetean a 0.
+func TestFilterResetsCursor(t *testing.T) {
+	m, _ := newTestModel(t)
+	m.cursor = len(m.tree) - 1
+	m2, _ := press(m, "/")
+	m3 := typeFilter(m2, "t")
+	if m3.cursor != 0 || m3.treeTop != 0 {
+		t.Errorf("cursor=%d treeTop=%d, want 0/0 tras filtrar", m3.cursor, m3.treeTop)
+	}
+}
+
+// S44.1 (fix): el render del árbol respeta treeTop; con el cursor en la
+// última fila de un árbol más alto que el cuerpo, la primera línea
+// visible es la fila treeTop (hoy se dibuja siempre desde 0).
+func TestTreeRenderRespectsTreeTop(t *testing.T) {
+	m, _ := newTestModel(t)
+	m.height = 6 // bodyH = 3 < filas del árbol (4)
+	m.updateLayout()
+	m.cursor = 2
+	m2, _ := press(m, "j") // cursor=3, treeTop=1 (S18.5)
+	if m2.treeTop != 1 {
+		t.Fatalf("treeTop = %d, want 1", m2.treeTop)
+	}
+	lines := m2.treeColumnLines()
+	full, _ := m2.treeLines()
+	if lines[0] != full[1] {
+		t.Errorf("la línea visible debe ser la fila treeTop: got %q, want %q", lines[0], full[1])
+	}
+	if len(lines) != 3 {
+		t.Errorf("filas visibles = %d, want 3 (bodyH)", len(lines))
+	}
+}
+
+// S44.2: con la barra visible, la línea 0 del árbol es el indicador y
+// las filas del árbol empiezan en la línea 1.
+func TestFilterBarConsumesTreeLine(t *testing.T) {
+	m, _ := newTestModel(t)
+	if len(m.treeColumnLines()) != 4 {
+		t.Fatal("sin barra el árbol ocupa todo el alto (S44.3)")
+	}
+	m2, _ := press(m, "/")
+	m3 := typeFilter(m2, "tienda")
+	m4, _ := press(m3, "enter")
+	lines := m4.treeColumnLines()
+	full, _ := m4.treeLines()
+	if lines[0] != m4.filterBar() {
+		t.Errorf("la línea 0 debe ser la barra, got %q", lines[0])
+	}
+	if lines[1] != full[0] {
+		t.Errorf("las filas del árbol deben empezar en la línea 1: got %q, want %q", lines[1], full[0])
 	}
 }

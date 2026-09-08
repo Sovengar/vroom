@@ -3,7 +3,8 @@
 // Schema (campos en inglés, campos desconocidos se ignoran):
 //
 //	name            string  requerido
-//	group           string  default ""
+//	primary_group   string  default "" (nivel superior de agrupación)
+//	secondary_group string  default "" (nivel interno; solo con primary_group)
 //	command_start   string  requerido
 //	port            int     default 0 (0 = deshabilitado, si no 1-65535)
 //	process_pattern string  default ""
@@ -30,7 +31,8 @@ const FileName = ".vroom.toml"
 // usan el prefijo command_*; los campos Go conservan nombres cortos.
 type Manifest struct {
 	Name           string `toml:"name"`
-	Group          string `toml:"group"`
+	PrimaryGroup   string `toml:"primary_group"`
+	SecondaryGroup string `toml:"secondary_group"`
 	Command        string `toml:"command_start"`
 	Port           int    `toml:"port"`
 	ProcessPattern string `toml:"process_pattern"`

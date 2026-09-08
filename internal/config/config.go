@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
 )
@@ -55,8 +57,83 @@ type AskConfig struct {
 type Config struct {
 	Ask AskConfig `toml:"ask"`
 
+	// Keybindings mapea nombre de acción → tecla (espec 0008 R45): una
+	// sola rune, ctrl+<rune> o nombre especial (space, home, end…). Se
+	// decodifica FUSIONANDO sobre los defaults, de modo que el usuario
+	// solo overridea lo que cambia.
+	Keybindings map[string]string `toml:"keybindings"`
+
 	// Err acumula el error de parseo, si lo hubo (defaults aplicados).
 	Err error
+}
+
+// defaultKeybindings son las 12 acciones remapeables de la TUI con sus
+// teclas por defecto (espec 0008 R46). Las teclas universales (navegación,
+// especiales) y las permanentes "/" (filter) y "!" (shell futuro) no
+// aparecen: no son remapeables (R47).
+func DefaultKeybindings() map[string]string {
+	return map[string]string{
+		"start_stop": "s",
+		"restart":    "R",
+		"build":      "b",
+		"install":    "i",
+		"tasks":      "t",
+		"ask":        "a",
+		"clear":      "C",
+		"stream":     "c",
+		"top":        "g",
+		"bottom":     "G",
+		"logs":       "l",
+		"refresh":    "r",
+	}
+}
+
+// reservedKeys son las teclas universales de la TUI, no remapeables
+// (espec 0008 R47): navegación, especiales y las permanentes "/" y "!".
+var reservedKeys = map[string]bool{
+	"q": true, "ctrl+c": true, "esc": true, "enter": true, "tab": true,
+	"j": true, "k": true, "up": true, "down": true,
+	"pgup": true, "pgdown": true, "1": true, "2": true,
+	"/": true, "!": true,
+}
+
+// specialKeyNames son los nombres de tecla no imprimible admitidos como
+// valor de un keybinding (espec 0008 R49).
+var specialKeyNames = map[string]bool{
+	"space": true, "home": true, "end": true,
+	"delete": true, "backspace": true, "left": true, "right": true,
+}
+
+// validKey reporta si key tiene el formato admitido (espec 0008 R49): una
+// sola rune, ctrl+<rune> (≠ ctrl+c, reservada) o un nombre especial.
+func validKey(key string) bool {
+	if specialKeyNames[key] {
+		return true
+	}
+	if rest, ok := strings.CutPrefix(key, "ctrl+"); ok {
+		return rest != "c" && utf8.RuneCountInString(rest) == 1
+	}
+	return utf8.RuneCountInString(key) == 1
+}
+
+// KeyFor devuelve la tecla activa para una acción, o su default si la
+// acción no está en el mapa (espec 0008 R45).
+func (c Config) KeyFor(action string) string {
+	if k, ok := c.Keybindings[action]; ok && k != "" {
+		return k
+	}
+	return DefaultKeybindings()[action]
+}
+
+// KeyByAction construye el mapa inverso tecla → acción a partir de los
+// bindings activos (espec 0008 R50). La TUI lo precalcula al arrancar:
+// la resolución por tecla es O(1) y determinista.
+func (c Config) KeyByAction() map[string]string {
+	inv := make(map[string]string, len(c.Keybindings))
+	for action, key := range c.Keybindings {
+		inv[key] = action
+	}
+	return inv
 }
 
 // Defaults devuelve la configuración por defecto.
@@ -69,6 +146,7 @@ func Defaults() Config {
 			Focus:     false,
 			Prompt:    defaultAskPrompt,
 		},
+		Keybindings: DefaultKeybindings(),
 	}
 }
 
@@ -123,6 +201,9 @@ func withDefaults(cfg Config) Config {
 	if cfg.Ask.Prompt == "" {
 		cfg.Ask.Prompt = defaultAskPrompt
 	}
+	if cfg.Keybindings == nil {
+		cfg.Keybindings = DefaultKeybindings()
+	}
 	return cfg
 }
 
@@ -150,6 +231,34 @@ func (c *Config) Validate() error {
 		if a.Cmd == "" {
 			return fmt.Errorf("ask.agents.%s sin cmd", name)
 		}
+	}
+	return validateKeybindings(c.Keybindings)
+}
+
+// validateKeybindings aplica las reglas de [keybindings] (espec 0008
+// R47-R49): acción conocida (los typos no pasan), valor con formato
+// válido, teclas reservadas no remapeables y sin colisiones entre
+// acciones.
+func validateKeybindings(kb map[string]string) error {
+	defaults := DefaultKeybindings()
+	seen := make(map[string]string, len(defaults))
+	for action, key := range kb {
+		if _, ok := defaults[action]; !ok {
+			return fmt.Errorf("keybindings.%s: acción desconocida", action)
+		}
+		if key == "" {
+			return fmt.Errorf("keybindings.%s: tecla vacía", action)
+		}
+		if reservedKeys[key] {
+			return fmt.Errorf("keybindings.%s: %q es tecla reservada (no remapeable)", action, key)
+		}
+		if !validKey(key) {
+			return fmt.Errorf("keybindings.%s: tecla %q inválida (1 rune, ctrl+<rune> o space|home|end|delete|backspace|left|right)", action, key)
+		}
+		if prev, dup := seen[key]; dup {
+			return fmt.Errorf("keybindings: tecla %q duplicada entre %s y %s", key, prev, action)
+		}
+		seen[key] = action
 	}
 	return nil
 }

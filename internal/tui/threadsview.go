@@ -35,7 +35,7 @@ type threadSample struct {
 func (m Model) threadsLines(w, h int) []string {
 	p := m.selected()
 	if p == nil {
-		if m.selectedGroup() != "" { // R24: grupo sin proceso propio
+		if m.onHeader() { // R24 + 0006 R39: nodo sin proceso propio
 			return []string{styleDim.Render(trunc("group selected — pick a service to inspect threads", w))}
 		}
 		return nil

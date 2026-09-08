@@ -136,3 +136,114 @@ func TestPathPriority(t *testing.T) {
 		t.Errorf("Path = %s, %v", p, err)
 	}
 }
+
+// ---- [keybindings] (spec 0008) ----
+
+// R45.1/R46.1: sin [keybindings], las 12 acciones tienen sus defaults.
+func TestKeybindingsDefaults(t *testing.T) {
+	cfg := withConfig(t, "")
+	if cfg.Err != nil {
+		t.Fatalf("Err = %v", cfg.Err)
+	}
+	want := map[string]string{
+		"start_stop": "s", "restart": "R", "build": "b", "install": "i",
+		"tasks": "t", "ask": "a", "clear": "C", "stream": "c",
+		"top": "g", "bottom": "G", "logs": "l", "refresh": "r",
+	}
+	for action, key := range want {
+		if got := cfg.KeyFor(action); got != key {
+			t.Errorf("KeyFor(%q) = %q, want %q", action, got, key)
+		}
+	}
+	inv := cfg.KeyByAction()
+	for action, key := range want {
+		if got := inv[key]; got != action {
+			t.Errorf("KeyByAction[%q] = %q, want %q", key, got, action)
+		}
+	}
+}
+
+// R45.2: override parcial — solo cambia lo declarado, el resto conserva
+// default.
+func TestKeybindingsOverridePartial(t *testing.T) {
+	cfg := withConfig(t, "[keybindings]\nstart_stop = \"x\"\n")
+	if cfg.Err != nil {
+		t.Fatalf("Err = %v", cfg.Err)
+	}
+	if got := cfg.KeyFor("start_stop"); got != "x" {
+		t.Errorf("KeyFor(start_stop) = %q, want x", got)
+	}
+	if got := cfg.KeyFor("build"); got != "b" {
+		t.Errorf("KeyFor(build) = %q, want b (default intacto)", got)
+	}
+	if got := cfg.KeyByAction()["x"]; got != "start_stop" {
+		t.Errorf("KeyByAction[x] = %q, want start_stop", got)
+	}
+}
+
+// R47.1: tecla reservada → config inválida, defaults restaurados.
+func TestKeybindingsReserved(t *testing.T) {
+	cfg := withConfig(t, "[keybindings]\nask = \"q\"\n")
+	if cfg.Err == nil || !strings.Contains(cfg.Err.Error(), "reservada") {
+		t.Errorf("Err = %v, want tecla reservada", cfg.Err)
+	}
+	if got := cfg.KeyFor("ask"); got != "a" {
+		t.Errorf("KeyFor(ask) = %q, want a (default)", got)
+	}
+}
+
+// R48.1: dos acciones con la misma tecla → config inválida.
+func TestKeybindingsCollision(t *testing.T) {
+	cfg := withConfig(t, "[keybindings]\nbuild = \"x\"\ninstall = \"x\"\n")
+	if cfg.Err == nil || !strings.Contains(cfg.Err.Error(), "duplicada") {
+		t.Errorf("Err = %v, want tecla duplicada", cfg.Err)
+	}
+	if cfg.KeyFor("build") != "b" || cfg.KeyFor("install") != "i" {
+		t.Errorf("defaults no restaurados: build=%q install=%q", cfg.KeyFor("build"), cfg.KeyFor("install"))
+	}
+}
+
+// R49: formato de tecla válida e inválida.
+func TestKeybindingsFormat(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr string // "" = válido
+	}{
+		{"rune simple", "z", ""},
+		{"rune mayúscula", "Z", ""},
+		{"especial", "space", ""},
+		{"ctrl otra", "ctrl+k", ""},
+		{"multi rune", "abc", "inválida"},
+		{"vacía", "", "vacía"},
+		{"ctrl+c reservada", "ctrl+c", "reservada"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := withConfig(t, "[keybindings]\nrestart = \""+tt.value+"\"\n")
+			if tt.wantErr == "" {
+				if cfg.Err != nil {
+					t.Errorf("Err = %v, want nil", cfg.Err)
+				}
+				if cfg.KeyFor("restart") != tt.value {
+					t.Errorf("KeyFor(restart) = %q, want %q", cfg.KeyFor("restart"), tt.value)
+				}
+				return
+			}
+			if cfg.Err == nil || !strings.Contains(cfg.Err.Error(), tt.wantErr) {
+				t.Errorf("Err = %v, want %q", cfg.Err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// R49.4: acción desconocida (typo o permanente como filter/shell) →
+// config inválida.
+func TestKeybindingsUnknownAction(t *testing.T) {
+	for _, action := range []string{"filter", "shell", "fiilter"} {
+		cfg := withConfig(t, "[keybindings]\n"+action+" = \"f\"\n")
+		if cfg.Err == nil || !strings.Contains(cfg.Err.Error(), "desconocida") {
+			t.Errorf("acción %q: Err = %v, want desconocida", action, cfg.Err)
+		}
+	}
+}

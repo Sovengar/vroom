@@ -1,5 +1,6 @@
 name = "web-frontend"
-group = "tienda"
+primary_group = "tienda"
+secondary_group = "frontend"
 command_start = "node server.js"
 port = 5173
 process_pattern = ""

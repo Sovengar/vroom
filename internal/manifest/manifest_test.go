@@ -21,7 +21,8 @@ func writeManifest(t *testing.T, content string) string {
 func TestParseValidAppliesDefaults(t *testing.T) {
 	path := writeManifest(t, `
 name = "vsocial-api"
-group = "vsocial"
+primary_group = "vsocial"
+secondary_group = "backend"
 command_start = "go run main.go"
 port = 8080
 process_pattern = "vsocial-api"
@@ -30,7 +31,10 @@ process_pattern = "vsocial-api"
 	if err != nil {
 		t.Fatalf("parse inesperado: %v", err)
 	}
-	if m.Name != "vsocial-api" || m.Group != "vsocial" || m.Command != "go run main.go" {
+	if m.Name != "vsocial-api" || m.PrimaryGroup != "vsocial" || m.SecondaryGroup != "backend" {
+		t.Errorf("campos incorrectos: %+v", m)
+	}
+	if m.Command != "go run main.go" {
 		t.Errorf("campos incorrectos: %+v", m)
 	}
 	if m.Port != 8080 || m.ProcessPattern != "vsocial-api" {
@@ -48,7 +52,7 @@ command_start = "./start.sh"
 	if err != nil {
 		t.Fatalf("parse inesperado: %v", err)
 	}
-	if m.Group != "" || m.Port != 0 || m.ProcessPattern != "" {
+	if m.PrimaryGroup != "" || m.SecondaryGroup != "" || m.Port != 0 || m.ProcessPattern != "" {
 		t.Errorf("defaults no aplicados: %+v", m)
 	}
 }
@@ -105,7 +109,8 @@ func TestParsePortOutOfRange(t *testing.T) {
 func TestParseEmptyOptionals(t *testing.T) {
 	path := writeManifest(t, `
 name = "x"
-group = ""
+primary_group = ""
+secondary_group = ""
 command_start = "y"
 port = 0
 process_pattern = ""
@@ -114,8 +119,25 @@ process_pattern = ""
 	if err != nil {
 		t.Fatalf("parse inesperado: %v", err)
 	}
-	if m.Group != "" || m.Port != 0 || m.ProcessPattern != "" {
+	if m.PrimaryGroup != "" || m.SecondaryGroup != "" || m.Port != 0 || m.ProcessPattern != "" {
 		t.Errorf("opcionales vacíos mal manejados: %+v", m)
+	}
+}
+
+// 0006 S36.2: la clave vieja `group` ya no agrupa (reemplazo duro, sin
+// alias); los campos desconocidos se ignoran.
+func TestParseGroupKeyIgnored(t *testing.T) {
+	path := writeManifest(t, `
+name = "x"
+group = "backend"
+command_start = "y"
+`)
+	m, err := Parse(path)
+	if err != nil {
+		t.Fatalf("la clave vieja group no debe romper el parse: %v", err)
+	}
+	if m.PrimaryGroup != "" || m.SecondaryGroup != "" {
+		t.Errorf("group ya no debe agrupar: %+v", m)
 	}
 }
 

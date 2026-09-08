@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
@@ -133,6 +134,24 @@ type Model struct {
 	askPromptOpen bool
 	promptInput   textarea.Model // multi-línea: alto dinámico + scroll (0005 R35)
 
+	// Keybindings configurables (0008 R50): mapa inverso tecla → acción
+	// precalculado desde la config; la resolución por tecla es O(1) y
+	// determinista.
+	keyActions map[string]string
+
+	// Filtro del árbol con "/" (0007 R40): barra inline en la primera
+	// línea de la columna del árbol; el texto filtra en vivo.
+	filterOpen  bool            // box abierto: captura las teclas
+	filterInput textinput.Model // prompt "/", placeholder "filter…"
+	filterText  string          // texto aplicado ("" = sin filtro)
+
+	// Terminal embebida con "!" (0009 R52): modal con el shell del
+	// usuario en un PTY renderizado por un emulador VT. Ocultar el
+	// modal NO mata la sesión (R56): term apunta a la sesión viva,
+	// termOpen solo controla la vista.
+	termOpen bool         // modal visible: captura las teclas
+	term     *termSession // sesión del shell (nil hasta el primer !)
+
 	bodyH        int // alto de la zona de cuerpo (árbol + panel derecho)
 	rightW       int // ancho del panel derecho
 	contentH     int // alto del contenido de la pestaña (bajo la barra de pestañas)
@@ -161,13 +180,19 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 	ta.ShowLineNumbers = false
 	ta.DynamicHeight = true // crece con el contenido hasta MaxHeight; luego scroll
 	ta.MinHeight = askMinHeight
+	fi := textinput.New()
+	fi.Prompt = "/"
+	fi.Placeholder = "filter…"
+	fi.SetWidth(treeWidth - 4)
 	m := Model{
 		root:           root,
 		store:          store,
 		manager:        manager,
 		cfg:            cfg,
+		keyActions:     cfg.KeyByAction(),
 		askLauncher:    launcher.New(cfg.Ask),
 		promptInput:    ta,
+		filterInput:    fi,
 		services:       make(map[string]*ServiceState, len(projects)),
 		pendingRestart: make(map[string]bool),
 		jobs:           make(map[string]string),
@@ -352,7 +377,6 @@ func startCmd(store *state.Store, manager process.Manager, p scanner.Project) te
 		meta := state.Meta{
 			Name:           p.Manifest.Name,
 			ProjectPath:    p.Path,
-			Group:          p.Manifest.Group,
 			Port:           p.Manifest.Port,
 			ProcessPattern: p.Manifest.ProcessPattern,
 			Command:        p.Manifest.Command,
@@ -556,6 +580,8 @@ func (m Model) View() tea.View {
 		content = overlay(content, m.askBox(), m.width, m.height)
 	} else if m.pickerOpen { // modal de selección centrado (0003 R28)
 		content = overlay(content, m.pickerBox(), m.width, m.height)
+	} else if m.termOpen { // modal de terminal embebida (0009 R52)
+		content = overlay(content, m.termBox(), m.width, m.height)
 	}
 	v := tea.NewView(content)
 	v.AltScreen = true                    // dashboard a pantalla completa (0002 R18)
@@ -581,8 +607,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, cl := m.treeLines()
 			if cl < m.treeTop {
 				m.treeTop = cl
-			} else if cl >= m.treeTop+m.bodyH {
-				m.treeTop = cl - m.bodyH + 1
+			} else if cl >= m.treeTop+m.treeVis() {
+				m.treeTop = cl - m.treeVis() + 1
+			}
+		}
+		// 0009 R55: la terminal embebida sigue las nuevas dimensiones.
+		if s := m.term; s != nil && s.alive() {
+			w, h := m.termW(), m.termH()
+			if cw, ch := s.dims(); cw != w || ch != h {
+				s.resize(w, h)
 			}
 		}
 		return m, m.syncConsoleView()
@@ -686,6 +719,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case ptyDataMsg: // 0009 R54: bytes del shell → emulador; re-arma el loop
+		if s := m.term; s != nil {
+			s.write(msg.data)
+			return m, readPtyCmd(s)
+		}
+		return m, nil
+
+	case ptyEOFMsg: // 0009 R56: el reaper (armado al abrir) hace el cleanup
+		return m, nil
+
+	case ptyExitMsg: // sesión reaped: cleanup + aviso (0009 R56)
+		if s := m.term; s != nil {
+			s.shutdown() // idempotente; desbloquea el read loop si quedó
+			m.termOpen = false
+			if code := exitCode(msg.err); code != 0 {
+				m.notify(fmt.Sprintf("terminal exited (%d)", code))
+			} else {
+				m.notify("terminal closed")
+			}
+			m.term = nil
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
@@ -729,49 +785,46 @@ func mapUIStatus(s process.Status) uiStatus {
 func (m Model) handleKey(msg tea.Msg) (tea.Model, tea.Cmd) {
 	keyMsg := msg.(tea.KeyMsg)
 	key := keyMsg.String()
+	if m.termOpen { // modal de terminal captura las teclas (0009 R54)
+		return m.termKey(keyMsg)
+	}
 	if m.askPromptOpen { // modal del prompt captura las teclas (0004 R32)
 		return m.askKey(keyMsg)
 	}
 	if m.pickerOpen { // modal: el picker captura las teclas (0003 R28)
 		return m.pickerKey(key)
 	}
+	if m.filterOpen { // barra de filtro captura las teclas (0007 R40)
+		return m.filterKey(keyMsg)
+	}
+	// Teclas universales (0008 R47): navegación, especiales y las
+	// permanentes "/" (filter) y "!" (terminal, 0009 R52). No
+	// remapeables.
 	switch key {
 	case "q", "ctrl+c":
-		return m, tea.Quit
+		return m, m.quitCmd()
 	case "esc": // 0004 R30: sin panel que cerrar; esc sale
-		return m, tea.Quit
-	case "i": // 0003 R26: install one-shot
-		return m.runInstall()
-	case "b": // 0003 R26: build one-shot
-		return m.runBuild()
-	case "t": // 0003 R28: picker de tasks de mise
-		return m.openPicker()
-	case "a": // 0004 R32: ask AI (dispatch configurable)
-		return m.openAsk()
-	case "C": // 0004 R31: limpiar la consola en memoria
-		return m.clearConsole()
+		if m.filterText != "" { // 0007 S42.3: con filtro, esc limpia (no sale)
+			return m.applyFilter("")
+		}
+		return m, m.quitCmd()
+	case "!": // 0009 R52: abre/muestra la terminal embebida
+		return m.openTerm()
+	case "/": // 0007 R40: abre el filtro del árbol
+		return m.openFilter()
 	case "enter": // R24: colapsar/expandir el grupo seleccionado
 		return m.enterSelection()
 	case "j", "k", "up", "down": // S12.1 + S18.5
 		return m.navigate(key)
-	case "s":
-		return m.toggleSelected()
-	case "R":
-		return m.restartSelected()
-	case "r": // S22.2: refresh forzado sin cambiar de vista
-		return m, m.refreshBatch()
-	case "1":
-		return m.switchTab(tabConsole)
-	case "2":
-		return m.switchTab(tabThreads)
 	case "tab":
 		if m.activeTab == tabConsole {
 			return m.switchTab(tabThreads)
 		}
 		return m.switchTab(tabConsole)
-	case "c": // S19.3 (antes t): cicla merged → stdout → stderr
-		m.stream = (m.stream + 1) % 3
-		return m, m.syncConsoleView()
+	case "1":
+		return m.switchTab(tabConsole)
+	case "2":
+		return m.switchTab(tabThreads)
 	case "pgup": // S19.4: scroll pausa el follow
 		m.consoleFollow = false
 		m.consoleView.PageUp()
@@ -779,15 +832,42 @@ func (m Model) handleKey(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "pgdown":
 		m.consoleView.PageDown()
 		return m, nil
-	case "g":
+	}
+	// Acciones configurables (0008 R46/R50): tecla → acción vía el mapa
+	// inverso precalculado. Con defaults coincide con el comportamiento
+	// histórico.
+	switch m.keyActions[key] {
+	case "start_stop":
+		return m.toggleSelected()
+	case "restart":
+		return m.restartSelected()
+	case "build": // 0003 R26: build one-shot
+		return m.runBuild()
+	case "install": // 0003 R26: install one-shot
+		return m.runInstall()
+	case "tasks": // 0003 R28: picker de tasks de mise
+		return m.openPicker()
+	case "ask": // 0004 R32: ask AI (dispatch configurable)
+		return m.openAsk()
+	case "clear": // 0004 R31: limpiar la consola en memoria
+		return m.clearConsole()
+	case "stream": // S19.3: cicla merged → stdout → stderr
+		m.stream = (m.stream + 1) % 3
+		return m, m.syncConsoleView()
+	case "top": // S19.4: goto top pausa el follow
 		m.consoleFollow = false
 		m.consoleView.GotoTop()
 		return m, nil
-	case "G": // reactiva el follow (S19.4)
+	case "bottom": // reactiva el follow (S19.4)
 		m.consoleFollow = true
 		m.consoleView.GotoBottom()
 		return m, nil
-	case "l", "o": // S22.1: `l` abre los logs en el editor (o = alias)
+	case "logs": // S22.1: abre los logs en el editor
+		return m.openLogEditor()
+	case "refresh": // S22.2: refresh forzado sin cambiar de vista
+		return m, m.refreshBatch()
+	}
+	if key == "o" { // alias fijo de logs, salvo que el config lo reclame
 		return m.openLogEditor()
 	}
 	return m, nil
@@ -807,7 +887,7 @@ func (m Model) navigate(key string) (tea.Model, tea.Cmd) {
 		m.cursor = (m.cursor - 1 + len(m.tree)) % len(m.tree)
 	}
 	_, cursorLine := m.treeLines()
-	visH := m.bodyH
+	visH := m.treeVis() // 0007 R44: la barra consume una línea del árbol
 	if cursorLine < m.treeTop {
 		m.treeTop = cursorLine
 	} else if cursorLine >= m.treeTop+visH {
@@ -816,15 +896,32 @@ func (m Model) navigate(key string) (tea.Model, tea.Cmd) {
 	return m.onSelect()
 }
 
-// enterSelection es la acción de `enter` (R24): sobre un grupo alterna
-// colapsado/expandido (el header conserva su índice al reconstruir el
-// árbol); sobre un servicio no hace nada.
+// enterSelection es la acción de `enter` (R24 + 0006 R38): sobre un
+// header alterna su propio nivel (primario o secundario); sobre un
+// proyecto pliega el contenedor más interno al que pertenece (su
+// secundario si tiene, si no su primario). El header conserva su índice
+// al reconstruir el árbol.
 func (m Model) enterSelection() (tea.Model, tea.Cmd) {
-	g := m.selectedGroup()
-	if g == "" {
+	it, ok := m.selectedItem()
+	if !ok {
 		return m, nil
 	}
-	m.collapsed[g] = !m.collapsed[g]
+	switch it.kind {
+	case itemPrimary:
+		m.collapsed[it.primary] = !m.collapsed[it.primary]
+	case itemSecondary:
+		key := m.secondaryKey(it.primary, it.secondary)
+		m.collapsed[key] = !m.collapsed[key]
+	case itemProject:
+		if it.secondary != "" {
+			key := m.secondaryKey(it.primary, it.secondary)
+			m.collapsed[key] = !m.collapsed[key]
+		} else if it.primary != "" {
+			m.collapsed[it.primary] = !m.collapsed[it.primary]
+		} else {
+			return m, nil // proyecto inline sin contenedor
+		}
+	}
 	m.tree = m.buildTree()
 	return m, nil
 }
@@ -834,7 +931,7 @@ func (m Model) enterSelection() (tea.Model, tea.Cmd) {
 func (m Model) onSelect() (tea.Model, tea.Cmd) {
 	p := m.selected()
 	if p == nil {
-		if m.selectedGroup() != "" {
+		if m.onHeader() {
 			m.setConsoleContent(groupConsoleHint)
 		}
 		return m, nil
@@ -989,7 +1086,7 @@ func (m Model) syncConsoleView() tea.Cmd {
 	}
 	p := m.selected()
 	if p == nil {
-		if m.selectedGroup() != "" {
+		if m.onHeader() {
 			m.consoleView.SetContent(groupConsoleHint)
 		} else {
 			m.consoleView.SetContent("")
@@ -1010,8 +1107,8 @@ func (m Model) syncConsoleView() tea.Cmd {
 // stop si está corriendo (o unknown). Nunca hace doble start: si el
 // estado es running el toggle SIEMPRE para (S15.1).
 func (m Model) toggleSelected() (tea.Model, tea.Cmd) {
-	if g := m.selectedGroup(); g != "" {
-		return m.toggleGroup(g) // R24: start/stop de todo el grupo
+	if it, ok := m.selectedItem(); ok && (it.kind == itemPrimary || it.kind == itemSecondary) {
+		return m.toggleNode(it.primary, it.secondary) // R24: toggle de todo el nodo
 	}
 	p := m.selected()
 	if p == nil {
@@ -1036,10 +1133,12 @@ func (m Model) toggleSelected() (tea.Model, tea.Cmd) {
 	}
 }
 
-// toggleGroup aplica el toggle contextual a todos los miembros del
-// grupo: si hay parados arranca los parados; si no, para los running.
-func (m Model) toggleGroup(g string) (tea.Model, tea.Cmd) {
-	members := m.groupMembers(g)
+// toggleNode aplica el toggle contextual a los miembros del nodo (R24;
+// 0006 R39): de un primario a todos sus miembros (incluidos los de todos
+// sus secundarios); de un secundario, solo a los suyos. Si hay parados
+// arranca los parados; si no, para los running.
+func (m Model) toggleNode(primary, secondary string) (tea.Model, tea.Cmd) {
+	members := m.nodeMembers(primary, secondary)
 	if len(members) == 0 {
 		return m, nil
 	}
@@ -1068,20 +1167,27 @@ func (m Model) toggleGroup(g string) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// groupMembers devuelve los proyectos del grupo en orden de aparición.
-func (m Model) groupMembers(g string) []scanner.Project {
+// nodeMembers devuelve los proyectos del nodo en orden de aparición:
+// de un primario, todos sus miembros (incluidos los de todos sus
+// secundarios); de un secundario, solo los del par primario/secundario.
+func (m Model) nodeMembers(primary, secondary string) []scanner.Project {
 	var out []scanner.Project
 	for _, e := range m.entries {
-		if e.Group == g {
-			out = append(out, e.Project)
+		if e.Primary != primary {
+			continue
 		}
+		if secondary != "" && e.Secondary != secondary {
+			continue
+		}
+		out = append(out, e.Project)
 	}
 	return out
 }
 
-// groupStats cuenta miembros y servicios en ejecución del grupo (R24).
-func (m Model) groupStats(g string) (running, total int) {
-	for _, p := range m.groupMembers(g) {
+// nodeStats cuenta miembros y servicios en ejecución del nodo (R24);
+// el conteo del primario suma todos sus secundarios (S38.5).
+func (m Model) nodeStats(primary, secondary string) (running, total int) {
+	for _, p := range m.nodeMembers(primary, secondary) {
 		total++
 		if sv := m.services[p.Path]; sv != nil && sv.Status == statusRunning {
 			running++
@@ -1123,7 +1229,7 @@ func manifestStop(p scanner.Project) string {
 func (m Model) openLogEditor() (tea.Model, tea.Cmd) {
 	p := m.selected()
 	if p == nil {
-		if m.selectedGroup() != "" {
+		if m.onHeader() {
 			m.notify("select a service to open its logs")
 		}
 		return m, nil
@@ -1146,7 +1252,7 @@ func (m Model) openLogEditor() (tea.Model, tea.Cmd) {
 func (m Model) runInstall() (tea.Model, tea.Cmd) {
 	p := m.selected()
 	if p == nil {
-		if m.selectedGroup() != "" {
+		if m.onHeader() {
 			m.notify("select a service to run install")
 		}
 		return m, nil
@@ -1166,7 +1272,7 @@ func (m Model) runInstall() (tea.Model, tea.Cmd) {
 func (m Model) runBuild() (tea.Model, tea.Cmd) {
 	p := m.selected()
 	if p == nil {
-		if m.selectedGroup() != "" {
+		if m.onHeader() {
 			m.notify("select a service to run build")
 		}
 		return m, nil
@@ -1202,7 +1308,7 @@ func (m Model) launchJob(kind, command string) (tea.Model, tea.Cmd) {
 func (m Model) openPicker() (tea.Model, tea.Cmd) {
 	p := m.selected()
 	if p == nil {
-		if m.selectedGroup() != "" {
+		if m.onHeader() {
 			m.notify("select a service to pick a task")
 		}
 		return m, nil
@@ -1271,6 +1377,61 @@ func (m Model) pickerKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil // modal: el resto de teclas se ignoran
 }
 
+// ---- Filtro del árbol (spec 0007 R40) ----
+
+// openFilter abre la barra de filtro: conserva el texto ya aplicado para
+// que `/` sirva de "editar el filtro" (S40.4).
+func (m Model) openFilter() (tea.Model, tea.Cmd) {
+	m.filterOpen = true
+	m.filterInput.SetValue(m.filterText)
+	return m, m.filterInput.Focus()
+}
+
+// filterKey maneja las teclas del box abierto: el texto va al input y
+// recalcula el árbol en vivo (S40.3); enter cierra aplicando el filtro
+// actual; esc cierra limpiando (S42.2); ctrl+c sigue saliendo.
+func (m Model) filterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.filterOpen = false
+		m.filterInput.Reset()
+		return m.applyFilter("")
+	case "enter":
+		m.filterOpen = false // S42.1: el filtro ya está aplicado en vivo
+		return m, nil
+	}
+	ni, cmd := m.filterInput.Update(msg)
+	m.filterInput = ni
+	if v := ni.Value(); v != m.filterText { // S40.3: filtrado en vivo
+		next, _ := m.applyFilter(v)
+		m = next.(Model)
+	}
+	return m, cmd
+}
+
+// applyFilter recompone el árbol con los proyectos que matchean q
+// (S41.*): re-ejecuta group.Arrange sobre los filtrados (los headers de
+// grupo solo aparecen con miembros que matchean) y resetea cursor y
+// treeTop (S43.2). q vacío restaura el árbol completo.
+func (m Model) applyFilter(q string) (tea.Model, tea.Cmd) {
+	m.filterText = q
+	projects := m.projects
+	if q != "" {
+		projects = nil
+		for _, p := range m.projects {
+			if filterMatch(p, q) {
+				projects = append(projects, p)
+			}
+		}
+	}
+	m.entries = group.Arrange(projects)
+	m.tree = m.buildTree()
+	m.cursor, m.treeTop = 0, 0
+	return m, nil
+}
+
 // ---- Ask AI (spec 0004 R32) ----
 
 // openAsk inicia el flujo de ask AI sobre el proyecto seleccionado:
@@ -1278,7 +1439,7 @@ func (m Model) pickerKey(key string) (tea.Model, tea.Cmd) {
 func (m Model) openAsk() (tea.Model, tea.Cmd) {
 	p := m.selected()
 	if p == nil {
-		if m.selectedGroup() != "" {
+		if m.onHeader() {
 			m.notify("select a service to ask the AI")
 		}
 		return m, nil
@@ -1435,7 +1596,7 @@ func fileSizeOrZero(path string) int64 {
 func (m Model) clearConsole() (tea.Model, tea.Cmd) {
 	p := m.selected()
 	if p == nil {
-		if m.selectedGroup() != "" {
+		if m.onHeader() {
 			m.notify("select a service to clear its console")
 		}
 		return m, nil
@@ -1455,28 +1616,47 @@ func (m Model) clearConsole() (tea.Model, tea.Cmd) {
 
 // ---- Helpers de selección ----
 
-func (m Model) selected() *scanner.Project {
+// selectedItem devuelve la fila bajo el cursor (ok=false fuera de rango
+// o árbol vacío).
+func (m Model) selectedItem() (treeItem, bool) {
 	if m.cursor < 0 || m.cursor >= len(m.tree) {
-		return nil
+		return treeItem{}, false
 	}
-	it := m.tree[m.cursor]
-	if it.kind != itemProject {
+	return m.tree[m.cursor], true
+}
+
+// selected devuelve el proyecto bajo el cursor (nil si hay un header).
+func (m Model) selected() *scanner.Project {
+	it, ok := m.selectedItem()
+	if !ok || it.kind != itemProject {
 		return nil
 	}
 	p := it.project
 	return &p
 }
 
-// selectedGroup devuelve el grupo bajo el cursor ("" si es un servicio).
-func (m Model) selectedGroup() string {
-	if m.cursor < 0 || m.cursor >= len(m.tree) {
-		return ""
+// onHeader reporta si el cursor está sobre un header de grupo (primario
+// o secundario).
+func (m Model) onHeader() bool {
+	it, ok := m.selectedItem()
+	return ok && (it.kind == itemPrimary || it.kind == itemSecondary)
+}
+
+// selectedNode devuelve el (primary, secondary) del header bajo el
+// cursor; secondary vacío = nodo primario. Ambos "" = sin header.
+func (m Model) selectedNode() (primary, secondary string) {
+	it, ok := m.selectedItem()
+	if !ok || (it.kind != itemPrimary && it.kind != itemSecondary) {
+		return "", ""
 	}
-	it := m.tree[m.cursor]
-	if it.kind != itemGroup {
-		return ""
-	}
-	return it.group
+	return it.primary, it.secondary
+}
+
+// secondaryKey es la clave de plegado de un secundario (0006 R38):
+// compuesta `primario/secundario` para evitar colisión de nombres entre
+// primarios distintos (S38.6).
+func (m Model) secondaryKey(primary, secondary string) string {
+	return primary + "/" + secondary
 }
 
 func (m Model) projectByPath(path string) *scanner.Project {
@@ -1547,11 +1727,51 @@ func padW(s string, w int) string {
 	return s + strings.Repeat(" ", d)
 }
 
-// dashboardHelp devuelve la ayuda que cabe en width: completa, compacta
-// o truncada (responsive).
-func dashboardHelp(width int) string {
-	full := "j/k move · enter collapse · s start/stop · R restart · b build · i install · t tasks · a ask · C clear · 1/2 tabs · c stream · l logfile · r refresh · q quit"
-	compact := "j/k move · s start/stop · a ask · t tasks · C clear · l logfile · q quit"
+// kbKey devuelve la tecla activa de una acción desde kb, con fallback a
+// los defaults (mapa nil o incompleto = defaults).
+func kbKey(kb map[string]string, action string) string {
+	if k := kb[action]; k != "" {
+		return k
+	}
+	return config.DefaultKeybindings()[action]
+}
+
+// helpSeg compone el segmento "key label" de una acción configurable.
+func helpSeg(kb map[string]string, action, label string) string {
+	return kbKey(kb, action) + " " + label
+}
+
+// dashboardHelp deriva la ayuda de los bindings activos (espec 0008 R51):
+// segmentos fijos para las universales y key+label para cada acción
+// configurable en orden canónico. Con defaults reproduce el texto
+// histórico; tras un remap muestra la tecla nueva. Devuelve la variante
+// que cabe en width: completa, compacta o truncada (responsive).
+func dashboardHelp(width int, kb map[string]string) string {
+	full := strings.Join([]string{
+		"j/k move", "/ filter", "enter collapse",
+		helpSeg(kb, "start_stop", "start/stop"),
+		helpSeg(kb, "restart", "restart"),
+		helpSeg(kb, "build", "build"),
+		helpSeg(kb, "install", "install"),
+		helpSeg(kb, "tasks", "tasks"),
+		helpSeg(kb, "ask", "ask"),
+		"! shell", // 0009 R52: terminal embebida, tecla reservada (0008 R47)
+		helpSeg(kb, "clear", "clear"),
+		"1/2 tabs",
+		helpSeg(kb, "stream", "stream"),
+		helpSeg(kb, "logs", "logfile"),
+		helpSeg(kb, "refresh", "refresh"),
+		"q quit",
+	}, " · ")
+	compact := strings.Join([]string{
+		"j/k move", "/ filter",
+		helpSeg(kb, "start_stop", "start/stop"),
+		helpSeg(kb, "ask", "ask"),
+		helpSeg(kb, "tasks", "tasks"),
+		helpSeg(kb, "clear", "clear"),
+		helpSeg(kb, "logs", "logfile"),
+		"q quit",
+	}, " · ")
 	if width <= 0 {
 		width = 80
 	}

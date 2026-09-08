@@ -1,5 +1,5 @@
 name = "inventory-api-python"
-group = ""
+primary_group = "tienda"
 command_start = "python3 app.py"
 port = 8083
 process_pattern = ""

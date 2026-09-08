@@ -32,7 +32,6 @@ const (
 type Meta struct {
 	Name           string `json:"name"`
 	ProjectPath    string `json:"project_path"`
-	Group          string `json:"group"`
 	Port           int    `json:"port"`
 	ProcessPattern string `json:"process_pattern"`
 	Command        string `json:"command"`

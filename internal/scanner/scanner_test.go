@@ -212,22 +212,23 @@ func TestScanIncludesRootItself(t *testing.T) {
 	}
 }
 
-// S18.1: el playground completo se escanea con lenguajes y grupos correctos.
+// 0006 S36.1: el playground completo se escanea con lenguajes y grupos
+// jerárquicos correctos.
 func TestScanPlaygroundFixture(t *testing.T) {
 	projects, err := Scan(filepath.Join("..", "..", "playground"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	want := map[string]struct{ language, group string }{
-		"products-api-java":     {"Java", "tienda"},
-		"orders-api-springboot": {"Java", "tienda"},
-		"billing-api-go":        {"Go", ""},
-		"inventory-api-python":  {"Python", ""},
-		"web-frontend":          {"JavaScript", "tienda"},
-		"search-api-python":     {"Python", ""},
-		"auth-api-go":           {"Go", ""},
-		"nginx-proxy":           {"otro", ""},
+	want := map[string]struct{ language, primary, secondary string }{
+		"products-api-java":     {"Java", "tienda", "backend"},
+		"orders-api-springboot": {"Java", "tienda", "backend"},
+		"billing-api-go":        {"Go", "tienda", "backend"},
+		"inventory-api-python":  {"Python", "tienda", ""},
+		"web-frontend":          {"JavaScript", "tienda", "frontend"},
+		"search-api-python":     {"Python", "servers", "python"},
+		"auth-api-go":           {"Go", "servers", "go"},
+		"nginx-proxy":           {"otro", "infra", ""},
 	}
 	if len(projects) != len(want) {
 		t.Fatalf("esperaba %d proyectos, got %d: %s", len(want), len(projects), projectNames(projects))
@@ -245,8 +246,9 @@ func TestScanPlaygroundFixture(t *testing.T) {
 			t.Errorf("%s: debe estar configurado con manifiesto válido", p.Name)
 			continue
 		}
-		if p.Manifest.Group != w.group {
-			t.Errorf("%s: group = %q, want %q", p.Name, p.Manifest.Group, w.group)
+		if p.Manifest.PrimaryGroup != w.primary || p.Manifest.SecondaryGroup != w.secondary {
+			t.Errorf("%s: groups = %q/%q, want %q/%q", p.Name,
+				p.Manifest.PrimaryGroup, p.Manifest.SecondaryGroup, w.primary, w.secondary)
 		}
 	}
 }

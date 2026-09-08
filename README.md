@@ -65,7 +65,8 @@ Notas:
 
 ```toml
 name = "mi-servicio"
-group = ""                       # vacío = sin agrupar
+primary_group = "tienda"         # nivel superior de agrupación (opcional)
+secondary_group = "backend"      # nivel interno, solo con primary_group (opcional)
 command_start = "go run main.go"
 port = 8080                      # para detección (0 = deshabilitado)
 process_pattern = ""             # patrón pgrep (opcional)
@@ -73,6 +74,12 @@ command_install = "npm install"  # one-shot con la tecla i (opcional)
 command_build = "mise run build" # one-shot con la tecla b (opcional)
 command_stop = "docker stop x"   # parada graciosa con la tecla s (opcional)
 ```
+
+La agrupación es jerárquica: con `primary_group` + `secondary_group` la TUI
+muestra dos niveles de headers plegables (p. ej. `tienda` → `backend`/
+`frontend`); `secondary_group` sin `primary_group` se ignora, y con solo
+`primary_group` los proyectos van directos bajo su header (enter alterna el
+plegado del header o, sobre un proyecto, de su contenedor más interno).
 
 `command_stop` es para servicios donde matar el process group no basta (el
 proceso hijo sobrevive al kill, ej. un contenedor Docker): al pulsar `s`, vroom
@@ -84,6 +91,7 @@ el shutdown de limpieza habitual (SIGTERM → 5s → SIGKILL al PGID).
 | Tecla | Acción |
 |---|---|
 | `j`/`k` o flechas | Navegar el árbol (cíclico, scroll automático) |
+| `/` | **Filter**: barra de filtrado en vivo del árbol (matchea nombre y grupos `primary_group`/`secondary_group`, case-insensitive); `enter` aplica y cierra, `esc` limpia y cierra |
 | `enter` | Colapsar/expandir el grupo seleccionado |
 | `s` | **Start/stop** (toggle contextual; sobre un grupo, a todos sus miembros) |
 | `R` | Restart (stop → start con timeout) |
@@ -101,9 +109,14 @@ Las líneas de log más largas que el panel se envuelven (soft wrap): el conteni
 completo es visible y el color se conserva en las líneas de continuación.
 | `l` | Abrir ambos logs en el editor (`$VISUAL`/`$EDITOR`, default nvim, split vertical) — `o` alias |
 | `r` | Refresh forzado |
-| `q`/`Esc` | Salir (`Esc` cierra primero el prompt/picker) |
+| `q`/`Esc` | Salir (`Esc` cierra primero el prompt/picker; con filtro aplicado, limpia el filtro antes de salir) |
 
 El panel de detalles es fijo: se muestra siempre que hay espacio y no tiene toggle.
+
+Las teclas de las acciones son configurables vía `[keybindings]` (ver
+[configuración global](#configuración-global-ask-ai)); las de navegación y
+especiales (`q`, `Esc`, `enter`, `tab`, `j`/`k`, flechas, `pgup`/`pgdn`,
+`1`/`2`, `/`, `!`) son universales y no se remapean.
 
 ## Configuración global (ask AI)
 
@@ -128,6 +141,25 @@ cmd = "pi {prompt}"
 cmd = "hermes chat -q {prompt}"
 [ask.agents.jcode]
 cmd = "jcode run {prompt}"
+
+# ── Keybindings (0008) ───────────────────────────────────────
+# Mapea nombre de acción → tecla; cualquier acción ausente conserva su
+# default. Remapear sobre una tecla universal, duplicar una tecla entre
+# acciones o usar una acción desconocida invalida la config (defaults
+# + aviso al arrancar). La barra de ayuda refleja lo configurado.
+[keybindings]
+start_stop = "s"  # toggle start/stop (también sobre grupos)
+restart    = "R"  # restart (stop → start)
+build      = "b"  # one-shot build
+install    = "i"  # one-shot install
+tasks      = "t"  # picker de tasks de mise
+ask        = "a"  # ask AI
+clear      = "C"  # limpiar consola en memoria
+stream     = "c"  # modo merged → stdout → stderr
+top        = "g"  # scroll al inicio (pausa el follow)
+bottom     = "G"  # scroll al final (reactiva el follow)
+logs       = "l"  # logs en el editor (alias fijo: o)
+refresh    = "r"  # refresh forzado
 ```
 
 **Cómo abre vroom el agente** (patrón de worktrunk: el binario del agente con el

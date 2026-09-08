@@ -1,5 +1,6 @@
 name = "billing-api-go"
-group = ""
+primary_group = "tienda"
+secondary_group = "backend"
 command_start = "go run main.go"
 port = 8082
 process_pattern = ""

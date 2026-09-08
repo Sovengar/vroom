@@ -18,8 +18,8 @@ const commandColGap = 2
 func (m Model) detailsLines(w int) []string {
 	p := m.selected()
 	if p == nil {
-		if g := m.selectedGroup(); g != "" { // R24: resumen del grupo
-			return m.groupDetailsLines(g, w)
+		if pr, sec := m.selectedNode(); pr != "" { // R24 + 0006 R39: resumen del nodo
+			return m.groupDetailsLines(pr, sec, w)
 		}
 		return []string{styleDim.Render("No project selected")}
 	}
@@ -63,8 +63,14 @@ func (m Model) metaColumn(p scanner.Project, sv *ServiceState, w int) []string {
 	if b := m.branches[p.Path]; b != "" { // R21: rama git
 		row("branch:", b)
 	}
-	if p.Manifest != nil && p.Manifest.Group != "" {
-		row("group:", p.Manifest.Group)
+	if p.Manifest != nil && p.Manifest.PrimaryGroup != "" {
+		// 0006 R39: el compuesto primario/secundario cuando exista
+		// secundario (solo con primario; S39.4).
+		g := p.Manifest.PrimaryGroup
+		if p.Manifest.SecondaryGroup != "" {
+			g += "/" + p.Manifest.SecondaryGroup
+		}
+		row("group:", g)
 	}
 	if p.Manifest != nil && p.Manifest.Port > 0 {
 		row("port:", fmt.Sprintf("%d", p.Manifest.Port))
@@ -133,16 +139,21 @@ func clipLines(lines []string, h, w int) []string {
 	return lines
 }
 
-// groupDetailsLines muestra el resumen del grupo seleccionado (R24):
-// conteo running/total y los miembros con su punto de estado.
-func (m Model) groupDetailsLines(g string, w int) []string {
-	r, n := m.groupStats(g)
-	lines := []string{trunc(fmt.Sprintf("%s (%d/%d)", g, r, n), w)}
+// groupDetailsLines muestra el resumen del nodo seleccionado (R24 +
+// 0006 R39): conteo running/total y los miembros con su punto de estado.
+// El título usa el nombre del secundario si es un nodo secundario.
+func (m Model) groupDetailsLines(primary, secondary string, w int) []string {
+	label := primary
+	if secondary != "" {
+		label = secondary
+	}
+	r, n := m.nodeStats(primary, secondary)
+	lines := []string{trunc(fmt.Sprintf("%s (%d/%d)", label, r, n), w)}
 	lines = append(lines,
 		styleLabel.Render(pad("services:", 10))+fmt.Sprintf("%d", n),
 		styleLabel.Render(pad("running:", 10))+fmt.Sprintf("%d", r),
 	)
-	for _, p := range m.groupMembers(g) {
+	for _, p := range m.nodeMembers(primary, secondary) {
 		lines = append(lines, treeDot(p, m.services[p.Path])+" "+trunc(p.Name, w-3))
 	}
 	return clipLines(lines, detailsHeight, w)

@@ -33,6 +33,9 @@ var (
 	// mismo estilo invertido que la pestaña activa.
 	stylePickerCursor = styleTabActive
 
+	// Cursor de la terminal embebida (0009 R55): bloque invertido.
+	styleTermCursor = lipgloss.NewStyle().Reverse(true)
+
 	// Resaltado de consola estilo IntelliJ: línea con ERROR→rojo vivo,
 	// WARN→amarillo; el ruido (debug/trace, stack traces, [INFO] Maven)
 	// reutiliza styleDim.

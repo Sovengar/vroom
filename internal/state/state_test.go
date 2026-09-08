@@ -60,7 +60,6 @@ func TestMetaRoundtrip(t *testing.T) {
 	want := Meta{
 		Name:           "vsocial-api",
 		ProjectPath:    "/home/user/dev/vsocial",
-		Group:          "vsocial",
 		Port:           8080,
 		ProcessPattern: "vsocial-api",
 		Command:        "go run main.go",
