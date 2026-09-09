@@ -170,10 +170,20 @@ func (m *Model) clearMessage() {
 	m.message, m.messageExpiresAt = "", time.Time{}
 }
 
-// New construye el modelo: escanea el CWD, agrupa y fija estados iniciales.
+// New construye el modelo: escanea root (CWD o config), agrupa y fija estados iniciales.
 func New(store *state.Store, manager process.Manager, root string) Model {
-	projects, err := scanner.Scan(root)
 	cfg := config.Load()
+
+	// Resolver root: si config tiene scanner.root, usarlo; si no, CWD.
+	scanRoot := root
+	if cfg.Scanner.Root != "" {
+		if filepath.IsAbs(cfg.Scanner.Root) {
+			scanRoot = cfg.Scanner.Root
+		} else {
+			scanRoot = filepath.Join(root, cfg.Scanner.Root)
+		}
+	}
+	projects, err := scanner.Scan(scanRoot, cfg.Scanner.Depth)
 	ta := textarea.New()
 	ta.Placeholder = "what should the agent do?"
 	ta.Prompt = "› "
@@ -235,7 +245,7 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 // updateLayout recalcula las dimensiones del dashboard (R18): cuerpo,
 // panel derecho y viewport de consola.
 func (m *Model) updateLayout() {
-	bodyH := m.height - 3 // header + help + línea de mensajes (reservada)
+	bodyH := m.height - 6 // header + separator + 2 help lines + blank + mensajes
 	if bodyH < 3 {
 		bodyH = 3
 	}
@@ -1741,36 +1751,43 @@ func helpSeg(kb map[string]string, action, label string) string {
 	return kbKey(kb, action) + " " + label
 }
 
-// dashboardHelp deriva la ayuda de los bindings activos (espec 0008 R51):
-// segmentos fijos para las universales y key+label para cada acción
-// configurable en orden canónico. Con defaults reproduce el texto
-// histórico; tras un remap muestra la tecla nueva. Devuelve la variante
-// que cabe en width: completa, compacta o truncada (responsive).
-func dashboardHelp(width int, kb map[string]string) string {
-	full := strings.Join([]string{
-		"j/k move", "/ filter", "enter collapse",
+// dashboardHelp1 devuelve la línea de navegación de la ayuda: atajos
+// de teclado, interacción y pestañas. Caben siempre por ser cortos.
+func dashboardHelp1(width int, kb map[string]string) string {
+	line := strings.Join([]string{
+		"j/k move", "/ filter",
+		"shift+click select", "! shell", "q quit",
 		helpSeg(kb, "start_stop", "start/stop"),
 		helpSeg(kb, "restart", "restart"),
 		helpSeg(kb, "build", "build"),
 		helpSeg(kb, "install", "install"),
+	}, " · ")
+	if width <= 0 {
+		width = 80
+	}
+	return trunc(line, width)
+}
+
+// dashboardHelp2 devuelve la línea de acciones de la ayuda (comandos
+// del servicio). En pantallas estrechas omite las menos frecuentes
+// (responsive).
+func dashboardHelp2(width int, kb map[string]string) string {
+	full := strings.Join([]string{
+		"enter collapse",
 		helpSeg(kb, "tasks", "tasks"),
 		helpSeg(kb, "ask", "ask"),
-		"! shell", // 0009 R52: terminal embebida, tecla reservada (0008 R47)
 		helpSeg(kb, "clear", "clear"),
-		"1/2 tabs",
 		helpSeg(kb, "stream", "stream"),
 		helpSeg(kb, "logs", "logfile"),
 		helpSeg(kb, "refresh", "refresh"),
-		"q quit",
+		"1/2 tabs",
 	}, " · ")
 	compact := strings.Join([]string{
-		"j/k move", "/ filter",
 		helpSeg(kb, "start_stop", "start/stop"),
 		helpSeg(kb, "ask", "ask"),
 		helpSeg(kb, "tasks", "tasks"),
 		helpSeg(kb, "clear", "clear"),
 		helpSeg(kb, "logs", "logfile"),
-		"q quit",
 	}, " · ")
 	if width <= 0 {
 		width = 80

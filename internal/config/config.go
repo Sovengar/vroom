@@ -53,14 +53,19 @@ type AskConfig struct {
 	Agents map[string]AgentConfig `toml:"agents"`
 }
 
+// ScannerConfig configura la búsqueda de proyectos.
+type ScannerConfig struct {
+	// Root es la ruta raíz donde buscar .vroom.toml. Vacío = CWD.
+	// Rutas relativas se resuelven相对于 CWD.
+	Root string `toml:"root"`
+	// Depth es la profundidad máxima de recursión (default 4).
+	Depth int `toml:"depth"`
+}
+
 // Config es la configuración global de vroom.
 type Config struct {
-	Ask AskConfig `toml:"ask"`
-
-	// Keybindings mapea nombre de acción → tecla (espec 0008 R45): una
-	// sola rune, ctrl+<rune> o nombre especial (space, home, end…). Se
-	// decodifica FUSIONANDO sobre los defaults, de modo que el usuario
-	// solo overridea lo que cambia.
+	Ask      AskConfig         `toml:"ask"`
+	Scanner  ScannerConfig     `toml:"scanner"`
 	Keybindings map[string]string `toml:"keybindings"`
 
 	// Err acumula el error de parseo, si lo hubo (defaults aplicados).
@@ -146,6 +151,9 @@ func Defaults() Config {
 			Focus:     false,
 			Prompt:    defaultAskPrompt,
 		},
+		Scanner: ScannerConfig{
+			Depth: 4,
+		},
 		Keybindings: DefaultKeybindings(),
 	}
 }
@@ -200,6 +208,9 @@ func withDefaults(cfg Config) Config {
 	}
 	if cfg.Ask.Prompt == "" {
 		cfg.Ask.Prompt = defaultAskPrompt
+	}
+	if cfg.Scanner.Depth <= 0 {
+		cfg.Scanner.Depth = 4
 	}
 	if cfg.Keybindings == nil {
 		cfg.Keybindings = DefaultKeybindings()

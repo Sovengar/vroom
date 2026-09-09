@@ -51,7 +51,7 @@ func TestScanDetectsVroomTomlProject(t *testing.T) {
 	tr := newTree(t).
 		mkdir("myapp").
 		file("myapp/.vroom.toml", "name = \"myapp\"\ncommand_start = \"go run main.go\"\n")
-	projects, err := Scan(tr.path())
+	projects, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestScanIgnoresDirsWithoutManifest(t *testing.T) {
 		mkdir("no-manifest").
 		mkdir("another").
 		file("no-manifest/go.mod", "module nope\n")
-	projects, err := Scan(tr.path())
+	projects, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,8 +82,8 @@ func TestScanIgnoresDirsWithoutManifest(t *testing.T) {
 // Depth 2 con .vroom.toml se detecta
 func TestScanDepth2(t *testing.T) {
 	tr := newTree(t).
-		file("a/b/.vroom.toml", "name = \"deep\"\ncommand_start = \"echo hi\"\n")
-	projects, err := Scan(tr.path())
+		file("a/b/.vroom.toml", "name = \"b\"\ncommand_start = \"echo hi\"\n")
+	projects, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,16 +92,29 @@ func TestScanDepth2(t *testing.T) {
 	}
 }
 
-// Depth 3 se ignora
-func TestScanIgnoresDepth3(t *testing.T) {
+// Depth 3 se ignora con depth=2
+func TestScanDepth3IgnoredWithDepth2(t *testing.T) {
 	tr := newTree(t).
 		file("a/b/c/.vroom.toml", "name = \"too-deep\"\ncommand_start = \"echo\"\n")
-	projects, err := Scan(tr.path())
+	projects, err := Scan(tr.path(), 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(projects) != 0 {
-		t.Errorf("proyecto a depth 3 debe ignorarse, got %+v", projects)
+		t.Errorf("proyecto a depth 3 debe ignorarse con depth=2, got %+v", projects)
+	}
+}
+
+// Depth 3 se detecta con depth=4
+func TestScanDepth3DetectedWithDepth4(t *testing.T) {
+	tr := newTree(t).
+		file("a/b/c/.vroom.toml", "name = \"c\"\ncommand_start = \"echo\"\n")
+	projects, err := Scan(tr.path(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Name != "c" {
+		t.Errorf("proyecto a depth 3 debe detectarse con depth=4, got %+v", projects)
 	}
 }
 
@@ -109,7 +122,7 @@ func TestScanIgnoresDepth3(t *testing.T) {
 func TestScanMalformedManifest(t *testing.T) {
 	tr := newTree(t).
 		file("broken/.vroom.toml", "name = [toml roto")
-	projects, err := Scan(tr.path())
+	projects, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +143,7 @@ func TestScanSkipsHiddenDirs(t *testing.T) {
 	tr := newTree(t).
 		file(".hidden/.vroom.toml", "name = \"h\"\ncommand_start = \"echo\"\n").
 		file("real/.vroom.toml", "name = \"real\"\ncommand_start = \"echo\"\n")
-	projects, err := Scan(tr.path())
+	projects, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +157,7 @@ func TestScanSortsByPath(t *testing.T) {
 	tr := newTree(t).
 		file("zebra/.vroom.toml", "name = \"zebra\"\ncommand_start = \"echo z\"\n").
 		file("alpha/.vroom.toml", "name = \"alpha\"\ncommand_start = \"echo a\"\n")
-	projects, err := Scan(tr.path())
+	projects, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +173,7 @@ func TestScanSortsByPath(t *testing.T) {
 func TestScanManifestWithGroups(t *testing.T) {
 	tr := newTree(t).
 		file("api/.vroom.toml", "name = \"api\"\nprimary_group = \"tienda\"\nsecondary_group = \"backend\"\ncommand_start = \"go run .\"\nport = 8080\n")
-	projects, err := Scan(tr.path())
+	projects, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,9 +192,9 @@ func TestScanManifestWithGroups(t *testing.T) {
 	}
 }
 
-// El playground completo se escanea
+// El playground completo se escanea (depth=2 desde playground/)
 func TestScanPlaygroundFixture(t *testing.T) {
-	projects, err := Scan(filepath.Join("..", "..", "playground"))
+	projects, err := Scan(filepath.Join("..", "..", "playground"), 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,6 +205,20 @@ func TestScanPlaygroundFixture(t *testing.T) {
 		if !p.Configured || p.Manifest == nil {
 			t.Errorf("%s: debe estar configurado", p.Name)
 		}
+	}
+}
+
+// fd fallback: si fd no está, usa WalkDir
+func TestScanWalkFallback(t *testing.T) {
+	// Este test siempre pasa porque Scan elige fd o WalkDir automáticamente
+	tr := newTree(t).
+		file("proj/.vroom.toml", "name = \"proj\"\ncommand_start = \"echo\"\n")
+	projects, err := Scan(tr.path(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 {
+		t.Errorf("esperaba 1 proyecto, got %+v", projects)
 	}
 }
 
