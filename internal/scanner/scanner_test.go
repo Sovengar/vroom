@@ -3,7 +3,6 @@ package scanner
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -46,9 +45,11 @@ func find(projects []Project, name string) *Project {
 	return nil
 }
 
-// S2.1
-func TestScanDetectsGoProjectByMarker(t *testing.T) {
-	tr := newTree(t).file("myapp/go.mod", "module myapp\n")
+// Solo se detectan proyectos con .vroom.toml
+func TestScanDetectsVroomTomlProject(t *testing.T) {
+	tr := newTree(t).
+		mkdir("myapp").
+		file("myapp/.vroom.toml", "name = \"myapp\"\ncommand_start = \"go run main.go\"\n")
 	projects, err := Scan(tr.path())
 	if err != nil {
 		t.Fatal(err)
@@ -57,134 +58,30 @@ func TestScanDetectsGoProjectByMarker(t *testing.T) {
 	if p == nil {
 		t.Fatalf("proyecto myapp no detectado: %+v", projects)
 	}
-	if p.Language != "Go" {
-		t.Errorf("language = %q, want Go", p.Language)
-	}
-	if p.Configured {
-		t.Error("proyecto sin manifiesto debe estar sin configurar")
+	if !p.Configured {
+		t.Error("proyecto con manifiesto válido debe estar configurado")
 	}
 }
 
-// S2.2
-func TestScanIgnoresDepth3(t *testing.T) {
-	tr := newTree(t).file("a/b/c/go.mod", "module deep\n")
+// Directorio sin .vroom.toml NO es proyecto
+func TestScanIgnoresDirsWithoutManifest(t *testing.T) {
+	tr := newTree(t).
+		mkdir("no-manifest").
+		mkdir("another").
+		file("no-manifest/go.mod", "module nope\n")
 	projects, err := Scan(tr.path())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(projects) != 0 {
-		t.Errorf("proyecto a 3 niveles debe ignorarse, got %+v", projects)
+		t.Errorf("debe ignorar dirs sin .vroom.toml, got %+v", projects)
 	}
 }
 
-func TestScanDetectsDepth2(t *testing.T) {
-	tr := newTree(t).file("a/b/go.mod", "module ok\n")
-	projects, err := Scan(tr.path())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(projects) != 1 || projects[0].Language != "Go" {
-		t.Errorf("proyecto a 2 niveles debe detectarse, got %+v", projects)
-	}
-}
-
-// S2.3 + nginx-proxy: manifiesto sin marcador → "otro".
-func TestScanManifestOnlyIsOtro(t *testing.T) {
-	tr := newTree(t).
-		mkdir("nginx-proxy").
-		file("nginx-proxy/.vroom.toml", "name = \"nginx-proxy\"\ncommand_start = \"docker run --rm -p 8080:80 nginx:alpine\"\nport = 8080\n")
-	projects, err := Scan(tr.path())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(projects) != 1 {
-		t.Fatalf("esperaba 1 proyecto, got %+v", projects)
-	}
-	if projects[0].Language != "otro" {
-		t.Errorf("language = %q, want otro", projects[0].Language)
-	}
-	if !projects[0].Configured {
-		t.Error("proyecto con manifiesto válido debe estar configurado")
-	}
-}
-
-// S3.1: go.mod y package.json en el mismo dir → Go (orden de tabla).
-func TestScanDuplicateMarkerPriority(t *testing.T) {
-	tr := newTree(t).
-		file("mixed/go.mod", "module m\n").
-		file("mixed/package.json", "{}")
-	projects, err := Scan(tr.path())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(projects) != 1 || projects[0].Language != "Go" {
-		t.Errorf("language = %+v, want Go (primer marcador en orden de tabla)", projects)
-	}
-}
-
-func TestScanAllMarkerLanguages(t *testing.T) {
-	tests := []struct {
-		marker   string
-		language string
-	}{
-		{"pom.xml", "Java"},
-		{"build.gradle", "Java"},
-		{"build.gradle.kts", "Java"},
-		{"package.json", "JavaScript"},
-		{"pyproject.toml", "Python"},
-		{"requirements.txt", "Python"},
-		{"Cargo.toml", "Rust"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.marker, func(t *testing.T) {
-			tr := newTree(t).file("proj/"+tt.marker, "")
-			projects, err := Scan(tr.path())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(projects) != 1 || projects[0].Language != tt.language {
-				t.Errorf("marker %s: got %+v, want %s", tt.marker, projects, tt.language)
-			}
-		})
-	}
-}
-
-// Directorio sin marcador ni manifiesto NO es proyecto (S18.1 requiere
-// que apps/, servers/, infra/ no aparezcan).
-func TestScanSkipsMarkerlessDirs(t *testing.T) {
-	tr := newTree(t).
-		mkdir("apps").
-		mkdir("servers").
-		mkdir("infra").
-		file("apps/api/go.mod", "module api\n")
-	projects, err := Scan(tr.path())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(projects) != 1 || projects[0].Name != "api" {
-		t.Errorf("solo apps/api debe aparecer, got %+v", projects)
-	}
-}
-
-func TestScanSkipsHiddenAndJunkDirs(t *testing.T) {
-	tr := newTree(t).
-		file(".hidden/go.mod", "module h\n").
-		file("node_modules/pkg/package.json", "{}").
-		file("real/go.mod", "module r\n")
-	projects, err := Scan(tr.path())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(projects) != 1 || projects[0].Name != "real" {
-		t.Errorf("ocultos y node_modules deben saltarse, got %+v", projects)
-	}
-}
-
-// S-T1
+// Manifiesto malformado sigue visible pero no marcado como configurado
 func TestScanMalformedManifest(t *testing.T) {
 	tr := newTree(t).
-		file("broken/.vroom.toml", "name = [toml roto").
-		file("broken/go.mod", "module broken\n")
+		file("broken/.vroom.toml", "name = [toml roto")
 	projects, err := Scan(tr.path())
 	if err != nil {
 		t.Fatal(err)
@@ -201,62 +98,80 @@ func TestScanMalformedManifest(t *testing.T) {
 	}
 }
 
-func TestScanIncludesRootItself(t *testing.T) {
-	tr := newTree(t).file("go.mod", "module root\n")
+// No recursión: subdirectorio con .vroom.toml a profundidad > 1 se ignora
+func TestScanNoRecursion(t *testing.T) {
+	tr := newTree(t).
+		file("a/b/.vroom.toml", "name = \"deep\"\ncommand_start = \"echo hi\"\n")
 	projects, err := Scan(tr.path())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(projects) != 1 || projects[0].Path != tr.path() {
-		t.Errorf("el CWD con marcador debe listarse, got %+v", projects)
+	if len(projects) != 0 {
+		t.Errorf("subdirectorio profundo sin recursión debe ignorarse, got %+v", projects)
 	}
 }
 
-// 0006 S36.1: el playground completo se escanea con lenguajes y grupos
-// jerárquicos correctos.
-func TestScanPlaygroundFixture(t *testing.T) {
-	projects, err := Scan(filepath.Join("..", "..", "playground"))
+// Solo subdirectorio inmediato: un proyecto a depth 1 se detecta
+func TestScanImmediateChildOnly(t *testing.T) {
+	tr := newTree(t).
+		file("proj/.vroom.toml", "name = \"proj\"\ncommand_start = \"echo ok\"\n")
+	projects, err := Scan(tr.path())
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	want := map[string]struct{ language, primary, secondary string }{
-		"products-api-java":     {"Java", "tienda", "backend"},
-		"orders-api-springboot": {"Java", "tienda", "backend"},
-		"billing-api-go":        {"Go", "tienda", "backend"},
-		"inventory-api-python":  {"Python", "tienda", ""},
-		"web-frontend":          {"JavaScript", "tienda", "frontend"},
-		"search-api-python":     {"Python", "servers", "python"},
-		"auth-api-go":           {"Go", "servers", "go"},
-		"nginx-proxy":           {"otro", "infra", ""},
-	}
-	if len(projects) != len(want) {
-		t.Fatalf("esperaba %d proyectos, got %d: %s", len(want), len(projects), projectNames(projects))
-	}
-	for _, p := range projects {
-		w, ok := want[p.Name]
-		if !ok {
-			t.Errorf("proyecto inesperado: %s", p.Name)
-			continue
-		}
-		if p.Language != w.language {
-			t.Errorf("%s: language = %q, want %q", p.Name, p.Language, w.language)
-		}
-		if !p.Configured || p.Manifest == nil {
-			t.Errorf("%s: debe estar configurado con manifiesto válido", p.Name)
-			continue
-		}
-		if p.Manifest.PrimaryGroup != w.primary || p.Manifest.SecondaryGroup != w.secondary {
-			t.Errorf("%s: groups = %q/%q, want %q/%q", p.Name,
-				p.Manifest.PrimaryGroup, p.Manifest.SecondaryGroup, w.primary, w.secondary)
-		}
+	if len(projects) != 1 || projects[0].Name != "proj" {
+		t.Errorf("esperaba proyecto proj, got %+v", projects)
 	}
 }
 
-func projectNames(projects []Project) string {
-	var names []string
-	for _, p := range projects {
-		names = append(names, p.Name)
+// El root mismo sin .vroom.toml no se lista como proyecto
+func TestScanRootWithoutManifest(t *testing.T) {
+	tr := newTree(t)
+	projects, err := Scan(tr.path())
+	if err != nil {
+		t.Fatal(err)
 	}
-	return strings.Join(names, ", ")
+	if len(projects) != 0 {
+		t.Errorf("CWD sin .vroom.toml no debe listarse, got %+v", projects)
+	}
+}
+
+// Orden por ruta
+func TestScanSortsByPath(t *testing.T) {
+	tr := newTree(t).
+		file("zebra/.vroom.toml", "name = \"zebra\"\ncommand_start = \"echo z\"\n").
+		file("alpha/.vroom.toml", "name = \"alpha\"\ncommand_start = \"echo a\"\n")
+	projects, err := Scan(tr.path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 2 {
+		t.Fatalf("esperaba 2 proyectos, got %d", len(projects))
+	}
+	if projects[0].Name != "alpha" || projects[1].Name != "zebra" {
+		t.Errorf("orden inesperado: %s, %s", projects[0].Name, projects[1].Name)
+	}
+}
+
+// Manifiesto con grupos
+func TestScanManifestWithGroups(t *testing.T) {
+	tr := newTree(t).
+		file("api/.vroom.toml", "name = \"api\"\nprimary_group = \"tienda\"\nsecondary_group = \"backend\"\ncommand_start = \"go run .\"\nport = 8080\n")
+	projects, err := Scan(tr.path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 {
+		t.Fatalf("esperaba 1 proyecto, got %+v", projects)
+	}
+	p := projects[0]
+	if !p.Configured || p.Manifest == nil {
+		t.Error("debe estar configurado")
+	}
+	if p.Manifest.PrimaryGroup != "tienda" || p.Manifest.SecondaryGroup != "backend" {
+		t.Errorf("groups = %q/%q, want tienda/backend", p.Manifest.PrimaryGroup, p.Manifest.SecondaryGroup)
+	}
+	if p.Manifest.Port != 8080 {
+		t.Errorf("port = %d, want 8080", p.Manifest.Port)
+	}
 }

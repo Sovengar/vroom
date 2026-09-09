@@ -12,9 +12,8 @@ import (
 // sin manifiesto. Un secondary sin primary se permite (se ignora, S36.3).
 func proj(name, primary, secondary string) scanner.Project {
 	p := scanner.Project{
-		Path:     "/home/user/dev/" + name,
-		Name:     name,
-		Language: "Go",
+		Path: "/home/user/dev/" + name,
+		Name: name,
 	}
 	if primary == "" && secondary == "" {
 		return p // sin manifiesto

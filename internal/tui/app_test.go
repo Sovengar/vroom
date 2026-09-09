@@ -131,6 +131,7 @@ func writeTestTree(t *testing.T, jobs bool) string {
 		writeFile("tienda-web/mise.toml", "[tasks.build]\ndescription = \"build the web\"\nrun = \"echo mise-build\"\n\n[tasks.test]\nrun = \"echo mise-test\"\n\n[tasks.hidden]\nhide = true\n")
 	}
 	writeFile("suelto/go.mod", "module suelto\n")
+	writeFile("suelto/.vroom.toml", "name = \"suelto\"\ncommand_start = \"go run suelto\"\n")
 	return root
 }
 
@@ -232,20 +233,6 @@ func TestNavigationCyclic(t *testing.T) {
 	m, _ = press(m, "up")
 	if m.cursor != len(m.tree)-1 {
 		t.Errorf("up/down deben comportarse como j/k; cursor = %d", m.cursor)
-	}
-}
-
-// S11.2: toggle en proyecto sin manifiesto → mensaje, sin acción.
-func TestToggleDisabledWithoutManifest(t *testing.T) {
-	m, _ := newTestModel(t)
-	m = moveCursorTo(t, m, "suelto")
-
-	m2, cmd := press(m, "s")
-	if cmd != nil {
-		t.Error("no debe emitirse ningún comando sin manifiesto")
-	}
-	if !strings.Contains(m2.message, "No manifest") {
-		t.Errorf("mensaje = %q, want mención de 'No manifest'", m2.message)
 	}
 }
 
@@ -539,12 +526,15 @@ func TestTreeAutoScroll(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.WriteFile(filepath.Join(dir, ".vroom.toml"), []byte("name = \"svc"+string(rune('a'+i))+"\"\ncommand_start = \"echo\"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	m := New(state.NewStoreAt(t.TempDir()), &stubManager{}, root)
-	m.width, m.height = 100, 10 // bodyH = 7
+	m.width, m.height = 100, 10 // bodyH = 5
 	m.updateLayout()
-	if m.bodyH != 7 {
-		t.Fatalf("bodyH = %d, want 7", m.bodyH)
+	if m.bodyH != 5 {
+		t.Fatalf("bodyH = %d, want 5", m.bodyH)
 	}
 
 	m.cursor = len(m.entries) - 1
@@ -588,7 +578,7 @@ func TestRenderDashboard(t *testing.T) {
 		}
 	}
 	// El panel de detalles (abierto por defecto) muestra los campos base.
-	for _, want := range []string{"language:", "branch:", "main", "start:"} {
+	for _, want := range []string{"branch:", "main", "start:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("el panel de detalles no contiene %q", want)
 		}
@@ -905,7 +895,7 @@ func TestThreadsPlaceholderNotRunning(t *testing.T) {
 	}
 	m = moveCursorTo(t, m, "suelto")
 	lines = m.threadsLines(m.rightW, m.contentH)
-	if len(lines) != 1 || !strings.Contains(lines[0], "No manifest") {
+	if len(lines) != 1 || !strings.Contains(lines[0], "service not running") {
 		t.Errorf("lines = %v", lines)
 	}
 }
@@ -973,23 +963,23 @@ func TestThreadsSamplingError(t *testing.T) {
 
 // Help responsive: completa en ancho amplio, compacta y truncada en estrecho.
 func TestHelpResponsive(t *testing.T) {
-	full := dashboardHelp(200, nil) // nil = defaults
-	if !strings.Contains(full, "start/stop") || !strings.Contains(full, "refresh") {
-		t.Errorf("help completa inesperada: %q", full)
+	full2 := dashboardHelp2(200, nil) // nil = defaults
+	if !strings.Contains(full2, "start/stop") || !strings.Contains(full2, "refresh") {
+		t.Errorf("help2 completa inesperada: %q", full2)
 	}
-	narrow := dashboardHelp(40, nil)
-	if strings.Contains(narrow, "refresh") {
-		t.Errorf("en estrecho no debe caber refresh: %q", narrow)
+	narrow2 := dashboardHelp2(40, nil)
+	if strings.Contains(narrow2, "refresh") {
+		t.Errorf("en estrecho no debe caber refresh: %q", narrow2)
 	}
-	if utf8.RuneCountInString(narrow) > 40 {
-		t.Errorf("help no truncada al ancho: %d runes", utf8.RuneCountInString(narrow))
+	if utf8.RuneCountInString(narrow2) > 40 {
+		t.Errorf("help2 no truncada al ancho: %d runes", utf8.RuneCountInString(narrow2))
 	}
 }
 
 // El badge muestra el puerto junto a running/unknown.
 func TestBadgeShowsPort(t *testing.T) {
 	p := scanner.Project{
-		Path: "/tmp/x", Name: "x", Language: "Go",
+		Path: "/tmp/x", Name: "x",
 		Configured: true,
 		Manifest:   &manifest.Manifest{Name: "x", Command: "run", Port: 8081},
 	}
@@ -1006,7 +996,7 @@ func TestBadgeShowsPort(t *testing.T) {
 		t.Errorf("badge stopped no debe mostrar puerto: %q", badge)
 	}
 	// Sin manifiesto: nunca puerto
-	p2 := scanner.Project{Path: "/tmp/y", Name: "y", Language: "Go"}
+	p2 := scanner.Project{Path: "/tmp/y", Name: "y"}
 	if badge := statusBadge(p2, &ServiceState{Status: statusUnconfigured}); strings.Contains(badge, ":") {
 		t.Errorf("badge unconfigured con puerto: %q", badge)
 	}
@@ -1076,7 +1066,7 @@ func TestResolveEditor(t *testing.T) {
 // La ayuda menciona `l logfile`, las pestañas, el colapso de grupos y
 // las acciones de 0003/0004; `d` (toggle) desapareció.
 func TestHelpWording(t *testing.T) {
-	full := dashboardHelp(200, nil) // nil = defaults
+	full := dashboardHelp1(200, nil) + " · " + dashboardHelp2(200, nil) // nil = defaults
 	for _, want := range []string{"l logfile", "1/2 tabs", "enter collapse", "b build", "i install", "t tasks", "a ask", "C clear", "/ filter", "! shell"} {
 		if !strings.Contains(full, want) {
 			t.Errorf("help sin %q: %q", want, full)
@@ -1093,21 +1083,25 @@ func TestHelpWording(t *testing.T) {
 // histórico más el segmento de la terminal embebida, y las teclas
 // disparan sus acciones (los tests existentes lo cubren uno a uno).
 func TestHelpDefaultsDerived(t *testing.T) {
-	want := "j/k move · / filter · enter collapse · s start/stop · R restart · b build · i install · t tasks · a ask · ! shell · C clear · 1/2 tabs · c stream · l logfile · r refresh · q quit"
-	if got := dashboardHelp(200, nil); got != want {
-		t.Errorf("help defaults = %q, want %q", got, want)
+	want1 := "j/k move · / filter · enter collapse · 1/2 tabs · shift+click select · q quit"
+	want2 := "s start/stop · R restart · b build · i install · t tasks · a ask · ! shell · C clear · c stream · l logfile · r refresh"
+	if got := dashboardHelp1(200, nil); got != want1 {
+		t.Errorf("help1 defaults = %q, want %q", got, want1)
+	}
+	if got := dashboardHelp2(200, nil); got != want2 {
+		t.Errorf("help2 defaults = %q, want %q", got, want2)
 	}
 }
 
 // R51.2: la help refleja un remap (x start/stop, no s start/stop).
 func TestHelpRemapped(t *testing.T) {
 	kb := map[string]string{"start_stop": "x"}
-	full := dashboardHelp(200, kb)
-	if !strings.Contains(full, "x start/stop") {
-		t.Errorf("help sin x start/stop: %q", full)
+	full2 := dashboardHelp2(200, kb)
+	if !strings.Contains(full2, "x start/stop") {
+		t.Errorf("help2 sin x start/stop: %q", full2)
 	}
-	if strings.Contains(full, "s start/stop") {
-		t.Errorf("help aún menciona s start/stop: %q", full)
+	if strings.Contains(full2, "s start/stop") {
+		t.Errorf("help2 aún menciona s start/stop: %q", full2)
 	}
 }
 
@@ -1200,9 +1194,9 @@ func TestLogsAliasFixed(t *testing.T) {
 
 	// "o" reclamada por el config: dispara la acción configurada.
 	m3, _ := newTestModelWithConfig(t, "[keybindings]\ninstall = \"o\"\n")
-	m3 = moveCursorTo(t, m3, "suelto") // unconfigured → notify de manifiesto
+	m3 = moveCursorTo(t, m3, "suelto") // tiene manifest sin command_install
 	m4, _ := press(m3, "o")
-	if !strings.Contains(m4.message, "No manifest") {
+	if !strings.Contains(m4.message, "no install command") {
 		t.Errorf("o reclamada por install debe disparar install: msg=%q", m4.message)
 	}
 }
@@ -1706,8 +1700,8 @@ func TestJobsGuards(t *testing.T) {
 	m3, _ := newJobsTestModel(t)
 	m3 = moveCursorTo(t, m3, "suelto")
 	m4, cmd2 := press(m3, "i")
-	if cmd2 != nil || !strings.Contains(m4.message, "No manifest") {
-		t.Errorf("i sobre unconfigured: cmd=%v msg=%q", cmd2, m4.message)
+	if cmd2 != nil || !strings.Contains(m4.message, "no install command") {
+		t.Errorf("i sobre suelto (sin install): cmd=%v msg=%q", cmd2, m4.message)
 	}
 }
 
@@ -1816,8 +1810,8 @@ func TestPickerGuards(t *testing.T) {
 	m3, _ := newJobsTestModel(t)
 	m3 = moveCursorTo(t, m3, "suelto")
 	m4, _ := press(m3, "t")
-	if m4.pickerOpen || !strings.Contains(m4.message, "No manifest") {
-		t.Errorf("unconfigured: open=%v msg=%q", m4.pickerOpen, m4.message)
+	if m4.pickerOpen || !strings.Contains(m4.message, "no mise.toml") {
+		t.Errorf("suelto sin mise.toml: open=%v msg=%q", m4.pickerOpen, m4.message)
 	}
 }
 
@@ -1895,8 +1889,8 @@ func TestClearConsoleGuards(t *testing.T) {
 	m3, _ := newTestModel(t)
 	m3 = moveCursorTo(t, m3, "suelto")
 	m4, _ := press(m3, "C")
-	if !strings.Contains(m4.message, "No manifest") {
-		t.Errorf("C sobre unconfigured: msg=%q", m4.message)
+	if !strings.Contains(m4.message, "console cleared") {
+		t.Errorf("C sobre suelto (con manifest): msg=%q", m4.message)
 	}
 }
 

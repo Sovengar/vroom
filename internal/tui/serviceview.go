@@ -59,7 +59,6 @@ func (m Model) metaColumn(p scanner.Project, sv *ServiceState, w int) []string {
 		lines = append(lines, styleLabel.Render(pad(label, 10))+truncTail(value, valueW))
 	}
 	row("path:", p.Path)
-	row("language:", p.Language)
 	if b := m.branches[p.Path]; b != "" { // R21: rama git
 		row("branch:", b)
 	}
