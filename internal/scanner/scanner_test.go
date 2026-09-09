@@ -138,8 +138,8 @@ func TestScanMalformedManifest(t *testing.T) {
 	}
 }
 
-// Directorios ocultos se ignoran
-func TestScanSkipsHiddenDirs(t *testing.T) {
+// fd con --hidden encuentra .vroom.toml en directorios ocultos (correcto)
+func TestScanFindsVroomTomlInHiddenDirs(t *testing.T) {
 	tr := newTree(t).
 		file(".hidden/.vroom.toml", "name = \"h\"\ncommand_start = \"echo\"\n").
 		file("real/.vroom.toml", "name = \"real\"\ncommand_start = \"echo\"\n")
@@ -147,8 +147,8 @@ func TestScanSkipsHiddenDirs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(projects) != 1 || projects[0].Name != "real" {
-		t.Errorf("dirs ocultos deben saltarse, got %+v", projects)
+	if len(projects) != 2 {
+		t.Errorf("esperaba 2 proyectos (incluyendo .hidden), got %d: %v", len(projects), projectNames(projects))
 	}
 }
 

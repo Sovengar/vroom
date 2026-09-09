@@ -1,11 +1,10 @@
 # vroom
 
 TUI en Go + Bubbletea para gestionar servicios de múltiples proyectos desde un solo punto.
-Escanea el directorio actual (2 niveles de recursividad), detecta proyectos por marcadores
-de lenguaje (`pom.xml`, `go.mod`, `package.json`, `pyproject.toml`, `requirements.txt`,
-`Cargo.toml`), y permite iniciar/detener servicios daemonizados que **sobreviven al cierre
-de la terminal**, con consola en tiempo real y detección de estado (PID + puerto + patrón
-de proceso).
+Usa [fd](https://github.com/sharkdp/fd) para buscar rápidamente `.vroom.toml` en el
+árbol de directorios (profundidad configurable). Permite iniciar/detener servicios
+daemonizados que **sobreviven al cierre de la terminal**, con consola en tiempo real
+y detección de estado (PID + puerto + patrón de proceso).
 
 ## Dashboard
 
@@ -33,7 +32,25 @@ Un único dashboard estilo panel "Services" de IntelliJ:
 go build -o ~/.local/bin/vroom ./cmd/vroom
 ```
 
-Requisitos en runtime: Linux (v1), shell POSIX, `xdg-open` no requerido.
+**Dependencia en runtime:** [fd](https://github.com/sharkdp/fd) (>= v8.0)
+
+```bash
+# Arch Linux
+sudo pacman -S fd
+
+# macOS
+brew install fd
+
+# Ubuntu/Debian
+sudo apt install fd-find
+
+# Fedora
+sudo dnf install fd-find
+```
+
+fd se usa para buscar `.vroom.toml` de forma rápida y eficiente. Sin fd, vroom no funcionará.
+
+Otros requisitos: Linux (v1), shell POSIX.
 
 ## Uso rápido — playground
 

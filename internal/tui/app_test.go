@@ -1817,6 +1817,7 @@ func TestPickerGuards(t *testing.T) {
 
 // mise.toml con sección [tasks] vacía → notifica en vez de abrir.
 func TestPickerNoTasks(t *testing.T) {
+	isolateConfig(t)
 	root := writeTestTree(t, true)
 	if err := os.WriteFile(filepath.Join(root, "tienda-web", "mise.toml"), []byte("[tools]\nnode = \"22\"\n"), 0o644); err != nil {
 		t.Fatal(err)

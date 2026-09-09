@@ -177,10 +177,15 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 	// Resolver root: si config tiene scanner.root, usarlo; si no, CWD.
 	scanRoot := root
 	if cfg.Scanner.Root != "" {
-		if filepath.IsAbs(cfg.Scanner.Root) {
-			scanRoot = cfg.Scanner.Root
-		} else {
-			scanRoot = filepath.Join(root, cfg.Scanner.Root)
+		scanRoot = cfg.Scanner.Root
+		// Expandir ~ al home directory
+		if strings.HasPrefix(scanRoot, "~") {
+			if home, err := os.UserHomeDir(); err == nil {
+				scanRoot = filepath.Join(home, scanRoot[1:])
+			}
+		}
+		if !filepath.IsAbs(scanRoot) {
+			scanRoot = filepath.Join(root, scanRoot)
 		}
 	}
 	projects, err := scanner.Scan(scanRoot, cfg.Scanner.Depth)
