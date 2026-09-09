@@ -1,13 +1,15 @@
-// Package scanner descubre proyectos desde el CWD que contengan un
-// manifiesto .vroom.toml. Solo examina los subdirectorio inmediatos
-// del directorio raíz (sin recursión).
+// Package scanner descubre proyectos desde el CWD con 2 niveles de
+// recursividad. Un directorio es proyecto si contiene un manifiesto
+// .vroom.toml.
 package scanner
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"vroom/internal/manifest"
 )
@@ -22,8 +24,11 @@ type Project struct {
 	ManifestErr string             // error de parseo si .vroom.toml malformado
 }
 
-// Scan lee los subdirectorio inmediatos de root y devuelve aquellos
-// que contengan un .vroom.toml válido, ordenados por ruta.
+// MaxDepth es la profundidad máxima (2 niveles desde CWD).
+const MaxDepth = 2
+
+// Scan recorre root hasta MaxDepth niveles y devuelve los proyectos
+// que contengan un .vroom.toml, ordenados por ruta.
 func Scan(root string) ([]Project, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -37,20 +42,43 @@ func Scan(root string) ([]Project, error) {
 		return nil, fmt.Errorf("%s is not a directory", absRoot)
 	}
 
-	entries, err := os.ReadDir(absRoot)
-	if err != nil {
-		return nil, fmt.Errorf("could not read directory %s: %w", absRoot, err)
-	}
-
 	var projects []Project
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
+	walkErr := filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
 		}
-		dir := filepath.Join(absRoot, entry.Name())
-		if p, ok := inspectDir(dir); ok {
+		if !d.IsDir() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(absRoot, path)
+		if relErr != nil {
+			return nil
+		}
+		depth := 0
+		if rel != "." {
+			depth = strings.Count(rel, string(os.PathSeparator)) + 1
+		}
+
+		if path != absRoot {
+			if isHidden(d.Name()) {
+				return fs.SkipDir
+			}
+			if depth > MaxDepth {
+				return fs.SkipDir
+			}
+		}
+
+		if p, ok := inspectDir(path); ok {
 			projects = append(projects, p)
 		}
+
+		if depth >= MaxDepth {
+			return fs.SkipDir
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return nil, fmt.Errorf("error walking %s: %w", absRoot, walkErr)
 	}
 
 	sort.Slice(projects, func(i, j int) bool {
@@ -78,4 +106,8 @@ func inspectDir(dir string) (Project, bool) {
 		p.Manifest = m
 	}
 	return p, true
+}
+
+func isHidden(name string) bool {
+	return strings.HasPrefix(name, ".")
 }

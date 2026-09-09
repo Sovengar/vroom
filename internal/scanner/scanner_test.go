@@ -3,10 +3,11 @@ package scanner
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-// scannerTree construye un árbol en un directorio temporal y devuelve la raíz.
+// tree construye un árbol en un directorio temporal.
 type tree struct {
 	t    *testing.T
 	root string
@@ -78,6 +79,32 @@ func TestScanIgnoresDirsWithoutManifest(t *testing.T) {
 	}
 }
 
+// Depth 2 con .vroom.toml se detecta
+func TestScanDepth2(t *testing.T) {
+	tr := newTree(t).
+		file("a/b/.vroom.toml", "name = \"deep\"\ncommand_start = \"echo hi\"\n")
+	projects, err := Scan(tr.path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Name != "b" {
+		t.Errorf("proyecto a depth 2 debe detectarse, got %+v", projects)
+	}
+}
+
+// Depth 3 se ignora
+func TestScanIgnoresDepth3(t *testing.T) {
+	tr := newTree(t).
+		file("a/b/c/.vroom.toml", "name = \"too-deep\"\ncommand_start = \"echo\"\n")
+	projects, err := Scan(tr.path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 0 {
+		t.Errorf("proyecto a depth 3 debe ignorarse, got %+v", projects)
+	}
+}
+
 // Manifiesto malformado sigue visible pero no marcado como configurado
 func TestScanMalformedManifest(t *testing.T) {
 	tr := newTree(t).
@@ -98,41 +125,17 @@ func TestScanMalformedManifest(t *testing.T) {
 	}
 }
 
-// No recursión: subdirectorio con .vroom.toml a profundidad > 1 se ignora
-func TestScanNoRecursion(t *testing.T) {
+// Directorios ocultos se ignoran
+func TestScanSkipsHiddenDirs(t *testing.T) {
 	tr := newTree(t).
-		file("a/b/.vroom.toml", "name = \"deep\"\ncommand_start = \"echo hi\"\n")
+		file(".hidden/.vroom.toml", "name = \"h\"\ncommand_start = \"echo\"\n").
+		file("real/.vroom.toml", "name = \"real\"\ncommand_start = \"echo\"\n")
 	projects, err := Scan(tr.path())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(projects) != 0 {
-		t.Errorf("subdirectorio profundo sin recursión debe ignorarse, got %+v", projects)
-	}
-}
-
-// Solo subdirectorio inmediato: un proyecto a depth 1 se detecta
-func TestScanImmediateChildOnly(t *testing.T) {
-	tr := newTree(t).
-		file("proj/.vroom.toml", "name = \"proj\"\ncommand_start = \"echo ok\"\n")
-	projects, err := Scan(tr.path())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(projects) != 1 || projects[0].Name != "proj" {
-		t.Errorf("esperaba proyecto proj, got %+v", projects)
-	}
-}
-
-// El root mismo sin .vroom.toml no se lista como proyecto
-func TestScanRootWithoutManifest(t *testing.T) {
-	tr := newTree(t)
-	projects, err := Scan(tr.path())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(projects) != 0 {
-		t.Errorf("CWD sin .vroom.toml no debe listarse, got %+v", projects)
+	if len(projects) != 1 || projects[0].Name != "real" {
+		t.Errorf("dirs ocultos deben saltarse, got %+v", projects)
 	}
 }
 
@@ -174,4 +177,28 @@ func TestScanManifestWithGroups(t *testing.T) {
 	if p.Manifest.Port != 8080 {
 		t.Errorf("port = %d, want 8080", p.Manifest.Port)
 	}
+}
+
+// El playground completo se escanea
+func TestScanPlaygroundFixture(t *testing.T) {
+	projects, err := Scan(filepath.Join("..", "..", "playground"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 8 {
+		t.Fatalf("esperaba 8 proyectos, got %d: %v", len(projects), projectNames(projects))
+	}
+	for _, p := range projects {
+		if !p.Configured || p.Manifest == nil {
+			t.Errorf("%s: debe estar configurado", p.Name)
+		}
+	}
+}
+
+func projectNames(projects []Project) string {
+	var names []string
+	for _, p := range projects {
+		names = append(names, p.Name)
+	}
+	return strings.Join(names, ", ")
 }
