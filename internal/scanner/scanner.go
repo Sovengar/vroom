@@ -1,9 +1,10 @@
-// Package scanner descubre proyectos desde un directorio raíz usando fd
-// para buscar ficheros .vroom.toml.
+// Package scanner descubre proyectos desde un directorio raíz buscando
+// ficheros .vroom.toml. Usa fd si está disponible; fallback a WalkDir.
 package scanner
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,21 +25,33 @@ type Project struct {
 	ManifestErr string             // error de parseo si .vroom.toml malformado
 }
 
-// Scan busca .vroom.toml desde root con la profundidad dada usando fd.
-func Scan(root string, depth int) ([]Project, error) {
+// ScanResult contiene los proyectos y el método usado para encontrarlos.
+type ScanResult struct {
+	Projects []Project
+	UsedFD   bool // true si se usó fd, false si WalkDir
+}
+
+// Scan busca .vroom.toml desde root con la profundidad dada.
+// Usa fd si está disponible; si no, WalkDir.
+func Scan(root string, depth int) (ScanResult, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
-		return nil, fmt.Errorf("could not resolve CWD: %w", err)
+		return ScanResult{}, fmt.Errorf("could not resolve CWD: %w", err)
 	}
 	info, err := os.Stat(absRoot)
 	if err != nil {
-		return nil, fmt.Errorf("could not access directory %s: %w", absRoot, err)
+		return ScanResult{}, fmt.Errorf("could not access directory %s: %w", absRoot, err)
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("%s is not a directory", absRoot)
+		return ScanResult{}, fmt.Errorf("%s is not a directory", absRoot)
 	}
 
-	return scanWithFD(absRoot, depth)
+	if fd := fdPath(); fd != "" {
+		projects, err := scanWithFD(fd, absRoot, depth)
+		return ScanResult{Projects: projects, UsedFD: true}, err
+	}
+	projects, err := scanWithWalk(absRoot, depth)
+	return ScanResult{Projects: projects, UsedFD: false}, err
 }
 
 // fdPath busca fd en PATH o en ubicaciones conocidas.
@@ -55,11 +68,7 @@ func fdPath() string {
 }
 
 // scanWithFD ejecuta fd para encontrar .vroom.toml.
-func scanWithFD(root string, depth int) ([]Project, error) {
-	fd := fdPath()
-	if fd == "" {
-		return nil, fmt.Errorf("fd not found in PATH or /usr/bin")
-	}
+func scanWithFD(fd string, root string, depth int) ([]Project, error) {
 	args := []string{
 		"--type", "f",
 		"--hidden",
@@ -93,6 +102,62 @@ func scanWithFD(root string, depth int) ([]Project, error) {
 	return projects, nil
 }
 
+// skipDirs evita descender en directorios pesados.
+var skipDirs = map[string]bool{
+	"node_modules": true,
+	"vendor":       true,
+	"target":       true,
+	"dist":         true,
+	"build":        true,
+}
+
+// scanWithWalk usa filepath.WalkDir como fallback.
+func scanWithWalk(root string, depth int) ([]Project, error) {
+	var projects []Project
+	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		depthLevel := 0
+		if rel != "." {
+			depthLevel = strings.Count(rel, string(os.PathSeparator)) + 1
+		}
+
+		if path != root {
+			if isHidden(d.Name()) || skipDirs[d.Name()] {
+				return fs.SkipDir
+			}
+			if depthLevel > depth {
+				return fs.SkipDir
+			}
+		}
+
+		if p := inspectDir(path); p != nil {
+			projects = append(projects, *p)
+		}
+
+		if depthLevel >= depth {
+			return fs.SkipDir
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return nil, fmt.Errorf("error walking %s: %w", root, walkErr)
+	}
+
+	sort.Slice(projects, func(i, j int) bool {
+		return projects[i].Path < projects[j].Path
+	})
+	return projects, nil
+}
+
 // inspectDir devuelve un proyecto si el directorio tiene .vroom.toml, nil si no.
 func inspectDir(dir string) *Project {
 	if !manifest.Exists(dir) {
@@ -112,4 +177,8 @@ func inspectDir(dir string) *Project {
 		p.Manifest = m
 	}
 	return p
+}
+
+func isHidden(name string) bool {
+	return strings.HasPrefix(name, ".")
 }

@@ -44,7 +44,18 @@ func (m Model) renderDashboard() string {
 		}
 		b.WriteString(padW(l, treeWidth) + styleSep.Render("│") + r + "\n")
 	}
-	b.WriteString(styleHelp.Render(trunc(dashboardHelp(m.width, m.cfg.Keybindings), m.width)) + "\n")
+	helpW := m.width - 2 // margen izquierdo de 2 columnas
+	b.WriteString(styleSep.Render(strings.Repeat("─", m.width)) + "\n")
+	b.WriteString("  " + styleHelp.Render(trunc(dashboardHelp1(helpW, m.cfg.Keybindings), helpW)) + "\n")
+	b.WriteString("\n")
+	// Línea 2: acciones + indicador de método de scan (fd/walk) a la derecha
+	help2 := dashboardHelp2(helpW-12, m.cfg.Keybindings) // -12 para预留 espacio del indicador
+	scanMethod := styleDim.Render("walk")
+	if m.usedFD {
+		scanMethod = styleDim.Render("fd")
+	}
+	padding := strings.Repeat(" ", max(0, helpW-lipglossWidth(help2)-lipglossWidth(scanMethod)-1))
+	b.WriteString("  " + styleHelp.Render(help2) + padding + scanMethod + "\n")
 	if m.message != "" {
 		b.WriteString(styleMsg.Render(trunc("ℹ "+m.message, m.width)))
 	}

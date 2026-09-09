@@ -100,6 +100,7 @@ type Model struct {
 	projects []scanner.Project
 	entries  []group.Entry
 	services map[string]*ServiceState // clave: ruta absoluta del proyecto
+	usedFD   bool                     // true si el scan usó fd
 
 	cursor  int // índice en tree (grupos y proyectos, cíclico)
 	treeTop int // primera línea visible del árbol (auto-scroll, S18.5)
@@ -188,7 +189,8 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 			scanRoot = filepath.Join(root, scanRoot)
 		}
 	}
-	projects, err := scanner.Scan(scanRoot, cfg.Scanner.Depth)
+	scanResult, err := scanner.Scan(scanRoot, cfg.Scanner.Depth)
+	projects := scanResult.Projects
 	ta := textarea.New()
 	ta.Placeholder = "what should the agent do?"
 	ta.Prompt = "› "
@@ -222,6 +224,7 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 		stream:         streamMerged,
 		consoleFollow:  true,
 		consoleView:    viewport.New(),
+		usedFD:         scanResult.UsedFD,
 	}
 	if err != nil {
 		m.notify("error scanning projects: " + err.Error())
