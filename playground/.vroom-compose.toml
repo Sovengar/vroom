@@ -1,0 +1,38 @@
+# .vroom-compose.toml — Orquestación de stacks para playground
+# Cada [[stack]] define un grupo de servicios con etapas secuenciales
+# y servicios paralelos dentro de cada etapa.
+
+# Infra: proxy reverso que frontea todo
+[[stack]]
+name = "infra"
+primary_group = "infra"
+
+  [[stack.stage]]
+  name = "proxy"
+  services = ["nginx-proxy"]
+  timeout = "15s"
+
+# Tienda: backend primero, frontend después
+[[stack]]
+name = "tienda"
+primary_group = "tienda"
+
+  [[stack.stage]]
+  name = "backend"
+  services = ["billing-api-go", "orders-api-springboot", "products-api-java"]
+  timeout = "30s"
+
+  [[stack.stage]]
+  name = "frontend"
+  services = ["web-frontend"]
+  timeout = "20s"
+
+# Servers: APIs independientes en paralelo
+[[stack]]
+name = "servers"
+primary_group = "servers"
+
+  [[stack.stage]]
+  name = "api"
+  services = ["auth-api-go", "search-api-python"]
+  timeout = "15s"

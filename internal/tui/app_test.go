@@ -517,6 +517,7 @@ func TestActiveTabMarked(t *testing.T) {
 
 // S18.5: el árbol hace scroll automático al navegar más allá de lo visible.
 func TestTreeAutoScroll(t *testing.T) {
+	isolateConfig(t)
 	root := t.TempDir()
 	for i := 0; i < 12; i++ {
 		dir := filepath.Join(root, "svc"+string(rune('a'+i)))
@@ -963,9 +964,13 @@ func TestThreadsSamplingError(t *testing.T) {
 
 // Help responsive: completa en ancho amplio, compacta y truncada en estrecho.
 func TestHelpResponsive(t *testing.T) {
+	full1 := dashboardHelp1(200, nil)
+	if !strings.Contains(full1, "start/stop") {
+		t.Errorf("help1 completa sin start/stop: %q", full1)
+	}
 	full2 := dashboardHelp2(200, nil) // nil = defaults
-	if !strings.Contains(full2, "start/stop") || !strings.Contains(full2, "refresh") {
-		t.Errorf("help2 completa inesperada: %q", full2)
+	if !strings.Contains(full2, "refresh") {
+		t.Errorf("help2 completa sin refresh: %q", full2)
 	}
 	narrow2 := dashboardHelp2(40, nil)
 	if strings.Contains(narrow2, "refresh") {
@@ -984,20 +989,20 @@ func TestBadgeShowsPort(t *testing.T) {
 		Manifest:   &manifest.Manifest{Name: "x", Command: "run", Port: 8081},
 	}
 	sv := &ServiceState{Status: statusRunning}
-	if badge := statusBadge(p, sv); !strings.Contains(badge, ":8081") {
+	if badge := statusBadge(p, sv, "·", "·"); !strings.Contains(badge, ":8081") {
 		t.Errorf("badge running sin puerto: %q", badge)
 	}
 	sv.Status = statusUnknown
-	if badge := statusBadge(p, sv); !strings.Contains(badge, ":8081") {
+	if badge := statusBadge(p, sv, "·", "·"); !strings.Contains(badge, ":8081") {
 		t.Errorf("badge unknown sin puerto: %q", badge)
 	}
 	sv.Status = statusStopped
-	if badge := statusBadge(p, sv); strings.Contains(badge, ":8081") {
+	if badge := statusBadge(p, sv, "·", "·"); strings.Contains(badge, ":8081") {
 		t.Errorf("badge stopped no debe mostrar puerto: %q", badge)
 	}
 	// Sin manifiesto: nunca puerto
 	p2 := scanner.Project{Path: "/tmp/y", Name: "y"}
-	if badge := statusBadge(p2, &ServiceState{Status: statusUnconfigured}); strings.Contains(badge, ":") {
+	if badge := statusBadge(p2, &ServiceState{Status: statusUnconfigured}, "·", "·"); strings.Contains(badge, ":") {
 		t.Errorf("badge unconfigured con puerto: %q", badge)
 	}
 }
@@ -1083,8 +1088,8 @@ func TestHelpWording(t *testing.T) {
 // histórico más el segmento de la terminal embebida, y las teclas
 // disparan sus acciones (los tests existentes lo cubren uno a uno).
 func TestHelpDefaultsDerived(t *testing.T) {
-	want1 := "j/k move · / filter · enter collapse · 1/2 tabs · shift+click select · q quit"
-	want2 := "s start/stop · R restart · b build · i install · t tasks · a ask · ! shell · C clear · c stream · l logfile · r refresh"
+	want1 := "/ filter · shift+click select · ! shell · q quit · s start/stop · R restart · b build · i install"
+	want2 := "j/k move · enter collapse · t tasks · a ask · C clear · c stream · l logfile · r refresh · 1/2 tabs"
 	if got := dashboardHelp1(200, nil); got != want1 {
 		t.Errorf("help1 defaults = %q, want %q", got, want1)
 	}
@@ -1096,12 +1101,12 @@ func TestHelpDefaultsDerived(t *testing.T) {
 // R51.2: la help refleja un remap (x start/stop, no s start/stop).
 func TestHelpRemapped(t *testing.T) {
 	kb := map[string]string{"start_stop": "x"}
-	full2 := dashboardHelp2(200, kb)
-	if !strings.Contains(full2, "x start/stop") {
-		t.Errorf("help2 sin x start/stop: %q", full2)
+	full1 := dashboardHelp1(200, kb)
+	if !strings.Contains(full1, "x start/stop") {
+		t.Errorf("help1 sin x start/stop: %q", full1)
 	}
-	if strings.Contains(full2, "s start/stop") {
-		t.Errorf("help2 aún menciona s start/stop: %q", full2)
+	if strings.Contains(full1, "s start/stop") {
+		t.Errorf("help1 aún menciona s start/stop: %q", full1)
 	}
 }
 

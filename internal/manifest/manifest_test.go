@@ -197,3 +197,15 @@ func TestParseMissingFile(t *testing.T) {
 		t.Fatal("esperaba error por fichero inexistente")
 	}
 }
+
+func TestParseReservedSecondaryGroup(t *testing.T) {
+	path := writeManifest(t, `
+name = "test"
+command_start = "echo hi"
+secondary_group = "Composers"
+`)
+	_, err := Parse(path)
+	if err == nil {
+		t.Fatal("expected error for reserved secondary_group 'Composers'")
+	}
+}

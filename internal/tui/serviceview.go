@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"vroom/internal/orchestrate"
 	"vroom/internal/scanner"
 )
 
@@ -13,24 +14,33 @@ const commandColGap = 2
 // detailsLines renderiza el panel de detalles del servicio seleccionado
 // (spec 0002 R21): cabecera con nombre+estado y, debajo, dos columnas —
 // meta a la izquierda (path, rama, puerto...) y los comandos del
-// manifiesto (start/stop/install/build) a la derecha. La altura la fija
-// detailsHeight en rightLines.
+// manifiesto (start/stop/install/build) a la derecha. Recorta a
+// detailsHeight para uso en tests y otros contexts.
 func (m Model) detailsLines(w int) []string {
+	return clipLines(m.allDetailsLines(w), detailsHeight, w)
+}
+
+// allDetailsLines devuelve todas las líneas de detalles SIN recortar.
+// Usado por rightLines que aplica scroll offset.
+func (m Model) allDetailsLines(w int) []string {
 	p := m.selected()
 	if p == nil {
+		if s := m.selectedStack(); s != nil {
+			return m.stackDetailsLines(s, w)
+		}
 		if pr, sec := m.selectedNode(); pr != "" { // R24 + 0006 R39: resumen del nodo
 			return m.groupDetailsLines(pr, sec, w)
 		}
 		return []string{styleDim.Render("No project selected")}
 	}
 	sv := m.services[p.Path]
-	header := trunc(p.Name, w) + "  " + statusBadge(*p, sv)
+	header := trunc(p.Name, w) + "  " + statusBadge(*p, sv, m.spinner.View(), m.startSpinner.View())
 
 	if !p.Configured {
 		lines := []string{truncANSI(header, w)}
 		lines = append(lines, styleWarn.Render("No manifest — create a .vroom.toml"))
 		lines = append(lines, styleDim.Render(trunc(exampleManifest(p.Name), w)))
-		return clipLines(lines, detailsHeight, w)
+		return lines
 	}
 
 	// Dos columnas: meta (55%) | comandos. En panel estrecho cae a una.
@@ -47,7 +57,7 @@ func (m Model) detailsLines(w int) []string {
 	} else {
 		rows = meta
 	}
-	return clipLines(append([]string{truncANSI(header, w)}, rows...), detailsHeight, w)
+	return append([]string{truncANSI(header, w)}, rows...)
 }
 
 // metaColumn compone la columna izquierda del panel de detalles: los
@@ -153,9 +163,13 @@ func (m Model) groupDetailsLines(primary, secondary string, w int) []string {
 		styleLabel.Render(pad("running:", 10))+fmt.Sprintf("%d", r),
 	)
 	for _, p := range m.nodeMembers(primary, secondary) {
-		lines = append(lines, treeDot(p, m.services[p.Path])+" "+trunc(p.Name, w-3))
+		label := trunc(p.Name, w-3)
+		if p.Manifest != nil && p.Manifest.Port > 0 {
+			label += styleDim.Render(fmt.Sprintf(":%d", p.Manifest.Port))
+		}
+		lines = append(lines, treeDot(p, m.services[p.Path], m.spinner.View(), m.startSpinner.View())+" "+label)
 	}
-	return clipLines(lines, detailsHeight, w)
+	return lines
 }
 
 // pad rellena s con espacios a n runes (para etiquetas sin ANSI).
@@ -164,4 +178,48 @@ func pad(s string, n int) string {
 		return s
 	}
 	return s + strings.Repeat(" ", n-len(s))
+}
+
+// stackDetailsLines muestra el panel de detalles de un stack seleccionado
+// (0010 R57): nombre + [stack] + estado, tipo, etapas, servicios con
+// su estado y puerto (igual que groupDetailsLines).
+func (m Model) stackDetailsLines(s *orchestrate.Stack, w int) []string {
+	r, n := m.stackStats(s)
+	running := ""
+	if r > 0 {
+		running = fmt.Sprintf("  %s", styleRunning.Render("● running"))
+	} else {
+		running = fmt.Sprintf("  %s", styleStopped.Render("· stopped"))
+	}
+	header := trunc(fmt.Sprintf("🎵 %s [stack]%s", s.Name, running), w)
+	lines := []string{truncANSI(header, w)}
+	row := func(label, value string) {
+		lines = append(lines, styleLabel.Render(pad(label, 10))+truncTail(value, max(8, w-11)))
+	}
+	row("type:", "orchestration stack")
+	row("stages:", fmt.Sprintf("%d", len(s.Stages)))
+	row("services:", fmt.Sprintf("%d (%d running)", n, r))
+	row("group:", s.PrimaryGroup)
+	lines = append(lines, "")
+	for _, stage := range s.Stages {
+		lines = append(lines, styleDim.Render(trunc(fmt.Sprintf("  %s:", stage.Name), w-4)))
+		for _, name := range stage.Services {
+			label := trunc(name, w-5)
+			// Find matching project for status + port
+			for _, p := range m.projects {
+				if p.Configured && p.Manifest != nil && p.Manifest.Name == name {
+					if p.Manifest.Port > 0 {
+						label += styleDim.Render(fmt.Sprintf(":%d", p.Manifest.Port))
+					}
+					dot := treeDot(p, m.services[p.Path], m.spinner.View(), m.startSpinner.View())
+					lines = append(lines, "    "+dot+" "+label)
+					goto next
+				}
+			}
+			// No matching project found
+			lines = append(lines, "    "+styleWarn.Render("⚠")+" "+label)
+		next:
+		}
+	}
+	return lines
 }

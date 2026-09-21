@@ -10,10 +10,12 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"vroom/internal/agents"
 	"vroom/internal/config"
@@ -21,6 +23,7 @@ import (
 	"vroom/internal/group"
 	"vroom/internal/launcher"
 	"vroom/internal/mise"
+	"vroom/internal/orchestrate"
 	"vroom/internal/process"
 	"vroom/internal/scanner"
 	"vroom/internal/state"
@@ -153,11 +156,21 @@ type Model struct {
 	termOpen bool         // modal visible: captura las teclas
 	term     *termSession // sesión del shell (nil hasta el primer !)
 
+	// Orquestación de stacks (0010): compose file y engine.
+	composeFile *orchestrate.ComposeFile // nil si no hay compose file
+	engine      *orchestrate.Engine      // motor de orquestación
+
 	bodyH        int // alto de la zona de cuerpo (árbol + panel derecho)
 	rightW       int // ancho del panel derecho
 	contentH     int // alto del contenido de la pestaña (bajo la barra de pestañas)
 	detailsShown bool
+	detailsTop   int           // scroll offset del panel de detalles
 	consoleView  viewport.Model
+
+	// Spinner animado para servicios con estado desconocido.
+	spinner spinner.Model
+	// Spinner animado para servicios en arranque.
+	startSpinner spinner.Model
 }
 
 // notify muestra un mensaje en la barra de estado con expiración
@@ -169,6 +182,34 @@ func (m *Model) notify(s string) {
 
 func (m *Model) clearMessage() {
 	m.message, m.messageExpiresAt = "", time.Time{}
+}
+
+// findComposeFile busca .vroom-compose.toml subiendo por los directorios
+// padre de cada proyecto escaneado, sin salir de root. El compose file
+// vive al mismo nivel que los directorios de proyecto que orquesta.
+func findComposeFile(root string, projects []scanner.Project) (*orchestrate.ComposeFile, error) {
+	seen := make(map[string]bool)
+	for _, p := range projects {
+		dir := filepath.Dir(p.Path)
+		for {
+			if seen[dir] {
+				if dir == root {
+					break
+				}
+				dir = filepath.Dir(dir)
+				continue
+			}
+			seen[dir] = true
+			if cf, err := orchestrate.ParseComposeFile(dir); err == nil {
+				return cf, nil
+			}
+			if dir == root {
+				break
+			}
+			dir = filepath.Dir(dir)
+		}
+	}
+	return nil, fmt.Errorf("no %s found in any project directory under %s", orchestrate.ComposeFileName, root)
 }
 
 // New construye el modelo: escanea root (CWD o config), agrupa y fija estados iniciales.
@@ -225,6 +266,14 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 		consoleFollow:  true,
 		consoleView:    viewport.New(),
 		usedFD:         scanResult.UsedFD,
+		spinner: spinner.New(
+			spinner.WithSpinner(spinner.Dot),
+			spinner.WithStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("11"))),
+		),
+		startSpinner: spinner.New(
+			spinner.WithSpinner(spinner.Dot),
+			spinner.WithStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("12"))),
+		),
 	}
 	if err != nil {
 		m.notify("error scanning projects: " + err.Error())
@@ -242,6 +291,19 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 		m.branches[p.Path] = gitinfo.Branch(p.Path)
 	}
 	m.entries = group.Arrange(projects)
+	// Cargar compose file: buscar en scanRoot y sus subdirectores
+	// directos (0010). Los stacks se manejan por separado — no se
+	// mezclan con Arrange.
+	if cf, err := findComposeFile(scanRoot, projects); err == nil {
+		m.composeFile = cf
+		m.engine = orchestrate.NewEngine(manager, store)
+	}
+	// Restaurar el estado de plegado persistido (0006 R38).
+	if persisted := store.LoadCollapsed(); len(persisted) > 0 {
+		for k, v := range persisted {
+			m.collapsed[k] = v
+		}
+	}
 	m.tree = m.buildTree()
 	m.updateLayout()
 	// Wrap de líneas largas en la consola (spec 0005 R33): el viewport
@@ -253,7 +315,7 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 // updateLayout recalcula las dimensiones del dashboard (R18): cuerpo,
 // panel derecho y viewport de consola.
 func (m *Model) updateLayout() {
-	bodyH := m.height - 6 // header + separator + 2 help lines + blank + mensajes
+	bodyH := m.height - 5 // header + separator + 2 help lines + blank
 	if bodyH < 3 {
 		bodyH = 3
 	}
@@ -322,6 +384,12 @@ type threadsMsg struct {
 }
 
 type statusMsg struct{ message string }
+
+// stackResultMsg es el resultado de la orquestación de un stack (0010).
+type stackResultMsg struct {
+	result orchestrate.LaunchResult
+	err    error
+}
 
 // jobMsg es el resultado de un comando one-shot (build/install/task,
 // spec 0003 R27): exitCode 0 = ok, err = fallo al lanzar.
@@ -427,8 +495,8 @@ func stopCmd(store *state.Store, manager process.Manager, path, stopCommand stri
 			}
 		}
 		meta, err := store.LoadMeta(path)
-		if err == nil && meta.Pgid > 0 {
-			_ = manager.Stop(process.StopSpec{Pgid: meta.Pgid, Timeout: process.DefaultStopTimeout})
+		if err == nil && (meta.Pgid > 0 || meta.Port > 0) {
+			_ = manager.Stop(process.StopSpec{Pgid: meta.Pgid, Port: meta.Port, Timeout: process.DefaultStopTimeout})
 		}
 		if err := store.ClearPid(path); err != nil {
 			return stoppedMsg{path: path, err: err}
@@ -439,6 +507,7 @@ func stopCmd(store *state.Store, manager process.Manager, path, stopCommand stri
 			meta.Pgid = 0
 			_ = store.SaveMeta(path, meta)
 		}
+		_ = appendLine(store.StderrLog(path), fmt.Sprintf("── vroom ▶ stop: service stopped ──"))
 		return stoppedMsg{path: path, err: cmdErr}
 	}
 }
@@ -612,6 +681,8 @@ func (m Model) Init() tea.Cmd {
 		refreshCmd(m.store, m.manager, m.projects),
 		tickCmd(),
 		consoleTickCmd(),
+		func() tea.Msg { return m.spinner.Tick() },
+		func() tea.Msg { return m.startSpinner.Tick() },
 	)
 }
 
@@ -637,6 +708,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, m.syncConsoleView()
+
+	case spinner.TickMsg:
+		var cmd1, cmd2 tea.Cmd
+		m.spinner, cmd1 = m.spinner.Update(msg)
+		m.startSpinner, cmd2 = m.startSpinner.Update(msg)
+		return m, tea.Batch(cmd1, cmd2)
 
 	case tickMsg:
 		if !m.messageExpiresAt.IsZero() && time.Now().After(m.messageExpiresAt) {
@@ -689,6 +766,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if sv != nil {
 			sv.Status = statusRunning
+		}
+		// Los logs se truncan en daemon_unix.go Start(); limpiar los
+		// buffers en memoria para que la vista no muestre contenido viejo.
+		cs := m.consoleStateFor(msg.path)
+		cs.stdout, cs.stderr, cs.merged = "", "", ""
+		cs.off[0] = fileSizeOrZero(m.store.StdoutLog(msg.path))
+		cs.off[1] = fileSizeOrZero(m.store.StderrLog(msg.path))
+		if p := m.selected(); p != nil && p.Path == msg.path {
+			m.setConsoleContent(cs.view(m.stream))
 		}
 		return m, nil
 
@@ -760,6 +846,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case stackResultMsg: // 0010: resultado de orquestación de stack
+		if msg.err != nil {
+			m.notify("stack error: " + msg.err.Error())
+		} else if !msg.result.OK {
+			m.notify("stack failed: " + msg.result.Error)
+		} else {
+			m.notify(fmt.Sprintf("stack %s launched", msg.result.Stack))
+		}
+		return m, nil
+
+	case composersResultMsg: // 0010: resultado de lanzar todos los stacks de un group
+		failed := 0
+		for _, r := range msg.results {
+			if !r.OK {
+				failed++
+			}
+		}
+		if failed > 0 {
+			m.notify(fmt.Sprintf("%d stack(s) failed in %s", failed, msg.primary))
+		} else {
+			m.notify(fmt.Sprintf("all stacks launched in %s", msg.primary))
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
@@ -769,10 +879,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleMouse procesa la rueda del mouse sobre la consola (pgup/pgdn
-// no requieren modo mouse): scroll por líneas; girar hacia abajo hasta
-// el final reactiva el follow (S19.4).
+// handleMouse procesa la rueda del mouse: sobre el panel de detalles
+// (si stack/group seleccionado) scrollea detalles; sobre la consola
+// scrollea el console viewport.
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// Si details visible y cursor sobre stack/group, scrollear details
+	if m.detailsShown && m.selectedItemKind() != itemProject {
+		switch msg.Mouse().Button {
+		case tea.MouseWheelUp:
+			m.scrollDetails(-wheelLines)
+			return m, nil
+		case tea.MouseWheelDown:
+			m.scrollDetails(wheelLines)
+			return m, nil
+		}
+	}
 	if m.activeTab != tabConsole {
 		return m, nil
 	}
@@ -843,11 +964,19 @@ func (m Model) handleKey(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.switchTab(tabConsole)
 	case "2":
 		return m.switchTab(tabThreads)
-	case "pgup": // S19.4: scroll pausa el follow
+	case "pgup": // S19.4: scroll pausa el follow; si stack/group seleccionado, scroll details
+		if m.detailsShown && m.selectedItemKind() != itemProject {
+			m.scrollDetails(-detailsHeight)
+			return m, nil
+		}
 		m.consoleFollow = false
 		m.consoleView.PageUp()
 		return m, nil
 	case "pgdown":
+		if m.detailsShown && m.selectedItemKind() != itemProject {
+			m.scrollDetails(detailsHeight)
+			return m, nil
+		}
 		m.consoleView.PageDown()
 		return m, nil
 	}
@@ -860,8 +989,16 @@ func (m Model) handleKey(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "restart":
 		return m.restartSelected()
 	case "build": // 0003 R26: build one-shot
+		if it, ok := m.selectedItem(); ok && it.kind == itemStack {
+			m.notify("not available for stacks")
+			return m, nil
+		}
 		return m.runBuild()
 	case "install": // 0003 R26: install one-shot
+		if it, ok := m.selectedItem(); ok && it.kind == itemStack {
+			m.notify("not available for stacks")
+			return m, nil
+		}
 		return m.runInstall()
 	case "tasks": // 0003 R28: picker de tasks de mise
 		return m.openPicker()
@@ -881,6 +1018,10 @@ func (m Model) handleKey(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.consoleView.GotoBottom()
 		return m, nil
 	case "logs": // S22.1: abre los logs en el editor
+		if it, ok := m.selectedItem(); ok && it.kind == itemStack {
+			m.notify("not available for stacks")
+			return m, nil
+		}
 		return m.openLogEditor()
 	case "refresh": // S22.2: refresh forzado sin cambiar de vista
 		return m, m.refreshBatch()
@@ -904,6 +1045,7 @@ func (m Model) navigate(key string) (tea.Model, tea.Cmd) {
 	case "k", "up":
 		m.cursor = (m.cursor - 1 + len(m.tree)) % len(m.tree)
 	}
+	m.detailsTop = 0 // reset scroll al cambiar de item
 	_, cursorLine := m.treeLines()
 	visH := m.treeVis() // 0007 R44: la barra consume una línea del árbol
 	if cursorLine < m.treeTop {
@@ -930,6 +1072,8 @@ func (m Model) enterSelection() (tea.Model, tea.Cmd) {
 	case itemSecondary:
 		key := m.secondaryKey(it.primary, it.secondary)
 		m.collapsed[key] = !m.collapsed[key]
+	case itemStack:
+		return m, nil // stacks no se pliegan (0010 R56 S56.3)
 	case itemProject:
 		if it.secondary != "" {
 			key := m.secondaryKey(it.primary, it.secondary)
@@ -941,15 +1085,17 @@ func (m Model) enterSelection() (tea.Model, tea.Cmd) {
 		}
 	}
 	m.tree = m.buildTree()
+	// Persistir el estado de plegado (best-effort: no bloquear la UI).
+	_ = m.store.SaveCollapsed(m.collapsed)
 	return m, nil
 }
 
 // onSelect refresca la consola (y threads) al cambiar la selección
-// (S19.2); sobre un grupo muestra un placeholder.
+// (S19.2); sobre un grupo o stack muestra un placeholder.
 func (m Model) onSelect() (tea.Model, tea.Cmd) {
 	p := m.selected()
 	if p == nil {
-		if m.onHeader() {
+		if m.onHeader() || m.selectedStack() != nil {
 			m.setConsoleContent(groupConsoleHint)
 		}
 		return m, nil
@@ -1125,8 +1271,19 @@ func (m Model) syncConsoleView() tea.Cmd {
 // stop si está corriendo (o unknown). Nunca hace doble start: si el
 // estado es running el toggle SIEMPRE para (S15.1).
 func (m Model) toggleSelected() (tea.Model, tea.Cmd) {
-	if it, ok := m.selectedItem(); ok && (it.kind == itemPrimary || it.kind == itemSecondary) {
-		return m.toggleNode(it.primary, it.secondary) // R24: toggle de todo el nodo
+	it, ok := m.selectedItem()
+	if !ok {
+		return m, nil
+	}
+	switch {
+	case it.kind == itemPrimary:
+		return m.toggleNode(it.primary, it.secondary)
+	case it.kind == itemSecondary && it.secondary == composersGroup:
+		return m.toggleComposers(it.primary)
+	case it.kind == itemSecondary:
+		return m.toggleNode(it.primary, it.secondary)
+	case it.kind == itemStack && it.stack != nil:
+		return m.toggleStack(it.stack)
 	}
 	p := m.selected()
 	if p == nil {
@@ -1147,6 +1304,13 @@ func (m Model) toggleSelected() (tea.Model, tea.Cmd) {
 	default: // stopped
 		sv.Status = statusStarting // S14.1
 		m.clearMessage()
+		// Limpiar la consola en memoria inmediatamente al pulsar start
+		// para que no se vean los logs viejos mientras arranca el proceso.
+		cs := m.consoleStateFor(p.Path)
+		cs.stdout, cs.stderr, cs.merged = "", "", ""
+		cs.off[0] = fileSizeOrZero(m.store.StdoutLog(p.Path))
+		cs.off[1] = fileSizeOrZero(m.store.StderrLog(p.Path))
+		m.setConsoleContent("")
 		return m, startCmd(m.store, m.manager, *p)
 	}
 }
@@ -1168,6 +1332,7 @@ func (m Model) toggleNode(primary, secondary string) (tea.Model, tea.Cmd) {
 		}
 	}
 	var cmds []tea.Cmd
+	sel := m.selected()
 	for _, p := range members {
 		sv := m.services[p.Path]
 		if sv == nil {
@@ -1176,6 +1341,15 @@ func (m Model) toggleNode(primary, secondary string) (tea.Model, tea.Cmd) {
 		switch {
 		case anyStopped && sv.Status == statusStopped:
 			sv.Status = statusStarting
+			// Limpiar consola en memoria al arrancar cada servicio del grupo.
+			cs := m.consoleStateFor(p.Path)
+			cs.stdout, cs.stderr, cs.merged = "", "", ""
+			cs.off[0] = fileSizeOrZero(m.store.StdoutLog(p.Path))
+			cs.off[1] = fileSizeOrZero(m.store.StderrLog(p.Path))
+			// Actualizar la vista si es el servicio seleccionado.
+			if sel != nil && sel.Path == p.Path {
+				m.setConsoleContent("")
+			}
 			cmds = append(cmds, startCmd(m.store, m.manager, p))
 		case !anyStopped && (sv.Status == statusRunning || sv.Status == statusUnknown):
 			sv.Status = statusStopping
@@ -1183,6 +1357,109 @@ func (m Model) toggleNode(primary, secondary string) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, tea.Batch(cmds...)
+}
+
+// toggleComposers alterna el estado de todos los stacks de un primary
+// group. Si hay stacks stopped, lanza todos; si todos están running, para.
+func (m Model) toggleComposers(primary string) (tea.Model, tea.Cmd) {
+	if m.engine == nil {
+		m.notify("orchestration engine not available")
+		return m, nil
+	}
+	stacks := m.stacksForPrimary(primary)
+	if len(stacks) == 0 {
+		m.notify("no stacks found for " + primary)
+		return m, nil
+	}
+	// Check if all stacks are running
+	allRunning := true
+	for i := range stacks {
+		r, n := m.stackStats(&stacks[i])
+		if n == 0 || r < n {
+			allRunning = false
+			break
+		}
+	}
+	if allRunning {
+		// Stop all stacks
+		for i := range stacks {
+			_ = m.engine.StopStack(&stacks[i], m.projects, nil)
+		}
+		m.notify(fmt.Sprintf("stopping all stacks in %s", primary))
+		return m, nil
+	}
+	// Launch all stacks async
+	m.notify(fmt.Sprintf("launching stacks in %s...", primary))
+	return m, func() tea.Msg {
+		var results []orchestrate.LaunchResult
+		for i := range stacks {
+			result, err := m.engine.Launch(&stacks[i], m.projects)
+			if err != nil {
+				return stackResultMsg{err: err}
+			}
+			results = append(results, *result)
+		}
+		return composersResultMsg{primary: primary, results: results}
+	}
+}
+
+// composersResultMsg es el resultado de lanzar todos los stacks de un
+// primary group desde el header Composers.
+type composersResultMsg struct {
+	primary string
+	results []orchestrate.LaunchResult
+}
+
+// toggleStack alterna el estado de un stack (0010 R56): lanza la
+// orquestación si está stopped, para todos los servicios si está running.
+func (m Model) toggleStack(s *orchestrate.Stack) (tea.Model, tea.Cmd) {
+	if m.engine == nil {
+		m.notify("orchestration engine not available")
+		return m, nil
+	}
+	running, _ := m.stackStats(s)
+	total := 0
+	seen := make(map[string]bool)
+	for _, stage := range s.Stages {
+		for _, name := range stage.Services {
+			if !seen[name] {
+				seen[name] = true
+				total++
+			}
+		}
+	}
+	if running == total && total > 0 {
+		// Stack running: stop all services
+		for _, stage := range s.Stages {
+			for _, name := range stage.Services {
+				for _, e := range m.entries {
+					if e.Project.Configured && e.Project.Manifest != nil && e.Project.Manifest.Name == name {
+						sv := m.services[e.Project.Path]
+						if sv != nil && (sv.Status == statusRunning || sv.Status == statusUnknown) {
+							sv.Status = statusStopping
+						}
+						_ = m.engine.StopStack(s, m.projects, nil)
+						break
+					}
+				}
+			}
+		}
+		m.notify(fmt.Sprintf("stopping stack %s", s.Name))
+		return m, nil
+	}
+	// Stack stopped: launch orchestration
+	if m.engine == nil {
+		m.notify("no compose file loaded")
+		return m, nil
+	}
+	m.notify(fmt.Sprintf("launching stack %s...", s.Name))
+	return m, func() tea.Msg {
+		result, err := m.engine.Launch(s, m.projects)
+		if err != nil {
+			return stackResultMsg{err: err}
+		}
+		return stackResultMsg{result: *result}
+	}
 }
 
 // nodeMembers devuelve los proyectos del nodo en orden de aparición:
@@ -1204,6 +1481,7 @@ func (m Model) nodeMembers(primary, secondary string) []scanner.Project {
 
 // nodeStats cuenta miembros y servicios en ejecución del nodo (R24);
 // el conteo del primario suma todos sus secundarios (S38.5).
+// Los stacks no se cuentan (0010).
 func (m Model) nodeStats(primary, secondary string) (running, total int) {
 	for _, p := range m.nodeMembers(primary, secondary) {
 		total++
@@ -1643,6 +1921,23 @@ func (m Model) selectedItem() (treeItem, bool) {
 	return m.tree[m.cursor], true
 }
 
+// selectedItemKind devuelve el kind del item seleccionado.
+func (m Model) selectedItemKind() treeItemKind {
+	it, ok := m.selectedItem()
+	if !ok {
+		return -1
+	}
+	return it.kind
+}
+
+// scrollDetails mueve el scroll del panel de detalles delta líneas.
+func (m *Model) scrollDetails(delta int) {
+	m.detailsTop += delta
+	if m.detailsTop < 0 {
+		m.detailsTop = 0
+	}
+}
+
 // selected devuelve el proyecto bajo el cursor (nil si hay un header).
 func (m Model) selected() *scanner.Project {
 	it, ok := m.selectedItem()
@@ -1658,6 +1953,15 @@ func (m Model) selected() *scanner.Project {
 func (m Model) onHeader() bool {
 	it, ok := m.selectedItem()
 	return ok && (it.kind == itemPrimary || it.kind == itemSecondary)
+}
+
+// selectedStack devuelve el stack seleccionado (nil si no es un itemStack).
+func (m Model) selectedStack() *orchestrate.Stack {
+	it, ok := m.selectedItem()
+	if !ok || it.kind != itemStack || it.stack == nil {
+		return nil
+	}
+	return it.stack
 }
 
 // selectedNode devuelve el (primary, secondary) del header bajo el
@@ -1686,7 +1990,7 @@ func (m Model) projectByPath(path string) *scanner.Project {
 	return nil
 }
 
-func statusBadge(p scanner.Project, sv *ServiceState) string {
+func statusBadge(p scanner.Project, sv *ServiceState, spinnerView, startSpinnerView string) string {
 	if p.Configured && p.ManifestErr == "" {
 		port := ""
 		if p.Manifest != nil && p.Manifest.Port > 0 {
@@ -1696,11 +2000,11 @@ func statusBadge(p scanner.Project, sv *ServiceState) string {
 		case statusRunning:
 			return styleRunning.Render("● running") + port
 		case statusStarting:
-			return styleStarting.Render("○ starting")
+			return startSpinnerView + styleStarting.Render(" starting")
 		case statusStopping:
 			return styleStopping.Render("○ stopping")
 		case statusUnknown:
-			return styleUnknown.Render("? unknown") + port
+			return spinnerView + styleUnknown.Render(" unknown") + port
 		default:
 			return styleStopped.Render("· stopped")
 		}
@@ -1763,7 +2067,7 @@ func helpSeg(kb map[string]string, action, label string) string {
 // de teclado, interacción y pestañas. Caben siempre por ser cortos.
 func dashboardHelp1(width int, kb map[string]string) string {
 	line := strings.Join([]string{
-		"j/k move", "/ filter",
+		"/ filter",
 		"shift+click select", "! shell", "q quit",
 		helpSeg(kb, "start_stop", "start/stop"),
 		helpSeg(kb, "restart", "restart"),
@@ -1781,6 +2085,7 @@ func dashboardHelp1(width int, kb map[string]string) string {
 // (responsive).
 func dashboardHelp2(width int, kb map[string]string) string {
 	full := strings.Join([]string{
+		"j/k move",
 		"enter collapse",
 		helpSeg(kb, "tasks", "tasks"),
 		helpSeg(kb, "ask", "ask"),

@@ -40,6 +40,7 @@ type StartResult struct {
 // StopSpec describe la parada de un process group.
 type StopSpec struct {
 	Pgid    int
+	Port    int           // 0 = no verificar puerto tras stop
 	Timeout time.Duration
 }
 

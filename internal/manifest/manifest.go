@@ -27,6 +27,10 @@ import (
 // FileName es el nombre del fichero de manifiesto por proyecto.
 const FileName = ".vroom.toml"
 
+// ReservedSecondaryGroup es el nombre reservado para el header de stacks
+// de orquestación. Los manifiestos no pueden usar este valor.
+const ReservedSecondaryGroup = "Composers"
+
 // Manifest representa el contenido de un .vroom.toml. Las claves TOML
 // usan el prefijo command_*; los campos Go conservan nombres cortos.
 type Manifest struct {
@@ -60,7 +64,7 @@ func Exists(dir string) bool {
 }
 
 // Validate aplica las reglas del schema: name y command_start requeridos,
-// port debe ser 0 o 1-65535.
+// port debe ser 0 o 1-65535, secondary_group no puede ser "Composers".
 func (m *Manifest) Validate() error {
 	if m.Name == "" {
 		return fmt.Errorf("missing required field: name")
@@ -70,6 +74,9 @@ func (m *Manifest) Validate() error {
 	}
 	if m.Port < 0 || m.Port > 65535 {
 		return fmt.Errorf("port must be 0 (disabled) or 1-65535, got %d", m.Port)
+	}
+	if m.SecondaryGroup == ReservedSecondaryGroup {
+		return fmt.Errorf("secondary_group %q is reserved for orchestration stacks", ReservedSecondaryGroup)
 	}
 	return nil
 }

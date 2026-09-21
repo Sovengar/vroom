@@ -174,3 +174,43 @@ func (s *Store) ClearPid(projectPath string) error {
 	}
 	return nil
 }
+
+// ---- UI persisted state (collapsed groups) ----
+
+// CollapsedFile devuelve la ruta del fichero collapsed.json.
+func (s *Store) CollapsedFile() string {
+	return filepath.Join(s.base, "collapsed.json")
+}
+
+// SaveCollapsed persiste el mapa de grupos colapsados a disco (átomico).
+// Las claves son el nombre del primario o "primario/secundario" (S38.6).
+func (s *Store) SaveCollapsed(groups map[string]bool) error {
+	data, err := json.MarshalIndent(groups, "", "  ")
+	if err != nil {
+		return fmt.Errorf("could not marshal collapsed.json: %w", err)
+	}
+	target := s.CollapsedFile()
+	tmp := target + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return fmt.Errorf("could not write collapsed.json: %w", err)
+	}
+	if err := os.Rename(tmp, target); err != nil {
+		return fmt.Errorf("could not replace collapsed.json: %w", err)
+	}
+	return nil
+}
+
+// LoadCollapsed lee el mapa de grupos colapsados desde disco.
+// Si el fichero no existe devuelve nil sin error; si está corrupto
+// devuelve un mapa vacío (el usuario pierde el estado pero no la sesión).
+func (s *Store) LoadCollapsed() map[string]bool {
+	data, err := os.ReadFile(s.CollapsedFile())
+	if err != nil {
+		return nil // primer arranque o limpieza: todos expandidos
+	}
+	groups := make(map[string]bool)
+	if err := json.Unmarshal(data, &groups); err != nil {
+		return nil // corrupto: empezar limpio
+	}
+	return groups
+}

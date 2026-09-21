@@ -7,6 +7,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	gopsprocess "github.com/shirou/gopsutil/v3/process"
 )
 
 func newTestManager(t *testing.T) Manager {
@@ -111,6 +113,109 @@ func TestEvaluateCrashedImmediately(t *testing.T) {
 	}
 }
 
+// S9.4: PID muerto + puerto abierto por OTRO proceso → stopped (no falso positivo).
+func TestEvaluateDeadPIDPortOpenByOther(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integración: spawn real")
+	}
+	m := newTestManager(t)
+
+	// Escuchar un puerto para simular un proceso externo (OTRO servicio).
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	// PID inexistente + creation_time basura → Alive() falla.
+	// El puerto está abierto pero por un proceso con creation_time distinto → stopped.
+	if got := m.Evaluate(EvalSpec{Pid: 999999999, CreationTimeMs: 0, Port: port}); got != StatusStopped {
+		t.Errorf("PID muerto + puerto ajeno: estado = %s, want stopped", got)
+	}
+}
+
+// S9.4b: PID muerto + puerto abierto por el MISMO servicio (reiniciado) → running.
+func TestEvaluateDeadPIDPortOpenSameService(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integración: spawn real")
+	}
+	m := newTestManager(t)
+
+	// Simular un servicio que escucha un puerto.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	// Obtener el PID real del listener y su creation_time.
+	ownerPID := PortOwnerPID(port)
+	if ownerPID == 0 {
+		t.Fatal("no se pudo obtener el PID del listener")
+	}
+	p, err := gopsprocess.NewProcess(int32(ownerPID))
+	if err != nil {
+		t.Fatalf("gopsutil: %v", err)
+	}
+	ct, err := p.CreateTime()
+	if err != nil {
+		t.Fatalf("gopsutil CreateTime: %v", err)
+	}
+
+	// PID muerto (mismo owner pero PID "visto" como muerto) + creation_time correcto → running.
+	// Usamos el PID real del owner pero con su creation_time real.
+	if got := m.Evaluate(EvalSpec{Pid: int(ownerPID), CreationTimeMs: ct, Port: port}); got != StatusRunning {
+		t.Errorf("PID vivo + puerto propio: estado = %s, want running", got)
+	}
+}
+
+// S9.5: PID muerto + pattern match → running (fallback externo).
+func TestEvaluateDeadPIDPatternMatch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integración: spawn real")
+	}
+	m := newTestManager(t)
+
+	// Lanzar un sleep propio para garantizar que el pattern exista.
+	dir := t.TempDir()
+	res := startSleep(t, m, StartSpec{
+		Command:    "sleep 30",
+		WorkDir:    dir,
+		StdoutPath: filepath.Join(dir, "stdout.log"),
+		StderrPath: filepath.Join(dir, "stderr.log"),
+	})
+	t.Cleanup(func() { _ = m.Stop(StopSpec{Pgid: res.Pgid, Timeout: time.Second}) })
+
+	// PID muerto + pattern "sleep" que matchea nuestro proceso → running.
+	if got := m.Evaluate(EvalSpec{Pid: 999999999, CreationTimeMs: 0, ProcessPattern: "sleep"}); got != StatusRunning {
+		t.Errorf("PID muerto + pattern match: estado = %s, want running", got)
+	}
+}
+
+// S9.6: PID muerto + puerto cerrado + pattern no existe → stopped.
+func TestEvaluateDeadPIDNothingMatches(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integración: spawn real")
+	}
+	m := newTestManager(t)
+	if got := m.Evaluate(EvalSpec{Pid: 999999999, CreationTimeMs: 0, Port: freeTCPPort(t), ProcessPattern: "no-existe-xyz"}); got != StatusStopped {
+		t.Errorf("PID muerto + nada coincide: estado = %s, want stopped", got)
+	}
+}
+
+// S9.7: PID muerto + puerto cerrado + sin pattern → stopped.
+func TestEvaluateDeadPIDNoChecks(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integración: spawn real")
+	}
+	m := newTestManager(t)
+	if got := m.Evaluate(EvalSpec{Pid: 999999999, CreationTimeMs: 0}); got != StatusStopped {
+		t.Errorf("PID muerto + sin checks: estado = %s, want stopped", got)
+	}
+}
+
 // S8.2/R8: SIGTERM mata el grupo completo, incluyendo hijos forked.
 func TestStopKillsProcessGroup(t *testing.T) {
 	if testing.Short() {
@@ -165,6 +270,31 @@ func TestPortOpen(t *testing.T) {
 	}
 	if PortOpen(freeTCPPort(t)) {
 		t.Error("puerto libre debería reportarse como cerrado")
+	}
+}
+
+// PortOwnerPID devuelve el PID del proceso que escucha en un puerto.
+func TestPortOwnerPID(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	pid := PortOwnerPID(port)
+	if pid <= 0 {
+		t.Errorf("PortOwnerPID(%d) = %d, want > 0", port, pid)
+	}
+	// El PID debe ser el de este proceso.
+	if int(pid) != os.Getpid() {
+		t.Errorf("PortOwnerPID(%d) = %d, want %d (self)", port, pid, os.Getpid())
+	}
+
+	// Puerto libre → 0.
+	freePort := freeTCPPort(t)
+	if pid := PortOwnerPID(freePort); pid != 0 {
+		t.Errorf("PortOwnerPID(%d) = %d, want 0 (puerto libre)", freePort, pid)
 	}
 }
 

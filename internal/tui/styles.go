@@ -41,4 +41,7 @@ var (
 	// reutiliza styleDim.
 	styleLineError = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	styleLineWarn  = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
+
+	// Estilo de stacks (0010): magenta para distinguir de apps.
+	styleStack = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
 )

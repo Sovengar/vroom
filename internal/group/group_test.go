@@ -209,7 +209,7 @@ func TestArrangeSecondaryAtFirstMember(t *testing.T) {
 
 	entries := Arrange([]scanner.Project{m1, m2, m3, m4})
 	if got := names(entries); got != "m1,m3,m2,m4" {
-		t.Errorf("orden = %q, want m1,m3,m2,m4", got)
+		t.Errorf("orden = %q, got %q", got, "m1,m3,m2,m4")
 	}
 }
 

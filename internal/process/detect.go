@@ -5,6 +5,7 @@ import (
 	"net"
 	"time"
 
+	gopsnet "github.com/shirou/gopsutil/v3/net"
 	gopsprocess "github.com/shirou/gopsutil/v3/process"
 )
 
@@ -34,4 +35,19 @@ func PortOpen(port int) bool {
 	}
 	_ = conn.Close()
 	return true
+}
+
+// PortOwnerPID devuelve el PID del proceso que escucha en el puerto dado.
+// Retorna 0 si no se puede determinar (puerto libre, permisos, etc.).
+func PortOwnerPID(port int) int32 {
+	conns, err := gopsnet.ConnectionsPid("tcp", 0)
+	if err != nil {
+		return 0
+	}
+	for _, c := range conns {
+		if c.Status == "LISTEN" && c.Laddr.Port == uint32(port) && c.Pid > 0 {
+			return c.Pid
+		}
+	}
+	return 0
 }

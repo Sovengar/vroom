@@ -25,6 +25,7 @@ import (
 
 	"vroom/internal/config"
 	"vroom/internal/gitinfo"
+	"vroom/internal/orchestrate"
 	"vroom/internal/process"
 	"vroom/internal/scanner"
 	"vroom/internal/state"
@@ -96,6 +97,16 @@ func outputError(msg string) {
 	enc := json.NewEncoder(os.Stderr)
 	_ = enc.Encode(ErrorResult{Error: msg})
 	os.Exit(1)
+}
+
+func appendLine(path, line string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(line + "\n")
+	return err
 }
 
 func resolveRoot() string {
@@ -255,6 +266,8 @@ func Run(args []string) bool {
 			outputError("usage: vroom logs <project-name>")
 		}
 		cmdLogs(args[1], args[2:])
+	case "launch":
+		cmdLaunch(args[1:])
 	case "help", "--help", "-h":
 		cmdHelp()
 	default:
@@ -397,8 +410,8 @@ func cmdStop(name string) {
 	}
 
 	meta, err := store.LoadMeta(p.Path)
-	if err == nil && meta.Pgid > 0 {
-		_ = manager.Stop(process.StopSpec{Pgid: meta.Pgid, Timeout: process.DefaultStopTimeout})
+	if err == nil && (meta.Pgid > 0 || meta.Port > 0) {
+		_ = manager.Stop(process.StopSpec{Pgid: meta.Pgid, Port: meta.Port, Timeout: process.DefaultStopTimeout})
 	}
 
 	if err := store.ClearPid(p.Path); err != nil {
@@ -411,6 +424,8 @@ func cmdStop(name string) {
 		meta.Pgid = 0
 		_ = store.SaveMeta(p.Path, meta)
 	}
+
+	appendLine(store.StderrLog(p.Path), "── vroom ▶ stop: service stopped ──")
 
 	outputJSON(ActionResult{
 		OK:      true,
@@ -575,8 +590,85 @@ func cmdHelp() {
 			"vroom build <name>":  "run command_build (synchronous)",
 			"vroom install <name>": "run command_install (synchronous)",
 			"vroom logs <name>":  "show service logs (--tail N --stream merged|stdout|stderr)",
+			"vroom launch --list": "list all orchestration stacks",
+			"vroom launch <name>": "launch an orchestration stack",
+			"vroom launch <name> --dry": "dry run: show plan without executing",
 		},
 	})
+}
+
+// LaunchListResult es la respuesta de `vroom launch --list`.
+type LaunchListResult struct {
+	File   string              `json:"file"`
+	Stacks []orchestrate.Stack `json:"stacks"`
+}
+
+// cmdLaunch maneja el subcomando launch: --list, <name>, <name> --dry.
+func cmdLaunch(args []string) {
+	if len(args) == 0 {
+		outputError("usage: vroom launch --list | vroom launch <name> [--dry]")
+	}
+
+	// Buscar compose file en CWD
+	cf, err := orchestrate.ParseComposeFile(".")
+	if err != nil {
+		outputError(err.Error())
+	}
+
+	if args[0] == "--list" {
+		cwd, _ := os.Getwd()
+		outputJSON(LaunchListResult{
+			File:   filepath.Join(cwd, orchestrate.ComposeFileName),
+			Stacks: cf.Stacks,
+		})
+		return
+	}
+
+	stackName := args[0]
+	stack, err := cf.FindStack(stackName)
+	if err != nil {
+		outputError(err.Error())
+	}
+
+	// Scan projects
+	cfg := loadConfig()
+	root := resolveRoot()
+	store, err := state.NewStore()
+	if err != nil {
+		outputError(err.Error())
+	}
+	manager := process.NewManager()
+
+	scanResult, err := scanner.Scan(root, cfg.Scanner.Depth)
+	if err != nil {
+		outputError("scan error: " + err.Error())
+	}
+
+	engine := orchestrate.NewEngine(manager, store)
+
+	// Check for --dry flag
+	dryRun := false
+	for _, a := range args[1:] {
+		if a == "--dry" {
+			dryRun = true
+			break
+		}
+	}
+
+	if dryRun {
+		result, err := engine.DryRun(stack, scanResult.Projects)
+		if err != nil {
+			outputError(err.Error())
+		}
+		outputJSON(result)
+		return
+	}
+
+	result, err := engine.Launch(stack, scanResult.Projects)
+	if err != nil {
+		outputError(err.Error())
+	}
+	outputJSON(result)
 }
 
 // ---- Internal helpers (ported from TUI for CLI use) ----

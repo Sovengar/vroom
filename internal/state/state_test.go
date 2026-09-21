@@ -151,3 +151,56 @@ func TestLogPaths(t *testing.T) {
 		t.Error("ruta stderr.log incorrecta")
 	}
 }
+
+func TestCollapsedRoundTrip(t *testing.T) {
+	s := NewStoreAt(t.TempDir())
+	orig := map[string]bool{
+		"backends":          true,
+		"backends/auth":     true,
+		"backends/payments": false,
+		"frontend/web":      true,
+	}
+	if err := s.SaveCollapsed(orig); err != nil {
+		t.Fatal(err)
+	}
+	got := s.LoadCollapsed()
+	if len(got) != len(orig) {
+		t.Fatalf("len = %d, want %d", len(got), len(orig))
+	}
+	for k, v := range orig {
+		if got[k] != v {
+			t.Errorf("key %q = %v, want %v", k, got[k], v)
+		}
+	}
+}
+
+func TestCollapsedMissing(t *testing.T) {
+	s := NewStoreAt(t.TempDir())
+	got := s.LoadCollapsed()
+	if got != nil {
+		t.Errorf("esperaba nil para fichero inexistente, got %v", got)
+	}
+}
+
+func TestCollapsedCorrupt(t *testing.T) {
+	s := NewStoreAt(t.TempDir())
+	if err := os.WriteFile(s.CollapsedFile(), []byte("{bad json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := s.LoadCollapsed()
+	if got != nil {
+		t.Errorf("esperaba nil por JSON corrupto, got %v", got)
+	}
+}
+
+func TestCollapsedAtomicWrite(t *testing.T) {
+	s := NewStoreAt(t.TempDir())
+	groups := map[string]bool{"a": true}
+	if err := s.SaveCollapsed(groups); err != nil {
+		t.Fatal(err)
+	}
+	// El fichero temporal no debe quedar residuo.
+	if _, err := os.Stat(s.CollapsedFile() + ".tmp"); !os.IsNotExist(err) {
+		t.Error("fichero .tmp residual tras escritura atómica")
+	}
+}

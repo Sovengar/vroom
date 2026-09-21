@@ -67,7 +67,19 @@ func (m Model) renderDashboard() string {
 func (m Model) rightLines() []string {
 	lines := make([]string, 0, m.bodyH)
 	if m.detailsShown {
-		d := m.detailsLines(m.rightW)
+		d := m.allDetailsLines(m.rightW)
+		// Aplicar scroll offset del panel de detalles
+		top := m.detailsTop
+		if top < 0 {
+			top = 0
+		}
+		if top > 0 && top > len(d)-detailsHeight {
+			top = max(0, len(d)-detailsHeight)
+		}
+		d = d[top:]
+		if len(d) > detailsHeight {
+			d = d[:detailsHeight]
+		}
 		for len(d) < detailsHeight {
 			d = append(d, "")
 		}
