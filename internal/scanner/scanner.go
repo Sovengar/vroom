@@ -268,14 +268,19 @@ func annotateTopology(projects []Project, root string) []Project {
 }
 
 // queryWorktreeRelations consulta `git worktree list` por cada proyecto
-// con repo real y devuelve el mapa path→relación, saltando los prunable y
-// registrando el error de topología en el propio proyecto cuando git falla.
+// que sea un repo git o un bare repo, y devuelve el mapa path→relación,
+// saltando los prunable y registrando el error de topología en el propio
+// proyecto cuando git falla. Los bare repos no tienen .git, así que se
+// detectan con la heurística para poder descubrir sus worktrees.
 func queryWorktreeRelations(projects []Project) map[string]repoRelation {
 	info := make(map[string]repoRelation)
 	queried := make(map[string]bool)
 	for i := range projects {
 		p := &projects[i]
-		if !hasGitRepo(p.Path) || queried[p.Path] {
+		if queried[p.Path] {
+			continue
+		}
+		if !hasGitRepo(p.Path) && !worktree.IsBareRepo(p.Path) {
 			continue
 		}
 		queried[p.Path] = true

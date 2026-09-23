@@ -362,6 +362,36 @@ func TestScanDetectsBareRepo(t *testing.T) {
 	}
 }
 
+// Un bare repo se consulta vía git aunque no tenga .git: sus worktrees
+// in-root sin manifiesto se descubren y se sintetizan anidadas (H1).
+func TestScanBareRepoDiscoversManifestlessWorktree(t *testing.T) {
+	tr := newTree(t).
+		file("bare/HEAD", "ref: refs/heads/main\n").
+		file("bare/config", "[core]\n\tbare = true\n").
+		mkdir("bare/objects").
+		mkdir("bare/refs").
+		mkdir("bare-wt-a")
+	bare := filepath.Join(tr.path(), "bare")
+	wt := filepath.Join(tr.path(), "bare-wt-a")
+	t.Setenv("PATH", fakeGitPATH(t, porcelainRepo(bare, wt), 0))
+
+	result, err := Scan(tr.path(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := find(result.Projects, "bare")
+	if b == nil || !b.IsBareContainer {
+		t.Fatalf("bare container no detectado: %+v", b)
+	}
+	p := find(result.Projects, "bare-wt-a")
+	if p == nil {
+		t.Fatalf("worktree sin manifiesto del bare no sintetizado: %v", projectNames(result.Projects))
+	}
+	if !p.IsWorktree || p.RepoRoot != bare || p.Configured {
+		t.Errorf("worktree del bare mal anotado: %+v", p)
+	}
+}
+
 // Git ausente degrada: los proyectos siguen y se registra el motivo.
 func TestScanDegradesWhenGitUnavailable(t *testing.T) {
 	tr := newTree(t).
