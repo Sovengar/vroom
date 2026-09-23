@@ -1391,7 +1391,11 @@ func (m Model) toggleComposers(primary string) (tea.Model, tea.Cmd) {
 	// Check if all stacks are running
 	allRunning := true
 	for i := range stacks {
-		r, n := m.stackStats(&stacks[i])
+		r, n, err := m.stackStats(&stacks[i])
+		if err != nil {
+			m.notify("stack conflict: " + err.Error())
+			return m, nil
+		}
 		if n == 0 || r < n {
 			allRunning = false
 			break
@@ -1400,7 +1404,10 @@ func (m Model) toggleComposers(primary string) (tea.Model, tea.Cmd) {
 	if allRunning {
 		// Stop all stacks
 		for i := range stacks {
-			_ = m.engine.StopStack(&stacks[i], m.projects, nil)
+			if err := m.engine.StopStack(&stacks[i], m.projects, nil); err != nil {
+				m.notify("stack conflict: " + err.Error())
+				return m, nil
+			}
 		}
 		m.notify(fmt.Sprintf("stopping all stacks in %s", primary))
 		return m, nil
@@ -1434,41 +1441,23 @@ func (m Model) toggleStack(s *orchestrate.Stack) (tea.Model, tea.Cmd) {
 		m.notify("orchestration engine not available")
 		return m, nil
 	}
-	running, _ := m.stackStats(s)
-	total := 0
-	seen := make(map[string]bool)
-	for _, stage := range s.Stages {
-		for _, name := range stage.Services {
-			if !seen[name] {
-				seen[name] = true
-				total++
-			}
-		}
+	running, total, err := m.stackStats(s)
+	if err != nil {
+		m.notify("stack conflict: " + err.Error())
+		return m, nil
 	}
 	if running == total && total > 0 {
-		// Stack running: stop all services
-		for _, stage := range s.Stages {
-			for _, name := range stage.Services {
-				for _, e := range m.entries {
-					if e.Project.Configured && e.Project.Manifest != nil && e.Project.Manifest.Name == name {
-						sv := m.services[e.Project.Path]
-						if sv != nil && (sv.Status == statusRunning || sv.Status == statusUnknown) {
-							sv.Status = statusStopping
-						}
-						_ = m.engine.StopStack(s, m.projects, nil)
-						break
-					}
-				}
-			}
+		// Stack running: stop all services (criterio explícito, sin
+		// elegir arbitrariamente el primer match de nombre).
+		if err := m.engine.StopStack(s, m.projects, nil); err != nil {
+			m.notify("stack conflict: " + err.Error())
+			return m, nil
 		}
+		m.markStackStopping(s)
 		m.notify(fmt.Sprintf("stopping stack %s", s.Name))
 		return m, nil
 	}
 	// Stack stopped: launch orchestration
-	if m.engine == nil {
-		m.notify("no compose file loaded")
-		return m, nil
-	}
 	m.notify(fmt.Sprintf("launching stack %s...", s.Name))
 	return m, func() tea.Msg {
 		result, err := m.engine.Launch(s, m.projects)
@@ -1476,6 +1465,27 @@ func (m Model) toggleStack(s *orchestrate.Stack) (tea.Model, tea.Cmd) {
 			return stackResultMsg{err: err}
 		}
 		return stackResultMsg{result: *result}
+	}
+}
+
+// markStackStopping marca como stopping los servicios del stack resueltos
+// con el criterio compartido (0011).
+func (m Model) markStackStopping(s *orchestrate.Stack) {
+	seen := make(map[string]bool)
+	for _, stage := range s.Stages {
+		for _, name := range stage.Services {
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			p, err := orchestrate.LookupService(name, m.projects)
+			if err != nil {
+				continue
+			}
+			if sv := m.services[p.Path]; sv != nil && (sv.Status == statusRunning || sv.Status == statusUnknown) {
+				sv.Status = statusStopping
+			}
+		}
 	}
 }
 

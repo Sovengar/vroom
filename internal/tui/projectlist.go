@@ -382,15 +382,22 @@ func stackMatch(s *orchestrate.Stack, q string) bool {
 		strings.Contains(strings.ToLower(s.PrimaryGroup), q)
 }
 
-// stackRow dibuja la fila del stack: 🎵 nombre (running/total).
+// stackRow dibuja la fila del stack: 🎵 nombre (running/total). Si el
+// stack tiene un nombre de servicio ambiguo, lo marca como conflicto.
 func (m Model) stackRow(s *orchestrate.Stack) string {
-	r, n := m.stackStats(s)
+	r, n, err := m.stackStats(s)
 	label := fmt.Sprintf("🎵 %s (%d/%d)", s.Name, r, n)
+	if err != nil {
+		label = fmt.Sprintf("🎵 %s ⚠ conflict", s.Name)
+	}
 	return styleStack.Render(trunc(label, treeWidth-4))
 }
 
-// stackStats cuenta servicios running y total de un stack.
-func (m Model) stackStats(s *orchestrate.Stack) (running, total int) {
+// stackStats cuenta servicios running y total de un stack. Devuelve un
+// error explícito si un nombre de servicio es ambiguo (varios proyectos lo
+// declaran): mismo criterio que el engine/CLI (0011), sin elegir el
+// primero arbitrariamente.
+func (m Model) stackStats(s *orchestrate.Stack) (running, total int, err error) {
 	seen := make(map[string]bool)
 	for _, stage := range s.Stages {
 		for _, name := range stage.Services {
@@ -399,17 +406,16 @@ func (m Model) stackStats(s *orchestrate.Stack) (running, total int) {
 			}
 			seen[name] = true
 			total++
-			for _, e := range m.entries {
-				if e.Project.Configured && e.Project.Manifest != nil && e.Project.Manifest.Name == name {
-					if sv := m.services[e.Project.Path]; sv != nil && sv.Status == statusRunning {
-						running++
-					}
-					break
-				}
+			p, lookupErr := orchestrate.LookupService(name, m.projects)
+			if lookupErr != nil {
+				return running, total, lookupErr
+			}
+			if sv := m.services[p.Path]; sv != nil && sv.Status == statusRunning {
+				running++
 			}
 		}
 	}
-	return running, total
+	return running, total, nil
 }
 
 // exampleManifest genera un manifiesto de ejemplo para proyectos sin

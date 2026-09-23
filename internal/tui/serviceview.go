@@ -184,7 +184,7 @@ func pad(s string, n int) string {
 // (0010 R57): nombre + [stack] + estado, tipo, etapas, servicios con
 // su estado y puerto (igual que groupDetailsLines).
 func (m Model) stackDetailsLines(s *orchestrate.Stack, w int) []string {
-	r, n := m.stackStats(s)
+	r, n, conflict := m.stackStats(s)
 	running := ""
 	if r > 0 {
 		running = fmt.Sprintf("  %s", styleRunning.Render("● running"))
@@ -200,25 +200,26 @@ func (m Model) stackDetailsLines(s *orchestrate.Stack, w int) []string {
 	row("stages:", fmt.Sprintf("%d", len(s.Stages)))
 	row("services:", fmt.Sprintf("%d (%d running)", n, r))
 	row("group:", s.PrimaryGroup)
+	if conflict != nil {
+		lines = append(lines, styleWarn.Render(trunc("⚠ "+conflict.Error(), w)))
+	}
 	lines = append(lines, "")
 	for _, stage := range s.Stages {
 		lines = append(lines, styleDim.Render(trunc(fmt.Sprintf("  %s:", stage.Name), w-4)))
 		for _, name := range stage.Services {
 			label := trunc(name, w-5)
-			// Find matching project for status + port
-			for _, p := range m.projects {
-				if p.Configured && p.Manifest != nil && p.Manifest.Name == name {
-					if p.Manifest.Port > 0 {
-						label += styleDim.Render(fmt.Sprintf(":%d", p.Manifest.Port))
-					}
-					dot := treeDot(p, m.services[p.Path], m.spinner.View(), m.startSpinner.View())
-					lines = append(lines, "    "+dot+" "+label)
-					goto next
-				}
+			// Resolución con el criterio compartido (0011): ante un
+			// nombre ambiguo no se elige arbitrariamente el primero.
+			p, err := orchestrate.LookupService(name, m.projects)
+			if err != nil {
+				lines = append(lines, "    "+styleWarn.Render("⚠")+" "+label)
+				continue
 			}
-			// No matching project found
-			lines = append(lines, "    "+styleWarn.Render("⚠")+" "+label)
-		next:
+			if p.Manifest.Port > 0 {
+				label += styleDim.Render(fmt.Sprintf(":%d", p.Manifest.Port))
+			}
+			dot := treeDot(p, m.services[p.Path], m.spinner.View(), m.startSpinner.View())
+			lines = append(lines, "    "+dot+" "+label)
 		}
 	}
 	return lines

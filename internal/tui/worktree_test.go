@@ -13,6 +13,7 @@ import (
 	"vroom/internal/gitinfo"
 	"vroom/internal/group"
 	"vroom/internal/manifest"
+	"vroom/internal/orchestrate"
 	"vroom/internal/scanner"
 	"vroom/internal/state"
 )
@@ -480,5 +481,38 @@ func TestNewNestsRealGitWorktrees(t *testing.T) {
 	m2, _ := press(m, "enter")
 	if findCursor(m2, "repo-wt-a") < 0 {
 		t.Fatalf("al expandir deben aparecer los worktrees: %+v", m2.tree)
+	}
+}
+
+// S8: la TUI reporta el mismo conflicto de stack que el CLI y no elige
+// arbitrariamente el primer proyecto con ese nombre.
+func TestStackStatsConflictMatchesEngine(t *testing.T) {
+	projects := []scanner.Project{
+		{Path: "/repo-wt/a", Name: "a", Configured: true, Manifest: manifestNamed("api", "")},
+		{Path: "/repo-wt/b", Name: "b", Configured: true, Manifest: manifestNamed("api", "")},
+	}
+	m := newRepoModel(t, projects, nil)
+	stack := &orchestrate.Stack{
+		Name:   "s",
+		Stages: []orchestrate.Stage{{Name: "s1", Services: []string{"api"}}},
+	}
+	_, _, err := m.stackStats(stack)
+	if err == nil {
+		t.Fatal("stackStats debe reportar el conflicto de nombre duplicado")
+	}
+	if _, cerr := orchestrate.LookupService("api", projects); cerr == nil {
+		t.Fatal("el engine debe reportar el mismo conflicto")
+	}
+	if !strings.Contains(m.stackRow(stack), "conflict") {
+		t.Errorf("la fila del stack debe marcar el conflicto: %q", m.stackRow(stack))
+	}
+
+	// Nombre único: resuelve sin conflicto.
+	unique := []scanner.Project{{Path: "/dev/api", Name: "api", Configured: true, Manifest: manifestNamed("api", "")}}
+	mu := newRepoModel(t, unique, nil)
+	mu.services["/dev/api"].Status = statusRunning
+	r, n, uerr := mu.stackStats(stack)
+	if uerr != nil || r != 1 || n != 1 {
+		t.Fatalf("stackStats único = (%d,%d,%v), want (1,1,nil)", r, n, uerr)
 	}
 }

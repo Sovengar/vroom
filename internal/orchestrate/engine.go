@@ -2,6 +2,8 @@ package orchestrate
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -62,21 +64,43 @@ func NewEngine(manager process.Manager, store *state.Store) *Engine {
 	return &Engine{manager: manager, store: store}
 }
 
-// ResolveServices resuelve los nombres de servicio contra los proyectos
-// escaneados. Devuelve error si algún nombre no se encuentra.
-func (e *Engine) ResolveServices(serviceNames []string, projects []scanner.Project) ([]ResolvedService, error) {
-	index := make(map[string]scanner.Project, len(projects))
+// LookupService resuelve un nombre de servicio a exactamente un proyecto.
+// Manifest.Name no es identidad única (worktrees pueden repetirlo): ante
+// duplicados devuelve un error explícito con los paths en orden estable,
+// nunca un last-wins silencioso (0011).
+func LookupService(name string, projects []scanner.Project) (scanner.Project, error) {
+	var matches []scanner.Project
 	for _, p := range projects {
-		if p.Configured && p.Manifest != nil {
-			index[p.Manifest.Name] = p
+		if p.Configured && p.Manifest != nil && p.Manifest.Name == name {
+			matches = append(matches, p)
 		}
 	}
+	switch len(matches) {
+	case 0:
+		return scanner.Project{}, fmt.Errorf("service %q not found in scanned projects", name)
+	case 1:
+		return matches[0], nil
+	default:
+		paths := make([]string, len(matches))
+		for i, m := range matches {
+			paths[i] = m.Path
+		}
+		sort.Strings(paths) // orden estable en el mensaje
+		return scanner.Project{}, fmt.Errorf(
+			"ambiguous service %q: found in %s; use unique manifest names",
+			name, strings.Join(paths, ", "))
+	}
+}
 
+// ResolveServices resuelve los nombres de servicio contra los proyectos
+// escaneados. Devuelve error si algún nombre no se encuentra o si es
+// ambiguo (varios proyectos lo declaran).
+func (e *Engine) ResolveServices(serviceNames []string, projects []scanner.Project) ([]ResolvedService, error) {
 	resolved := make([]ResolvedService, 0, len(serviceNames))
 	for _, name := range serviceNames {
-		p, ok := index[name]
-		if !ok {
-			return nil, fmt.Errorf("service %q not found in scanned projects", name)
+		p, err := LookupService(name, projects)
+		if err != nil {
+			return nil, err
 		}
 		resolved = append(resolved, ResolvedService{Name: name, Project: p})
 	}
@@ -190,15 +214,22 @@ func (e *Engine) LaunchAsync(stack *Stack, projects []scanner.Project) <-chan La
 	return ch
 }
 
-// StopStack para todos los servicios de un stack.
+// StopStack para todos los servicios de un stack. Resuelve cada nombre
+// con el mismo criterio explícito que el engine: ante duplicados falla en
+// vez de parar un proyecto arbitrario.
 func (e *Engine) StopStack(stack *Stack, projects []scanner.Project, services map[string]*ServiceStatus) error {
+	seen := make(map[string]bool)
 	for _, stage := range stack.Stages {
 		for _, name := range stage.Services {
-			for _, p := range projects {
-				if p.Configured && p.Manifest != nil && p.Manifest.Name == name {
-					e.stopService(p)
-				}
+			if seen[name] {
+				continue
 			}
+			seen[name] = true
+			p, err := LookupService(name, projects)
+			if err != nil {
+				return err
+			}
+			e.stopService(p)
 		}
 	}
 	return nil
@@ -209,10 +240,10 @@ type ServiceStatus struct {
 	Running bool
 }
 
-// StackStatus evalúa el estado de todos los servicios de un stack.
-func (e *Engine) StackStatus(stack *Stack, projects []scanner.Project) (running, total int) {
-	total = 0
-	running = 0
+// StackStatus evalúa el estado de todos los servicios de un stack con el
+// mismo criterio de resolución que el CLI (LookupService): ante un nombre
+// ambiguo devuelve error en lugar de elegir arbitrariamente el primero.
+func (e *Engine) StackStatus(stack *Stack, projects []scanner.Project) (running, total int, err error) {
 	seen := make(map[string]bool)
 	for _, stage := range stack.Stages {
 		for _, name := range stage.Services {
@@ -221,25 +252,25 @@ func (e *Engine) StackStatus(stack *Stack, projects []scanner.Project) (running,
 			}
 			seen[name] = true
 			total++
-			for _, p := range projects {
-				if p.Configured && p.Manifest != nil && p.Manifest.Name == name {
-					meta, err := e.store.LoadMeta(p.Path)
-					if err == nil && meta.Pid > 0 {
-						status := e.manager.Evaluate(process.EvalSpec{
-							Pid:            meta.Pid,
-							CreationTimeMs: meta.CreationTimeMs,
-							Port:           meta.Port,
-							ProcessPattern: meta.ProcessPattern,
-						})
-						if status == process.StatusRunning {
-							running++
-						}
-					}
+			p, lookupErr := LookupService(name, projects)
+			if lookupErr != nil {
+				return running, total, lookupErr
+			}
+			meta, metaErr := e.store.LoadMeta(p.Path)
+			if metaErr == nil && meta.Pid > 0 {
+				status := e.manager.Evaluate(process.EvalSpec{
+					Pid:            meta.Pid,
+					CreationTimeMs: meta.CreationTimeMs,
+					Port:           meta.Port,
+					ProcessPattern: meta.ProcessPattern,
+				})
+				if status == process.StatusRunning {
+					running++
 				}
 			}
 		}
 	}
-	return running, total
+	return running, total, nil
 }
 
 // validateServices resuelve y valida todos los servicios del stack.
