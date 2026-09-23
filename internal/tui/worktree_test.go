@@ -516,3 +516,32 @@ func TestStackStatsConflictMatchesEngine(t *testing.T) {
 		t.Fatalf("stackStats único = (%d,%d,%v), want (1,1,nil)", r, n, uerr)
 	}
 }
+
+// H2: un error de topología se marca en la fila aunque no haya worktrees
+// descubiertos (un fallo de `git worktree list` implica 0 hijos).
+func TestRepoRowShowsTopologyErrorWithoutChildren(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	projects := []scanner.Project{{
+		Path: repo, Name: "repo", Configured: true, Manifest: manifestNamed("repo", ""),
+		WorktreeErr: "git binary not available",
+	}}
+	m := newRepoModel(t, projects, nil)
+	it := m.tree[findCursor(m, "repo")]
+	if it.hasKids {
+		t.Fatal("sin worktrees no debe marcar hijos")
+	}
+	joined := strings.Join(mustTree(t, m), "\n")
+	if !strings.Contains(joined, "⚠") {
+		t.Errorf("el error de topología debe marcarse con ⚠ en la fila: %q", joined)
+	}
+	if strings.Contains(joined, "▸") {
+		t.Errorf("sin hijos no debe haber glifo de expansión: %q", joined)
+	}
+}
+
+func mustTree(t *testing.T, m Model) []string {
+	t.Helper()
+	tree, _ := m.treeLines()
+	return tree
+}

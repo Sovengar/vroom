@@ -267,18 +267,19 @@ func (m Model) treeLines() ([]string, int) {
 
 // projectRow dibuja una fila de proyecto; las filas de repo con
 // worktrees anteponen el glifo de expansión y los worktrees anidados
-// usan worktreeRow (rama incluida).
+// usan worktreeRow (rama incluida). Un error de topología (WorktreeErr)
+// se marca con ⚠ de forma independiente de si hay hijos: un fallo de
+// `git worktree list` implica cero worktrees descubiertos.
 func (m Model) projectRow(it treeItem) string {
 	row := m.treeRow(it.project)
 	if it.indent > 0 {
 		row = m.worktreeRow(it.project)
 	}
 	if it.hasKids {
-		prefix := m.repoGlyph(it.repoPath) + " "
-		if it.project.WorktreeErr != "" {
-			prefix = styleWarn.Render("⚠") + prefix
-		}
-		row = prefix + row
+		row = m.repoGlyph(it.repoPath) + " " + row
+	}
+	if it.project.WorktreeErr != "" {
+		row = styleWarn.Render("⚠") + " " + row
 	}
 	return row
 }
