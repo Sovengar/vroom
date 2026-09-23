@@ -24,6 +24,18 @@ var ErrGitUnavailable = errors.New("git binary not available")
 // dependencia del binario git en el scan debe ser acotada y degradable).
 const DefaultTimeout = 3 * time.Second
 
+// listTimeout y listWaitDelay son variables para que los tests puedan
+// acortarlos.
+//
+// listTimeout acota la invocación de git. listWaitDelay acota el cierre de
+// los pipes tras el deadline del contexto: sin él, un proceso descendiente
+// vivo con los pipes abiertos puede colgar cmd.Wait() más allá del
+// timeout, así que el timeout no acotaría el tiempo de reloj real.
+var (
+	listTimeout   = DefaultTimeout
+	listWaitDelay = time.Second
+)
+
 // Worktree es una entrada de `git worktree list --porcelain`.
 type Worktree struct {
 	Path     string // ruta absoluta del worktree
@@ -54,11 +66,17 @@ func listWith(dir, git string) ([]Worktree, error) {
 	if git == "" {
 		return nil, ErrGitUnavailable
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), listTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, git, "-C", dir, "worktree", "list", "--porcelain")
+	cmd.WaitDelay = listWaitDelay
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			// Degradación por timeout: se envuelve el error de contexto
+			// para que errors.Is(err, context.DeadlineExceeded) funcione.
+			return nil, fmt.Errorf("git worktree list timed out in %s: %w", dir, ctxErr)
+		}
 		return nil, fmt.Errorf("git worktree list failed in %s: %w", dir, err)
 	}
 	return ParsePorcelain(string(out))

@@ -1,9 +1,12 @@
 package worktree
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func writeFile(t *testing.T, path, content string) {
@@ -189,5 +192,37 @@ func TestListFakeGit(t *testing.T) {
 	}
 	if len(wts) != 1 || wts[0].Path != "/repo" || wts[0].Branch != "main" {
 		t.Fatalf("worktrees inesperados: %+v", wts)
+	}
+}
+
+// M4: ante un git que cuelga (dejando un descendiente con el pipe
+// abierto) la llamada retorna dentro de un límite acotado, con el error de
+// degradación correcto.
+func TestListTimeoutIsBounded(t *testing.T) {
+	oldTimeout, oldDelay := listTimeout, listWaitDelay
+	listTimeout, listWaitDelay = 200*time.Millisecond, 100*time.Millisecond
+	defer func() { listTimeout, listWaitDelay = oldTimeout, oldDelay }()
+
+	dir := t.TempDir()
+	// El shell lanza `sleep` y muere al cancelarse el contexto; el sleep
+	// huérfano conserva el pipe abierto.
+	script := "#!/bin/sh\nsleep 3\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	start := time.Now()
+	_, err := List(t.TempDir())
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("el timeout debe devolver error de degradación")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("err = %v, want context.DeadlineExceeded", err)
+	}
+	if elapsed > 1500*time.Millisecond {
+		t.Errorf("timeout no acotado: %v", elapsed)
 	}
 }
