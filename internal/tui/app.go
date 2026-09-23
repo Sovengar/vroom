@@ -290,6 +290,14 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 		}
 		m.branches[p.Path] = gitinfo.Branch(p.Path)
 	}
+	// Degradación por repo (0011): si git falló o falta, avisar sin
+	// ocultar proyectos ni romper la TUI.
+	for _, p := range projects {
+		if p.WorktreeErr != "" {
+			m.notify("worktree topology unavailable: " + p.WorktreeErr)
+			break
+		}
+	}
 	m.entries = group.Arrange(projects)
 	// Cargar compose file: buscar en scanRoot y sus subdirectores
 	// directos (0010). Los stacks se manejan por separado — no se
@@ -1074,7 +1082,13 @@ func (m Model) enterSelection() (tea.Model, tea.Cmd) {
 		m.collapsed[key] = !m.collapsed[key]
 	case itemStack:
 		return m, nil // stacks no se pliegan (0010 R56 S56.3)
+	case itemRepo:
+		m.toggleRepoCollapse(it.repoPath) // contenedor sintetizado (0011)
 	case itemProject:
+		if it.hasKids { // fila de repo: pliega/expande sus worktrees (0011)
+			m.toggleRepoCollapse(it.repoPath)
+			break
+		}
 		if it.secondary != "" {
 			key := m.secondaryKey(it.primary, it.secondary)
 			m.collapsed[key] = !m.collapsed[key]
@@ -1284,6 +1298,9 @@ func (m Model) toggleSelected() (tea.Model, tea.Cmd) {
 		return m.toggleNode(it.primary, it.secondary)
 	case it.kind == itemStack && it.stack != nil:
 		return m.toggleStack(it.stack)
+	case it.kind == itemRepo:
+		m.notify("repository container — expand it to operate its worktrees")
+		return m, nil
 	}
 	p := m.selected()
 	if p == nil {
@@ -1979,6 +1996,13 @@ func (m Model) selectedNode() (primary, secondary string) {
 // primarios distintos (S38.6).
 func (m Model) secondaryKey(primary, secondary string) string {
 	return primary + "/" + secondary
+}
+
+// toggleRepoCollapse alterna la expansión de una fila de repo (0011). El
+// estado vive en el mismo mapa persistido pero con la clave `repo:<path>`
+// y semántica invertida (default colapsado).
+func (m Model) toggleRepoCollapse(repoPath string) {
+	m.collapsed[repoKey(repoPath)] = !m.repoExpanded(repoPath)
 }
 
 func (m Model) projectByPath(path string) *scanner.Project {
