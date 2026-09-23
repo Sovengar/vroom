@@ -238,6 +238,39 @@ type repoRelation struct {
 // worktrees in-root que no tienen manifiesto propio (se listan como no
 // configurados). Nunca construye una estructura anidada.
 func annotateTopology(projects []Project, root string) []Project {
+	info := queryWorktreeRelations(projects)
+
+	for i := range projects {
+		p := &projects[i]
+		if rel, ok := info[p.Path]; ok && rel.isWorktree {
+			p.IsWorktree = true
+			p.RepoRoot = rel.main
+		}
+	}
+
+	existing := make(map[string]bool, len(projects))
+	for _, p := range projects {
+		existing[p.Path] = true
+	}
+	var synth []Project
+	for path, rel := range info {
+		if !rel.isWorktree || existing[path] || !withinRoot(root, path) {
+			continue
+		}
+		synth = append(synth, Project{
+			Path:       path,
+			Name:       filepath.Base(path),
+			IsWorktree: true,
+			RepoRoot:   rel.main,
+		})
+	}
+	return append(projects, synth...)
+}
+
+// queryWorktreeRelations consulta `git worktree list` por cada proyecto
+// con repo real y devuelve el mapa path→relación, saltando los prunable y
+// registrando el error de topología en el propio proyecto cuando git falla.
+func queryWorktreeRelations(projects []Project) map[string]repoRelation {
 	info := make(map[string]repoRelation)
 	queried := make(map[string]bool)
 	for i := range projects {
@@ -266,32 +299,7 @@ func annotateTopology(projects []Project, root string) []Project {
 			info[wt.Path] = rel
 		}
 	}
-
-	for i := range projects {
-		p := &projects[i]
-		if rel, ok := info[p.Path]; ok && rel.isWorktree {
-			p.IsWorktree = true
-			p.RepoRoot = rel.main
-		}
-	}
-
-	existing := make(map[string]bool, len(projects))
-	for _, p := range projects {
-		existing[p.Path] = true
-	}
-	var synth []Project
-	for path, rel := range info {
-		if !rel.isWorktree || existing[path] || !withinRoot(root, path) {
-			continue
-		}
-		synth = append(synth, Project{
-			Path:       path,
-			Name:       filepath.Base(path),
-			IsWorktree: true,
-			RepoRoot:   rel.main,
-		})
-	}
-	return append(projects, synth...)
+	return info
 }
 
 // discoverBareRepos busca bare repos bajo root (limitado por depth) y los
