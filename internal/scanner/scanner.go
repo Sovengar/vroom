@@ -18,8 +18,8 @@ import (
 
 // Project es un proyecto detectado en el escaneo.
 type Project struct {
-	Path     string // ruta absoluta del directorio del proyecto
-	Name     string // nombre del directorio
+	Path string // ruta absoluta del directorio del proyecto
+	Name string // nombre del directorio
 
 	Configured  bool               // .vroom.toml parseado con éxito
 	Manifest    *manifest.Manifest // nil si no configurado

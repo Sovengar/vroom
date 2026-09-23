@@ -435,4 +435,3 @@ func TestScanWorktreeOutsideRoot(t *testing.T) {
 		t.Fatalf("worktree fuera de root mal anotado: %+v", p)
 	}
 }
-

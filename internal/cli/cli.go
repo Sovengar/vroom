@@ -634,9 +634,9 @@ func cmdLogs(name string, flags []string, path string) {
 func cmdHelp() {
 	outputJSON(map[string]any{
 		"commands": map[string]string{
-			"vroom":                                     "launch the TUI (default when no arguments)",
-			"vroom list":                                "list all projects with full state (JSON)",
-			"vroom status":                              "alias for list",
+			"vroom":        "launch the TUI (default when no arguments)",
+			"vroom list":   "list all projects with full state (JSON)",
+			"vroom status": "alias for list",
 			"vroom start <name|path> [--path <path>]":   "start a service by project name or path",
 			"vroom stop <name|path> [--path <path>]":    "stop a service by project name or path",
 			"vroom build <name|path> [--path <path>]":   "run command_build (synchronous)",
