@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -463,5 +464,78 @@ func TestScanWorktreeOutsideRoot(t *testing.T) {
 	p := find(result.Projects, "repo-wt-a")
 	if p == nil || !p.IsWorktree || p.RepoRoot != outside {
 		t.Fatalf("worktree fuera de root mal anotado: %+v", p)
+	}
+}
+
+// M2: el camino WalkDir detecta bare repos en un único recorrido (sin un
+// segundo walk).
+func TestScanWithWalkDetectsBareWithoutExtraWalk(t *testing.T) {
+	tr := newTree(t).
+		file("bare/HEAD", "ref: refs/heads/main\n").
+		file("bare/config", "[core]\n\tbare = true\n").
+		mkdir("bare/objects").
+		mkdir("bare/refs").
+		file("proj/.vroom.toml", "name = \"proj\"\ncommand_start = \"echo\"\n")
+
+	calls := 0
+	orig := walkDir
+	walkDir = func(root string, fn fs.WalkDirFunc) error {
+		calls++
+		return orig(root, fn)
+	}
+	defer func() { walkDir = orig }()
+
+	projects, bare, err := scanWithWalk(tr.path(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Errorf("walkDir invocado %d veces, want 1 (sin walk extra)", calls)
+	}
+	if find(projects, "proj") == nil {
+		t.Error("proyecto no detectado en el walk")
+	}
+	if find(bare, "bare") == nil {
+		t.Error("bare repo no detectado en el walk")
+	}
+}
+
+// M2: el camino fd detecta bare repos sin usar WalkDir en absoluto.
+func TestScanWithFDUsesNoWalkForBare(t *testing.T) {
+	tr := newTree(t).
+		file("bare/HEAD", "ref: refs/heads/main\n").
+		file("bare/config", "[core]\n\tbare = true\n").
+		mkdir("bare/objects").
+		mkdir("bare/refs").
+		file("proj/.vroom.toml", "name = \"proj\"\ncommand_start = \"echo\"\n")
+
+	manifest := filepath.Join(tr.path(), "proj", ".vroom.toml")
+	dirs := filepath.Join(tr.path(), "proj") + "\n" + filepath.Join(tr.path(), "bare")
+	bin := t.TempDir()
+	script := "#!/bin/sh\ncase \"$*\" in\n  *\"--type d\"*) printf '%s\\n' \"" + dirs + "\" ;;\n  *) printf '%s\\n' \"" + manifest + "\" ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "fd"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := 0
+	orig := walkDir
+	walkDir = func(root string, fn fs.WalkDirFunc) error {
+		calls++
+		return orig(root, fn)
+	}
+	defer func() { walkDir = orig }()
+
+	projects, bare, err := scanWithFD(filepath.Join(bin, "fd"), tr.path(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Errorf("scanWithFD no debe usar WalkDir, got %d invocaciones", calls)
+	}
+	if find(projects, "proj") == nil {
+		t.Error("proyecto no detectado por fd")
+	}
+	if find(bare, "bare") == nil {
+		t.Error("bare repo no detectado por fd")
 	}
 }

@@ -65,24 +65,25 @@ func Scan(root string, depth int) (ScanResult, error) {
 	}
 
 	if fd := fdPath(); fd != "" {
-		projects, err := scanWithFD(fd, absRoot, depth)
+		projects, bare, err := scanWithFD(fd, absRoot, depth)
 		if err != nil {
 			return ScanResult{Projects: projects, UsedFD: true}, err
 		}
-		return ScanResult{Projects: finalize(projects, absRoot, depth), UsedFD: true}, nil
+		return ScanResult{Projects: finalize(projects, bare, absRoot), UsedFD: true}, nil
 	}
-	projects, err := scanWithWalk(absRoot, depth)
+	projects, bare, err := scanWithWalk(absRoot, depth)
 	if err != nil {
 		return ScanResult{Projects: projects, UsedFD: false}, err
 	}
-	return ScanResult{Projects: finalize(projects, absRoot, depth), UsedFD: false}, nil
+	return ScanResult{Projects: finalize(projects, bare, absRoot), UsedFD: false}, nil
 }
 
 // finalize completa el scan: agrega las filas contenedoras de bare repos
 // (que no tienen .vroom.toml y por eso no las encuentra el escaneo por
-// manifiestos), anota la topología repo/worktree y ordena por ruta.
-func finalize(projects []Project, root string, depth int) []Project {
-	projects = append(projects, discoverBareRepos(root, depth)...)
+// manifiestos), anota la topología repo/worktree y ordena por ruta. Los
+// bare repos llegan de la propia enumeración del scan (sin walk extra).
+func finalize(projects, bare []Project, root string) []Project {
+	projects = append(projects, bare...)
 	projects = annotateTopology(projects, root)
 	sort.Slice(projects, func(i, j int) bool {
 		return projects[i].Path < projects[j].Path
@@ -103,8 +104,14 @@ func fdPath() string {
 	return ""
 }
 
-// scanWithFD ejecuta fd para encontrar .vroom.toml.
-func scanWithFD(fd string, root string, depth int) ([]Project, error) {
+// walkDir es filepath.WalkDir; variable para que los tests puedan contar
+// las invocaciones y verificar que el scan no hace walks extra.
+var walkDir = filepath.WalkDir
+
+// scanWithFD ejecuta fd para encontrar .vroom.toml y, en una segunda
+// invocación acotada, enumera directorios para detectar bare repos (que
+// no tienen manifiesto). No usa WalkDir.
+func scanWithFD(fd string, root string, depth int) (projects, bare []Project, err error) {
 	args := []string{
 		"--type", "f",
 		"--hidden",
@@ -115,11 +122,10 @@ func scanWithFD(fd string, root string, depth int) ([]Project, error) {
 	cmd := exec.Command(fd, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("fd failed: %s\n%s", err, string(output))
+		return nil, nil, fmt.Errorf("fd failed: %s\n%s", err, string(output))
 	}
 
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	var projects []Project
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -132,10 +138,50 @@ func scanWithFD(fd string, root string, depth int) ([]Project, error) {
 		}
 	}
 
+	// Bare repos: best-effort, no rompe el scan si la enumeración falla.
+	bare, _ = scanBareReposWithFD(fd, root, depth)
+
 	sort.Slice(projects, func(i, j int) bool {
 		return projects[i].Path < projects[j].Path
 	})
-	return projects, nil
+	return projects, bare, nil
+}
+
+// scanBareReposWithFD enumera directorios con fd (una sola invocación,
+// sin WalkDir) y valida la heurística de bare repo. Respeta depth y salta
+// hidden dirs y skipDirs igual que el camino WalkDir.
+func scanBareReposWithFD(fd string, root string, depth int) ([]Project, error) {
+	args := []string{"--type", "d", "--hidden", "--max-depth", strconv.Itoa(depth)}
+	for name := range skipDirs {
+		args = append(args, "--exclude", name)
+	}
+	args = append(args, ".", root)
+
+	cmd := exec.Command(fd, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("fd (dirs) failed: %s\n%s", err, string(output))
+	}
+
+	var bare []Project
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		base := filepath.Base(line)
+		if isHidden(base) || skipDirs[base] {
+			continue
+		}
+		if worktree.IsBareRepo(line) {
+			bare = append(bare, Project{
+				Path:            line,
+				Name:            base,
+				IsBareContainer: true,
+			})
+		}
+	}
+	return bare, nil
 }
 
 // skipDirs evita descender en directorios pesados.
@@ -147,11 +193,11 @@ var skipDirs = map[string]bool{
 	"build":        true,
 }
 
-// scanWithWalk usa filepath.WalkDir como fallback.
-func scanWithWalk(root string, depth int) ([]Project, error) {
-	var projects []Project
-	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
+// scanWithWalk usa filepath.WalkDir como fallback y detecta bare repos en
+// el mismo recorrido: un único walk, sin una segunda pasada.
+func scanWithWalk(root string, depth int) (projects, bare []Project, err error) {
+	walkErr := walkDir(root, func(path string, d fs.DirEntry, werr error) error {
+		if werr != nil {
 			return nil
 		}
 		if !d.IsDir() {
@@ -175,6 +221,15 @@ func scanWithWalk(root string, depth int) ([]Project, error) {
 			}
 		}
 
+		if worktree.IsBareRepo(path) {
+			bare = append(bare, Project{
+				Path:            path,
+				Name:            filepath.Base(path),
+				IsBareContainer: true,
+			})
+			return fs.SkipDir
+		}
+
 		if p := inspectDir(path); p != nil {
 			projects = append(projects, *p)
 		}
@@ -185,13 +240,13 @@ func scanWithWalk(root string, depth int) ([]Project, error) {
 		return nil
 	})
 	if walkErr != nil {
-		return nil, fmt.Errorf("error walking %s: %w", root, walkErr)
+		return nil, nil, fmt.Errorf("error walking %s: %w", root, walkErr)
 	}
 
 	sort.Slice(projects, func(i, j int) bool {
 		return projects[i].Path < projects[j].Path
 	})
-	return projects, nil
+	return projects, bare, nil
 }
 
 // inspectDir devuelve un proyecto si el directorio tiene .vroom.toml, nil si no.
@@ -315,39 +370,6 @@ func queryWorktreeRelations(projects []Project) map[string]repoRelation {
 		}
 	}
 	return info
-}
-
-// discoverBareRepos busca bare repos bajo root (limitado por depth) y los
-// expone como filas contenedoras sin manifiesto.
-func discoverBareRepos(root string, depth int) []Project {
-	var out []Project
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || !d.IsDir() {
-			return nil
-		}
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			return nil
-		}
-		if path != root {
-			if isHidden(d.Name()) || skipDirs[d.Name()] {
-				return fs.SkipDir
-			}
-			if strings.Count(rel, string(os.PathSeparator))+1 > depth {
-				return fs.SkipDir
-			}
-		}
-		if worktree.IsBareRepo(path) {
-			out = append(out, Project{
-				Path:            path,
-				Name:            filepath.Base(path),
-				IsBareContainer: true,
-			})
-			return fs.SkipDir
-		}
-		return nil
-	})
-	return out
 }
 
 // withinRoot reporta si path está dentro de root.
