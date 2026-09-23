@@ -23,5 +23,9 @@ y este proyecto sigue [Semantic Versioning](https://semver.org/lang/es/).
 ### Fixed
 - Consultar los bare repos para descubrir sus worktrees (antes se omitían).
 - Mostrar el error de topología de la fila de repo aunque el repo tenga hijos.
+- No contar ni plegar los worktrees anidados al agregar el estado de un grupo.
+- Detectar bare repos durante el scan sin un recorrido adicional del árbol.
+- Consultar git una sola vez por repo en lugar de una vez por proyecto.
+- Acotar el tiempo real de ejecución de git mediante un timeout efectivo.
 
 [Unreleased]: https://github.com/Sovengar/vroom/commits/HEAD

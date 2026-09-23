@@ -49,6 +49,11 @@
 - chore: track codegraph ignore file
 - fix(scanner): query bare repos for their worktrees
 - fix(tui): render topology error regardless of children
+- fix(tui): exclude nested worktrees from group aggregation
+- fix(scanner): detect bare repos without a second walk
+- fix(scanner): query git once per repo, not once per project
+- fix(worktree): bound git wall time with WaitDelay
+- chore: close 0011 worktree-nesting
 
 ## Files
 - Created:
@@ -62,7 +67,9 @@
   - `internal/scanner/scanner.go` + `scanner_test.go`
   - `internal/cli/cli.go`
   - `internal/orchestrate/engine.go` + `engine_test.go`
-  - `internal/tui/app.go`, `projectlist.go`, `serviceview.go`
+  - `internal/tui/app.go`, `projectlist.go`, `serviceview.go` + `worktree_test.go`
+  - `internal/worktree/worktree.go` + `worktree_test.go`
+  - `CHANGELOG.md`, `.ignore`
 
 ## Tests
 - Added: 45 test functions (worktree: 8, cli: 7, scanner integration: 2, tui worktree: 15, plus scanner/orchestrate additions)
@@ -79,7 +86,10 @@
 - High Found: 2
 - Medium Found: 4
 - Low Found: 13
-- User Decision: fix the 2 HIGH only (commits `264c721`, `42f15a4`, verified). MEDIUM/LOW intentionally left out of scope.
+- User Decision: fix the 2 HIGH (commits `264c721`, `42f15a4`) and the 4 MEDIUM
+  (commits `c3bcc68`, `87bb437`, `faab014`, `88c9839`), all verified. The 13 LOW
+  are known and intentionally left out of scope (non-blocking).
 
 ## Next Step
-Push `feat/worktree-nesting` to origin (awaiting user authorization), then open PR against `main`.
+PR #1 open against `main` (https://github.com/Sovengar/vroom/pull/1); the
+MEDIUM fixes were pushed on top of the original close commit.
