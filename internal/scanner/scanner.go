@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"vroom/internal/manifest"
+	"vroom/internal/worktree"
 )
 
 // Project es un proyecto detectado en el escaneo.
@@ -23,6 +24,13 @@ type Project struct {
 	Configured  bool               // .vroom.toml parseado con éxito
 	Manifest    *manifest.Manifest // nil si no configurado
 	ManifestErr string             // error de parseo si .vroom.toml malformado
+
+	// Relación repo/worktree (0011): anotaciones aditivas sobre el slice
+	// plano. Nunca se construye una estructura anidada.
+	RepoRoot        string // ruta del main checkout del repo (solo worktrees)
+	IsWorktree      bool   // true si es un worktree linkeado
+	IsBareContainer bool   // true si es la fila contenedora de un bare repo
+	WorktreeErr     string // error de topología (git ausente/fallo) del repo
 }
 
 // ScanResult contiene los proyectos y el método usado para encontrarlos.
@@ -48,10 +56,28 @@ func Scan(root string, depth int) (ScanResult, error) {
 
 	if fd := fdPath(); fd != "" {
 		projects, err := scanWithFD(fd, absRoot, depth)
-		return ScanResult{Projects: projects, UsedFD: true}, err
+		if err != nil {
+			return ScanResult{Projects: projects, UsedFD: true}, err
+		}
+		return ScanResult{Projects: finalize(projects, absRoot, depth), UsedFD: true}, nil
 	}
 	projects, err := scanWithWalk(absRoot, depth)
-	return ScanResult{Projects: projects, UsedFD: false}, err
+	if err != nil {
+		return ScanResult{Projects: projects, UsedFD: false}, err
+	}
+	return ScanResult{Projects: finalize(projects, absRoot, depth), UsedFD: false}, nil
+}
+
+// finalize completa el scan: agrega las filas contenedoras de bare repos
+// (que no tienen .vroom.toml y por eso no las encuentra el escaneo por
+// manifiestos), anota la topología repo/worktree y ordena por ruta.
+func finalize(projects []Project, root string, depth int) []Project {
+	projects = append(projects, discoverBareRepos(root, depth)...)
+	projects = annotateTopology(projects, root)
+	sort.Slice(projects, func(i, j int) bool {
+		return projects[i].Path < projects[j].Path
+	})
+	return projects
 }
 
 // fdPath busca fd en PATH o en ubicaciones conocidas.
@@ -181,4 +207,131 @@ func inspectDir(dir string) *Project {
 
 func isHidden(name string) bool {
 	return strings.HasPrefix(name, ".")
+}
+
+// hasGitRepo reporta si dir contiene un repo git real: un .git file
+// (worktree/submodule) o un directorio .git con config. Un .git a medio
+// construir (fixtures de tests) se ignora para no spawnar git de más.
+func hasGitRepo(dir string) bool {
+	git := filepath.Join(dir, ".git")
+	info, err := os.Stat(git)
+	if err != nil {
+		return false
+	}
+	if !info.IsDir() {
+		return true // .git file: worktree linkeado o submodule
+	}
+	if _, err := os.Stat(filepath.Join(git, "config")); err != nil {
+		return false
+	}
+	return true
+}
+
+// repoRelation es la relación de un worktree con su repo.
+type repoRelation struct {
+	main       string // ruta del main checkout
+	isWorktree bool   // false si el propio path es el main checkout
+}
+
+// annotateTopology consulta la topología git de cada proyecto con repo y
+// anota las relaciones repo/worktree; además sintetiza filas para
+// worktrees in-root que no tienen manifiesto propio (se listan como no
+// configurados). Nunca construye una estructura anidada.
+func annotateTopology(projects []Project, root string) []Project {
+	info := make(map[string]repoRelation)
+	queried := make(map[string]bool)
+	for i := range projects {
+		p := &projects[i]
+		if !hasGitRepo(p.Path) || queried[p.Path] {
+			continue
+		}
+		queried[p.Path] = true
+		wts, err := worktree.List(p.Path)
+		if err != nil {
+			p.WorktreeErr = err.Error()
+			continue
+		}
+		if len(wts) == 0 {
+			continue
+		}
+		main := wts[0].Path // git lista el main checkout primero
+		for _, wt := range wts {
+			if wt.Prunable {
+				continue // prunable/ausente: no se renderiza
+			}
+			rel := repoRelation{main: main, isWorktree: wt.Path != main}
+			if prev, ok := info[wt.Path]; ok && prev.isWorktree {
+				rel = prev // no degradar una relación ya establecida
+			}
+			info[wt.Path] = rel
+		}
+	}
+
+	for i := range projects {
+		p := &projects[i]
+		if rel, ok := info[p.Path]; ok && rel.isWorktree {
+			p.IsWorktree = true
+			p.RepoRoot = rel.main
+		}
+	}
+
+	existing := make(map[string]bool, len(projects))
+	for _, p := range projects {
+		existing[p.Path] = true
+	}
+	var synth []Project
+	for path, rel := range info {
+		if !rel.isWorktree || existing[path] || !withinRoot(root, path) {
+			continue
+		}
+		synth = append(synth, Project{
+			Path:       path,
+			Name:       filepath.Base(path),
+			IsWorktree: true,
+			RepoRoot:   rel.main,
+		})
+	}
+	return append(projects, synth...)
+}
+
+// discoverBareRepos busca bare repos bajo root (limitado por depth) y los
+// expone como filas contenedoras sin manifiesto.
+func discoverBareRepos(root string, depth int) []Project {
+	var out []Project
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		if path != root {
+			if isHidden(d.Name()) || skipDirs[d.Name()] {
+				return fs.SkipDir
+			}
+			if strings.Count(rel, string(os.PathSeparator))+1 > depth {
+				return fs.SkipDir
+			}
+		}
+		if worktree.IsBareRepo(path) {
+			out = append(out, Project{
+				Path:            path,
+				Name:            filepath.Base(path),
+				IsBareContainer: true,
+			})
+			return fs.SkipDir
+		}
+		return nil
+	})
+	return out
+}
+
+// withinRoot reporta si path está dentro de root.
+func withinRoot(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }

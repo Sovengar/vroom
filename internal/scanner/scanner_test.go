@@ -231,3 +231,208 @@ func projectNames(projects []Project) string {
 	}
 	return strings.Join(names, ", ")
 }
+
+// ---- Topología repo/worktree (0011) ----
+
+// fakeGitPATH escribe un git falso con el porcelain dado y devuelve un
+// PATH que lo antepone al real (degradación y topología sin git real).
+func fakeGitPATH(t *testing.T, output string, code int) string {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\ncat <<'EOF'\n" + output + "EOF\nexit " + codeStr(code) + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir + string(os.PathListSeparator) + os.Getenv("PATH")
+}
+
+func codeStr(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	return "1"
+}
+
+// porcelainRepo construye el porcelain de un repo con sus worktrees.
+func porcelainRepo(main string, worktrees ...string) string {
+	var b strings.Builder
+	b.WriteString("worktree " + main + "\nHEAD aaaa000000000000000000000000000000000000\nbranch refs/heads/main\n\n")
+	for i, wt := range worktrees {
+		b.WriteString("worktree " + wt + "\nHEAD bbbb000000000000000000000000000000000000\nbranch refs/heads/wt" + string(rune('a'+i)) + "\n\n")
+	}
+	return b.String()
+}
+
+// Un worktree in-root se anota con RepoRoot y no aparece como top-level
+// por sí mismo (el slice sigue plano).
+func TestScanAnnotatesWorktrees(t *testing.T) {
+	tr := newTree(t).
+		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo/.git/config", "[core]\n\tbare = false\n").
+		file("repo/.git/HEAD", "ref: refs/heads/main\n").
+		file("repo-wt-a/.vroom.toml", "name = \"api\"\ncommand_start = \"echo\"\n").
+		file("repo-wt-a/.git", "gitdir: /nowhere/.git/worktrees/a\n")
+	main := filepath.Join(tr.path(), "repo")
+	wtA := filepath.Join(tr.path(), "repo-wt-a")
+	t.Setenv("PATH", fakeGitPATH(t, porcelainRepo(main, wtA), 0))
+
+	result, err := Scan(tr.path(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := find(result.Projects, "repo-wt-a")
+	if p == nil {
+		t.Fatalf("worktree repo-wt-a no detectado: %v", projectNames(result.Projects))
+	}
+	if !p.IsWorktree || p.RepoRoot != main {
+		t.Errorf("anotación = worktree:%v repoRoot:%q, want true %q", p.IsWorktree, p.RepoRoot, main)
+	}
+	// El main checkout no es worktree.
+	if r := find(result.Projects, "repo"); r == nil || r.IsWorktree {
+		t.Errorf("el main checkout no debe marcarse worktree: %+v", r)
+	}
+}
+
+// Un worktree sin manifiesto se sintetiza como fila no configurada.
+func TestScanSynthesizesUnconfiguredWorktree(t *testing.T) {
+	tr := newTree(t).
+		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo/.git/config", "[core]\n\tbare = false\n").
+		mkdir("repo-wt-sin-mf")
+	main := filepath.Join(tr.path(), "repo")
+	wt := filepath.Join(tr.path(), "repo-wt-sin-mf")
+	t.Setenv("PATH", fakeGitPATH(t, porcelainRepo(main, wt), 0))
+
+	result, err := Scan(tr.path(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := find(result.Projects, "repo-wt-sin-mf")
+	if p == nil {
+		t.Fatalf("worktree sin manifiesto no sintetizado: %v", projectNames(result.Projects))
+	}
+	if p.Configured || !p.IsWorktree || p.RepoRoot != main {
+		t.Errorf("fila sintetizada inesperada: %+v", p)
+	}
+}
+
+// Un worktree prunable no aparece como fila.
+func TestScanSkipsPrunableWorktree(t *testing.T) {
+	tr := newTree(t).
+		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo/.git/config", "[core]\n\tbare = false\n")
+	main := filepath.Join(tr.path(), "repo")
+	gone := filepath.Join(tr.path(), "repo-wt-gone")
+	out := porcelainRepo(main) + "worktree " + gone + "\nHEAD cccc000000000000000000000000000000000000\nprunable gitdir file points to non-existent location\n\n"
+	t.Setenv("PATH", fakeGitPATH(t, out, 0))
+
+	result, err := Scan(tr.path(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := find(result.Projects, "repo-wt-gone"); p != nil {
+		t.Errorf("worktree prunable no debe aparecer: %+v", p)
+	}
+}
+
+// Un bare repo se detecta y se expone como contenedor no configurado.
+func TestScanDetectsBareRepo(t *testing.T) {
+	tr := newTree(t).
+		file("bare/HEAD", "ref: refs/heads/main\n").
+		file("bare/config", "[core]\n\tbare = true\n").
+		mkdir("bare/objects").
+		mkdir("bare/refs").
+		file("normal/.git/HEAD", "ref: refs/heads/main\n").
+		file("normal/.vroom.toml", "name = \"normal\"\ncommand_start = \"echo\"\n")
+	t.Setenv("PATH", fakeGitPATH(t, "", 0))
+
+	result, err := Scan(tr.path(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := find(result.Projects, "bare")
+	if b == nil {
+		t.Fatalf("bare repo no detectado: %v", projectNames(result.Projects))
+	}
+	if !b.IsBareContainer || b.Configured || b.Manifest != nil {
+		t.Errorf("contenedor bare inesperado: %+v", b)
+	}
+	if n := find(result.Projects, "normal"); n == nil || n.IsBareContainer {
+		t.Errorf("dir con .git no debe ser contenedor: %+v", n)
+	}
+}
+
+// Git ausente degrada: los proyectos siguen y se registra el motivo.
+func TestScanDegradesWhenGitUnavailable(t *testing.T) {
+	tr := newTree(t).
+		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo/.git/config", "[core]\n\tbare = false\n")
+	t.Setenv("PATH", t.TempDir()) // sin git (ni fd): degrada, no crashea
+
+	result, err := Scan(tr.path(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := find(result.Projects, "repo")
+	if p == nil {
+		t.Fatal("el proyecto debe seguir visible sin git")
+	}
+	if p.WorktreeErr == "" {
+		t.Error("debe registrar el motivo de la degradación")
+	}
+}
+
+// git worktree list con exit != 0 se trata como sin worktrees + error.
+func TestScanWorktreeListFailure(t *testing.T) {
+	tr := newTree(t).
+		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo/.git/config", "[core]\n\tbare = false\n")
+	t.Setenv("PATH", fakeGitPATH(t, "boom\n", 1))
+
+	result, err := Scan(tr.path(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := find(result.Projects, "repo")
+	if p == nil || p.WorktreeErr == "" {
+		t.Errorf("debe registrar el error de topología: %+v", p)
+	}
+}
+
+// Salida malformada de porcelain se trata como sin worktrees + error.
+func TestScanWorktreeListMalformed(t *testing.T) {
+	tr := newTree(t).
+		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo/.git/config", "[core]\n\tbare = false\n")
+	t.Setenv("PATH", fakeGitPATH(t, "not a porcelain\n", 0))
+
+	result, err := Scan(tr.path(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := find(result.Projects, "repo")
+	if p == nil || p.WorktreeErr == "" {
+		t.Errorf("salida malformada debe registrar error: %+v", p)
+	}
+}
+
+// Worktrees cuyo main checkout está fuera del root se anotan igual
+// (RepoRoot apunta fuera; el contenedor lo sintetiza la TUI).
+func TestScanWorktreeOutsideRoot(t *testing.T) {
+	tr := newTree(t).
+		file("repo-wt-a/.vroom.toml", "name = \"api\"\ncommand_start = \"echo\"\n").
+		file("repo-wt-a/.git", "gitdir: /elsewhere/.git/worktrees/a\n")
+	outside := "/outside/repo"
+	wtA := filepath.Join(tr.path(), "repo-wt-a")
+	t.Setenv("PATH", fakeGitPATH(t, porcelainRepo(outside, wtA), 0))
+
+	result, err := Scan(tr.path(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := find(result.Projects, "repo-wt-a")
+	if p == nil || !p.IsWorktree || p.RepoRoot != outside {
+		t.Fatalf("worktree fuera de root mal anotado: %+v", p)
+	}
+}
+
