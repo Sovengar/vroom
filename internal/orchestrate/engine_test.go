@@ -2,6 +2,7 @@ package orchestrate
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -302,8 +303,81 @@ func TestStackStatus(t *testing.T) {
 		},
 	}
 
-	running, total := engine.StackStatus(stack, []scanner.Project{p})
+	running, total, err := engine.StackStatus(stack, []scanner.Project{p})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if running != 1 || total != 1 {
 		t.Errorf("running=%d total=%d, want 1/1", running, total)
+	}
+}
+
+// ---- Resolución determinista ante Manifest.Name duplicado (0011) ----
+
+func duplicateProjects() []scanner.Project {
+	return []scanner.Project{
+		{Path: "/repo-wt/b", Name: "b", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "echo"}},
+		{Path: "/repo-wt/a", Name: "a", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "echo"}},
+	}
+}
+
+// S8: un stack con nombre duplicado falla explícitamente, sin last-wins.
+func TestResolveServicesDuplicate(t *testing.T) {
+	store := state.NewStoreAt(t.TempDir())
+	engine := NewEngine(&mockManager{}, store)
+
+	_, err := engine.ResolveServices([]string{"api"}, duplicateProjects())
+	if err == nil {
+		t.Fatal("esperaba error por nombre duplicado")
+	}
+	if !strings.Contains(err.Error(), "ambiguous service") {
+		t.Errorf("mensaje inesperado: %v", err)
+	}
+	// Los paths van en orden estable (a antes que b).
+	if !strings.Contains(err.Error(), "/repo-wt/a, /repo-wt/b") {
+		t.Errorf("paths no ordenados de forma estable: %v", err)
+	}
+}
+
+// S8: un nombre único resuelve determinísticamente.
+func TestResolveServicesUnique(t *testing.T) {
+	store := state.NewStoreAt(t.TempDir())
+	engine := NewEngine(&mockManager{}, store)
+
+	projects := []scanner.Project{
+		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "go run ."}},
+	}
+	resolved, err := engine.ResolveServices([]string{"api"}, projects)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved) != 1 || resolved[0].Project.Path != "/dev/api" {
+		t.Fatalf("resolución inesperada: %+v", resolved)
+	}
+}
+
+// S8: StackStatus reporta el mismo conflicto que el CLI.
+func TestStackStatusConflict(t *testing.T) {
+	store := state.NewStoreAt(t.TempDir())
+	engine := NewEngine(&mockManager{}, store)
+
+	stack := &Stack{Name: "s", Stages: []Stage{{Name: "s1", Services: []string{"api"}}}}
+	_, _, err := engine.StackStatus(stack, duplicateProjects())
+	if err == nil {
+		t.Fatal("StackStatus debe reportar el conflicto")
+	}
+	if !strings.Contains(err.Error(), "ambiguous service") {
+		t.Errorf("mensaje inesperado: %v", err)
+	}
+}
+
+// S8: StopStack no para un proyecto arbitrario ante duplicados.
+func TestStopStackDuplicate(t *testing.T) {
+	store := state.NewStoreAt(t.TempDir())
+	engine := NewEngine(&mockManager{}, store)
+
+	stack := &Stack{Name: "s", Stages: []Stage{{Name: "s1", Services: []string{"api"}}}}
+	if err := engine.StopStack(stack, duplicateProjects(), nil); err == nil {
+		t.Fatal("StopStack debe fallar ante un nombre duplicado")
 	}
 }

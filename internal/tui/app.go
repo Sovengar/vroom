@@ -164,7 +164,7 @@ type Model struct {
 	rightW       int // ancho del panel derecho
 	contentH     int // alto del contenido de la pestaña (bajo la barra de pestañas)
 	detailsShown bool
-	detailsTop   int           // scroll offset del panel de detalles
+	detailsTop   int // scroll offset del panel de detalles
 	consoleView  viewport.Model
 
 	// Spinner animado para servicios con estado desconocido.
@@ -289,6 +289,14 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 			m.services[p.Path] = &ServiceState{Status: statusUnconfigured}
 		}
 		m.branches[p.Path] = gitinfo.Branch(p.Path)
+	}
+	// Degradación por repo (0011): si git falló o falta, avisar sin
+	// ocultar proyectos ni romper la TUI.
+	for _, p := range projects {
+		if p.WorktreeErr != "" {
+			m.notify("worktree topology unavailable: " + p.WorktreeErr)
+			break
+		}
 	}
 	m.entries = group.Arrange(projects)
 	// Cargar compose file: buscar en scanRoot y sus subdirectores
@@ -1074,7 +1082,13 @@ func (m Model) enterSelection() (tea.Model, tea.Cmd) {
 		m.collapsed[key] = !m.collapsed[key]
 	case itemStack:
 		return m, nil // stacks no se pliegan (0010 R56 S56.3)
+	case itemRepo:
+		m.toggleRepoCollapse(it.repoPath) // contenedor sintetizado (0011)
 	case itemProject:
+		if it.hasKids { // fila de repo: pliega/expande sus worktrees (0011)
+			m.toggleRepoCollapse(it.repoPath)
+			break
+		}
 		if it.secondary != "" {
 			key := m.secondaryKey(it.primary, it.secondary)
 			m.collapsed[key] = !m.collapsed[key]
@@ -1284,6 +1298,9 @@ func (m Model) toggleSelected() (tea.Model, tea.Cmd) {
 		return m.toggleNode(it.primary, it.secondary)
 	case it.kind == itemStack && it.stack != nil:
 		return m.toggleStack(it.stack)
+	case it.kind == itemRepo:
+		m.notify("repository container — expand it to operate its worktrees")
+		return m, nil
 	}
 	p := m.selected()
 	if p == nil {
@@ -1374,7 +1391,11 @@ func (m Model) toggleComposers(primary string) (tea.Model, tea.Cmd) {
 	// Check if all stacks are running
 	allRunning := true
 	for i := range stacks {
-		r, n := m.stackStats(&stacks[i])
+		r, n, err := m.stackStats(&stacks[i])
+		if err != nil {
+			m.notify("stack conflict: " + err.Error())
+			return m, nil
+		}
 		if n == 0 || r < n {
 			allRunning = false
 			break
@@ -1383,7 +1404,10 @@ func (m Model) toggleComposers(primary string) (tea.Model, tea.Cmd) {
 	if allRunning {
 		// Stop all stacks
 		for i := range stacks {
-			_ = m.engine.StopStack(&stacks[i], m.projects, nil)
+			if err := m.engine.StopStack(&stacks[i], m.projects, nil); err != nil {
+				m.notify("stack conflict: " + err.Error())
+				return m, nil
+			}
 		}
 		m.notify(fmt.Sprintf("stopping all stacks in %s", primary))
 		return m, nil
@@ -1417,41 +1441,23 @@ func (m Model) toggleStack(s *orchestrate.Stack) (tea.Model, tea.Cmd) {
 		m.notify("orchestration engine not available")
 		return m, nil
 	}
-	running, _ := m.stackStats(s)
-	total := 0
-	seen := make(map[string]bool)
-	for _, stage := range s.Stages {
-		for _, name := range stage.Services {
-			if !seen[name] {
-				seen[name] = true
-				total++
-			}
-		}
+	running, total, err := m.stackStats(s)
+	if err != nil {
+		m.notify("stack conflict: " + err.Error())
+		return m, nil
 	}
 	if running == total && total > 0 {
-		// Stack running: stop all services
-		for _, stage := range s.Stages {
-			for _, name := range stage.Services {
-				for _, e := range m.entries {
-					if e.Project.Configured && e.Project.Manifest != nil && e.Project.Manifest.Name == name {
-						sv := m.services[e.Project.Path]
-						if sv != nil && (sv.Status == statusRunning || sv.Status == statusUnknown) {
-							sv.Status = statusStopping
-						}
-						_ = m.engine.StopStack(s, m.projects, nil)
-						break
-					}
-				}
-			}
+		// Stack running: stop all services (criterio explícito, sin
+		// elegir arbitrariamente el primer match de nombre).
+		if err := m.engine.StopStack(s, m.projects, nil); err != nil {
+			m.notify("stack conflict: " + err.Error())
+			return m, nil
 		}
+		m.markStackStopping(s)
 		m.notify(fmt.Sprintf("stopping stack %s", s.Name))
 		return m, nil
 	}
 	// Stack stopped: launch orchestration
-	if m.engine == nil {
-		m.notify("no compose file loaded")
-		return m, nil
-	}
 	m.notify(fmt.Sprintf("launching stack %s...", s.Name))
 	return m, func() tea.Msg {
 		result, err := m.engine.Launch(s, m.projects)
@@ -1462,12 +1468,38 @@ func (m Model) toggleStack(s *orchestrate.Stack) (tea.Model, tea.Cmd) {
 	}
 }
 
+// markStackStopping marca como stopping los servicios del stack resueltos
+// con el criterio compartido (0011).
+func (m Model) markStackStopping(s *orchestrate.Stack) {
+	seen := make(map[string]bool)
+	for _, stage := range s.Stages {
+		for _, name := range stage.Services {
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			p, err := orchestrate.LookupService(name, m.projects)
+			if err != nil {
+				continue
+			}
+			if sv := m.services[p.Path]; sv != nil && (sv.Status == statusRunning || sv.Status == statusUnknown) {
+				sv.Status = statusStopping
+			}
+		}
+	}
+}
+
 // nodeMembers devuelve los proyectos del nodo en orden de aparición:
 // de un primario, todos sus miembros (incluidos los de todos sus
 // secundarios); de un secundario, solo los del par primario/secundario.
+// Los worktrees anidados y las filas contenedoras se excluyen: se
+// renderizan bajo su fila de repo, no dentro de este grupo (0011).
 func (m Model) nodeMembers(primary, secondary string) []scanner.Project {
 	var out []scanner.Project
 	for _, e := range m.entries {
+		if e.Project.IsNestedRow() {
+			continue
+		}
 		if e.Primary != primary {
 			continue
 		}
@@ -1979,6 +2011,13 @@ func (m Model) selectedNode() (primary, secondary string) {
 // primarios distintos (S38.6).
 func (m Model) secondaryKey(primary, secondary string) string {
 	return primary + "/" + secondary
+}
+
+// toggleRepoCollapse alterna la expansión de una fila de repo (0011). El
+// estado vive en el mismo mapa persistido pero con la clave `repo:<path>`
+// y semántica invertida (default colapsado).
+func (m Model) toggleRepoCollapse(repoPath string) {
+	m.collapsed[repoKey(repoPath)] = !m.repoExpanded(repoPath)
 }
 
 func (m Model) projectByPath(path string) *scanner.Project {
