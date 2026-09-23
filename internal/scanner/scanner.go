@@ -274,22 +274,68 @@ func isHidden(name string) bool {
 	return strings.HasPrefix(name, ".")
 }
 
-// hasGitRepo reporta si dir contiene un repo git real: un .git file
-// (worktree/submodule) o un directorio .git con config. Un .git a medio
-// construir (fixtures de tests) se ignora para no spawnar git de más.
-func hasGitRepo(dir string) bool {
+// repoKey devuelve una clave estable para agrupar proyectos por repo: el
+// common git dir de un repo normal o de un worktree, o la ruta de un bare
+// repo. Devuelve "" si dir no es un repo git consultable. Permite invocar
+// git una sola vez por repo en vez de una por proyecto (N+1).
+func repoKey(dir string) string {
 	git := filepath.Join(dir, ".git")
 	info, err := os.Stat(git)
+	if err == nil {
+		if info.IsDir() {
+			if _, err := os.Stat(filepath.Join(git, "config")); err != nil {
+				return "" // .git a medio construir: no es repo
+			}
+			return filepath.Clean(git)
+		}
+		gd, ok := readGitDir(dir, git)
+		if !ok {
+			return ""
+		}
+		return commonDir(gd)
+	}
+	if worktree.IsBareRepo(dir) {
+		return filepath.Clean(dir)
+	}
+	return ""
+}
+
+// readGitDir resuelve el gitdir apuntado por un fichero .git (worktree o
+// submodule): "gitdir: <ruta>", relativa al propio dir si no es absoluta.
+func readGitDir(dir, gitFile string) (string, bool) {
+	raw, err := os.ReadFile(gitFile)
 	if err != nil {
-		return false
+		return "", false
 	}
-	if !info.IsDir() {
-		return true // .git file: worktree linkeado o submodule
+	gd, ok := strings.CutPrefix(strings.TrimSpace(string(raw)), "gitdir:")
+	if !ok {
+		return "", false
 	}
-	if _, err := os.Stat(filepath.Join(git, "config")); err != nil {
-		return false
+	gd = strings.TrimSpace(gd)
+	if gd == "" {
+		return "", false
 	}
-	return true
+	if !filepath.IsAbs(gd) {
+		gd = filepath.Join(dir, gd)
+	}
+	return filepath.Clean(gd), true
+}
+
+// commonDir devuelve el common git dir de un gitdir: para un worktree,
+// <main>/.git (vía el fichero commondir); si no existe, el propio gitdir.
+func commonDir(gitdir string) string {
+	raw, err := os.ReadFile(filepath.Join(gitdir, "commondir"))
+	if err != nil {
+		return gitdir
+	}
+	c := strings.TrimSpace(string(raw))
+	if c == "" {
+		return gitdir
+	}
+	if !filepath.IsAbs(c) {
+		c = filepath.Join(gitdir, c)
+	}
+	return filepath.Clean(c)
 }
 
 // repoRelation es la relación de un worktree con su repo.
@@ -332,26 +378,38 @@ func annotateTopology(projects []Project, root string) []Project {
 	return append(projects, synth...)
 }
 
-// queryWorktreeRelations consulta `git worktree list` por cada proyecto
-// que sea un repo git o un bare repo, y devuelve el mapa path→relación,
-// saltando los prunable y registrando el error de topología en el propio
-// proyecto cuando git falla. Los bare repos no tienen .git, así que se
+// queryWorktreeRelations consulta `git worktree list` una sola vez por
+// repo (agrupando los proyectos por su common git dir / bare path, no una
+// vez por proyecto) y devuelve el mapa path→relación, saltando los
+// prunable y registrando el error de topología en todos los proyectos del
+// repo cuando git falla. Los bare repos no tienen .git, así que se
 // detectan con la heurística para poder descubrir sus worktrees.
 func queryWorktreeRelations(projects []Project) map[string]repoRelation {
-	info := make(map[string]repoRelation)
-	queried := make(map[string]bool)
+	byRepo := make(map[string][]*Project)
 	for i := range projects {
 		p := &projects[i]
-		if queried[p.Path] {
+		key := repoKey(p.Path)
+		if key == "" {
 			continue
 		}
-		if !hasGitRepo(p.Path) && !worktree.IsBareRepo(p.Path) {
-			continue
-		}
-		queried[p.Path] = true
-		wts, err := worktree.List(p.Path)
+		byRepo[key] = append(byRepo[key], p)
+	}
+
+	keys := make([]string, 0, len(byRepo))
+	for key := range byRepo {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys) // orden estable de consultas
+
+	info := make(map[string]repoRelation)
+	for _, key := range keys {
+		members := byRepo[key]
+		sort.Slice(members, func(i, j int) bool { return members[i].Path < members[j].Path })
+		wts, err := worktree.List(members[0].Path) // una consulta por repo
 		if err != nil {
-			p.WorktreeErr = err.Error()
+			for _, p := range members {
+				p.WorktreeErr = err.Error() // degradación por repo
+			}
 			continue
 		}
 		if len(wts) == 0 {

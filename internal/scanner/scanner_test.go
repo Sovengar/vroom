@@ -539,3 +539,57 @@ func TestScanWithFDUsesNoWalkForBare(t *testing.T) {
 		t.Error("bare repo no detectado por fd")
 	}
 }
+
+// countingGitPATH escribe un git falso que incrementa un contador por
+// invocación y devuelve un PATH que lo antepone al real.
+func countingGitPATH(t *testing.T, counter, output string) string {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\necho x >> \"" + counter + "\"\ncat <<'EOF'\n" + output + "EOF\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir + string(os.PathListSeparator) + os.Getenv("PATH")
+}
+
+func gitCallCount(t *testing.T, path string) int {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	return strings.Count(string(data), "x")
+}
+
+// M3: un repo con varios worktrees en el scan invoca git una sola vez.
+func TestQueryWorktreeRelationsOneGitCallPerRepo(t *testing.T) {
+	tr := newTree(t)
+	repo := filepath.Join(tr.path(), "repo")
+	wtA := filepath.Join(tr.path(), "repo-wt-a")
+	wtB := filepath.Join(tr.path(), "repo-wt-b")
+	tr.file("repo/.git/config", "[core]\n\tbare = false\n").
+		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo-wt-a/.git", "gitdir: "+filepath.Join(repo, ".git", "worktrees", "a")+"\n").
+		file("repo/.git/worktrees/a/commondir", "../..\n").
+		file("repo-wt-a/.vroom.toml", "name = \"api\"\ncommand_start = \"echo\"\n").
+		file("repo-wt-b/.git", "gitdir: "+filepath.Join(repo, ".git", "worktrees", "b")+"\n").
+		file("repo/.git/worktrees/b/commondir", "../..\n").
+		file("repo-wt-b/.vroom.toml", "name = \"api\"\ncommand_start = \"echo\"\n")
+
+	counter := filepath.Join(t.TempDir(), "count")
+	t.Setenv("PATH", countingGitPATH(t, counter, porcelainRepo(repo, wtA, wtB)))
+
+	result, err := Scan(tr.path(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls := gitCallCount(t, counter); calls != 1 {
+		t.Errorf("git invocado %d veces, want 1 (una consulta por repo)", calls)
+	}
+	for _, name := range []string{"repo-wt-a", "repo-wt-b"} {
+		p := find(result.Projects, name)
+		if p == nil || !p.IsWorktree || p.RepoRoot != repo {
+			t.Errorf("%s mal anotado: %+v", name, p)
+		}
+	}
+}
