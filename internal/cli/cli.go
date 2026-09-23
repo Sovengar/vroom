@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -55,6 +56,9 @@ type ProjectInfo struct {
 	GitBranch      string `json:"git_branch,omitempty"`
 	PrimaryGroup   string `json:"primary_group,omitempty"`
 	SecondaryGroup string `json:"secondary_group,omitempty"`
+	RepoRoot       string `json:"repo_root,omitempty"`
+	IsWorktree     bool   `json:"is_worktree,omitempty"`
+	BareContainer  bool   `json:"bare_container,omitempty"`
 	Collapsed      bool   `json:"collapsed"`
 	Pid            int    `json:"pid,omitempty"`
 	Pgid           int    `json:"pgid,omitempty"`
@@ -131,28 +135,36 @@ func loadConfig() config.Config {
 	return config.Load()
 }
 
-// findProject busca un proyecto por nombre manifest en la lista escaneada.
-// Primero busca por nombre del manifiesto; si no encuentra, intenta por
-// nombre del directorio (fallback para mayor comodidad). Devuelve error
-// si hay ambigüedad (varios con el mismo nombre).
-func findProject(projects []scanner.Project, name string) (scanner.Project, error) {
+// findProject busca un proyecto por path (direccionador canónico) o por
+// nombre manifest. query puede ser un nombre o una ruta absoluta; path
+// (del flag --path) tiene prioridad y desambigua. Primero busca por
+// nombre del manifiesto; si no encuentra, intenta por nombre del
+// directorio. Devuelve error accionable si hay ambigüedad.
+func findProject(projects []scanner.Project, query, path string) (scanner.Project, error) {
+	if path != "" {
+		return findByPath(projects, path)
+	}
+	if filepath.IsAbs(query) {
+		return findByPath(projects, query)
+	}
+
 	var matches []scanner.Project
 	for _, p := range projects {
-		if p.Configured && p.Manifest != nil && p.Manifest.Name == name {
+		if p.Configured && p.Manifest != nil && p.Manifest.Name == query {
 			matches = append(matches, p)
 		}
 	}
 	// Fallback: buscar por nombre del directorio
 	if len(matches) == 0 {
 		for _, p := range projects {
-			if p.Name == name {
+			if p.Name == query {
 				matches = append(matches, p)
 			}
 		}
 	}
 	switch len(matches) {
 	case 0:
-		return scanner.Project{}, fmt.Errorf("project not found: %s", name)
+		return scanner.Project{}, fmt.Errorf("project not found: %s", query)
 	case 1:
 		return matches[0], nil
 	default:
@@ -160,8 +172,40 @@ func findProject(projects []scanner.Project, name string) (scanner.Project, erro
 		for i, m := range matches {
 			paths[i] = m.Path
 		}
-		return scanner.Project{}, fmt.Errorf("ambiguous project name %q: found in %s", name, strings.Join(paths, ", "))
+		sort.Strings(paths) // orden estable para el mensaje
+		return scanner.Project{}, fmt.Errorf(
+			"ambiguous project name %q: found in %s; use --path to disambiguate",
+			query, strings.Join(paths, ", "))
 	}
+}
+
+// findByPath resuelve un proyecto por su ruta absoluta exacta.
+func findByPath(projects []scanner.Project, path string) (scanner.Project, error) {
+	abs := path
+	if a, err := filepath.Abs(path); err == nil {
+		abs = filepath.Clean(a)
+	}
+	for _, p := range projects {
+		if filepath.Clean(p.Path) == abs {
+			return p, nil
+		}
+	}
+	return scanner.Project{}, fmt.Errorf("project not found: %s", path)
+}
+
+// extractPathFlag separa el flag --path <valor> de los demás argumentos
+// (posicionales y otros flags, p.ej. --tail/--stream de logs).
+func extractPathFlag(args []string) (rest []string, path string) {
+	rest = make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--path" && i+1 < len(args) {
+			path = args[i+1]
+			i++
+			continue
+		}
+		rest = append(rest, args[i])
+	}
+	return rest, path
 }
 
 // evaluateStatus devuelve el estado evaluado de un proyecto.
@@ -182,11 +226,14 @@ func evaluateStatus(manager process.Manager, store *state.Store, path string) (s
 // buildProjectInfo construye ProjectInfo desde un scanner.Project.
 func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map[string]bool, p scanner.Project) ProjectInfo {
 	info := ProjectInfo{
-		Name:       p.Name,
-		Path:       p.Path,
-		Configured: p.Configured,
-		Status:     state.StateStopped,
-		GitBranch:  gitinfo.Branch(p.Path),
+		Name:          p.Name,
+		Path:          p.Path,
+		Configured:    p.Configured,
+		Status:        state.StateStopped,
+		GitBranch:     gitinfo.Branch(p.Path),
+		RepoRoot:      p.RepoRoot,
+		IsWorktree:    p.IsWorktree,
+		BareContainer: p.IsBareContainer,
 	}
 
 	if !p.Configured {
@@ -242,30 +289,35 @@ func Run(args []string) bool {
 	case "list", "status":
 		cmdList()
 	case "start":
-		if len(args) < 2 {
-			outputError("usage: vroom start <project-name>")
+		rest, path := extractPathFlag(args[1:])
+		if len(rest) < 1 {
+			outputError("usage: vroom start <project-name|path> [--path <path>]")
 		}
-		cmdStart(args[1])
+		cmdStart(rest[0], path)
 	case "stop":
-		if len(args) < 2 {
-			outputError("usage: vroom stop <project-name>")
+		rest, path := extractPathFlag(args[1:])
+		if len(rest) < 1 {
+			outputError("usage: vroom stop <project-name|path> [--path <path>]")
 		}
-		cmdStop(args[1])
+		cmdStop(rest[0], path)
 	case "build":
-		if len(args) < 2 {
-			outputError("usage: vroom build <project-name>")
+		rest, path := extractPathFlag(args[1:])
+		if len(rest) < 1 {
+			outputError("usage: vroom build <project-name|path> [--path <path>]")
 		}
-		cmdBuild(args[1])
+		cmdBuild(rest[0], path)
 	case "install":
-		if len(args) < 2 {
-			outputError("usage: vroom install <project-name>")
+		rest, path := extractPathFlag(args[1:])
+		if len(rest) < 1 {
+			outputError("usage: vroom install <project-name|path> [--path <path>]")
 		}
-		cmdInstall(args[1])
+		cmdInstall(rest[0], path)
 	case "logs":
-		if len(args) < 2 {
-			outputError("usage: vroom logs <project-name>")
+		rest, path := extractPathFlag(args[1:])
+		if len(rest) < 1 {
+			outputError("usage: vroom logs <project-name|path> [--path <path>] [--tail N --stream merged|stdout|stderr]")
 		}
-		cmdLogs(args[1], args[2:])
+		cmdLogs(rest[0], rest[1:], path)
 	case "launch":
 		cmdLaunch(args[1:])
 	case "help", "--help", "-h":
@@ -304,7 +356,7 @@ func cmdList() {
 }
 
 // cmdStart arranca un servicio daemonizado.
-func cmdStart(name string) {
+func cmdStart(name, path string) {
 	cfg := loadConfig()
 	root := resolveRoot()
 	store, err := state.NewStore()
@@ -318,7 +370,7 @@ func cmdStart(name string) {
 		outputError("scan error: " + err.Error())
 	}
 
-	p, err := findProject(scanResult.Projects, name)
+	p, err := findProject(scanResult.Projects, name, path)
 	if err != nil {
 		outputError(err.Error())
 	}
@@ -381,7 +433,7 @@ func cmdStart(name string) {
 }
 
 // cmdStop detiene un servicio.
-func cmdStop(name string) {
+func cmdStop(name, path string) {
 	cfg := loadConfig()
 	root := resolveRoot()
 	store, err := state.NewStore()
@@ -395,7 +447,7 @@ func cmdStop(name string) {
 		outputError("scan error: " + err.Error())
 	}
 
-	p, err := findProject(scanResult.Projects, name)
+	p, err := findProject(scanResult.Projects, name, path)
 	if err != nil {
 		outputError(err.Error())
 	}
@@ -435,17 +487,17 @@ func cmdStop(name string) {
 }
 
 // cmdBuild ejecuta command_build de forma síncrona.
-func cmdBuild(name string) {
-	cmdOneShot(name, "build")
+func cmdBuild(name, path string) {
+	cmdOneShot(name, path, "build")
 }
 
 // cmdInstall ejecuta command_install de forma síncrona.
-func cmdInstall(name string) {
-	cmdOneShot(name, "install")
+func cmdInstall(name, path string) {
+	cmdOneShot(name, path, "install")
 }
 
 // cmdOneShot ejecuta un comando one-shot (build/install).
-func cmdOneShot(name, kind string) {
+func cmdOneShot(name, path, kind string) {
 	cfg := loadConfig()
 	root := resolveRoot()
 	store, err := state.NewStore()
@@ -458,7 +510,7 @@ func cmdOneShot(name, kind string) {
 		outputError("scan error: " + err.Error())
 	}
 
-	p, err := findProject(scanResult.Projects, name)
+	p, err := findProject(scanResult.Projects, name, path)
 	if err != nil {
 		outputError(err.Error())
 	}
@@ -494,7 +546,7 @@ func cmdOneShot(name, kind string) {
 }
 
 // cmdLogs muestra los logs de un servicio.
-func cmdLogs(name string, flags []string) {
+func cmdLogs(name string, flags []string, path string) {
 	cfg := loadConfig()
 	root := resolveRoot()
 	store, err := state.NewStore()
@@ -507,7 +559,7 @@ func cmdLogs(name string, flags []string) {
 		outputError("scan error: " + err.Error())
 	}
 
-	p, err := findProject(scanResult.Projects, name)
+	p, err := findProject(scanResult.Projects, name, path)
 	if err != nil {
 		outputError(err.Error())
 	}
@@ -582,17 +634,20 @@ func cmdLogs(name string, flags []string) {
 func cmdHelp() {
 	outputJSON(map[string]any{
 		"commands": map[string]string{
-			"vroom":              "launch the TUI (default when no arguments)",
-			"vroom list":         "list all projects with full state (JSON)",
-			"vroom status":       "alias for list",
-			"vroom start <name> ": "start a service by project name",
-			"vroom stop <name>":   "stop a service by project name",
-			"vroom build <name>":  "run command_build (synchronous)",
-			"vroom install <name>": "run command_install (synchronous)",
-			"vroom logs <name>":  "show service logs (--tail N --stream merged|stdout|stderr)",
-			"vroom launch --list": "list all orchestration stacks",
-			"vroom launch <name>": "launch an orchestration stack",
-			"vroom launch <name> --dry": "dry run: show plan without executing",
+			"vroom":                                     "launch the TUI (default when no arguments)",
+			"vroom list":                                "list all projects with full state (JSON)",
+			"vroom status":                              "alias for list",
+			"vroom start <name|path> [--path <path>]":   "start a service by project name or path",
+			"vroom stop <name|path> [--path <path>]":    "stop a service by project name or path",
+			"vroom build <name|path> [--path <path>]":   "run command_build (synchronous)",
+			"vroom install <name|path> [--path <path>]": "run command_install (synchronous)",
+			"vroom logs <name|path> [--path <path>]":    "show service logs (--tail N --stream merged|stdout|stderr)",
+			"vroom launch --list":                       "list all orchestration stacks",
+			"vroom launch <name>":                       "launch an orchestration stack",
+			"vroom launch <name> --dry":                 "dry run: show plan without executing",
+		},
+		"notes": map[string]string{
+			"--path": "use an explicit project path when a manifest name is ambiguous across worktrees",
 		},
 	})
 }
