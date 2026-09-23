@@ -33,6 +33,16 @@ type Project struct {
 	WorktreeErr     string // error de topología (git ausente/fallo) del repo
 }
 
+// IsNestedRow reporta si el proyecto no es un miembro de grupo de primer
+// nivel: o es un worktree linkeado (se renderiza indentado bajo su fila de
+// repo) o es una fila contenedora (bare repo / main checkout fuera del
+// scan root). La agregación de grupos (conteos, toggle, detalles) debe
+// excluirlos para que el primary_group propio de un worktree siga siendo
+// inerte (0011, option B).
+func (p Project) IsNestedRow() bool {
+	return p.IsWorktree || p.IsBareContainer
+}
+
 // ScanResult contiene los proyectos y el método usado para encontrarlos.
 type ScanResult struct {
 	Projects []Project

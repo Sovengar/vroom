@@ -545,3 +545,46 @@ func mustTree(t *testing.T, m Model) []string {
 	tree, _ := m.treeLines()
 	return tree
 }
+
+// M1: la agregación de grupos ignora los worktrees anidados: no se
+// cuentan en el header, no se togglean con el grupo y siguen visibles
+// bajo su fila de repo (option B).
+func TestGroupAggregationExcludesNestedWorktrees(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	member := filepath.Join(root, "member")
+	wt := filepath.Join(root, "repo-wt")
+	projects := []scanner.Project{
+		{Path: repo, Name: "repo", Configured: true, Manifest: manifestNamed("repo", "X")},
+		{Path: member, Name: "member", Configured: true, Manifest: manifestNamed("member", "X")},
+		{Path: wt, Name: "repo-wt", Configured: true, Manifest: manifestNamed("api", "X"),
+			IsWorktree: true, RepoRoot: repo},
+	}
+	m := newRepoModel(t, projects, map[string]bool{repoKey(repo): true})
+
+	// El header de X cuenta solo a los miembros reales (repo + member).
+	if _, n := m.nodeStats("X", ""); n != 2 {
+		t.Fatalf("X debe contar 2 miembros (sin el worktree), got %d", n)
+	}
+	// El texto del header colapsado refleja ese conteo.
+	m.collapsed["X"] = true
+	if row := m.primaryRow("X"); !strings.Contains(row, "(0/2)") {
+		t.Errorf("header X debe mostrar (0/2): %q", row)
+	}
+	m.collapsed["X"] = false
+
+	// toggleNode(X) no afecta al worktree anidado.
+	next, _ := m.toggleNode("X", "")
+	m2 := next.(Model)
+	if sv := m2.services[wt]; sv != nil && sv.Status != statusStopped {
+		t.Errorf("toggleNode(X) no debe arrancar el worktree anidado: %v", sv.Status)
+	}
+	// El worktree sigue visible bajo su fila de repo, indentado.
+	idx := findCursor(m2, "repo-wt")
+	if idx < 0 {
+		t.Fatal("el worktree debe seguir visible bajo su repo")
+	}
+	if m2.tree[idx].indent != 1 {
+		t.Errorf("el worktree debe ir indentado, indent=%d", m2.tree[idx].indent)
+	}
+}

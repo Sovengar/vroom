@@ -164,7 +164,7 @@ type Model struct {
 	rightW       int // ancho del panel derecho
 	contentH     int // alto del contenido de la pestaña (bajo la barra de pestañas)
 	detailsShown bool
-	detailsTop   int           // scroll offset del panel de detalles
+	detailsTop   int // scroll offset del panel de detalles
 	consoleView  viewport.Model
 
 	// Spinner animado para servicios con estado desconocido.
@@ -1492,9 +1492,14 @@ func (m Model) markStackStopping(s *orchestrate.Stack) {
 // nodeMembers devuelve los proyectos del nodo en orden de aparición:
 // de un primario, todos sus miembros (incluidos los de todos sus
 // secundarios); de un secundario, solo los del par primario/secundario.
+// Los worktrees anidados y las filas contenedoras se excluyen: se
+// renderizan bajo su fila de repo, no dentro de este grupo (0011).
 func (m Model) nodeMembers(primary, secondary string) []scanner.Project {
 	var out []scanner.Project
 	for _, e := range m.entries {
+		if e.Project.IsNestedRow() {
+			continue
+		}
 		if e.Primary != primary {
 			continue
 		}
