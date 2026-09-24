@@ -532,10 +532,10 @@ func TestTreeAutoScroll(t *testing.T) {
 		}
 	}
 	m := New(state.NewStoreAt(t.TempDir()), &stubManager{}, root)
-	m.width, m.height = 100, 10 // bodyH = 5
+	m.width, m.height = 100, 10 // bodyOuter=6, bodyH=4
 	m.updateLayout()
-	if m.bodyH != 5 {
-		t.Fatalf("bodyH = %d, want 5", m.bodyH)
+	if m.bodyH != 4 {
+		t.Fatalf("bodyH = %d, want 4", m.bodyH)
 	}
 
 	m.cursor = len(m.entries) - 1
@@ -562,6 +562,27 @@ func TestTreeAutoScroll(t *testing.T) {
 	}
 }
 
+// El dashboard se compone de cajas de borde redondeado: a anchos/altos
+// razonables, cada línea debe medir exactamente el ancho de la terminal y el
+// total de líneas el alto, sin que el compositor re-envuelva contenido.
+func TestDashboardBoxWidthInvariant(t *testing.T) {
+	for _, size := range [][2]int{{100, 30}, {120, 40}, {80, 24}, {60, 20}, {44, 20}, {40, 20}, {200, 50}} {
+		m, _ := newTestModel(t)
+		m.width, m.height = size[0], size[1]
+		m.updateLayout()
+		lines := strings.Split(m.renderDashboard(), "\n")
+		if len(lines) != m.height {
+			t.Errorf("%dx%d: %d líneas, want %d", size[0], size[1], len(lines), m.height)
+		}
+		for i, l := range lines {
+			if w := lipglossWidth(l); w != m.width {
+				t.Errorf("%dx%d línea %d: ancho %d, want %d (%q)", size[0], size[1], i, w, m.width, l)
+				break
+			}
+		}
+	}
+}
+
 // El dashboard muestra árbol (dots/nombres), header de grupo y
 // pestañas.
 func TestRenderDashboard(t *testing.T) {
@@ -570,8 +591,10 @@ func TestRenderDashboard(t *testing.T) {
 	m.services[pathOfSelected(t, m)].Status = statusRunning
 
 	out := m.View().Content
-	if !strings.Contains(out, "vroom — projects in") {
-		t.Error("falta título")
+	for _, want := range []string{"Projects", "Details", "Output", "Keybinds"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("falta el título de sección %q", want)
+		}
 	}
 	for _, want := range []string{"tienda-api", "tienda-web", "suelto", "▾ tienda", "[1] Console", "[2] Threads"} {
 		if !strings.Contains(out, want) {
@@ -2359,7 +2382,7 @@ func TestFilterResetsCursor(t *testing.T) {
 // visible es la fila treeTop (hoy se dibuja siempre desde 0).
 func TestTreeRenderRespectsTreeTop(t *testing.T) {
 	m, _ := newTestModel(t)
-	m.height = 6 // bodyH = 3 < filas del árbol (4)
+	m.height = 9 // bodyOuter=5, bodyH = 3 < filas del árbol (4)
 	m.updateLayout()
 	m.cursor = 2
 	m2, _ := press(m, "j") // cursor=3, treeTop=1

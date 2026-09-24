@@ -21,7 +21,7 @@ func (m Model) detailsLines(w int) []string {
 }
 
 // allDetailsLines devuelve todas las líneas de detalles SIN recortar.
-// Usado por rightLines que aplica scroll offset.
+// Usado por rightColumnLines que aplica scroll offset.
 func (m Model) allDetailsLines(w int) []string {
 	p := m.selected()
 	if p == nil {

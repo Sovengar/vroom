@@ -34,9 +34,11 @@ const (
 	pollInterval    = 2 * time.Second
 	consoleTick     = 400 * time.Millisecond // tail de la consola
 	maxConsoleBytes = 192 * 1024             // cap del buffer por stream
-	treeWidth       = 30                     // ancho fijo de la columna de árbol
+	treeWidth       = 30                     // ancho interior (contenido) de la caja de proyectos
 	detailsWidthMin = 40                     // ancho mínimo de la zona derecha para detalles
-	detailsHeight   = 12                     // alto fijo del panel de detalles
+	detailsHeight   = 12                     // alto interior (contenido) de la caja de detalles
+	keybindsHeight  = 4                      // alto total de la caja de keybinds (bordes + 2 líneas)
+	boxFrame        = 2                      // columnas que ocupa el marco de una caja (izq + der)
 	wheelLines      = 3                      // líneas por click de rueda en la consola
 	askMinHeight    = 6                      // filas iniciales del textarea del ask (grande de inicio)
 	askMaxHeightCap = 16                     // cap absoluto del textarea del ask
@@ -160,8 +162,9 @@ type Model struct {
 	composeFile *orchestrate.ComposeFile // nil si no hay compose file
 	engine      *orchestrate.Engine      // motor de orquestación
 
-	bodyH        int // alto de la zona de cuerpo (árbol + panel derecho)
-	rightW       int // ancho del panel derecho
+	bodyH        int // alto interior (contenido) de la caja de proyectos / cuerpo
+	bodyOuterH   int // alto total (con borde) de la fila de cajas superiores
+	rightW       int // ancho interior de la columna derecha (detalles + consola)
 	contentH     int // alto del contenido de la pestaña (bajo la barra de pestañas)
 	detailsShown bool
 	detailsTop   int // scroll offset del panel de detalles
@@ -320,31 +323,52 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 	return m
 }
 
-// updateLayout recalcula las dimensiones del dashboard: cuerpo,
-// panel derecho y viewport de consola.
+// updateLayout recalcula las dimensiones del dashboard: alto de la fila de
+// cajas (proyectos + columna derecha), la caja de keybinds, el ancho interior
+// de la columna derecha y el viewport de consola.
+//
+// Geometría (todo en celdas):
+//
+//	height = bodyOuterH + keybindsHeight
+//	width  = (treeWidth+boxFrame) + (rightW+boxFrame)
+//
+// En la columna derecha, la caja de detalles (si se muestra) va arriba con
+// alto fijo y la consola ocupa el resto.
 func (m *Model) updateLayout() {
-	bodyH := m.height - 5 // header + separator + 2 help lines + blank
-	if bodyH < 3 {
-		bodyH = 3
+	bodyOuter := m.height - keybindsHeight
+	if bodyOuter < 3 {
+		bodyOuter = 3
 	}
-	m.bodyH = bodyH
-	rightW := m.width - treeWidth - 1
-	if rightW < 10 {
-		rightW = 10
+	m.bodyOuterH = bodyOuter
+	m.bodyH = bodyOuter - boxFrame // alto interior de la caja de proyectos
+	if m.bodyH < 1 {
+		m.bodyH = 1
 	}
-	m.rightW = rightW
-	// El panel de detalles es fijo: solo se oculta si no cabe.
-	m.detailsShown = rightW >= detailsWidthMin && bodyH >= detailsHeight+4
-	contentH := bodyH - 1 // barra de pestañas
+
+	// La columna derecha se ajusta al ancho disponible: la fila de cajas no
+	// debe exceder nunca el terminal. Con menos de ~34 celdas el layout queda
+	// degradado (detalles y consola se ocultan/truncan).
+	rightOuter := m.width - (treeWidth + boxFrame)
+	if rightOuter < boxFrame {
+		rightOuter = boxFrame
+	}
+	m.rightW = rightOuter - boxFrame // ancho interior de la columna derecha
+
+	// La caja de detalles es fija: solo se oculta si no cabe junto a la consola.
+	detailsOuter := detailsHeight + boxFrame
+	m.detailsShown = m.rightW >= detailsWidthMin && bodyOuter >= detailsOuter+5
+
+	consoleOuter := bodyOuter
 	if m.detailsShown {
-		contentH -= detailsHeight + 1 // panel de detalles + separador
+		consoleOuter = bodyOuter - detailsOuter
 	}
-	if contentH < 3 {
-		contentH = 3
+	m.contentH = consoleOuter - boxFrame - 1 // borde + línea de pestañas
+	if m.contentH < 0 {
+		m.contentH = 0
 	}
-	m.contentH = contentH
-	m.consoleView.SetWidth(rightW)
-	m.consoleView.SetHeight(contentH)
+
+	m.consoleView.SetWidth(m.rightW)
+	m.consoleView.SetHeight(m.contentH)
 }
 
 // ---- Mensajes ----

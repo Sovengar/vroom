@@ -8,6 +8,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"vroom/internal/tui/bordered"
 )
 
 // lipglossWidth devuelve el ancho visible de s ignorando secuencias ANSI.
@@ -24,82 +26,147 @@ func truncANSI(s string, w int) string {
 	return ansi.Truncate(s, w, "")
 }
 
-// renderDashboard compone el dashboard completo:
-// header, columna de árbol a la izquierda con separador vertical, panel
-// derecho (detalles + pestañas) y barra de ayuda/mensajes.
+// renderDashboard compone el dashboard completo como una fila de cajas con
+// borde redondeado y título: Projects (izquierda, alto completo), la columna
+// derecha (Details arriba + Output abajo) y, bajo ambas, la caja Keybinds a
+// todo el ancho. El mensaje de estado se dibuja como leyenda del borde
+// inferior de la caja de keybinds.
 func (m Model) renderDashboard() string {
-	var b strings.Builder
-	b.WriteString(styleTitle.Render(trunc("vroom — projects in "+m.root, m.width)) + "\n")
+	left := frameBoxLines("Projects", strings.Join(fitLines(padLines(m.treeColumnLines(), m.bodyH), treeWidth), "\n"), treeWidth+boxFrame)
+	right := m.rightColumnLines()
 
-	tree := m.treeColumnLines()
-	right := m.rightLines()
-	for i := 0; i < m.bodyH; i++ {
-		l := ""
-		if i < len(tree) {
-			l = tree[i]
+	var b strings.Builder
+	for i := 0; i < m.bodyOuterH; i++ {
+		var l, r string
+		if i < len(left) {
+			l = left[i]
 		}
-		r := ""
 		if i < len(right) {
 			r = right[i]
 		}
-		b.WriteString(padW(l, treeWidth) + styleSep.Render("│") + r + "\n")
+		b.WriteString(padW(l, treeWidth+boxFrame) + r + "\n")
 	}
-	helpW := m.width - 2 // margen izquierdo de 2 columnas
-	b.WriteString(styleSep.Render(strings.Repeat("─", m.width)) + "\n")
-	b.WriteString("  " + styleHelp.Render(trunc(dashboardHelp1(helpW, m.cfg.Keybindings), helpW)) + "\n")
-	b.WriteString("\n")
-	// Línea 2: acciones + indicador de método de scan (fd/walk) a la derecha
-	help2 := dashboardHelp2(helpW-12, m.cfg.Keybindings) // -12 para预留 espacio del indicador
-	scanMethod := styleDim.Render("walk")
-	if m.usedFD {
-		scanMethod = styleDim.Render("fd")
-	}
-	padding := strings.Repeat(" ", max(0, helpW-lipglossWidth(help2)-lipglossWidth(scanMethod)-1))
-	b.WriteString("  " + styleHelp.Render(help2) + padding + scanMethod + "\n")
-	if m.message != "" {
-		b.WriteString(styleMsg.Render(trunc("ℹ "+m.message, m.width)))
-	}
+	b.WriteString(m.keybindsBox())
 	return b.String()
 }
 
-// rightLines compone el panel derecho: detalles (si visibles), separador
-// horizontal, barra de pestañas y contenido de la pestaña activa.
-func (m Model) rightLines() []string {
-	lines := make([]string, 0, m.bodyH)
-	if m.detailsShown {
-		d := m.allDetailsLines(m.rightW)
-		// Aplicar scroll offset del panel de detalles
-		top := m.detailsTop
-		if top < 0 {
-			top = 0
-		}
-		if top > 0 && top > len(d)-detailsHeight {
-			top = max(0, len(d)-detailsHeight)
-		}
-		d = d[top:]
-		if len(d) > detailsHeight {
-			d = d[:detailsHeight]
-		}
-		for len(d) < detailsHeight {
-			d = append(d, "")
-		}
-		lines = append(lines, d...)
-		lines = append(lines, styleSep.Render(strings.Repeat("─", m.rightW)))
+// frameTitle compone el título de una caja: el texto con un espacio a cada
+// lado para separarlo del trazo del borde.
+func frameTitle(text string) string {
+	return styleTitle.Render(" " + text + " ")
+}
+
+// frameBoxLines dibuja una caja redondeada con título superior y devuelve sus
+// líneas. width es el ancho TOTAL (marco incluido); content debe venir ya
+// recortado al ancho interior (width-boxFrame) para que no haya re-wrap.
+func frameBoxLines(title, content string, width int) []string {
+	return strings.Split(bordered.RenderWithTitleEx(
+		lipgloss.RoundedBorder(),
+		borderFg,
+		bordered.AlignLeft,
+		frameTitle(title),
+		content,
+		width,
+	), "\n")
+}
+
+// padLines rellena lines con líneas vacías hasta n (y recorta si sobran).
+func padLines(lines []string, n int) []string {
+	if n < 0 {
+		n = 0
 	}
-	lines = append(lines, m.tabsBar(m.rightW))
+	if len(lines) > n {
+		return lines[:n]
+	}
+	for len(lines) < n {
+		lines = append(lines, "")
+	}
+	return lines
+}
+
+// fitLines recorta cada línea a w celdas visibles (ANSI-aware) para que el
+// compositor de cajas no tenga que envolverlas y altere el alto.
+func fitLines(lines []string, w int) []string {
+	for i := range lines {
+		lines[i] = truncANSI(lines[i], w)
+	}
+	return lines
+}
+
+// rightColumnLines compone la columna derecha como dos cajas apiladas:
+// Details (si cabe) arriba y Output abajo, cada una del ancho rightW+boxFrame.
+func (m Model) rightColumnLines() []string {
+	outerW := m.rightW + boxFrame
+	var out []string
+	if m.detailsShown {
+		out = append(out, frameBoxLines("Details", strings.Join(m.detailsContentLines(), "\n"), outerW)...)
+	}
+	out = append(out, frameBoxLines("Output", strings.Join(m.consoleContentLines(), "\n"), outerW)...)
+	return out
+}
+
+// detailsContentLines devuelve exactamente detailsHeight líneas de detalle del
+// item seleccionado, aplicando el scroll vertical.
+func (m Model) detailsContentLines() []string {
+	d := m.allDetailsLines(m.rightW)
+	top := m.detailsTop
+	if top < 0 {
+		top = 0
+	}
+	if top > 0 && top > len(d)-detailsHeight {
+		top = max(0, len(d)-detailsHeight)
+	}
+	d = d[top:]
+	if len(d) > detailsHeight {
+		d = d[:detailsHeight]
+	}
+	return fitLines(padLines(d, detailsHeight), m.rightW)
+}
+
+// consoleContentLines devuelve exactamente contentH+1 líneas: la barra de
+// pestañas y el contenido de la pestaña activa (consola o hilos).
+func (m Model) consoleContentLines() []string {
+	lines := []string{m.tabsBar(m.rightW)}
 	if m.activeTab == tabConsole {
 		lines = append(lines, strings.Split(m.consoleView.View(), "\n")...)
 	} else {
 		lines = append(lines, m.threadsLines(m.rightW, m.contentH)...)
 	}
+	return fitLines(padLines(lines, m.contentH+1), m.rightW)
+}
 
-	out := make([]string, m.bodyH)
-	for i := range out {
-		if i < len(lines) {
-			out[i] = truncANSI(lines[i], m.rightW)
-		}
+// keybindsBox dibuja la caja inferior a todo el ancho con las dos líneas de
+// ayuda y, si hay mensaje de estado, la leyenda en el borde inferior derecho.
+// Ambas líneas se recortan al ancho interior (ANSI-aware) para que el
+// compositor no las envuelva y rompa el alto fijo de la caja.
+func (m Model) keybindsBox() string {
+	innerW := m.width - boxFrame
+	if innerW < 1 {
+		innerW = 1
 	}
-	return out
+	scanMethod := "walk"
+	if m.usedFD {
+		scanMethod = "fd"
+	}
+	scanW := lipglossWidth(scanMethod)
+
+	help1 := truncANSI(dashboardHelp1(innerW, m.cfg.Keybindings), innerW)
+	help2 := truncANSI(dashboardHelp2(max(1, innerW-scanW-2), m.cfg.Keybindings), max(1, innerW-scanW-1))
+	padding := strings.Repeat(" ", max(0, innerW-lipglossWidth(help2)-scanW-1))
+	line2 := styleHelp.Render(help2) + padding + styleDim.Render(scanMethod)
+
+	bottom := ""
+	if m.message != "" {
+		bottom = styleMsg.Render(" " + trunc(m.message, max(1, innerW-2)) + " ")
+	}
+	return bordered.RenderWithTitlesEx(
+		lipgloss.RoundedBorder(),
+		borderFg,
+		frameTitle("Keybinds"), bordered.AlignLeft,
+		bottom, bordered.AlignRight,
+		styleHelp.Render(help1)+"\n"+line2,
+		m.width,
+	)
 }
 
 // tabLabel renderiza la etiqueta de una pestaña: activa con fondo

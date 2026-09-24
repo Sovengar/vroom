@@ -28,11 +28,15 @@ var (
 	styleMsg   = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	styleLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
 
-	// Pestañas del dashboard: la activa se pinta con
-	// fondo invertido para distinguirse de las inactivas a simple vista.
+	// Pestañas del panel Output: la activa se pinta con fondo
+	// invertido; la inactiva en gris claro legible (no el ANSI 8, que en
+	// temas oscuros la hacía casi invisible).
 	styleTabActive   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("12"))
-	styleTabInactive = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	styleSep         = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	styleTabInactive = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+
+	// Color del borde de las cajas de sección (gris ANSI 8), mismo criterio
+	// que tsk. Lo consume el compositor bordered, que recibe el color.
+	borderFg = lipgloss.Color("8")
 
 	// Modal del picker de tasks: fila del cursor con el
 	// mismo estilo invertido que la pestaña activa.
