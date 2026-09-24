@@ -106,6 +106,24 @@ func TestParsePorcelainMalformed(t *testing.T) {
 	}
 }
 
+// Un bloque `worktree` sin ruta (degenerado) se ignora: nunca produce una
+// entrada con Path == "".
+func TestParsePorcelainIgnoresEmptyWorktreePath(t *testing.T) {
+	out := "worktree /repo\nHEAD aaaa000000000000000000000000000000000000\nbranch refs/heads/main\n\nworktree \nHEAD bbbb000000000000000000000000000000000000\n\n"
+	wts, err := ParsePorcelain(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wts) != 1 {
+		t.Fatalf("worktrees = %d, want 1 (bloque sin ruta ignorado): %+v", len(wts), wts)
+	}
+	for _, wt := range wts {
+		if wt.Path == "" {
+			t.Errorf("no debe haber entradas con Path vacío: %+v", wts)
+		}
+	}
+}
+
 // IsBareRepo: conjunción completa + marcador core.bare = true.
 func TestIsBareRepo(t *testing.T) {
 	bare := t.TempDir()

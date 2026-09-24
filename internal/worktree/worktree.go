@@ -106,7 +106,13 @@ func ParsePorcelain(out string) ([]Worktree, error) {
 		switch key {
 		case "worktree":
 			flush()
-			cur = &Worktree{Path: strings.TrimSpace(val)}
+			path := strings.TrimSpace(val)
+			if path == "" {
+				// Bloque degenerado sin ruta: se ignora, nunca se
+				// produce una entrada con Path == "".
+				continue
+			}
+			cur = &Worktree{Path: path}
 		case "HEAD":
 			if cur != nil {
 				cur.HEAD = strings.TrimSpace(val)
