@@ -25,12 +25,7 @@ func writeFile(t *testing.T, path, content string) {
 // encuentre el falso y no el git real).
 func fakeGit(t *testing.T, output string, code int) string {
 	t.Helper()
-	dir := t.TempDir()
-	script := "#!/bin/sh\ncat <<'EOF'\n" + output + "EOF\nexit " + itoa(code) + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return dir + string(os.PathListSeparator) + os.Getenv("PATH")
+	return fakeGitStreams(t, output, "", code)
 }
 
 func itoa(n int) string {
