@@ -1404,7 +1404,7 @@ func (m Model) toggleComposers(primary string) (tea.Model, tea.Cmd) {
 	if allRunning {
 		// Stop all stacks
 		for i := range stacks {
-			if err := m.engine.StopStack(&stacks[i], m.projects, nil); err != nil {
+			if err := m.engine.StopStack(&stacks[i], m.projects); err != nil {
 				m.notify("stack conflict: " + err.Error())
 				return m, nil
 			}
@@ -1449,7 +1449,7 @@ func (m Model) toggleStack(s *orchestrate.Stack) (tea.Model, tea.Cmd) {
 	if running == total && total > 0 {
 		// Stack running: stop all services (criterio explícito, sin
 		// elegir arbitrariamente el primer match de nombre).
-		if err := m.engine.StopStack(s, m.projects, nil); err != nil {
+		if err := m.engine.StopStack(s, m.projects); err != nil {
 			m.notify("stack conflict: " + err.Error())
 			return m, nil
 		}

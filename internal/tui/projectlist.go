@@ -79,9 +79,6 @@ func (m Model) buildTree() []treeItem {
 	skipPrimary := ""   // primario colapsado cuyos miembros y headers se omiten
 	skipSecondary := "" // clave compuesta "primario/secundario" colapsada
 
-	// Track stacks emitted per primary (to avoid duplicates)
-	stacksEmitted := make(map[string]bool)
-
 	for i, e := range visible {
 		if group.IsPrimaryHeader(visible, i) {
 			items = append(items, treeItem{kind: itemPrimary, primary: e.Primary})
@@ -163,7 +160,6 @@ func (m Model) buildTree() []treeItem {
 			for i := range stacks {
 				items = append(items, treeItem{kind: itemStack, primary: prim, secondary: composersGroup, stack: &stacks[i]})
 			}
-			_ = stacksEmitted // used for tracking
 		}
 	}
 

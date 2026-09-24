@@ -412,7 +412,7 @@ func TestStopStackDuplicate(t *testing.T) {
 	engine := NewEngine(&mockManager{}, store)
 
 	stack := &Stack{Name: "s", Stages: []Stage{{Name: "s1", Services: []string{"api"}}}}
-	if err := engine.StopStack(stack, duplicateProjects(), nil); err == nil {
+	if err := engine.StopStack(stack, duplicateProjects()); err == nil {
 		t.Fatal("StopStack debe fallar ante un nombre duplicado")
 	}
 }
