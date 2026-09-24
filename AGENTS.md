@@ -39,3 +39,6 @@ Reglas de la rama `main` (ruleset **`protect-main`**, reproducible con
 
 Ante un merge: verificar que el workflow `push` de `main` quedó verde y que el
 badge del README reporta `passing` (el badge cachea unos segundos).
+
+Gate local en un solo comando: **`make check`** (build + lint + test), el mismo
+trío que exige CI. Debe existir en todos los repos de la familia.
