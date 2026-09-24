@@ -546,6 +546,40 @@ func TestNewNestsRealGitWorktrees(t *testing.T) {
 	}
 }
 
+// La TUI notifica la degradación de topología (git ausente o fallo) sin
+// romper el scan ni ocultar proyectos.
+func TestNewNotifiesTopologyDegradation(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(repo, ".vroom.toml"), "name = \"repo\"\ncommand_start = \"echo\"\n")
+	write(filepath.Join(repo, ".git", "config"), "[core]\n\tbare = false\n")
+
+	// git falso que falla: la consulta de topología degrada por repo.
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	m := New(state.NewStoreAt(t.TempDir()), &stubManager{}, root)
+	if !strings.Contains(m.message, "worktree topology unavailable") {
+		t.Errorf("debe notificar la degradación de topología: %q", m.message)
+	}
+	if findCursor(m, "repo") < 0 {
+		t.Error("el proyecto debe seguir visible pese a la degradación")
+	}
+}
+
 // S8: la TUI reporta el mismo conflicto de stack que el CLI y no elige
 // arbitrariamente el primer proyecto con ese nombre.
 func TestStackStatsConflictMatchesEngine(t *testing.T) {
