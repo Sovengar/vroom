@@ -179,18 +179,32 @@ func findProject(projects []scanner.Project, query, path string) (scanner.Projec
 	}
 }
 
-// findByPath resuelve un proyecto por su ruta absoluta exacta.
+// findByPath resuelve un proyecto por su ruta absoluta exacta. Normaliza
+// ambos lados (abs, clean y symlinks resueltos) para que un path con
+// symlink apunte al proyecto correcto; si el path no existe cae a su forma
+// absoluta/limpia y devuelve "project not found" como antes.
 func findByPath(projects []scanner.Project, path string) (scanner.Project, error) {
-	abs := path
-	if a, err := filepath.Abs(path); err == nil {
-		abs = filepath.Clean(a)
-	}
+	abs := normalizePath(path)
 	for _, p := range projects {
-		if filepath.Clean(p.Path) == abs {
+		if normalizePath(p.Path) == abs {
 			return p, nil
 		}
 	}
 	return scanner.Project{}, fmt.Errorf("project not found: %s", path)
+}
+
+// normalizePath devuelve la ruta absoluta, limpia y con symlinks resueltos
+// cuando es posible; si la ruta no existe (o falla la resolución) usa la
+// forma absoluta/limpia.
+func normalizePath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return filepath.Clean(abs)
 }
 
 // extractPathFlag separa el flag --path <valor> (o --path=<valor>) de los

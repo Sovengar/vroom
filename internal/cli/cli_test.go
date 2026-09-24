@@ -2,6 +2,8 @@ package cli
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -77,6 +79,34 @@ func TestFindProjectUnknownPath(t *testing.T) {
 	_, err := findProject(wtProjects(), "/no/existe", "")
 	if err == nil || !strings.Contains(err.Error(), "project not found") {
 		t.Fatalf("err = %v, want project not found", err)
+	}
+}
+
+// findByPath normaliza symlinks: un path con symlink apunta al proyecto
+// correcto en ambos sentidos.
+func TestFindProjectResolvesSymlink(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "proj")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("no se pudo crear symlink: %v", err)
+	}
+
+	// Query por el symlink → proyecto con la ruta real.
+	projects := []scanner.Project{
+		{Path: real, Name: "proj", Configured: true, Manifest: &manifest.Manifest{Name: "proj"}},
+	}
+	if p, err := findByPath(projects, link); err != nil || p.Path != real {
+		t.Errorf("findByPath(%q) = (%+v, %v), want path %q", link, p, err, real)
+	}
+
+	// Proyecto con path symlink, query por la ruta real.
+	symProjects := []scanner.Project{{Path: link, Name: "proj", Configured: true}}
+	if p, err := findByPath(symProjects, real); err != nil || p.Path != link {
+		t.Errorf("findByPath(%q) = (%+v, %v), want path %q", real, p, err, link)
 	}
 }
 
