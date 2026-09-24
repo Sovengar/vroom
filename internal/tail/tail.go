@@ -21,7 +21,7 @@ func ReadNew(path string, offset int64) (data string, newOffset int64, err error
 		}
 		return "", offset, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	info, err := f.Stat()
 	if err != nil {

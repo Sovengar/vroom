@@ -42,19 +42,19 @@ func (u *unixManager) Start(spec StartSpec) (StartResult, error) {
 	if err != nil {
 		return StartResult{}, fmt.Errorf("could not open stdout.log: %w", err)
 	}
-	defer stdout.Close()
+	defer func() { _ = stdout.Close() }()
 
 	stderr, err := os.OpenFile(spec.StderrPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return StartResult{}, fmt.Errorf("could not open stderr.log: %w", err)
 	}
-	defer stderr.Close()
+	defer func() { _ = stderr.Close() }()
 
 	devNull, err := os.OpenFile(os.DevNull, os.O_RDONLY, 0)
 	if err != nil {
 		return StartResult{}, fmt.Errorf("could not open /dev/null: %w", err)
 	}
-	defer devNull.Close()
+	defer func() { _ = devNull.Close() }()
 
 	cmd := exec.Command("sh", "-c", spec.Command)
 	cmd.Dir = spec.WorkDir

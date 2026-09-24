@@ -853,7 +853,7 @@ func TestConsoleTailPipelineRealFiles(t *testing.T) {
 	if _, err := f.WriteString("ready \x1b[32mOK\x1b[0m\n"); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	msg2 := m1.tailCmd()().(consoleDeltaMsg)
 	next, _ = m1.Update(msg2)

@@ -439,13 +439,6 @@ func filterMatch(p scanner.Project, q string) bool {
 	return strings.Contains(strings.ToLower(group.SecondaryOf(p)), q)
 }
 
-// stackMatch reporta si un stack matchea la query del filtro.
-func stackMatch(s *orchestrate.Stack, q string) bool {
-	q = strings.ToLower(q)
-	return strings.Contains(strings.ToLower(s.Name), q) ||
-		strings.Contains(strings.ToLower(s.PrimaryGroup), q)
-}
-
 // stackRow dibuja la fila del stack: 🎵 nombre (running/total). Si el
 // stack tiene un nombre de servicio ambiguo, lo marca como conflicto.
 func (m Model) stackRow(s *orchestrate.Stack) string {

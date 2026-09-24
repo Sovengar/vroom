@@ -22,12 +22,11 @@ var (
 	styleStopping        = lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
 	styleUnconfigured    = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Faint(true)
 
-	styleSelected = lipgloss.NewStyle().Bold(true)
-	styleWarn     = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
-	styleDim      = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Faint(true)
-	styleHelp     = lipgloss.NewStyle().Foreground(lipgloss.Color("#6c7086")).Faint(true)
-	styleMsg      = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	styleLabel    = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
+	styleWarn  = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
+	styleDim   = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Faint(true)
+	styleHelp  = lipgloss.NewStyle().Foreground(lipgloss.Color("#6c7086")).Faint(true)
+	styleMsg   = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	styleLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
 
 	// Pestañas del dashboard: la activa se pinta con
 	// fondo invertido para distinguirse de las inactivas a simple vista.

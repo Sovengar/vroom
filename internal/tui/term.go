@@ -215,7 +215,13 @@ func (s *termSession) shutdown() {
 		_ = p.Close()
 	}
 	if e != nil {
-		_ = e.Close()
+		// Cerrar el input pipe desbloquea el Read del pump (EOF) sin
+		// pasar por emu.Close(): su flag interno `closed` se escribe
+		// sin lock y el pump lo consulta dentro de Read → data race
+		// bajo -race. io.Pipe sí es concurrency-safe.
+		if in, ok := e.InputPipe().(io.Closer); ok {
+			_ = in.Close()
+		}
 	}
 	killSessionGroup(pgid)
 }

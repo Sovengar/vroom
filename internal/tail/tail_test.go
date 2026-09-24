@@ -27,7 +27,7 @@ func TestReadNewIncremental(t *testing.T) {
 	if _, err := f.WriteString("line2\n"); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	data, off, err = ReadNew(path, off)
 	if err != nil || data != "line2\n" || off != 12 {

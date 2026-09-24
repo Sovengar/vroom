@@ -515,7 +515,7 @@ func stopCmd(store *state.Store, manager process.Manager, path, stopCommand stri
 			meta.Pgid = 0
 			_ = store.SaveMeta(path, meta)
 		}
-		_ = appendLine(store.StderrLog(path), fmt.Sprintf("── vroom ▶ stop: service stopped ──"))
+		_ = appendLine(store.StderrLog(path), "── vroom ▶ stop: service stopped ──")
 		return stoppedMsg{path: path, err: cmdErr}
 	}
 }
@@ -553,7 +553,7 @@ func appendLine(path, line string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	_, err = f.WriteString(line + "\n")
 	return err
 }
@@ -585,12 +585,12 @@ func runLogged(kind, command, workDir, stdoutPath, stderrPath string) (time.Dura
 	if err != nil {
 		return 0, 0, err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 	errF, err := os.OpenFile(stderrPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return 0, 0, err
 	}
-	defer errF.Close()
+	defer func() { _ = errF.Close() }()
 	cmd.Stdout = out
 	cmd.Stderr = errF
 	runErr := cmd.Run()

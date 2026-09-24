@@ -2,6 +2,7 @@
 target/
 bin/
 dist/
+.local/
 node_modules/
 *.class
 

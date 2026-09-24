@@ -349,10 +349,8 @@ func (e *Engine) stopService(p scanner.Project) {
 	if p.Manifest == nil {
 		return
 	}
-	// Parada graciosa
-	if p.Manifest.Stop != "" {
-		// runLogged omitted for engine (simplified stop)
-	}
+	// Parada graciosa no implementada en el engine: p.Manifest.Stop se
+	// ignora intencionadamente (simplified stop; aquí no hay runLogged).
 	meta, err := e.store.LoadMeta(p.Path)
 	if err == nil && (meta.Pgid > 0 || meta.Port > 0) {
 		_ = e.manager.Stop(process.StopSpec{Pgid: meta.Pgid, Port: meta.Port, Timeout: process.DefaultStopTimeout})

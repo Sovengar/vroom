@@ -158,8 +158,8 @@ func TestLaunchAlreadyRunning(t *testing.T) {
 		Path: "/dev/api", Name: "api", Configured: true,
 		Manifest: &manifest.Manifest{Name: "api", Command: "go run .", Port: 0},
 	}
-	store.EnsureServiceDir(p.Path)
-	store.SaveMeta(p.Path, state.Meta{
+	_, _ = store.EnsureServiceDir(p.Path)
+	_ = store.SaveMeta(p.Path, state.Meta{
 		Name: "api", Pid: 9999, Pgid: 9999, Port: 0,
 		CreationTimeMs: 100, State: state.StateRunning,
 	})
@@ -279,8 +279,8 @@ func TestStackStatus(t *testing.T) {
 		Path: "/dev/api", Name: "api", Configured: true,
 		Manifest: &manifest.Manifest{Name: "api", Command: "go run .", Port: 8080},
 	}
-	store.EnsureServiceDir(p.Path)
-	store.SaveMeta(p.Path, state.Meta{
+	_, _ = store.EnsureServiceDir(p.Path)
+	_ = store.SaveMeta(p.Path, state.Meta{
 		Name: "api", Pid: 1000, Pgid: 1000, Port: 8080,
 		CreationTimeMs: 100, State: state.StateRunning,
 	})

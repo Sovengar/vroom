@@ -321,7 +321,7 @@ primary_group = "g3"
 
 func TestParseInvalidTOML(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, ComposeFileName), []byte(`[[stack]] invalid toml {{{`), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, ComposeFileName), []byte(`[[stack]] invalid toml {{{`), 0o644)
 	_, err := ParseComposeFile(dir)
 	if err == nil {
 		t.Fatal("expected error for invalid TOML")
@@ -344,5 +344,5 @@ primary_group = "vsocial"
 
 func writeCompose(t *testing.T, dir, content string) {
 	t.Helper()
-	os.WriteFile(filepath.Join(dir, ComposeFileName), []byte(content), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, ComposeFileName), []byte(content), 0o644)
 }

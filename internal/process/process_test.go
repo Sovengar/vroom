@@ -125,7 +125,7 @@ func TestEvaluateDeadPIDPortOpenByOther(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	port := ln.Addr().(*net.TCPAddr).Port
 
 	// PID inexistente + creation_time basura → Alive() falla.
@@ -147,7 +147,7 @@ func TestEvaluateDeadPIDPortOpenSameService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	port := ln.Addr().(*net.TCPAddr).Port
 
 	// Obtener el PID real del listener y su creation_time.
@@ -263,7 +263,7 @@ func TestPortOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	port := ln.Addr().(*net.TCPAddr).Port
 	if !PortOpen(port) {
 		t.Errorf("puerto %d abierto debería reportarse como abierto", port)
@@ -279,7 +279,7 @@ func TestPortOwnerPID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	port := ln.Addr().(*net.TCPAddr).Port
 
 	pid := PortOwnerPID(port)
@@ -337,6 +337,6 @@ func freeTCPPort(t *testing.T) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	return ln.Addr().(*net.TCPAddr).Port
 }

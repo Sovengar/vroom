@@ -130,7 +130,7 @@ func TestPathPriority(t *testing.T) {
 	if err != nil || p != "/tmp/vroom-custom.toml" {
 		t.Errorf("Path = %s, %v", p, err)
 	}
-	os.Unsetenv("VROOM_CONFIG")
+	_ = os.Unsetenv("VROOM_CONFIG")
 	p, err = Path()
 	if err != nil || p != "/xdg/vroom/config.toml" {
 		t.Errorf("Path = %s, %v", p, err)
