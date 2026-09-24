@@ -356,6 +356,41 @@ func TestResolveServicesUnique(t *testing.T) {
 	}
 }
 
+// validateServices itera en orden estable (ordenado), independiente del
+// orden de las etapas y de la iteración de mapas.
+func TestValidateServicesDeterministicOrder(t *testing.T) {
+	store := state.NewStoreAt(t.TempDir())
+	engine := NewEngine(&mockManager{}, store)
+
+	projects := []scanner.Project{
+		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "echo"}},
+		{Path: "/dev/web", Name: "web", Configured: true, Manifest: &manifest.Manifest{Name: "web", Command: "echo"}},
+		{Path: "/dev/db", Name: "db", Configured: true, Manifest: &manifest.Manifest{Name: "db", Command: "echo"}},
+		{Path: "/dev/cache", Name: "cache", Configured: true, Manifest: &manifest.Manifest{Name: "cache", Command: "echo"}},
+	}
+	stack := &Stack{
+		Name: "s",
+		Stages: []Stage{
+			{Name: "s1", Services: []string{"web", "api"}},
+			{Name: "s2", Services: []string{"cache", "db"}},
+		},
+	}
+	want := []string{"api", "cache", "db", "web"}
+	for i := 0; i < 20; i++ {
+		resolved, err := engine.validateServices(stack, projects)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := make([]string, len(resolved))
+		for j, r := range resolved {
+			got[j] = r.Name
+		}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("orden no determinista: got %v, want %v", got, want)
+		}
+	}
+}
+
 // S8: StackStatus reporta el mismo conflicto que el CLI.
 func TestStackStatusConflict(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
@@ -377,7 +412,7 @@ func TestStopStackDuplicate(t *testing.T) {
 	engine := NewEngine(&mockManager{}, store)
 
 	stack := &Stack{Name: "s", Stages: []Stage{{Name: "s1", Services: []string{"api"}}}}
-	if err := engine.StopStack(stack, duplicateProjects(), nil); err == nil {
+	if err := engine.StopStack(stack, duplicateProjects()); err == nil {
 		t.Fatal("StopStack debe fallar ante un nombre duplicado")
 	}
 }

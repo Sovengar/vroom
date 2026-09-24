@@ -59,6 +59,7 @@ type ProjectInfo struct {
 	RepoRoot       string `json:"repo_root,omitempty"`
 	IsWorktree     bool   `json:"is_worktree,omitempty"`
 	BareContainer  bool   `json:"bare_container,omitempty"`
+	WorktreeErr    string `json:"worktree_error,omitempty"`
 	Collapsed      bool   `json:"collapsed"`
 	Pid            int    `json:"pid,omitempty"`
 	Pgid           int    `json:"pgid,omitempty"`
@@ -179,33 +180,74 @@ func findProject(projects []scanner.Project, query, path string) (scanner.Projec
 	}
 }
 
-// findByPath resuelve un proyecto por su ruta absoluta exacta.
+// findByPath resuelve un proyecto por su ruta absoluta exacta. Normaliza
+// ambos lados (abs, clean y symlinks resueltos) para que un path con
+// symlink apunte al proyecto correcto; si el path no existe cae a su forma
+// absoluta/limpia y devuelve "project not found" como antes.
 func findByPath(projects []scanner.Project, path string) (scanner.Project, error) {
-	abs := path
-	if a, err := filepath.Abs(path); err == nil {
-		abs = filepath.Clean(a)
-	}
+	abs := normalizePath(path)
 	for _, p := range projects {
-		if filepath.Clean(p.Path) == abs {
+		if normalizePath(p.Path) == abs {
 			return p, nil
 		}
 	}
 	return scanner.Project{}, fmt.Errorf("project not found: %s", path)
 }
 
-// extractPathFlag separa el flag --path <valor> de los demás argumentos
-// (posicionales y otros flags, p.ej. --tail/--stream de logs).
-func extractPathFlag(args []string) (rest []string, path string) {
+// normalizePath devuelve la ruta absoluta, limpia y con symlinks resueltos
+// cuando es posible; si la ruta no existe (o falla la resolución) usa la
+// forma absoluta/limpia.
+func normalizePath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return filepath.Clean(abs)
+}
+
+// extractPathFlag separa el flag --path <valor> (o --path=<valor>) de los
+// demás argumentos (posicionales y otros flags, p.ej. --tail/--stream de
+// logs). Devuelve error si --path aparece sin valor, con valor vacío o más
+// de una vez: el comportamiento es predecible en vez de ignorarlo en
+// silencio.
+func extractPathFlag(args []string) (rest []string, path string, err error) {
 	rest = make([]string, 0, len(args))
+	seen := false
+	set := func(val string) error {
+		if seen {
+			return fmt.Errorf("--path specified more than once")
+		}
+		if val == "" {
+			return fmt.Errorf("--path requires a non-empty value")
+		}
+		seen = true
+		path = val
+		return nil
+	}
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--path" && i+1 < len(args) {
-			path = args[i+1]
+		a := args[i]
+		if a == "--path" {
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+				return nil, "", fmt.Errorf("--path requires a value")
+			}
+			if err := set(args[i+1]); err != nil {
+				return nil, "", err
+			}
 			i++
 			continue
 		}
-		rest = append(rest, args[i])
+		if val, ok := strings.CutPrefix(a, "--path="); ok {
+			if err := set(val); err != nil {
+				return nil, "", err
+			}
+			continue
+		}
+		rest = append(rest, a)
 	}
-	return rest, path
+	return rest, path, nil
 }
 
 // evaluateStatus devuelve el estado evaluado de un proyecto.
@@ -234,6 +276,7 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 		RepoRoot:      p.RepoRoot,
 		IsWorktree:    p.IsWorktree,
 		BareContainer: p.IsBareContainer,
+		WorktreeErr:   p.WorktreeErr,
 	}
 
 	if !p.Configured {
@@ -289,31 +332,46 @@ func Run(args []string) bool {
 	case "list", "status":
 		cmdList()
 	case "start":
-		rest, path := extractPathFlag(args[1:])
+		rest, path, err := extractPathFlag(args[1:])
+		if err != nil {
+			outputError(err.Error())
+		}
 		if len(rest) < 1 {
 			outputError("usage: vroom start <project-name|path> [--path <path>]")
 		}
 		cmdStart(rest[0], path)
 	case "stop":
-		rest, path := extractPathFlag(args[1:])
+		rest, path, err := extractPathFlag(args[1:])
+		if err != nil {
+			outputError(err.Error())
+		}
 		if len(rest) < 1 {
 			outputError("usage: vroom stop <project-name|path> [--path <path>]")
 		}
 		cmdStop(rest[0], path)
 	case "build":
-		rest, path := extractPathFlag(args[1:])
+		rest, path, err := extractPathFlag(args[1:])
+		if err != nil {
+			outputError(err.Error())
+		}
 		if len(rest) < 1 {
 			outputError("usage: vroom build <project-name|path> [--path <path>]")
 		}
 		cmdBuild(rest[0], path)
 	case "install":
-		rest, path := extractPathFlag(args[1:])
+		rest, path, err := extractPathFlag(args[1:])
+		if err != nil {
+			outputError(err.Error())
+		}
 		if len(rest) < 1 {
 			outputError("usage: vroom install <project-name|path> [--path <path>]")
 		}
 		cmdInstall(rest[0], path)
 	case "logs":
-		rest, path := extractPathFlag(args[1:])
+		rest, path, err := extractPathFlag(args[1:])
+		if err != nil {
+			outputError(err.Error())
+		}
 		if len(rest) < 1 {
 			outputError("usage: vroom logs <project-name|path> [--path <path>] [--tail N --stream merged|stdout|stderr]")
 		}

@@ -217,7 +217,7 @@ func (e *Engine) LaunchAsync(stack *Stack, projects []scanner.Project) <-chan La
 // StopStack para todos los servicios de un stack. Resuelve cada nombre
 // con el mismo criterio explícito que el engine: ante duplicados falla en
 // vez de parar un proyecto arbitrario.
-func (e *Engine) StopStack(stack *Stack, projects []scanner.Project, services map[string]*ServiceStatus) error {
+func (e *Engine) StopStack(stack *Stack, projects []scanner.Project) error {
 	seen := make(map[string]bool)
 	for _, stage := range stack.Stages {
 		for _, name := range stage.Services {
@@ -233,11 +233,6 @@ func (e *Engine) StopStack(stack *Stack, projects []scanner.Project, services ma
 		}
 	}
 	return nil
-}
-
-// ServiceStatus es el estado de un servicio para evaluar el stack.
-type ServiceStatus struct {
-	Running bool
 }
 
 // StackStatus evalúa el estado de todos los servicios de un stack con el
@@ -285,6 +280,7 @@ func (e *Engine) validateServices(stack *Stack, projects []scanner.Project) ([]R
 	for name := range allNames {
 		names = append(names, name)
 	}
+	sort.Strings(names) // orden estable: mensajes/errores reproducibles
 	return e.ResolveServices(names, projects)
 }
 
@@ -346,32 +342,6 @@ func (e *Engine) startService(svc ResolvedService, timeout time.Duration) Servic
 	}
 
 	return ServiceResult{Name: svc.Name, Action: "started", Pid: res.Pid}
-}
-
-// quickCheck verifica el estado actual de un servicio sin arrancarlo.
-func (e *Engine) quickCheck(svc ResolvedService, timeout time.Duration) ServiceResult {
-	p := svc.Project
-	meta, err := e.store.LoadMeta(p.Path)
-	if err != nil {
-		return ServiceResult{Name: svc.Name, Action: "stopped"}
-	}
-	if meta.Pid <= 0 {
-		return ServiceResult{Name: svc.Name, Action: "stopped"}
-	}
-	status := e.manager.Evaluate(process.EvalSpec{
-		Pid:            meta.Pid,
-		CreationTimeMs: meta.CreationTimeMs,
-		Port:           meta.Port,
-		ProcessPattern: meta.ProcessPattern,
-	})
-	switch status {
-	case process.StatusRunning:
-		return ServiceResult{Name: svc.Name, Action: "running", Pid: meta.Pid}
-	case process.StatusUnknown:
-		return ServiceResult{Name: svc.Name, Action: "unknown"}
-	default:
-		return ServiceResult{Name: svc.Name, Action: "stopped"}
-	}
 }
 
 // stopService para un servicio individual.

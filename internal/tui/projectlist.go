@@ -79,9 +79,6 @@ func (m Model) buildTree() []treeItem {
 	skipPrimary := ""   // primario colapsado cuyos miembros y headers se omiten
 	skipSecondary := "" // clave compuesta "primario/secundario" colapsada
 
-	// Track stacks emitted per primary (to avoid duplicates)
-	stacksEmitted := make(map[string]bool)
-
 	for i, e := range visible {
 		if group.IsPrimaryHeader(visible, i) {
 			items = append(items, treeItem{kind: itemPrimary, primary: e.Primary})
@@ -163,7 +160,6 @@ func (m Model) buildTree() []treeItem {
 			for i := range stacks {
 				items = append(items, treeItem{kind: itemStack, primary: prim, secondary: composersGroup, stack: &stacks[i]})
 			}
-			_ = stacksEmitted // used for tracking
 		}
 	}
 
@@ -202,10 +198,16 @@ func (m Model) repoBlock(p scanner.Project, primary, secondary string, children 
 	return out
 }
 
+// repoKeyPrefix namespacea las claves de plegado de nodos repo con un byte
+// NUL, que no puede producir un nombre de grupo leído de un manifiesto, de
+// modo que la clave de un nodo repo no puede colisionar con una clave de
+// grupo (primary o primary/secondary).
+const repoKeyPrefix = "\x00repo:"
+
 // repoKey es la clave de plegado de una fila de repo (0011): namespace
-// propio, disjunto de las claves de grupo (primary o primary/secondary),
-// para que el estado persistido no colisione.
-func repoKey(repoPath string) string { return "repo:" + repoPath }
+// propio, estructuralmente disjunto de las claves de grupo, para que el
+// estado persistido no colisione.
+func repoKey(repoPath string) string { return repoKeyPrefix + repoPath }
 
 // repoExpanded reporta si la fila de repo está expandida. Default:
 // colapsada (inverso al default de los grupos, que empiezan expandidos).
@@ -257,7 +259,11 @@ func (m Model) treeLines() ([]string, int) {
 		case itemStack:
 			lines = append(lines, cursor+"  "+m.stackRow(it.stack))
 		case itemRepo:
-			lines = append(lines, cursor+m.repoGlyph(it.repoPath)+" "+m.containerRow(it))
+			glyph := ""
+			if it.hasKids {
+				glyph = m.repoGlyph(it.repoPath) + " "
+			}
+			lines = append(lines, cursor+glyph+m.containerRow(it))
 		default:
 			lines = append(lines, cursor+strings.Repeat("  ", it.indent)+m.projectRow(it))
 		}

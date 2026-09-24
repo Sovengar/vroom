@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -24,12 +25,7 @@ func writeFile(t *testing.T, path, content string) {
 // encuentre el falso y no el git real).
 func fakeGit(t *testing.T, output string, code int) string {
 	t.Helper()
-	dir := t.TempDir()
-	script := "#!/bin/sh\ncat <<'EOF'\n" + output + "EOF\nexit " + itoa(code) + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return dir + string(os.PathListSeparator) + os.Getenv("PATH")
+	return fakeGitStreams(t, output, "", code)
 }
 
 func itoa(n int) string {
@@ -37,6 +33,18 @@ func itoa(n int) string {
 		return "0"
 	}
 	return "1"
+}
+
+// fakeGitStreams escribe un git falso que separa stdout y stderr y sale
+// con code; devuelve el PATH con ese directorio al frente.
+func fakeGitStreams(t *testing.T, stdout, stderr string, code int) string {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\ncat <<'EOF'\n" + stdout + "EOF\ncat >&2 <<'EOF'\n" + stderr + "EOF\nexit " + itoa(code) + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir + string(os.PathListSeparator) + os.Getenv("PATH")
 }
 
 // ParsePorcelain reconoce main + worktrees, detached, bare y prunable.
@@ -106,6 +114,24 @@ func TestParsePorcelainMalformed(t *testing.T) {
 	}
 }
 
+// Un bloque `worktree` sin ruta (degenerado) se ignora: nunca produce una
+// entrada con Path == "".
+func TestParsePorcelainIgnoresEmptyWorktreePath(t *testing.T) {
+	out := "worktree /repo\nHEAD aaaa000000000000000000000000000000000000\nbranch refs/heads/main\n\nworktree \nHEAD bbbb000000000000000000000000000000000000\n\n"
+	wts, err := ParsePorcelain(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wts) != 1 {
+		t.Fatalf("worktrees = %d, want 1 (bloque sin ruta ignorado): %+v", len(wts), wts)
+	}
+	for _, wt := range wts {
+		if wt.Path == "" {
+			t.Errorf("no debe haber entradas con Path vacío: %+v", wts)
+		}
+	}
+}
+
 // IsBareRepo: conjunción completa + marcador core.bare = true.
 func TestIsBareRepo(t *testing.T) {
 	bare := t.TempDir()
@@ -166,6 +192,29 @@ func TestIsBareRepo(t *testing.T) {
 	}
 }
 
+// El marcador bare solo cuenta dentro de [core]: un `bare = true` en otra
+// sección no convierte un directorio en bare repo (falso positivo).
+func TestIsBareRepoScopesMarkerToCore(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "HEAD"), "ref: refs/heads/main\n")
+	writeFile(t, filepath.Join(dir, "config"), "[remote \"origin\"]\n\tbare = true\n")
+	if err := os.MkdirAll(filepath.Join(dir, "objects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "refs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if IsBareRepo(dir) {
+		t.Error("bare fuera de [core] no debe detectarse como bare repo")
+	}
+
+	// Con la clave dentro de [core] (aunque haya comentario inline) sí.
+	writeFile(t, filepath.Join(dir, "config"), "[core]\n\tbare = true # bare repo\n")
+	if !IsBareRepo(dir) {
+		t.Error("bare = true dentro de [core] debe detectarse")
+	}
+}
+
 // List sin git en PATH devuelve ErrGitUnavailable.
 func TestListGitUnavailable(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
@@ -192,6 +241,32 @@ func TestListFakeGit(t *testing.T) {
 	}
 	if len(wts) != 1 || wts[0].Path != "/repo" || wts[0].Branch != "main" {
 		t.Fatalf("worktrees inesperados: %+v", wts)
+	}
+}
+
+// Un warning en stderr no debe corromper el parseo del stdout (no se
+// mezclan streams).
+func TestListSeparatesStdoutFromStderr(t *testing.T) {
+	out := "worktree /repo\nHEAD aaaa000000000000000000000000000000000000\nbranch refs/heads/main\n\n"
+	t.Setenv("PATH", fakeGitStreams(t, out, "warning: something on stderr\n", 0))
+	wts, err := List("/whatever")
+	if err != nil {
+		t.Fatalf("stderr no debe romper el parseo: %v", err)
+	}
+	if len(wts) != 1 || wts[0].Path != "/repo" {
+		t.Fatalf("worktrees inesperados: %+v", wts)
+	}
+}
+
+// El mensaje de error incluye el stderr del fallo.
+func TestListFailureIncludesStderr(t *testing.T) {
+	t.Setenv("PATH", fakeGitStreams(t, "", "fatal: not a git repository\n", 1))
+	_, err := List("/whatever")
+	if err == nil {
+		t.Fatal("exit != 0 debe devolver error")
+	}
+	if !strings.Contains(err.Error(), "not a git repository") {
+		t.Errorf("el error debe incluir el stderr: %v", err)
 	}
 }
 

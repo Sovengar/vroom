@@ -6,6 +6,7 @@
 package worktree
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -70,16 +71,25 @@ func listWith(dir, git string) ([]Worktree, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, git, "-C", dir, "worktree", "list", "--porcelain")
 	cmd.WaitDelay = listWaitDelay
-	out, err := cmd.CombinedOutput()
+	// stdout lleva el porcelain a parsear; stderr solo alimenta el
+	// mensaje de error. Mezclarlos (CombinedOutput) corrompería el parseo
+	// con cualquier warning de git.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			// Degradación por timeout: se envuelve el error de contexto
 			// para que errors.Is(err, context.DeadlineExceeded) funcione.
 			return nil, fmt.Errorf("git worktree list timed out in %s: %w", dir, ctxErr)
 		}
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return nil, fmt.Errorf("git worktree list failed in %s: %w: %s", dir, err, msg)
+		}
 		return nil, fmt.Errorf("git worktree list failed in %s: %w", dir, err)
 	}
-	return ParsePorcelain(string(out))
+	return ParsePorcelain(stdout.String())
 }
 
 // ParsePorcelain interpreta la salida de `git worktree list --porcelain`.
@@ -106,7 +116,13 @@ func ParsePorcelain(out string) ([]Worktree, error) {
 		switch key {
 		case "worktree":
 			flush()
-			cur = &Worktree{Path: strings.TrimSpace(val)}
+			path := strings.TrimSpace(val)
+			if path == "" {
+				// Bloque degenerado sin ruta: se ignora, nunca se
+				// produce una entrada con Path == "".
+				continue
+			}
+			cur = &Worktree{Path: path}
 		case "HEAD":
 			if cur != nil {
 				cur.HEAD = strings.TrimSpace(val)
@@ -161,16 +177,60 @@ func IsBareRepo(dir string) bool {
 	return hasBareMarker(filepath.Join(dir, "config"))
 }
 
-// hasBareMarker busca la clave bare = true en el config de git.
+// hasBareMarker reporta si el config de git declara core.bare = true. La
+// clave se busca solo dentro de la sección [core]: un `bare = true` en
+// otra sección (o en un fichero que no es un config de git) no cuenta, así
+// que un directorio cualquiera con HEAD/objects/refs no se confunde con un
+// bare repo.
 func hasBareMarker(configPath string) bool {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return false
 	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.TrimSpace(line) == "bare = true" {
+	inCore := false
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(stripConfigComment(raw))
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			inCore = strings.EqualFold(line, "[core]")
+			continue
+		}
+		if !inCore {
+			continue
+		}
+		key, val, ok := strings.Cut(line, "=")
+		if !ok || !strings.EqualFold(strings.TrimSpace(key), "bare") {
+			continue
+		}
+		if isTrueConfigValue(strings.TrimSpace(val)) {
 			return true
 		}
+	}
+	return false
+}
+
+// stripConfigComment elimina un comentario inline de git config (`#` o
+// `;`) sin tocar valores entre comillas simples.
+func stripConfigComment(line string) string {
+	inQuote := false
+	for i, r := range line {
+		switch {
+		case r == '\'':
+			inQuote = !inQuote
+		case (r == '#' || r == ';') && !inQuote:
+			return line[:i]
+		}
+	}
+	return line
+}
+
+// isTrueConfigValue interpreta un booleano de git config.
+func isTrueConfigValue(v string) bool {
+	switch strings.ToLower(v) {
+	case "true", "yes", "on", "1":
+		return true
 	}
 	return false
 }

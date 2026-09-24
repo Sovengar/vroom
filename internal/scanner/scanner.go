@@ -82,13 +82,30 @@ func Scan(root string, depth int) (ScanResult, error) {
 // (que no tienen .vroom.toml y por eso no las encuentra el escaneo por
 // manifiestos), anota la topología repo/worktree y ordena por ruta. Los
 // bare repos llegan de la propia enumeración del scan (sin walk extra).
+// El merge deduplica por ruta: una fila contenedora no se duplica si ya
+// existe un proyecto con esa ruta (ni si aparece por más de un camino).
 func finalize(projects, bare []Project, root string) []Project {
-	projects = append(projects, bare...)
-	projects = annotateTopology(projects, root)
-	sort.Slice(projects, func(i, j int) bool {
-		return projects[i].Path < projects[j].Path
+	seen := make(map[string]bool, len(projects)+len(bare))
+	merged := make([]Project, 0, len(projects)+len(bare))
+	for _, p := range projects {
+		if seen[p.Path] {
+			continue
+		}
+		seen[p.Path] = true
+		merged = append(merged, p)
+	}
+	for _, p := range bare {
+		if seen[p.Path] {
+			continue
+		}
+		seen[p.Path] = true
+		merged = append(merged, p)
+	}
+	merged = annotateTopology(merged, root)
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].Path < merged[j].Path
 	})
-	return projects
+	return merged
 }
 
 // fdPath busca fd en PATH o en ubicaciones conocidas.
@@ -418,7 +435,12 @@ func queryWorktreeRelations(projects []Project) map[string]repoRelation {
 		main := wts[0].Path // git lista el main checkout primero
 		for _, wt := range wts {
 			if wt.Prunable {
-				continue // prunable/ausente: no se renderiza
+				// Prunable con directorio existente: git lo marca
+				// obsoleto pero el worktree sigue en disco, así que se
+				// trata como normal. Solo se omite si ya no existe.
+				if _, err := os.Stat(wt.Path); err != nil {
+					continue
+				}
 			}
 			rel := repoRelation{main: main, isWorktree: wt.Path != main}
 			if prev, ok := info[wt.Path]; ok && prev.isWorktree {

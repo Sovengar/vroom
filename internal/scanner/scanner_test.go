@@ -336,6 +336,29 @@ func TestScanSkipsPrunableWorktree(t *testing.T) {
 	}
 }
 
+// Un worktree prunable cuyo directorio sigue existiendo se trata como
+// worktree normal (se anota/nida), no se omite.
+func TestScanKeepsPrunableWorktreeWhenDirExists(t *testing.T) {
+	tr := newTree(t).
+		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo/.git/config", "[core]\n\tbare = false\n").
+		file("repo-wt-a/.vroom.toml", "name = \"api\"\ncommand_start = \"echo\"\n").
+		file("repo-wt-a/.git", "gitdir: /nowhere/.git/worktrees/a\n")
+	main := filepath.Join(tr.path(), "repo")
+	wtA := filepath.Join(tr.path(), "repo-wt-a")
+	out := porcelainRepo(main) + "worktree " + wtA + "\nHEAD bbbb000000000000000000000000000000000000\nbranch refs/heads/wta\nprunable gitdir file points to non-existent location\n\n"
+	t.Setenv("PATH", fakeGitPATH(t, out, 0))
+
+	result, err := Scan(tr.path(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := find(result.Projects, "repo-wt-a")
+	if p == nil || !p.IsWorktree || p.RepoRoot != main {
+		t.Errorf("prunable con directorio existente debe anotarse como worktree: %+v", p)
+	}
+}
+
 // Un bare repo se detecta y se expone como contenedor no configurado.
 func TestScanDetectsBareRepo(t *testing.T) {
 	tr := newTree(t).
@@ -363,8 +386,22 @@ func TestScanDetectsBareRepo(t *testing.T) {
 	}
 }
 
-// Un bare repo se consulta vía git aunque no tenga .git: sus worktrees
-// in-root sin manifiesto se descubren y se sintetizan anidadas (H1).
+// finalize deduplica la fila contenedora bare cuando ya existe un
+// proyecto con esa ruta (no se duplica la fila).
+func TestFinalizeDedupsBareContainer(t *testing.T) {
+	dir := t.TempDir()
+	project := Project{Path: dir, Name: "bare", Configured: true}
+	bare := Project{Path: dir, Name: "bare", IsBareContainer: true}
+	got := finalize([]Project{project}, []Project{bare}, t.TempDir())
+	if len(got) != 1 {
+		t.Fatalf("esperaba 1 fila, got %d: %+v", len(got), got)
+	}
+	if got[0].IsBareContainer || !got[0].Configured {
+		t.Errorf("debe conservarse el proyecto, no el contenedor: %+v", got[0])
+	}
+}
+
+// Un bare repo se consulta vía git aunque no tenga .git: sus worktrees// in-root sin manifiesto se descubren y se sintetizan anidadas (H1).
 func TestScanBareRepoDiscoversManifestlessWorktree(t *testing.T) {
 	tr := newTree(t).
 		file("bare/HEAD", "ref: refs/heads/main\n").

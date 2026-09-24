@@ -2,6 +2,8 @@ package cli
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -80,15 +82,76 @@ func TestFindProjectUnknownPath(t *testing.T) {
 	}
 }
 
+// findByPath normaliza symlinks: un path con symlink apunta al proyecto
+// correcto en ambos sentidos.
+func TestFindProjectResolvesSymlink(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "proj")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("no se pudo crear symlink: %v", err)
+	}
+
+	// Query por el symlink → proyecto con la ruta real.
+	projects := []scanner.Project{
+		{Path: real, Name: "proj", Configured: true, Manifest: &manifest.Manifest{Name: "proj"}},
+	}
+	if p, err := findByPath(projects, link); err != nil || p.Path != real {
+		t.Errorf("findByPath(%q) = (%+v, %v), want path %q", link, p, err, real)
+	}
+
+	// Proyecto con path symlink, query por la ruta real.
+	symProjects := []scanner.Project{{Path: link, Name: "proj", Configured: true}}
+	if p, err := findByPath(symProjects, real); err != nil || p.Path != link {
+		t.Errorf("findByPath(%q) = (%+v, %v), want path %q", real, p, err, link)
+	}
+}
+
 // extractPathFlag separa --path del resto sin perder otros flags.
 func TestExtractPathFlag(t *testing.T) {
-	rest, path := extractPathFlag([]string{"api", "--path", "/repo-wt/b", "--tail", "50"})
+	rest, path, err := extractPathFlag([]string{"api", "--path", "/repo-wt/b", "--tail", "50"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if path != "/repo-wt/b" {
 		t.Errorf("path = %q", path)
 	}
 	want := []string{"api", "--tail", "50"}
 	if strings.Join(rest, " ") != strings.Join(want, " ") {
 		t.Errorf("rest = %v, want %v", rest, want)
+	}
+}
+
+// extractPathFlag: forma --path=valor y posición respecto al posicional.
+func TestExtractPathFlagEqualsForm(t *testing.T) {
+	rest, path, err := extractPathFlag([]string{"--path=/repo-wt/a", "api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/repo-wt/a" {
+		t.Errorf("path = %q, want /repo-wt/a", path)
+	}
+	if len(rest) != 1 || rest[0] != "api" {
+		t.Errorf("rest = %v, want [api]", rest)
+	}
+}
+
+// extractPathFlag: casos borde → error predecible, nunca silencio.
+func TestExtractPathFlagEdgeCases(t *testing.T) {
+	cases := [][]string{
+		{"api", "--path"},                       // sin valor
+		{"api", "--path", "--tail"},             // seguido de otro flag
+		{"api", "--path="},                      // forma = vacía
+		{"api", "--path", ""},                   // valor vacío
+		{"api", "--path", "/a", "--path", "/b"}, // duplicado
+	}
+	for _, args := range cases {
+		if _, _, err := extractPathFlag(args); err == nil {
+			t.Errorf("extractPathFlag(%v) debe devolver error", args)
+		}
 	}
 }
 
@@ -132,5 +195,41 @@ func TestListExposesRelationFlat(t *testing.T) {
 	}
 	if _, ok := entry["bare_container"]; ok {
 		t.Errorf("bare_container no debe aparecer cuando es false: %v", entry)
+	}
+}
+
+// vroom list expone el error de topología (WorktreeErr) de forma aditiva y
+// omitempty (back-compat).
+func TestListExposesWorktreeError(t *testing.T) {
+	manager := process.NewManager()
+	store := state.NewStoreAt(t.TempDir())
+
+	p := scanner.Project{
+		Path: "/repo", Name: "repo", Configured: true,
+		Manifest:    &manifest.Manifest{Name: "repo", Command: "echo"},
+		WorktreeErr: "git binary not available",
+	}
+	info := buildProjectInfo(manager, store, map[string]bool{}, p)
+	if info.WorktreeErr != "git binary not available" {
+		t.Errorf("WorktreeErr no propagado: %+v", info)
+	}
+	data, err := json.Marshal(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"worktree_error":"git binary not available"`) {
+		t.Errorf("JSON sin worktree_error: %s", data)
+	}
+
+	// omitempty: ausente cuando no hay error de topología.
+	clean := buildProjectInfo(manager, store, map[string]bool{}, scanner.Project{
+		Path: "/x", Name: "x", Configured: true, Manifest: &manifest.Manifest{Name: "x"},
+	})
+	cleanData, err := json.Marshal(clean)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(cleanData), "worktree_error") {
+		t.Errorf("worktree_error no debe aparecer sin error: %s", cleanData)
 	}
 }

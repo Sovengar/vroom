@@ -121,7 +121,7 @@ func TestRepoCollapsedSingleRow(t *testing.T) {
 	if !strings.Contains(joined, "▸") || !strings.Contains(joined, "repo") {
 		t.Errorf("la fila de repo debe estar colapsada (▸): %q", joined)
 	}
-	if !m.collapsed[repoKey(repo)] && m.repoExpanded(repo) {
+	if m.repoExpanded(repo) {
 		t.Error("el repo debe estar colapsado por defecto")
 	}
 }
@@ -264,6 +264,62 @@ func TestRepoCollapsePersistedAndNamespaced(t *testing.T) {
 	}
 }
 
+// La clave del nodo repo es estructuralmente disjunta de las claves de
+// grupo: un primary_group literalmente igual a "repo:<path>" no colisiona.
+func TestRepoKeyDoesNotCollideWithGroupKey(t *testing.T) {
+	projects, repo, _, _ := repoFixture(t)
+	groupKey := "repo:" + repo // misma cadena que usaba el viejo repoKey
+	for i := range projects {
+		if projects[i].Path == repo {
+			projects[i].Manifest.PrimaryGroup = groupKey
+		}
+	}
+	build := func() Model {
+		m := newRepoModel(t, projects, nil)
+		if findPrimary(m, groupKey) < 0 {
+			t.Fatalf("falta el header del grupo %q: %+v", groupKey, m.tree)
+		}
+		return m
+	}
+
+	// Plegar el grupo no debe tocar el estado del nodo repo.
+	g := build()
+	g.cursor = findPrimary(g, groupKey)
+	g2, _ := press(g, "enter")
+	if !g2.collapsed[groupKey] {
+		t.Fatal("enter sobre el grupo debe plegarlo")
+	}
+	if g2.repoExpanded(repo) {
+		t.Error("plegar el grupo no debe expandir el repo (colisión de claves)")
+	}
+
+	// Expandir el repo no debe tocar el grupo (modelo fresco: el mapa de
+	// colapso se comparte por referencia entre copias del modelo).
+	r := build()
+	r = moveCursorTo(t, r, "repo")
+	r2, _ := press(r, "enter")
+	if !r2.repoExpanded(repo) {
+		t.Error("enter sobre la fila del repo debe expandirlo")
+	}
+	if r2.collapsed[groupKey] {
+		t.Error("expandir el repo no debe plegar el grupo (colisión de claves)")
+	}
+}
+
+// La clave de repo persiste y se restaura a través del store (namespace
+// propio incluido).
+func TestRepoCollapseKeyPersists(t *testing.T) {
+	store := state.NewStoreAt(t.TempDir())
+	key := repoKey("/some/repo")
+	if err := store.SaveCollapsed(map[string]bool{key: true}); err != nil {
+		t.Fatal(err)
+	}
+	loaded := store.LoadCollapsed()
+	if !loaded[key] {
+		t.Errorf("la clave de repo debe persistir y restaurarse: %#v", loaded)
+	}
+}
+
 // S3: bare repo se muestra como contenedor no ejecutable y anida sus worktrees.
 func TestBareContainerNotOperable(t *testing.T) {
 	root := t.TempDir()
@@ -290,8 +346,32 @@ func TestBareContainerNotOperable(t *testing.T) {
 	// Expandir anida el worktree.
 	m3, _ := press(m2, "enter")
 	tree, _ := m3.treeLines()
-	if !strings.Contains(strings.Join(tree, "\n"), "bare-wt-a") {
-		t.Errorf("al expandir el bare deben verse sus worktrees: %q", strings.Join(tree, "\n"))
+	joined := strings.Join(tree, "\n")
+	if !strings.Contains(joined, "bare-wt-a") {
+		t.Errorf("al expandir el bare deben verse sus worktrees: %q", joined)
+	}
+	if !strings.Contains(joined, "▾") {
+		t.Errorf("el contenedor con hijos debe mostrar glifo de expansión: %q", joined)
+	}
+}
+
+// Un contenedor bare sin worktrees no muestra glifo de expansión (no hay
+// nada que expandir).
+func TestBareContainerWithoutWorktreesHasNoGlyph(t *testing.T) {
+	root := t.TempDir()
+	bare := filepath.Join(root, "bare")
+	projects := []scanner.Project{{Path: bare, Name: "bare", IsBareContainer: true}}
+	m := newRepoModel(t, projects, nil)
+	it := m.tree[findRepo(t, m, "bare")]
+	if it.hasKids {
+		t.Fatal("sin worktrees no debe marcar hijos")
+	}
+	joined := strings.Join(mustTree(t, m), "\n")
+	if strings.Contains(joined, "▸") || strings.Contains(joined, "▾") {
+		t.Errorf("un contenedor sin hijos no debe mostrar glifo: %q", joined)
+	}
+	if !strings.Contains(joined, "(bare)") {
+		t.Errorf("el contenedor debe seguir mostrando (bare): %q", joined)
 	}
 }
 
@@ -481,6 +561,40 @@ func TestNewNestsRealGitWorktrees(t *testing.T) {
 	m2, _ := press(m, "enter")
 	if findCursor(m2, "repo-wt-a") < 0 {
 		t.Fatalf("al expandir deben aparecer los worktrees: %+v", m2.tree)
+	}
+}
+
+// La TUI notifica la degradación de topología (git ausente o fallo) sin
+// romper el scan ni ocultar proyectos.
+func TestNewNotifiesTopologyDegradation(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(repo, ".vroom.toml"), "name = \"repo\"\ncommand_start = \"echo\"\n")
+	write(filepath.Join(repo, ".git", "config"), "[core]\n\tbare = false\n")
+
+	// git falso que falla: la consulta de topología degrada por repo.
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	m := New(state.NewStoreAt(t.TempDir()), &stubManager{}, root)
+	if !strings.Contains(m.message, "worktree topology unavailable") {
+		t.Errorf("debe notificar la degradación de topología: %q", m.message)
+	}
+	if findCursor(m, "repo") < 0 {
+		t.Error("el proyecto debe seguir visible pese a la degradación")
 	}
 }
 
