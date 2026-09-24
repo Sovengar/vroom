@@ -2,6 +2,15 @@ package tui
 
 import "charm.land/lipgloss/v2"
 
+// Paleta en hex fija (Catppuccin Mocha, misma que dbx) para el gris de texto
+// secundario y el azul de etiquetas: los colores ANSI 8/4 los resuelve la
+// paleta del terminal, y en temas oscuros (HyDE) el 8+Faint dejaba
+// ilegibles los commits de la tab Git y el ruido de consola.
+var (
+	mutedFg  = lipgloss.Color("#6c7086") // dbx TextMuted
+	accentFg = lipgloss.Color("#89b4fa") // dbx Primary
+)
+
 // Estilos Lipgloss: running=verde, stopped=gris,
 // unknown=amarillo, sin configurar=gris atenuado.
 var (
@@ -10,7 +19,7 @@ var (
 	styleGroupHeader = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
 
 	styleRunning = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-	styleStopped = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	styleStopped = lipgloss.NewStyle().Foreground(mutedFg)
 
 	// Badge +N de worktrees en ejecución bajo una fila de repo:
 	// cyan (6) para distinguirlo del verde del servicio propio (10), del
@@ -20,13 +29,13 @@ var (
 	styleUnknown         = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
 	styleStarting        = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
 	styleStopping        = lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
-	styleUnconfigured    = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Faint(true)
+	styleUnconfigured    = lipgloss.NewStyle().Foreground(mutedFg).Faint(true)
 
 	styleWarn  = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
-	styleDim   = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Faint(true)
-	styleHelp  = lipgloss.NewStyle().Foreground(lipgloss.Color("#6c7086")).Faint(true)
+	styleDim   = lipgloss.NewStyle().Foreground(mutedFg)
+	styleHelp  = lipgloss.NewStyle().Foreground(mutedFg).Faint(true)
 	styleMsg   = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	styleLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
+	styleLabel = lipgloss.NewStyle().Foreground(accentFg)
 
 	// Pestañas del panel Output: la activa se pinta con fondo
 	// invertido; la inactiva en gris claro legible (no el ANSI 8, que en
