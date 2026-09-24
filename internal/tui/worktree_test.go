@@ -306,6 +306,20 @@ func TestRepoKeyDoesNotCollideWithGroupKey(t *testing.T) {
 	}
 }
 
+// La clave de repo persiste y se restaura a través del store (namespace
+// propio incluido).
+func TestRepoCollapseKeyPersists(t *testing.T) {
+	store := state.NewStoreAt(t.TempDir())
+	key := repoKey("/some/repo")
+	if err := store.SaveCollapsed(map[string]bool{key: true}); err != nil {
+		t.Fatal(err)
+	}
+	loaded := store.LoadCollapsed()
+	if !loaded[key] {
+		t.Errorf("la clave de repo debe persistir y restaurarse: %#v", loaded)
+	}
+}
+
 // S3: bare repo se muestra como contenedor no ejecutable y anida sus worktrees.
 func TestBareContainerNotOperable(t *testing.T) {
 	root := t.TempDir()
@@ -332,8 +346,12 @@ func TestBareContainerNotOperable(t *testing.T) {
 	// Expandir anida el worktree.
 	m3, _ := press(m2, "enter")
 	tree, _ := m3.treeLines()
-	if !strings.Contains(strings.Join(tree, "\n"), "bare-wt-a") {
-		t.Errorf("al expandir el bare deben verse sus worktrees: %q", strings.Join(tree, "\n"))
+	joined := strings.Join(tree, "\n")
+	if !strings.Contains(joined, "bare-wt-a") {
+		t.Errorf("al expandir el bare deben verse sus worktrees: %q", joined)
+	}
+	if !strings.Contains(joined, "▾") {
+		t.Errorf("el contenedor con hijos debe mostrar glifo de expansión: %q", joined)
 	}
 }
 
