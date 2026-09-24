@@ -26,7 +26,7 @@ func TestLoadDefaults(t *testing.T) {
 		t.Errorf("defaults incorrectos: %+v", cfg.Ask)
 	}
 	if cfg.Ask.Prompt == "" {
-		t.Error("prompt default no debe estar vacío (prefill R35)")
+		t.Error("prompt default no debe estar vacío")
 	}
 	if !strings.Contains(cfg.Ask.Prompt, "{name}") || !strings.Contains(cfg.Ask.Prompt, "{logs}") {
 		t.Errorf("prompt default sin placeholders: %q", cfg.Ask.Prompt)
@@ -94,7 +94,7 @@ func TestLoadInvalidEnums(t *testing.T) {
 }
 
 // prompt = "" explícito desactiva el prefill; un template custom se
-// respeta tal cual (spec 0005 R35).
+// respeta tal cual.
 func TestLoadPromptTemplate(t *testing.T) {
 	custom := withConfig(t, `[ask]
 prompt = "About {name} in {dir}, logs {logs}: "
@@ -137,9 +137,9 @@ func TestPathPriority(t *testing.T) {
 	}
 }
 
-// ---- [keybindings] (spec 0008) ----
+// ---- [keybindings] ----
 
-// R45.1/R46.1: sin [keybindings], las 12 acciones tienen sus defaults.
+// Sin [keybindings], las 12 acciones tienen sus defaults.
 func TestKeybindingsDefaults(t *testing.T) {
 	cfg := withConfig(t, "")
 	if cfg.Err != nil {
@@ -163,7 +163,7 @@ func TestKeybindingsDefaults(t *testing.T) {
 	}
 }
 
-// R45.2: override parcial — solo cambia lo declarado, el resto conserva
+// Override parcial — solo cambia lo declarado, el resto conserva
 // default.
 func TestKeybindingsOverridePartial(t *testing.T) {
 	cfg := withConfig(t, "[keybindings]\nstart_stop = \"x\"\n")
@@ -181,7 +181,7 @@ func TestKeybindingsOverridePartial(t *testing.T) {
 	}
 }
 
-// R47.1: tecla reservada → config inválida, defaults restaurados.
+// Tecla reservada → config inválida, defaults restaurados.
 func TestKeybindingsReserved(t *testing.T) {
 	cfg := withConfig(t, "[keybindings]\nask = \"q\"\n")
 	if cfg.Err == nil || !strings.Contains(cfg.Err.Error(), "reservada") {
@@ -192,7 +192,7 @@ func TestKeybindingsReserved(t *testing.T) {
 	}
 }
 
-// R48.1: dos acciones con la misma tecla → config inválida.
+// Dos acciones con la misma tecla → config inválida.
 func TestKeybindingsCollision(t *testing.T) {
 	cfg := withConfig(t, "[keybindings]\nbuild = \"x\"\ninstall = \"x\"\n")
 	if cfg.Err == nil || !strings.Contains(cfg.Err.Error(), "duplicada") {
@@ -203,7 +203,7 @@ func TestKeybindingsCollision(t *testing.T) {
 	}
 }
 
-// R49: formato de tecla válida e inválida.
+// Formato de tecla válida e inválida.
 func TestKeybindingsFormat(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -237,7 +237,7 @@ func TestKeybindingsFormat(t *testing.T) {
 	}
 }
 
-// R49.4: acción desconocida (typo o permanente como filter/shell) →
+// Acción desconocida (typo o permanente como filter/shell) →
 // config inválida.
 func TestKeybindingsUnknownAction(t *testing.T) {
 	for _, action := range []string{"filter", "shell", "fiilter"} {

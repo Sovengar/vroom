@@ -21,7 +21,7 @@ import (
 // El scanner lo usa para degradar por repo sin romper el scan completo.
 var ErrGitUnavailable = errors.New("git binary not available")
 
-// DefaultTimeout acota cada invocación de git por repo (plan 0011: la
+// DefaultTimeout acota cada invocación de git por repo (la
 // dependencia del binario git en el scan debe ser acotada y degradable).
 const DefaultTimeout = 3 * time.Second
 
@@ -161,8 +161,8 @@ func shortRef(ref string) string {
 	return ref
 }
 
-// IsBareRepo reporta si dir es un bare repo. Heurística reforzada (plan
-// 0011 decisión 7): conjunción HEAD + objects/ + refs/ presentes, sin
+// IsBareRepo reporta si dir es un bare repo. Heurística reforzada:
+// conjunción HEAD + objects/ + refs/ presentes, sin
 // .git, y con el marcador autoritativo core.bare = true que escriben
 // `git init --bare` / `git clone --bare` (elimina falsos positivos).
 func IsBareRepo(dir string) bool {

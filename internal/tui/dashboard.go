@@ -24,7 +24,7 @@ func truncANSI(s string, w int) string {
 	return ansi.Truncate(s, w, "")
 }
 
-// renderDashboard compone el dashboard completo (spec 0002 R18):
+// renderDashboard compone el dashboard completo:
 // header, columna de árbol a la izquierda con separador vertical, panel
 // derecho (detalles + pestañas) y barra de ayuda/mensajes.
 func (m Model) renderDashboard() string {
@@ -103,7 +103,7 @@ func (m Model) rightLines() []string {
 }
 
 // tabLabel renderiza la etiqueta de una pestaña: activa con fondo
-// invertido, inactiva atenuada (S18.4).
+// invertido, inactiva atenuada.
 func tabLabel(tab tabKind, active bool) string {
 	text := "[1] Console"
 	if tab == tabThreads {
@@ -115,7 +115,7 @@ func tabLabel(tab tabKind, active bool) string {
 	return styleTabInactive.Render(text)
 }
 
-// tabsBar dibuja las pestañas con la activa resaltada (S18.4) y, a la
+// tabsBar dibuja las pestañas con la activa resaltada y, a la
 // derecha, el estado del stream o del proceso muestreado.
 func (m Model) tabsBar(w int) string {
 	var info string
@@ -147,8 +147,8 @@ func (m Model) tabsBar(w int) string {
 type pickerKind int
 
 const (
-	pickerTasks  pickerKind = iota // tasks de mise (0003 R28)
-	pickerAgents                   // agentes de IA (0004 R32)
+	pickerTasks  pickerKind = iota // tasks de mise
+	pickerAgents                   // agentes de IA
 )
 
 // pickerItem es una fila del modal de selección.
@@ -185,7 +185,7 @@ func (m Model) pickerBox() string {
 
 // askInnerW es el ancho interior del modal ask (compartido entre el
 // render del box y el width del textarea): crece con la pantalla hasta
-// un cap (110) para que el prefill del template (spec 0005 R35) quepa
+// un cap (110) para que el prefill del template quepa
 // en una línea en pantallas normales.
 func askInnerW(width int) int {
 	innerW := 72
@@ -201,7 +201,7 @@ func askInnerW(width int) int {
 	return innerW
 }
 
-// askBox renderiza el modal del prompt de ask AI (0004 R32). El
+// askBox renderiza el modal del prompt de ask AI. El
 // textarea es multi-línea con alto dinámico (crece con el contenido
 // hasta el cap de pantalla, luego scroll interno) y llega ya
 // dimensionado por sizeAskPrompt, así que se renderiza sin truncar.
@@ -299,7 +299,7 @@ func (m Model) pickerRows(maxRows, w int) (rows []string, more int) {
 	return rows, len(items) - (end - start)
 }
 
-// ---- Filtro del árbol (spec 0007 R40/R43/R44) ----
+// ---- Filtro del árbol ----
 
 // filterBarVisible reporta si la barra del filtro ocupa la primera línea
 // de la columna del árbol: box abierto o filtro aplicado.
@@ -307,7 +307,7 @@ func (m Model) filterBarVisible() bool {
 	return m.filterOpen || m.filterText != ""
 }
 
-// treeVis es el alto visible del árbol (R44): la barra consume su
+// treeVis es el alto visible del árbol: la barra consume su
 // primera línea cuando es visible.
 func (m Model) treeVis() int {
 	if m.filterBarVisible() {
@@ -317,10 +317,10 @@ func (m Model) treeVis() int {
 }
 
 // treeColumnLines compone las líneas de la columna de árbol: rebanadas
-// por treeTop (fix S44.1: el auto-scroll de S18.5 ahora sí tiene efecto
+// por treeTop (fix: el auto-scroll ahora sí tiene efecto
 // visual), capadas al alto visible y, si la barra es visible, con el
-// filtro en la línea 0 (S44.2) y "no matches" si el árbol quedó vacío
-// (S41.5). El clamp de top evita rebanar fuera cuando el árbol se
+// filtro en la línea 0 y "no matches" si el árbol quedó vacío.
+// El clamp de top evita rebanar fuera cuando el árbol se
 // reduce (plegado) con un treeTop ya obsoleto.
 func (m Model) treeColumnLines() []string {
 	tree, _ := m.treeLines()
@@ -349,7 +349,7 @@ func (m Model) treeColumnLines() []string {
 
 // filterBar dibuja la línea de filtro: el input (prompt "/" + cursor)
 // si el box está abierto; con filtro aplicado, el indicador persistente
-// `⌕ texto · n` en dim (n = proyectos matcheados, S43.1).
+// `⌕ texto · n` en dim (n = proyectos matcheados).
 func (m Model) filterBar() string {
 	if m.filterOpen {
 		return m.filterInput.View()

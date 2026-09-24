@@ -10,7 +10,7 @@ import (
 // setSessionLeader hace del shell un líder de sesión con el PTY como
 // terminal de control: job control completo dentro de la terminal
 // (ctrl+c por app, propios pgid de los hijos) y un pgid propio para
-// poder matar el árbol entero al cerrar (0008 R49).
+// poder matar el árbol entero al cerrar.
 func setSessionLeader(cmd *exec.Cmd) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}

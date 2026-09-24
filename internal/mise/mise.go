@@ -1,5 +1,5 @@
 // Package mise descubre tasks definidos en la sección [tasks.*] de un
-// mise.toml (spec 0003 R28).
+// mise.toml.
 //
 // El acoplamiento con mise es opcional: listar tasks solo parsea el
 // fichero (no requiere el binario); ejecutar un task lanza

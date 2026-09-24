@@ -1,6 +1,6 @@
 // Package config carga la configuración global de vroom desde
 // $XDG_CONFIG_HOME/vroom/config.toml (default ~/.config/vroom/config.toml),
-// con override vía $VROOM_CONFIG (spec 0004 R32).
+// con override vía $VROOM_CONFIG.
 //
 // Sin fichero se aplican los defaults; un fichero malformado devuelve
 // defaults + error (la TUI lo notifica al arrancar).
@@ -20,12 +20,12 @@ import (
 const FileName = "config.toml"
 
 // defaultAskPrompt es el template con el que se prellena el input del
-// prompt de ask AI (spec 0005 R35). Placeholders: {name} (nombre del
+// prompt de ask AI. Placeholders: {name} (nombre del
 // proyecto), {dir} (ruta del proyecto) y {logs} (directorio del servicio
 // con stdout.log/stderr.log). Vacío desactiva el prefill.
 const defaultAskPrompt = "Given the app {name} with logs in {logs}, "
 
-// AgentConfig define un agente de IA ejecutable (spec 0004 R32):
+// AgentConfig define un agente de IA ejecutable:
 // plantilla de comando donde {prompt} ocupa un argumento argv completo.
 type AgentConfig struct {
 	Cmd string `toml:"cmd"`
@@ -46,7 +46,7 @@ type AskConfig struct {
 	// {cmd} (comando del agente, quoteado).
 	LauncherCmd string `toml:"launcher_cmd"`
 	// Prompt es el template con el que se prellena el input del prompt
-	// (spec 0005 R35). Vacío desactiva el prefill.
+	// Vacío desactiva el prefill.
 	Prompt string `toml:"prompt"`
 
 	// Agents reemplaza los agentes built-in si tiene entradas.
@@ -73,9 +73,9 @@ type Config struct {
 }
 
 // defaultKeybindings son las 12 acciones remapeables de la TUI con sus
-// teclas por defecto (espec 0008 R46). Las teclas universales (navegación,
+// teclas por defecto. Las teclas universales (navegación,
 // especiales) y las permanentes "/" (filter) y "!" (shell futuro) no
-// aparecen: no son remapeables (R47).
+// aparecen: no son remapeables.
 func DefaultKeybindings() map[string]string {
 	return map[string]string{
 		"start_stop": "s",
@@ -94,7 +94,7 @@ func DefaultKeybindings() map[string]string {
 }
 
 // reservedKeys son las teclas universales de la TUI, no remapeables
-// (espec 0008 R47): navegación, especiales y las permanentes "/" y "!".
+// Navegación, especiales y las permanentes "/" y "!".
 var reservedKeys = map[string]bool{
 	"q": true, "ctrl+c": true, "esc": true, "enter": true, "tab": true,
 	"j": true, "k": true, "up": true, "down": true,
@@ -103,13 +103,13 @@ var reservedKeys = map[string]bool{
 }
 
 // specialKeyNames son los nombres de tecla no imprimible admitidos como
-// valor de un keybinding (espec 0008 R49).
+// valor de un keybinding.
 var specialKeyNames = map[string]bool{
 	"space": true, "home": true, "end": true,
 	"delete": true, "backspace": true, "left": true, "right": true,
 }
 
-// validKey reporta si key tiene el formato admitido (espec 0008 R49): una
+// validKey reporta si key tiene el formato admitido: una
 // sola rune, ctrl+<rune> (≠ ctrl+c, reservada) o un nombre especial.
 func validKey(key string) bool {
 	if specialKeyNames[key] {
@@ -122,7 +122,7 @@ func validKey(key string) bool {
 }
 
 // KeyFor devuelve la tecla activa para una acción, o su default si la
-// acción no está en el mapa (espec 0008 R45).
+// acción no está en el mapa.
 func (c Config) KeyFor(action string) string {
 	if k, ok := c.Keybindings[action]; ok && k != "" {
 		return k
@@ -131,7 +131,7 @@ func (c Config) KeyFor(action string) string {
 }
 
 // KeyByAction construye el mapa inverso tecla → acción a partir de los
-// bindings activos (espec 0008 R50). La TUI lo precalcula al arrancar:
+// bindings activos. La TUI lo precalcula al arrancar:
 // la resolución por tecla es O(1) y determinista.
 func (c Config) KeyByAction() map[string]string {
 	inv := make(map[string]string, len(c.Keybindings))
@@ -246,8 +246,8 @@ func (c *Config) Validate() error {
 	return validateKeybindings(c.Keybindings)
 }
 
-// validateKeybindings aplica las reglas de [keybindings] (espec 0008
-// R47-R49): acción conocida (los typos no pasan), valor con formato
+// validateKeybindings aplica las reglas de [keybindings]: acción conocida
+// (los typos no pasan), valor con formato
 // válido, teclas reservadas no remapeables y sin colisiones entre
 // acciones.
 func validateKeybindings(kb map[string]string) error {

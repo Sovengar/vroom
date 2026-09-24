@@ -102,7 +102,7 @@ func keyPress(s string) tea.KeyPressMsg {
 	return tea.KeyPressMsg{Code: rune(s[0]), Text: s}
 }
 
-// ---- Codificación de teclas (0009 R54) ----
+// ---- Codificación de teclas ----
 
 // Las teclas llegan al PTY con su secuencia ANSI correcta: el keymap
 // del emulador (vt.SendKey) codifica ctrl/alt/flechas/especiales.
@@ -154,7 +154,7 @@ func TestSendKeyAfterShutdown(t *testing.T) {
 }
 
 // resize redimensiona emulador y PTY; con dims nuevas tras un cambio
-// de ventana (0009 R55).
+// de ventana.
 func TestSessionResize(t *testing.T) {
 	p := &stubPty{}
 	s := newStubSession(80, 10, p)
@@ -168,7 +168,7 @@ func TestSessionResize(t *testing.T) {
 	}
 }
 
-// ---- Ciclo de vida en el Model (0009 R52/R56) ----
+// ---- Ciclo de vida en el Model ----
 
 // "!" abre el modal y crea la sesión con cwd = proyecto seleccionado;
 // el shell es $SHELL (aquí un script lento) y el loop de lectura queda
@@ -211,7 +211,7 @@ func TestBangOpensTerminal(t *testing.T) {
 }
 
 // ctrl+q oculta el modal SIN matar la sesión; "!" la re-muestra sin
-// crear otra (0009 R56).
+// crear otra.
 func TestCtrlQHidesKeepsSession(t *testing.T) {
 	p := &stubPty{}
 	m, _ := newTestModel(t)
@@ -242,7 +242,7 @@ func TestCtrlQHidesKeepsSession(t *testing.T) {
 }
 
 // Con el modal abierto las teclas van al shell: "q" NO sale de la TUI
-// y "!" escribe el bang (0009 R54).
+// y "!" escribe el bang.
 func TestTermModalCapturesKeys(t *testing.T) {
 	p := &stubPty{}
 	m, _ := newTestModel(t)
@@ -296,7 +296,7 @@ func TestPtyDataFeedsEmulator(t *testing.T) {
 }
 
 // EOF del PTY no arma nada (el reaper se armó al abrir la sesión) y
-// ptyExitMsg limpia la sesión con aviso y modal cerrado (0009 R56).
+// ptyExitMsg limpia la sesión con aviso y modal cerrado.
 func TestPtyExitLifecycle(t *testing.T) {
 	p := &stubPty{}
 	m, _ := newTestModel(t)
@@ -325,7 +325,7 @@ func TestPtyExitLifecycle(t *testing.T) {
 	}
 }
 
-// Exit code != 0 se notifica (0009 R56).
+// Exit code != 0 se notifica.
 func TestPtyExitCodeNotify(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.term = newStubSession(80, 10, &stubPty{})
@@ -343,7 +343,7 @@ func TestExitCodeHelper(t *testing.T) {
 	}
 }
 
-// Con sesión viva, q encadena el shutdown antes de salir (0009 R56).
+// Con sesión viva, q encadena el shutdown antes de salir.
 func TestQuitCmdKillsSession(t *testing.T) {
 	p := &stubPty{}
 	m, _ := newTestModel(t)
@@ -407,7 +407,7 @@ func TestTermBoxRender(t *testing.T) {
 // ---- Integración con PTY real (unix) ----
 
 // Sesión real: sh corriendo en un PTY; el echo del shell llega al
-// emulador y el exit cierra el ciclo completo (0009 R53/R56).
+// emulador y el exit cierra el ciclo completo.
 func TestTermSessionIntegration(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("requiere PTY unix")

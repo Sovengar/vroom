@@ -9,7 +9,7 @@ import (
 )
 
 // proj crea un proyecto configurado con los grupos dados; primary "" =
-// sin manifiesto. Un secondary sin primary se permite (se ignora, S36.3).
+// sin manifiesto. Un secondary sin primary se permite (se ignora).
 func proj(name, primary, secondary string) scanner.Project {
 	p := scanner.Project{
 		Path: "/home/user/dev/" + name,
@@ -32,7 +32,7 @@ func names(entries []Entry) string {
 	return strings.Join(out, ",")
 }
 
-// R10/S10.1 migrado a 0006 (primary sin secondary): dos proyectos con el
+// Migrado (primary sin secondary): dos proyectos con el
 // mismo primario juntos bajo su header, otro inline.
 func TestArrangeSamePrimaryTogether(t *testing.T) {
 	a := proj("api-java", "tienda", "")
@@ -72,7 +72,7 @@ func TestArrangeSamePrimaryTogether(t *testing.T) {
 	}
 }
 
-// S10.2: primario con un único miembro también muestra header.
+// Primario con un único miembro también muestra header.
 func TestArrangeSingleMemberPrimary(t *testing.T) {
 	a := proj("backend-vroom", "backend", "")
 	entries := Arrange([]scanner.Project{a})
@@ -137,7 +137,7 @@ func TestArrangeInterleavedPrimariesSingleBlock(t *testing.T) {
 	}
 }
 
-// S37.1: bloques anidados contiguos; el sin primario queda inline (sin
+// Bloques anidados contiguos; el sin primario queda inline (sin
 // sección ungrouped).
 func TestArrangeNestedBlocksContiguous(t *testing.T) {
 	a := proj("a", "vsocial", "backend")
@@ -168,7 +168,7 @@ func TestArrangeNestedBlocksContiguous(t *testing.T) {
 	}
 }
 
-// S37.2: el primario se emite en la posición de su primer miembro.
+// El primario se emite en la posición de su primer miembro.
 func TestArrangePrimaryAtFirstMember(t *testing.T) {
 	x := proj("x", "otros", "")
 	y := proj("y", "vsocial", "")
@@ -180,7 +180,7 @@ func TestArrangePrimaryAtFirstMember(t *testing.T) {
 	}
 }
 
-// S37.3: mezcla con y sin secundario dentro de un primario (sin
+// Mezcla con y sin secundario dentro de un primario (sin
 // pseudo-header "(general)").
 func TestArrangeMixedWithAndWithoutSecondary(t *testing.T) {
 	b1 := proj("b1", "vsocial", "backend")
@@ -199,7 +199,7 @@ func TestArrangeMixedWithAndWithoutSecondary(t *testing.T) {
 	}
 }
 
-// S37.4: el secundario se emite contiguo en la posición de su primer
+// El secundario se emite contiguo en la posición de su primer
 // miembro dentro del primario.
 func TestArrangeSecondaryAtFirstMember(t *testing.T) {
 	m1 := proj("m1", "vsocial", "b2")
@@ -213,7 +213,7 @@ func TestArrangeSecondaryAtFirstMember(t *testing.T) {
 	}
 }
 
-// S36.3: secondary sin primary se ignora → inline, sin grupos.
+// Secondary sin primary se ignora → inline, sin grupos.
 func TestArrangeSecondaryWithoutPrimaryIgnored(t *testing.T) {
 	p := proj("huérfano", "", "infra")
 	entries := Arrange([]scanner.Project{p})
@@ -228,7 +228,7 @@ func TestArrangeSecondaryWithoutPrimaryIgnored(t *testing.T) {
 	}
 }
 
-// S37.5: el cambio de primario también abre header secundario (el
+// El cambio de primario también abre header secundario (el
 // bloque backend de un primario distinto es otro bloque).
 func TestIsSecondaryHeaderAcrossPrimaries(t *testing.T) {
 	a := proj("a", "vsocial", "backend")

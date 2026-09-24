@@ -21,7 +21,7 @@ type unixManager struct{}
 // NewManager devuelve el Manager de la plataforma actual.
 func NewManager() Manager { return &unixManager{} }
 
-// Start daemoniza el comando (spec R7):
+// Start daemoniza el comando:
 //  1. sh -c "{command}" para soportar pipes/redirecciones
 //  2. setsid() → nuevo session leader (sobrevive al cierre de la TUI)
 //  3. stdout/stderr redirigidos a ficheros de log (truncados en cada start)
@@ -81,7 +81,7 @@ func (u *unixManager) Start(spec StartSpec) (StartResult, error) {
 	return result, nil
 }
 
-// Stop ejecuta el shutdown gradual (spec R8): SIGTERM al PGID, espera
+// Stop ejecuta el shutdown gradual: SIGTERM al PGID, espera
 // timeout, y si sigue vivo SIGKILL al PGID (mata todo el grupo,
 // incluyendo hijos que hayan hecho fork).
 // Si tras SIGKILL el puerto sigue abierto, usa fuser como último recurso
@@ -107,7 +107,7 @@ func (u *unixManager) Stop(spec StopSpec) error {
 	return nil
 }
 
-// Evaluate implementa el orden de confianza (spec R9):
+// Evaluate implementa el orden de confianza:
 //  1. PID vivo + creation_time coincide → base de confianza
 //  2. Si PID muere, fallback a puerto+pattern para detectar reinicio externo
 //  3. Si hay verificaciones configuradas (puerto/pattern) y todas fallan → unknown

@@ -17,7 +17,7 @@ func TestPathKeyDeterministicAndDistinct(t *testing.T) {
 		t.Fatalf("hash no determinista: %q vs %q", ka1, ka2)
 	}
 	if ka1 == PathKey(b) {
-		t.Fatal("paths distintos produjeron la misma clave (S4.1)")
+		t.Fatal("paths distintos produjeron la misma clave")
 	}
 	if len(ka1) != 8 {
 		t.Fatalf("clave debe tener 8 hex chars, got %d (%q)", len(ka1), ka1)
@@ -81,7 +81,6 @@ func TestMetaRoundtrip(t *testing.T) {
 	}
 }
 
-// S5.1
 func TestLoadMetaCorrupt(t *testing.T) {
 	s := NewStoreAt(t.TempDir())
 	path := "/home/user/dev/broken"

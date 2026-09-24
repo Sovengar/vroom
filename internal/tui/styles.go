@@ -2,7 +2,7 @@ package tui
 
 import "charm.land/lipgloss/v2"
 
-// Estilos Lipgloss (spec R11): running=verde, stopped=gris,
+// Estilos Lipgloss: running=verde, stopped=gris,
 // unknown=amarillo, sin configurar=gris atenuado.
 var (
 	styleTitle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
@@ -12,7 +12,7 @@ var (
 	styleRunning = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
 	styleStopped = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
-	// Badge +N de worktrees en ejecución bajo una fila de repo (0012):
+	// Badge +N de worktrees en ejecución bajo una fila de repo:
 	// cyan (6) para distinguirlo del verde del servicio propio (10), del
 	// magenta de stopping (13) y del cyan brillante/negrita del header de
 	// grupo (14), que además nunca comparte fila con el badge.
@@ -29,17 +29,17 @@ var (
 	styleMsg      = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	styleLabel    = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
 
-	// Pestañas del dashboard (spec 0002 S18.4): la activa se pinta con
+	// Pestañas del dashboard: la activa se pinta con
 	// fondo invertido para distinguirse de las inactivas a simple vista.
 	styleTabActive   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("12"))
 	styleTabInactive = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	styleSep         = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
-	// Modal del picker de tasks (0003 R28): fila del cursor con el
+	// Modal del picker de tasks: fila del cursor con el
 	// mismo estilo invertido que la pestaña activa.
 	stylePickerCursor = styleTabActive
 
-	// Cursor de la terminal embebida (0009 R55): bloque invertido.
+	// Cursor de la terminal embebida: bloque invertido.
 	styleTermCursor = lipgloss.NewStyle().Reverse(true)
 
 	// Resaltado de consola estilo IntelliJ: línea con ERROR→rojo vivo,
@@ -48,6 +48,6 @@ var (
 	styleLineError = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	styleLineWarn  = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
 
-	// Estilo de stacks (0010): magenta para distinguir de apps.
+	// Estilo de stacks: magenta para distinguir de apps.
 	styleStack = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
 )

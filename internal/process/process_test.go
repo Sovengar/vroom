@@ -25,7 +25,7 @@ func startSleep(t *testing.T, m Manager, spec StartSpec) StartResult {
 	return res
 }
 
-// S7.1: el servicio daemonizado sobrevive... (aquí: queda vivo tras Start
+// El servicio daemonizado sobrevive... (aquí: queda vivo tras Start
 // y es independiente; el reaper evita zombies).
 func TestStartDaemonizesProcess(t *testing.T) {
 	if testing.Short() {
@@ -70,12 +70,12 @@ func TestEvaluateLifecycle(t *testing.T) {
 		t.Errorf("estado = %s, want running", got)
 	}
 
-	// S9.1: creation_time distinto → PID reciclado → stopped
+	// creation_time distinto → PID reciclado → stopped
 	if got := m.Evaluate(EvalSpec{Pid: res.Pid, CreationTimeMs: res.CreationTimeMs + 1}); got != StatusStopped {
 		t.Errorf("ctime mismatch: estado = %s, want stopped", got)
 	}
 
-	// S9.3: PID vivo, puerto y pattern configurados que fallan → unknown
+	// PID vivo, puerto y pattern configurados que fallan → unknown
 	if got := m.Evaluate(EvalSpec{
 		Pid:            res.Pid,
 		CreationTimeMs: res.CreationTimeMs,
@@ -113,7 +113,7 @@ func TestEvaluateCrashedImmediately(t *testing.T) {
 	}
 }
 
-// S9.4: PID muerto + puerto abierto por OTRO proceso → stopped (no falso positivo).
+// PID muerto + puerto abierto por OTRO proceso → stopped (no falso positivo).
 func TestEvaluateDeadPIDPortOpenByOther(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -135,7 +135,7 @@ func TestEvaluateDeadPIDPortOpenByOther(t *testing.T) {
 	}
 }
 
-// S9.4b: PID muerto + puerto abierto por el MISMO servicio (reiniciado) → running.
+// PID muerto + puerto abierto por el MISMO servicio (reiniciado) → running.
 func TestEvaluateDeadPIDPortOpenSameService(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -171,7 +171,7 @@ func TestEvaluateDeadPIDPortOpenSameService(t *testing.T) {
 	}
 }
 
-// S9.5: PID muerto + pattern match → running (fallback externo).
+// PID muerto + pattern match → running (fallback externo).
 func TestEvaluateDeadPIDPatternMatch(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -194,7 +194,7 @@ func TestEvaluateDeadPIDPatternMatch(t *testing.T) {
 	}
 }
 
-// S9.6: PID muerto + puerto cerrado + pattern no existe → stopped.
+// PID muerto + puerto cerrado + pattern no existe → stopped.
 func TestEvaluateDeadPIDNothingMatches(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -205,7 +205,7 @@ func TestEvaluateDeadPIDNothingMatches(t *testing.T) {
 	}
 }
 
-// S9.7: PID muerto + puerto cerrado + sin pattern → stopped.
+// PID muerto + puerto cerrado + sin pattern → stopped.
 func TestEvaluateDeadPIDNoChecks(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -216,7 +216,7 @@ func TestEvaluateDeadPIDNoChecks(t *testing.T) {
 	}
 }
 
-// S8.2/R8: SIGTERM mata el grupo completo, incluyendo hijos forked.
+// SIGTERM mata el grupo completo, incluyendo hijos forked.
 func TestStopKillsProcessGroup(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -243,7 +243,7 @@ func TestStopKillsProcessGroup(t *testing.T) {
 	}
 }
 
-// S8.3: stop de un grupo ya muerto no es error ni envía señales raras.
+// Stop de un grupo ya muerto no es error ni envía señales raras.
 func TestStopAlreadyDead(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -257,7 +257,7 @@ func TestStopAlreadyDead(t *testing.T) {
 	}
 }
 
-// S9.2: PortOpen contra un listener real.
+// PortOpen contra un listener real.
 func TestPortOpen(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

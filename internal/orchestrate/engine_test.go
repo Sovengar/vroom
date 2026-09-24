@@ -312,7 +312,7 @@ func TestStackStatus(t *testing.T) {
 	}
 }
 
-// ---- Resolución determinista ante Manifest.Name duplicado (0011) ----
+// ---- Resolución determinista ante Manifest.Name duplicado ----
 
 func duplicateProjects() []scanner.Project {
 	return []scanner.Project{
@@ -321,7 +321,7 @@ func duplicateProjects() []scanner.Project {
 	}
 }
 
-// S8: un stack con nombre duplicado falla explícitamente, sin last-wins.
+// Un stack con nombre duplicado falla explícitamente, sin last-wins.
 func TestResolveServicesDuplicate(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	engine := NewEngine(&mockManager{}, store)
@@ -339,7 +339,7 @@ func TestResolveServicesDuplicate(t *testing.T) {
 	}
 }
 
-// S8: un nombre único resuelve determinísticamente.
+// Un nombre único resuelve determinísticamente.
 func TestResolveServicesUnique(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	engine := NewEngine(&mockManager{}, store)
@@ -391,7 +391,7 @@ func TestValidateServicesDeterministicOrder(t *testing.T) {
 	}
 }
 
-// S8: StackStatus reporta el mismo conflicto que el CLI.
+// StackStatus reporta el mismo conflicto que el CLI.
 func TestStackStatusConflict(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	engine := NewEngine(&mockManager{}, store)
@@ -406,7 +406,7 @@ func TestStackStatusConflict(t *testing.T) {
 	}
 }
 
-// S8: StopStack no para un proyecto arbitrario ante duplicados.
+// StopStack no para un proyecto arbitrario ante duplicados.
 func TestStopStackDuplicate(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	engine := NewEngine(&mockManager{}, store)

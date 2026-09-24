@@ -1,4 +1,4 @@
-// Package process — muestreo de hilos a nivel OS (spec 0002 R20).
+// Package process — muestreo de hilos a nivel OS.
 //
 // ListThreads lee /proc/<pid>/task/ directamente: funciona para cualquier
 // lenguaje (Java expone nombres de hilo, Go goroutines del runtime) sin
@@ -18,7 +18,7 @@ type ThreadInfo struct {
 const clockTicksPerSec = 100
 
 // CPUPercent convierte un delta de ticks y el tiempo transcurrido entre
-// muestras en porcentaje de CPU (0-100+, spec S20.2).
+// muestras en porcentaje de CPU (0-100+).
 func CPUPercent(deltaTicks uint64, elapsedSeconds float64) float64 {
 	if elapsedSeconds <= 0 {
 		return 0

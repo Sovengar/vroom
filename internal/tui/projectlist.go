@@ -17,13 +17,13 @@ const (
 	itemPrimary   treeItemKind = iota // header de primario
 	itemSecondary                     // header de secundario (dentro de un primario)
 	itemProject                       // proyecto
-	itemStack                         // stack de orquestación (0010) — concepto propio
+	itemStack                         // stack de orquestación — concepto propio
 	itemRepo                          // fila contenedora de repo sin proyecto (bare / fuera de root)
 )
 
 // treeItem es una fila navegable del árbol: header primario, header
 // secundario, proyecto o stack. primary/secondary viajan en todas las
-// filas para conocer el contenedor de un proyecto al plegarlo (S38.4).
+// filas para conocer el contenedor de un proyecto al plegarlo.
 type treeItem struct {
 	kind      treeItemKind
 	primary   string             // primario del bloque ("" solo en proyecto inline)
@@ -35,11 +35,11 @@ type treeItem struct {
 	hasKids   bool               // la fila de repo tiene worktrees
 }
 
-// buildTree compone las filas del árbol (0006 R38 + 0010 + 0011): header
+// buildTree compone las filas del árbol: header
 // primario antes de su bloque; dentro, header de secundario antes de
-// sus miembros. Los worktrees (0011) se anidan bajo la fila de su repo
+// sus miembros. Los worktrees se anidan bajo la fila de su repo
 // (colapsada por defecto) y no se emiten como filas top-level. Los stacks
-// (0010) se añaden al FINAL de cada bloque primario bajo un header
+// Se añaden al FINAL de cada bloque primario bajo un header
 // "Composers".
 func (m Model) buildTree() []treeItem {
 	nStacks := 0
@@ -66,7 +66,7 @@ func (m Model) buildTree() []treeItem {
 	}
 
 	// Los worktrees no participan de la agrupación top-level: su
-	// primary_group es inerte para el posicionamiento (0011, option B).
+	// primary_group es inerte para el posicionamiento (option B).
 	visible := make([]group.Entry, 0, len(m.entries))
 	for _, e := range m.entries {
 		if e.Project.IsWorktree {
@@ -120,7 +120,7 @@ func (m Model) buildTree() []treeItem {
 		items = append(items, m.repoBlock(cp, "", "", children, true)...)
 	}
 
-	// Append stacks at the end of each primary group (0010).
+	// Append stacks at the end of each primary group.
 	// Stacks are a SEPARATE concept — own code, own rendering,
 	// visually grouped under "Composers" but not mixed into secondary_group.
 	if m.composeFile != nil {
@@ -204,7 +204,7 @@ func (m Model) repoBlock(p scanner.Project, primary, secondary string, children 
 // grupo (primary o primary/secondary).
 const repoKeyPrefix = "\x00repo:"
 
-// repoKey es la clave de plegado de una fila de repo (0011): namespace
+// repoKey es la clave de plegado de una fila de repo: namespace
 // propio, estructuralmente disjunto de las claves de grupo, para que el
 // estado persistido no colisione.
 func repoKey(repoPath string) string { return repoKeyPrefix + repoPath }
@@ -224,7 +224,7 @@ func (m Model) repoGlyph(repoPath string) string {
 }
 
 // repoRunningKids cuenta los worktrees del repo cuyo servicio está en
-// ejecución (0012): alimenta el badge +N de la fila de repo, que de otro
+// ejecución: alimenta el badge +N de la fila de repo, que de otro
 // modo oculta esa actividad cuando los worktrees están plegados.
 func (m Model) repoRunningKids(repoPath string) int {
 	n := 0
@@ -241,7 +241,7 @@ func (m Model) repoRunningKids(repoPath string) int {
 }
 
 // runningBadge marca con +N los worktrees en ejecución tras una fila de
-// repo (0012); "" si no hay ninguno.
+// repo; "" si no hay ninguno.
 func runningBadge(n int) string {
 	if n <= 0 {
 		return ""
@@ -263,13 +263,13 @@ func (m Model) stacksForPrimary(primary string) []orchestrate.Stack {
 	return out
 }
 
-// composersGroup es el secondary_group visual para stacks (0010).
+// composersGroup es el secondary_group visual para stacks.
 // Es solo un label de renderizado, NO un secondary_group de projectos.
 const composersGroup = "Composers"
 
 // treeLines genera las líneas de la columna de árbol; la posición de
 // línea del cursor es su propio índice (una fila por ítem). El header
-// secundario se dibuja indentado 2 espacios extra (S38.1).
+// secundario se dibuja indentado 2 espacios extra.
 func (m Model) treeLines() ([]string, int) {
 	lines := make([]string, 0, len(m.tree))
 	for i, it := range m.tree {
@@ -299,7 +299,7 @@ func (m Model) treeLines() ([]string, int) {
 
 // projectRow dibuja una fila de proyecto; las filas de repo con
 // worktrees anteponen el glifo de expansión, añaden el badge +N de
-// worktrees en ejecución (0012) y los worktrees anidados usan
+// worktrees en ejecución y los worktrees anidados usan
 // worktreeRow (rama incluida). Un error de topología (WorktreeErr)
 // se marca con ⚠ de forma independiente de si hay hijos: un fallo de
 // `git worktree list` implica cero worktrees descubiertos.
@@ -333,7 +333,7 @@ func (m Model) projectRow(it treeItem) string {
 
 // containerRow dibuja una fila contenedora (bare repo o main checkout
 // fuera del scan root): no ejecutable y sin estado de servicio propio,
-// pero con el badge +N de sus worktrees en ejecución (0012).
+// pero con el badge +N de sus worktrees en ejecución.
 func (m Model) containerRow(it treeItem) string {
 	badge := runningBadge(m.repoRunningKids(it.repoPath))
 	// Presupuesto: cursor(2) + glifo de expansión + sufijo "(bare)" +
@@ -368,8 +368,8 @@ func (m Model) worktreeRow(p scanner.Project) string {
 }
 
 // primaryRow dibuja el header del primario (columna 0): ▾ expandido,
-// ▸ colapsado con conteo running/total (R24); el total incluye todos
-// sus secundarios (S38.5).
+// ▸ colapsado con conteo running/total; el total incluye todos
+// sus secundarios.
 func (m Model) primaryRow(primary string) string {
 	r, n := m.nodeStats(primary, "")
 	return m.groupHeaderRow(primary, primary, r, n)
@@ -425,7 +425,7 @@ func treeDot(p scanner.Project, sv *ServiceState, spinnerView, startSpinnerView 
 }
 
 // filterMatch reporta si el proyecto matchea la query del filtro
-// (0007 R41): substring case-insensitive contra el nombre y los nombres
+// Substring case-insensitive contra el nombre y los nombres
 // de grupo (primary/secondary); filtrar un grupo trae a todos sus
 // miembros aunque el texto no aparezca en ningún nombre de proyecto.
 func filterMatch(p scanner.Project, q string) bool {
@@ -459,7 +459,7 @@ func (m Model) stackRow(s *orchestrate.Stack) string {
 
 // stackStats cuenta servicios running y total de un stack. Devuelve un
 // error explícito si un nombre de servicio es ambiguo (varios proyectos lo
-// declaran): mismo criterio que el engine/CLI (0011), sin elegir el
+// declaran): mismo criterio que el engine/CLI, sin elegir el
 // primero arbitrariamente.
 func (m Model) stackStats(s *orchestrate.Stack) (running, total int, err error) {
 	seen := make(map[string]bool)

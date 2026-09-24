@@ -16,7 +16,7 @@ func writeMise(t *testing.T, content string) string {
 	return dir
 }
 
-// R28: parsea [tasks.*] con name/description y salta hide = true.
+// Parsea [tasks.*] con name/description y salta hide = true.
 func TestTasksParse(t *testing.T) {
 	dir := writeMise(t, `
 [tools]

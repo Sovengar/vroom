@@ -1,5 +1,5 @@
 // Package launcher despacha la acción de ask AI según la configuración
-// global (spec 0004 R32): herdr (pane/tab nuevo del multiplexer),
+// global: herdr (pane/tab nuevo del multiplexer),
 // inline (suspende vroom y corre el agente en primer plano, patrón wt)
 // o custom (plantilla de shell). El launcher "auto" usa herdr si vroom
 // corre dentro de una sesión herdr y cae a inline si no.

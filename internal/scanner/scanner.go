@@ -25,7 +25,7 @@ type Project struct {
 	Manifest    *manifest.Manifest // nil si no configurado
 	ManifestErr string             // error de parseo si .vroom.toml malformado
 
-	// Relación repo/worktree (0011): anotaciones aditivas sobre el slice
+	// Relación repo/worktree: anotaciones aditivas sobre el slice
 	// plano. Nunca se construye una estructura anidada.
 	RepoRoot        string // ruta del main checkout del repo (solo worktrees)
 	IsWorktree      bool   // true si es un worktree linkeado
@@ -38,7 +38,7 @@ type Project struct {
 // repo) o es una fila contenedora (bare repo / main checkout fuera del
 // scan root). La agregación de grupos (conteos, toggle, detalles) debe
 // excluirlos para que el primary_group propio de un worktree siga siendo
-// inerte (0011, option B).
+// inerte (option B).
 func (p Project) IsNestedRow() bool {
 	return p.IsWorktree || p.IsBareContainer
 }

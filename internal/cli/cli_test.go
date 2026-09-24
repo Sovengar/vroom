@@ -23,7 +23,7 @@ func wtProjects() []scanner.Project {
 	}
 }
 
-// S7: nombre único resuelve como hoy.
+// Nombre único resuelve como hoy.
 func TestFindProjectUniqueName(t *testing.T) {
 	p, err := findProject(wtProjects(), "repo", "")
 	if err != nil {
@@ -34,7 +34,7 @@ func TestFindProjectUniqueName(t *testing.T) {
 	}
 }
 
-// S7: nombre duplicado sin path falla con paths accionables.
+// Nombre duplicado sin path falla con paths accionables.
 func TestFindProjectDuplicateNameActionable(t *testing.T) {
 	_, err := findProject(wtProjects(), "api", "")
 	if err == nil {
@@ -52,7 +52,7 @@ func TestFindProjectDuplicateNameActionable(t *testing.T) {
 	}
 }
 
-// S7: direccionamiento por path posicional.
+// Direccionamiento por path posicional.
 func TestFindProjectPositionalPath(t *testing.T) {
 	p, err := findProject(wtProjects(), "/repo-wt/a", "")
 	if err != nil {
@@ -63,7 +63,7 @@ func TestFindProjectPositionalPath(t *testing.T) {
 	}
 }
 
-// S7: direccionamiento por flag --path (desambigua el nombre).
+// Direccionamiento por flag --path (desambigua el nombre).
 func TestFindProjectPathFlag(t *testing.T) {
 	p, err := findProject(wtProjects(), "api", "/repo-wt/b")
 	if err != nil {
@@ -74,7 +74,7 @@ func TestFindProjectPathFlag(t *testing.T) {
 	}
 }
 
-// S7: un path no escaneado no resuelve.
+// Un path no escaneado no resuelve.
 func TestFindProjectUnknownPath(t *testing.T) {
 	_, err := findProject(wtProjects(), "/no/existe", "")
 	if err == nil || !strings.Contains(err.Error(), "project not found") {
@@ -155,7 +155,7 @@ func TestExtractPathFlagEdgeCases(t *testing.T) {
 	}
 }
 
-// S7: vroom list expone la relación repo/worktree con array plano.
+// Vroom list expone la relación repo/worktree con array plano.
 func TestListExposesRelationFlat(t *testing.T) {
 	manager := process.NewManager()
 	store := state.NewStoreAt(t.TempDir())

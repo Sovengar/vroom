@@ -16,7 +16,7 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-// S21.1: rama normal.
+// Rama normal.
 func TestBranchNormal(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".git", "HEAD"), "ref: refs/heads/main\n")
@@ -34,7 +34,7 @@ func TestBranchWithSlashes(t *testing.T) {
 	}
 }
 
-// S21.2: detached HEAD → sha corto.
+// Detached HEAD → sha corto.
 func TestBranchDetached(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".git", "HEAD"), "e83c5163316f89bfbde7d9ab23ca2e25604af290\n")
@@ -43,7 +43,7 @@ func TestBranchDetached(t *testing.T) {
 	}
 }
 
-// S21.3: worktree con .git fichero (gitdir absoluto y relativo).
+// Worktree con .git fichero (gitdir absoluto y relativo).
 func TestBranchWorktree(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".git"), "gitdir: /tmp/elsewhere/.git/worktrees/w\n")
@@ -61,7 +61,7 @@ func TestBranchWorktree(t *testing.T) {
 	}
 }
 
-// S21.4: sin repo no hay fila ni error.
+// Sin repo no hay fila ni error.
 func TestBranchNoRepo(t *testing.T) {
 	if got := Branch(t.TempDir()); got != "" {
 		t.Errorf("got %q, want vacío", got)

@@ -1,5 +1,5 @@
 // Package gitinfo lee la rama git actual de un proyecto directamente del
-// disco (spec 0002 R21), sin spawnar el binario git: instantáneo y
+// disco, sin spawnar el binario git: instantáneo y
 // testeable. Soporta repos normales y worktrees.
 package gitinfo
 

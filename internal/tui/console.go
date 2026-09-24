@@ -3,13 +3,13 @@ package tui
 import "strings"
 
 // consoleState mantiene el buffer de logs de un servicio mientras corre
-// la TUI: offsets de lectura por stream y buffers con cap (spec 0002
-// R19). Navegar entre servicios conserva el buffer (S19.2).
+// la TUI: offsets de lectura por stream y buffers con cap. Navegar
+// entre servicios conserva el buffer.
 type consoleState struct {
 	off    [2]int64 // 0=stdout, 1=stderr
 	stdout string
 	stderr string
-	merged string // intercalado aproximado: stdout delta antes que stderr (R23)
+	merged string // intercalado aproximado: stdout delta antes que stderr
 }
 
 // view devuelve el buffer correspondiente al modo de stream activo.
@@ -24,7 +24,7 @@ func (cs *consoleState) view(mode streamMode) string {
 	}
 }
 
-// sanitizeConsole prepara el buffer para el viewport (S19.8): normaliza
+// sanitizeConsole prepara el buffer para el viewport: normaliza
 // CRLF a LF y emula la semántica de terminal de los CR sueltos. Sin esto,
 // el renderer pinta desde la columna 0 al ver un \r (progreso de Maven,
 // spinners) e invade el panel del árbol; además truncANSI mide con

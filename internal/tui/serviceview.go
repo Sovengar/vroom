@@ -12,7 +12,7 @@ import (
 const commandColGap = 2
 
 // detailsLines renderiza el panel de detalles del servicio seleccionado
-// (spec 0002 R21): cabecera con nombre+estado y, debajo, dos columnas —
+// Cabecera con nombre+estado y, debajo, dos columnas —
 // meta a la izquierda (path, rama, puerto...) y los comandos del
 // manifiesto (start/stop/install/build) a la derecha. Recorta a
 // detailsHeight para uso en tests y otros contexts.
@@ -28,7 +28,7 @@ func (m Model) allDetailsLines(w int) []string {
 		if s := m.selectedStack(); s != nil {
 			return m.stackDetailsLines(s, w)
 		}
-		if pr, sec := m.selectedNode(); pr != "" { // R24 + 0006 R39: resumen del nodo
+		if pr, sec := m.selectedNode(); pr != "" { // Resumen del nodo
 			return m.groupDetailsLines(pr, sec, w)
 		}
 		return []string{styleDim.Render("No project selected")}
@@ -69,12 +69,12 @@ func (m Model) metaColumn(p scanner.Project, sv *ServiceState, w int) []string {
 		lines = append(lines, styleLabel.Render(pad(label, 10))+truncTail(value, valueW))
 	}
 	row("path:", p.Path)
-	if b := m.branches[p.Path]; b != "" { // R21: rama git
+	if b := m.branches[p.Path]; b != "" { // Rama git
 		row("branch:", b)
 	}
 	if p.Manifest != nil && p.Manifest.PrimaryGroup != "" {
-		// 0006 R39: el compuesto primario/secundario cuando exista
-		// secundario (solo con primario; S39.4).
+		// El compuesto primario/secundario cuando exista
+		// secundario (solo con primario).
 		g := p.Manifest.PrimaryGroup
 		if p.Manifest.SecondaryGroup != "" {
 			g += "/" + p.Manifest.SecondaryGroup
@@ -148,8 +148,8 @@ func clipLines(lines []string, h, w int) []string {
 	return lines
 }
 
-// groupDetailsLines muestra el resumen del nodo seleccionado (R24 +
-// 0006 R39): conteo running/total y los miembros con su punto de estado.
+// groupDetailsLines muestra el resumen del nodo seleccionado:
+// conteo running/total y los miembros con su punto de estado.
 // El título usa el nombre del secundario si es un nodo secundario.
 func (m Model) groupDetailsLines(primary, secondary string, w int) []string {
 	label := primary
@@ -181,7 +181,7 @@ func pad(s string, n int) string {
 }
 
 // stackDetailsLines muestra el panel de detalles de un stack seleccionado
-// (0010 R57): nombre + [stack] + estado, tipo, etapas, servicios con
+// Nombre + [stack] + estado, tipo, etapas, servicios con
 // su estado y puerto (igual que groupDetailsLines).
 func (m Model) stackDetailsLines(s *orchestrate.Stack, w int) []string {
 	r, n, conflict := m.stackStats(s)
@@ -208,7 +208,7 @@ func (m Model) stackDetailsLines(s *orchestrate.Stack, w int) []string {
 		lines = append(lines, styleDim.Render(trunc(fmt.Sprintf("  %s:", stage.Name), w-4)))
 		for _, name := range stage.Services {
 			label := trunc(name, w-5)
-			// Resolución con el criterio compartido (0011): ante un
+			// Resolución con el criterio compartido: ante un
 			// nombre ambiguo no se elige arbitrariamente el primero.
 			p, err := orchestrate.LookupService(name, m.projects)
 			if err != nil {

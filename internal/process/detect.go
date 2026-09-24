@@ -9,7 +9,7 @@ import (
 	gopsprocess "github.com/shirou/gopsutil/v3/process"
 )
 
-// Alive verifica liveness del PID con protección anti-reuse (spec R9):
+// Alive verifica liveness del PID con protección anti-reuse:
 // el proceso debe existir Y su creation_time coincidir con el registrado.
 //
 // gopsutil es pure Go (sin cgo) y portable Linux/Windows, por eso se usa
@@ -27,7 +27,7 @@ func Alive(pid int, creationTimeMs int64) bool {
 	return ct == creationTimeMs // mismatch → PID reciclado
 }
 
-// PortOpen verifica que el puerto responde con net.DialTimeout (S9.2).
+// PortOpen verifica que el puerto responde con net.DialTimeout.
 func PortOpen(port int) bool {
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf(":%d", port), 500*time.Millisecond)
 	if err != nil {

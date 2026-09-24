@@ -28,7 +28,7 @@ const (
 	StateUnknown = "unknown"
 )
 
-// Meta es el schema de meta.json (spec R5).
+// Meta es el schema de meta.json.
 type Meta struct {
 	Name           string `json:"name"`
 	ProjectPath    string `json:"project_path"`
@@ -135,7 +135,7 @@ func (s *Store) SaveMeta(projectPath string, m Meta) error {
 }
 
 // LoadMeta lee meta.json. Si el JSON está corrupto devuelve error
-// (el llamador marca stopped y loguea warning, S5.1); si no existe
+// (el llamador marca stopped y loguea warning); si no existe
 // devuelve os.ErrNotExist envuelto.
 func (s *Store) LoadMeta(projectPath string) (Meta, error) {
 	var m Meta
@@ -183,7 +183,7 @@ func (s *Store) CollapsedFile() string {
 }
 
 // SaveCollapsed persiste el mapa de grupos colapsados a disco (átomico).
-// Las claves son el nombre del primario o "primario/secundario" (S38.6).
+// Las claves son el nombre del primario o "primario/secundario".
 func (s *Store) SaveCollapsed(groups map[string]bool) error {
 	data, err := json.MarshalIndent(groups, "", "  ")
 	if err != nil {

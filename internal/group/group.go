@@ -1,5 +1,5 @@
 // Package group agrupa proyectos jerárquicamente por primary_group/
-// secondary_group del manifiesto (spec 0006 R37).
+// secondary_group del manifiesto.
 package group
 
 import "vroom/internal/scanner"
@@ -17,18 +17,18 @@ type Entry struct {
 }
 
 // Arrange ordena los proyectos preservando el orden de aparición y
-// agrupando jerárquicamente (spec 0006 R37):
+// agrupando jerárquicamente:
 //
 //   - Proyectos sin primary_group ("") quedan inline, sin agrupar.
 //   - El bloque de un primario se emite completo en la posición de su
 //     primer miembro (orden de aparición); los miembros posteriores se
 //     unen al bloque en lugar de abrir uno nuevo.
 //   - Dentro de un primario, el bloque de cada secundario se emite
-//     contiguo en la posición de su primer miembro (S37.4).
+//     contiguo en la posición de su primer miembro.
 //   - Los miembros con primario pero sin secundario conservan su
 //     posición dentro del primario, sin header propio (sin pseudo-header
 //     "(general)").
-//   - Un secondary_group sin primary_group se ignora (S36.3).
+//   - Un secondary_group sin primary_group se ignora.
 func Arrange(projects []scanner.Project) []Entry {
 	// Miembros por primario en orden de aparición; el orden de
 	// primera aparición de cada primario sale del walk de abajo.
@@ -57,7 +57,7 @@ func Arrange(projects []scanner.Project) []Entry {
 }
 
 // arrangeSecondary aplica el mismo patrón de bloque contiguo al interior
-// de un primario, con Secondary como clave (S37.3/S37.4).
+// de un primario, con Secondary como clave.
 func arrangeSecondary(members []scanner.Project) []Entry {
 	prim := PrimaryOf(members[0])
 	secs := make(map[string][]scanner.Project)

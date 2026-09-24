@@ -36,7 +36,7 @@ func buildProcFixture(t *testing.T) string {
 	return root
 }
 
-// S20.1: tabla completa con nombre/TID/estado/ticks.
+// Tabla completa con nombre/TID/estado/ticks.
 func TestListThreadsBasic(t *testing.T) {
 	root := buildProcFixture(t)
 	threads, err := listThreadsAt(root, 123)
@@ -83,7 +83,7 @@ func TestListThreadsCommWithSpaces(t *testing.T) {
 	}
 }
 
-// S20.5: proceso muerto entre ticks → error controlado.
+// Proceso muerto entre ticks → error controlado.
 func TestListThreadsMissingProcess(t *testing.T) {
 	if _, err := listThreadsAt(t.TempDir(), 999999); err == nil {
 		t.Error("proceso inexistente debe devolver error")
@@ -110,7 +110,7 @@ func TestListThreadsRealProc(t *testing.T) {
 	}
 }
 
-// S20.2: delta de ticks → CPU%. 100 ticks en 2s con USER_HZ=100 = 50%.
+// Delta de ticks → CPU%. 100 ticks en 2s con USER_HZ=100 = 50%.
 func TestCPUPercent(t *testing.T) {
 	if got := CPUPercent(100, 2); got != 50 {
 		t.Errorf("CPUPercent(100, 2) = %v, want 50", got)

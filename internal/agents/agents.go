@@ -1,5 +1,5 @@
 // Package agents define los agentes de IA disponibles para la acción
-// de ask AI (spec 0004 R32): los built-in (opencode, pi, hermes) pueden
+// de ask AI: los built-in (opencode, pi, hermes) pueden
 // reemplazarse desde el config global con [ask.agents.*].
 //
 // La plantilla de comando usa {prompt} como placeholder que ocupa un

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// S19.8: los logs traen \r (progreso de Maven, spinners) y el renderer
+// Los logs traen \r (progreso de Maven, spinners) y el renderer
 // los interpreta con semántica de terminal (x = col 0), invadiendo el
 // árbol. El saneo emula la sobrescritura por línea antes del viewport.
 func TestSanitizeConsoleCarriageReturns(t *testing.T) {
@@ -168,7 +168,7 @@ func TestHighlightConsole(t *testing.T) {
 }
 
 // E2E: el buffer llega al viewport resaltado (ANSI en la línea ERROR) y
-// sin \r (S19.8 + highlight).
+// sin \r (highlight).
 func TestSetConsoleContentHighlights(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -184,7 +184,7 @@ func TestSetConsoleContentHighlights(t *testing.T) {
 }
 
 // E2E: el contenido con \r llega al viewport sin \r y solo con lo que un
-// terminal mostraría (S19.8).
+// terminal mostraría.
 func TestSetConsoleContentEmulatesCarriageReturns(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")

@@ -8,7 +8,7 @@ import (
 	"unicode/utf8"
 )
 
-// R19/S19.1: ReadNew devuelve solo los bytes nuevos desde el offset.
+// ReadNew devuelve solo los bytes nuevos desde el offset.
 func TestReadNewIncremental(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stdout.log")
 	if err := os.WriteFile(path, []byte("line1\n"), 0o644); err != nil {
@@ -67,7 +67,7 @@ func TestReadNewAfterTruncate(t *testing.T) {
 	}
 }
 
-// S19.5: strip de ANSI en logs con color.
+// Strip de ANSI en logs con color.
 func TestStripANSI(t *testing.T) {
 	tests := []struct {
 		name, in, want string
@@ -90,7 +90,7 @@ func TestStripANSI(t *testing.T) {
 	}
 }
 
-// S19.6: cap del buffer conservando el final y cortando por líneas.
+// Cap del buffer conservando el final y cortando por líneas.
 func TestCapBuffer(t *testing.T) {
 	if got := CapBuffer("short", 64); got != "short" {
 		t.Errorf("bajo el cap no debe tocar: %q", got)

@@ -17,7 +17,7 @@ import (
 	xpty "github.com/charmbracelet/x/xpty"
 )
 
-// Dimensiones del modal de terminal (0009 R52): el grid del emulador
+// Dimensiones del modal de terminal: el grid del emulador
 // llena el interior del box, igual que el textarea del ask.
 const (
 	termMinW = 20
@@ -33,9 +33,9 @@ type ptyIface interface {
 	Start(cmd *exec.Cmd) error
 }
 
-// termSession es una sesión de shell persistente (0009 R53): un PTY
+// termSession es una sesión de shell persistente: un PTY
 // corriendo el shell del usuario más el emulador VT que mantiene su
-// pantalla. Ocultar el modal NO la mata (R49); solo shutdown() lo hace.
+// pantalla. Ocultar el modal NO la mata; solo shutdown() lo hace.
 //
 // El emulador no es thread-safe: todas sus mutaciones (Write del
 // output del pty, SendKey, Resize, Render) ocurren en el hilo de
@@ -51,7 +51,7 @@ type termSession struct {
 	closed bool   // shutdown ya ejecutado
 }
 
-// resolveShell devuelve el shell del usuario: $SHELL o sh (0009 R53).
+// resolveShell devuelve el shell del usuario: $SHELL o sh.
 func resolveShell() string {
 	if v := os.Getenv("SHELL"); v != "" {
 		return v
@@ -69,7 +69,7 @@ func termEnv() []string {
 }
 
 // newTermSession lanza el shell del usuario (interactivo) en un PTY
-// nuevo con cwd dir (0009 R53).
+// nuevo con cwd dir.
 func newTermSession(w, h int, dir string) (*termSession, error) {
 	return startSession(w, h, dir, []string{resolveShell()})
 }
@@ -88,7 +88,7 @@ func startSession(w, h int, dir string, argv []string) (*termSession, error) {
 	}
 	emu := vt.NewEmulator(w, h)
 	emu.SetScrollbackSize(1000)
-	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // argv deliberado del shell del usuario
+	cmd := exec.Command(argv[0], argv[1:]...) // nolint:gosec // argv deliberado del shell del usuario
 	cmd.Dir = dir
 	cmd.Env = termEnv()
 	setSessionLeader(cmd)
@@ -201,7 +201,7 @@ func (s *termSession) screen() string {
 }
 
 // shutdown cierra el PTY (SIGHUP a la sesión) y remata el grupo con
-// SIGKILL como backstop; idempotente (0009 R56).
+// SIGKILL como backstop; idempotente.
 func (s *termSession) shutdown() {
 	s.mu.Lock()
 	if s.closed {
@@ -268,7 +268,7 @@ func (s *termSession) closeCmd() tea.Cmd {
 }
 
 // quitCmd sale de la TUI matando antes la sesión de terminal viva, si
-// la hay (0009 R56): sin sesión es tea.Quit a secas.
+// la hay: sin sesión es tea.Quit a secas.
 func (m Model) quitCmd() tea.Cmd {
 	if s := m.term; s != nil && s.alive() {
 		return tea.Sequence(s.closeCmd(), tea.Quit)
@@ -309,7 +309,7 @@ func (m Model) termH() int {
 }
 
 // termCwdLabel es el cwd que usará la sesión: proyecto seleccionado o
-// root del workspace (0009 R53).
+// root del workspace.
 func (m Model) termCwdLabel() string {
 	if p := m.selected(); p != nil {
 		return p.Name
@@ -325,7 +325,7 @@ func (m Model) termCwd() string {
 	return m.root
 }
 
-// openTerm abre el modal de terminal (tecla !, 0009 R52): si ya hay una
+// openTerm abre el modal de terminal (tecla !): si ya hay una
 // sesión viva la re-muestra (y re-dimensiona si cambió el layout); si
 // no, crea la sesión con cwd = proyecto seleccionado o root.
 func (m Model) openTerm() (tea.Model, tea.Cmd) {
@@ -345,15 +345,15 @@ func (m Model) openTerm() (tea.Model, tea.Cmd) {
 	m.term = s
 	m.termOpen = true
 	m.clearMessage()
-	// Loop de lectura + reaper del proceso desde el arranque (0009
-	// R56): el master del PTY NO emite EOF al morir el shell mientras
+	// Loop de lectura + reaper del proceso desde el arranque: el master
+	// del PTY NO emite EOF al morir el shell mientras
 	// el propio pty sostiene el slave, así que la salida se detecta
 	// por wait, no por EOF.
 	return m, tea.Batch(readPtyCmd(s), s.waitCmd())
 }
 
-// termKey captura las teclas mientras el modal está abierto (0008
-// R47): todo va al PTY vía el keymap del emulador; solo ctrl+q es de
+// termKey captura las teclas mientras el modal está abierto: todo va
+// al PTY vía el keymap del emulador; solo ctrl+q es de
 // vroom (oculta el modal, la sesión sigue viva).
 func (m Model) termKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	kp, ok := msg.(tea.KeyPressMsg)
@@ -371,7 +371,7 @@ func (m Model) termKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // termBox renderiza el modal: título con el cwd de la sesión, el grid
-// del emulador y el hint de ctrl+q (0009 R52).
+// del emulador y el hint de ctrl+q.
 func (m Model) termBox() string {
 	innerW := m.termW()
 	var label string

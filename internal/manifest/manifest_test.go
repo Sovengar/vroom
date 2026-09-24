@@ -42,7 +42,6 @@ process_pattern = "vsocial-api"
 	}
 }
 
-// S1.1
 func TestParseMinimalValid(t *testing.T) {
 	path := writeManifest(t, `
 name = "mi-servicio"
@@ -57,7 +56,6 @@ command_start = "./start.sh"
 	}
 }
 
-// S1.2
 func TestParseMissingRequiredFields(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -81,7 +79,6 @@ func TestParseMissingRequiredFields(t *testing.T) {
 	}
 }
 
-// S1.3
 func TestParsePortOutOfRange(t *testing.T) {
 	tests := []struct {
 		name string
@@ -105,7 +102,6 @@ func TestParsePortOutOfRange(t *testing.T) {
 	}
 }
 
-// S1.4
 func TestParseEmptyOptionals(t *testing.T) {
 	path := writeManifest(t, `
 name = "x"
@@ -124,7 +120,7 @@ process_pattern = ""
 	}
 }
 
-// 0006 S36.2: la clave vieja `group` ya no agrupa (reemplazo duro, sin
+// La clave vieja `group` ya no agrupa (reemplazo duro, sin
 // alias); los campos desconocidos se ignoran.
 func TestParseGroupKeyIgnored(t *testing.T) {
 	path := writeManifest(t, `
@@ -141,7 +137,7 @@ command_start = "y"
 	}
 }
 
-// 0003 R26: command_install/command_build son comandos one-shot
+// command_install/command_build son comandos one-shot
 // opcionales (pueden ser `mise run ...` o cualquier comando); su
 // ausencia no invalida el manifiesto. command_stop igualmente opcional.
 func TestParseInstallBuildStop(t *testing.T) {

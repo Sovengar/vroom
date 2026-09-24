@@ -233,7 +233,7 @@ func projectNames(projects []Project) string {
 	return strings.Join(names, ", ")
 }
 
-// ---- Topología repo/worktree (0011) ----
+// ---- Topología repo/worktree ----
 
 // fakeGitPATH escribe un git falso con el porcelain dado y devuelve un
 // PATH que lo antepone al real (degradación y topología sin git real).

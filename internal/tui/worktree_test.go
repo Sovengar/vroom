@@ -19,7 +19,7 @@ import (
 )
 
 // newRepoModel construye un modelo a partir de un slice plano ya anotado
-// (sin git real): permite testear la presentación del anidado 0011 en
+// (sin git real): permite testear la presentación del anidado en
 // aislamiento.
 func newRepoModel(t *testing.T, projects []scanner.Project, collapsed map[string]bool) Model {
 	t.Helper()
@@ -99,7 +99,7 @@ func findRepo(t *testing.T, m Model, name string) int {
 	return -1
 }
 
-// S1: repo con worktrees = una sola fila colapsada; worktrees no top-level.
+// Repo con worktrees = una sola fila colapsada; worktrees no top-level.
 func TestRepoCollapsedSingleRow(t *testing.T) {
 	projects, repo, _, _ := repoFixture(t)
 	m := newRepoModel(t, projects, nil)
@@ -126,7 +126,7 @@ func TestRepoCollapsedSingleRow(t *testing.T) {
 	}
 }
 
-// S1b: repo sin worktrees no ofrece toggle.
+// Repo sin worktrees no ofrece toggle.
 func TestRepoWithoutWorktreesNotExpandable(t *testing.T) {
 	root := t.TempDir()
 	solo := filepath.Join(root, "solo")
@@ -142,7 +142,7 @@ func TestRepoWithoutWorktreesNotExpandable(t *testing.T) {
 	}
 }
 
-// S1c: la fila del repo es el main checkout operable.
+// La fila del repo es el main checkout operable.
 func TestRepoRowIsOperableMainCheckout(t *testing.T) {
 	projects, repo, _, _ := repoFixture(t)
 	m := newRepoModel(t, projects, nil)
@@ -166,7 +166,7 @@ func TestRepoRowIsOperableMainCheckout(t *testing.T) {
 	}
 }
 
-// S2a: expandir revela los worktrees indentados.
+// Expandir revela los worktrees indentados.
 func TestExpandRepoRevealsIndentedWorktrees(t *testing.T) {
 	projects, _, _, _ := repoFixture(t)
 	m := newRepoModel(t, projects, nil)
@@ -194,7 +194,7 @@ func TestExpandRepoRevealsIndentedWorktrees(t *testing.T) {
 	}
 }
 
-// S2b: un worktree anidado es operable con su propio workdir.
+// Un worktree anidado es operable con su propio workdir.
 func TestNestedWorktreeOperable(t *testing.T) {
 	projects, repo, wtA, _ := repoFixture(t)
 	for i := range projects {
@@ -232,7 +232,7 @@ func TestNestedWorktreeOperable(t *testing.T) {
 	}
 }
 
-// S2c: el colapso del repo se restaura y no colisiona con las claves de grupo.
+// El colapso del repo se restaura y no colisiona con las claves de grupo.
 func TestRepoCollapsePersistedAndNamespaced(t *testing.T) {
 	projects, repo, _, _ := repoFixture(t)
 	m := newRepoModel(t, projects, map[string]bool{repoKey(repo): true})
@@ -320,7 +320,7 @@ func TestRepoCollapseKeyPersists(t *testing.T) {
 	}
 }
 
-// S3: bare repo se muestra como contenedor no ejecutable y anida sus worktrees.
+// Bare repo se muestra como contenedor no ejecutable y anida sus worktrees.
 func TestBareContainerNotOperable(t *testing.T) {
 	root := t.TempDir()
 	bare := filepath.Join(root, "bare")
@@ -375,7 +375,7 @@ func TestBareContainerWithoutWorktreesHasNoGlyph(t *testing.T) {
 	}
 }
 
-// S4a: un worktree detached muestra su sha como rama.
+// Un worktree detached muestra su sha como rama.
 func TestDetachedWorktreeShowsSha(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")
@@ -409,7 +409,7 @@ func TestDetachedWorktreeShowsSha(t *testing.T) {
 	}
 }
 
-// S4b: worktree sin manifiesto se lista como no configurado y no es operable.
+// Worktree sin manifiesto se lista como no configurado y no es operable.
 func TestUnconfiguredWorktreeRow(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")
@@ -433,7 +433,7 @@ func TestUnconfiguredWorktreeRow(t *testing.T) {
 	}
 }
 
-// S4e: worktree fuera del root se anida bajo un contenedor sintetizado.
+// Worktree fuera del root se anida bajo un contenedor sintetizado.
 func TestOutOfRootWorktreeNestsUnderSyntheticContainer(t *testing.T) {
 	outside := "/outside/repo"
 	wtA := "/root/repo-wt-a"
@@ -455,7 +455,7 @@ func TestOutOfRootWorktreeNestsUnderSyntheticContainer(t *testing.T) {
 	}
 }
 
-// S5a: el repo conserva su grupo y posición; el toggle vive en su fila.
+// El repo conserva su grupo y posición; el toggle vive en su fila.
 func TestRepoKeepsGroup(t *testing.T) {
 	projects, _, _, _ := repoFixture(t)
 	m := newRepoModel(t, projects, nil)
@@ -474,7 +474,7 @@ func TestRepoKeepsGroup(t *testing.T) {
 	}
 }
 
-// S5b: el grupo propio de un worktree no lo reposiciona.
+// El grupo propio de un worktree no lo reposiciona.
 func TestWorktreeGroupIsInert(t *testing.T) {
 	projects, repo, _, _ := repoFixture(t)
 	// wt-a declara primary_group "Y" (debe ser inerte).
@@ -496,7 +496,7 @@ func TestWorktreeGroupIsInert(t *testing.T) {
 	}
 }
 
-// ---- Integración con git real (0011) ----
+// ---- Integración con git real ----
 
 func requireGit(t *testing.T) {
 	t.Helper()
@@ -598,7 +598,7 @@ func TestNewNotifiesTopologyDegradation(t *testing.T) {
 	}
 }
 
-// S8: la TUI reporta el mismo conflicto de stack que el CLI y no elige
+// La TUI reporta el mismo conflicto de stack que el CLI y no elige
 // arbitrariamente el primer proyecto con ese nombre.
 func TestStackStatsConflictMatchesEngine(t *testing.T) {
 	projects := []scanner.Project{
@@ -718,7 +718,7 @@ func rowLine(t *testing.T, m Model, name string) string {
 	return tree[idx]
 }
 
-// 0012: la fila de repo indica con +N los worktrees en ejecución aunque
+// La fila de repo indica con +N los worktrees en ejecución aunque
 // estén plegados, sin confundirse con el servicio propio del main.
 func TestRepoRowBadgeCountsRunningWorktrees(t *testing.T) {
 	projects, repo, wtA, _ := repoFixture(t)
@@ -753,7 +753,7 @@ func TestRepoRowBadgeCountsRunningWorktrees(t *testing.T) {
 	}
 }
 
-// 0012: la fila contenedora (sin servicio propio) también marca +N sus
+// La fila contenedora (sin servicio propio) también marca +N sus
 // worktrees en ejecución.
 func TestContainerRowBadgeCountsRunningWorktrees(t *testing.T) {
 	outside := "/outside/repo"
@@ -774,7 +774,7 @@ func TestContainerRowBadgeCountsRunningWorktrees(t *testing.T) {
 	}
 }
 
-// 0012: el badge no rompe el ancho fijo de la columna de árbol, ni con
+// El badge no rompe el ancho fijo de la columna de árbol, ni con
 // nombres largos (recorte), ni plegado/expandido, ni en contenedoras.
 func TestRepoRowBadgeKeepsColumnWidth(t *testing.T) {
 	root := t.TempDir()

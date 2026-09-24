@@ -31,21 +31,21 @@ import (
 )
 
 const (
-	pollInterval    = 2 * time.Second        // spec 0001 R13
-	consoleTick     = 400 * time.Millisecond // tail de la consola (0002 R19)
-	maxConsoleBytes = 192 * 1024             // cap del buffer por stream (S19.6)
-	treeWidth       = 30                     // ancho fijo de la columna de árbol (R18)
-	detailsWidthMin = 40                     // ancho mínimo de la zona derecha para detalles (S18.3)
+	pollInterval    = 2 * time.Second
+	consoleTick     = 400 * time.Millisecond // tail de la consola
+	maxConsoleBytes = 192 * 1024             // cap del buffer por stream
+	treeWidth       = 30                     // ancho fijo de la columna de árbol
+	detailsWidthMin = 40                     // ancho mínimo de la zona derecha para detalles
 	detailsHeight   = 12                     // alto fijo del panel de detalles
 	wheelLines      = 3                      // líneas por click de rueda en la consola
-	askMinHeight    = 6                      // filas iniciales del textarea del ask (R35: grande de inicio)
+	askMinHeight    = 6                      // filas iniciales del textarea del ask (grande de inicio)
 	askMaxHeightCap = 16                     // cap absoluto del textarea del ask
 )
 
 // groupConsoleHint es el placeholder de consola con un grupo seleccionado.
 const groupConsoleHint = "group selected — pick a service to view its console"
 
-// tabKind es la pestaña activa del panel inferior (R18).
+// tabKind es la pestaña activa del panel inferior.
 type tabKind int
 
 const (
@@ -53,7 +53,7 @@ const (
 	tabThreads
 )
 
-// streamMode es el stream mostrado en la consola (S19.3): mergeado por
+// streamMode es el stream mostrado en la consola: mergeado por
 // defecto, con toggle para aislar stdout o stderr.
 type streamMode int
 
@@ -75,7 +75,7 @@ func (s streamMode) String() string {
 }
 
 // uiStatus es el estado mostrado en la UI, incluyendo los transitorios
-// starting/stopping (spec 0001 R14).
+// starting/stopping.
 type uiStatus string
 
 const (
@@ -93,7 +93,7 @@ type ServiceState struct {
 	Meta   state.Meta
 }
 
-// Model es el modelo principal de la TUI: un único dashboard (0002 R18).
+// Model es el modelo principal de la TUI: un único dashboard.
 type Model struct {
 	width, height int
 	root          string
@@ -106,14 +106,14 @@ type Model struct {
 	usedFD   bool                     // true si el scan usó fd
 
 	cursor  int // índice en tree (grupos y proyectos, cíclico)
-	treeTop int // primera línea visible del árbol (auto-scroll, S18.5)
+	treeTop int // primera línea visible del árbol (auto-scroll)
 
 	activeTab     tabKind
 	stream        streamMode // modo de la consola (merged/stdout/stderr)
-	consoleFollow bool       // auto-scroll de la consola (S19.4)
+	consoleFollow bool       // auto-scroll de la consola
 
 	tree          []treeItem               // filas navegables del árbol
-	collapsed     map[string]bool          // grupos colapsados (R24)
+	collapsed     map[string]bool          // grupos colapsados
 	consoleStates map[string]*consoleState // buffers/offsets por servicio
 	threads       map[string][]threadRow   // tabla de hilos por servicio
 	threadPrev    map[string]*threadSample // muestra previa para CPU%
@@ -123,40 +123,40 @@ type Model struct {
 	messageExpiresAt time.Time // cero = sin expiración
 	pendingRestart   map[string]bool
 
-	jobs map[string]string // job one-shot en curso por proyecto: build/install/task (0003 R27)
+	jobs map[string]string // job one-shot en curso por proyecto: build/install/task
 
-	pickerOpen   bool // modal de selección (tasks de mise / agentes, 0003 R28 + 0004 R32)
+	pickerOpen   bool // modal de selección (tasks de mise / agentes)
 	pickerKind   pickerKind
 	pickerItems  []pickerItem
 	pickerCursor int
 
-	// Ask AI (0004 R32): dispatch configurable vía config global.
+	// Ask AI: dispatch configurable vía config global.
 	cfg           config.Config
 	askLauncher   *launcher.Launcher
 	askAgents     []agents.Agent
 	askAgent      agents.Agent
 	askPromptOpen bool
-	promptInput   textarea.Model // multi-línea: alto dinámico + scroll (0005 R35)
+	promptInput   textarea.Model // multi-línea: alto dinámico + scroll
 
-	// Keybindings configurables (0008 R50): mapa inverso tecla → acción
+	// Keybindings configurables: mapa inverso tecla → acción
 	// precalculado desde la config; la resolución por tecla es O(1) y
 	// determinista.
 	keyActions map[string]string
 
-	// Filtro del árbol con "/" (0007 R40): barra inline en la primera
+	// Filtro del árbol con "/": barra inline en la primera
 	// línea de la columna del árbol; el texto filtra en vivo.
 	filterOpen  bool            // box abierto: captura las teclas
 	filterInput textinput.Model // prompt "/", placeholder "filter…"
 	filterText  string          // texto aplicado ("" = sin filtro)
 
-	// Terminal embebida con "!" (0009 R52): modal con el shell del
+	// Terminal embebida con "!": modal con el shell del
 	// usuario en un PTY renderizado por un emulador VT. Ocultar el
-	// modal NO mata la sesión (R56): term apunta a la sesión viva,
+	// modal NO mata la sesión: term apunta a la sesión viva,
 	// termOpen solo controla la vista.
 	termOpen bool         // modal visible: captura las teclas
 	term     *termSession // sesión del shell (nil hasta el primer !)
 
-	// Orquestación de stacks (0010): compose file y engine.
+	// Orquestación de stacks: compose file y engine.
 	composeFile *orchestrate.ComposeFile // nil si no hay compose file
 	engine      *orchestrate.Engine      // motor de orquestación
 
@@ -290,7 +290,7 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 		}
 		m.branches[p.Path] = gitinfo.Branch(p.Path)
 	}
-	// Degradación por repo (0011): si git falló o falta, avisar sin
+	// Degradación por repo: si git falló o falta, avisar sin
 	// ocultar proyectos ni romper la TUI.
 	for _, p := range projects {
 		if p.WorktreeErr != "" {
@@ -300,13 +300,13 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 	}
 	m.entries = group.Arrange(projects)
 	// Cargar compose file: buscar en scanRoot y sus subdirectores
-	// directos (0010). Los stacks se manejan por separado — no se
+	// directos. Los stacks se manejan por separado — no se
 	// mezclan con Arrange.
 	if cf, err := findComposeFile(scanRoot, projects); err == nil {
 		m.composeFile = cf
 		m.engine = orchestrate.NewEngine(manager, store)
 	}
-	// Restaurar el estado de plegado persistido (0006 R38).
+	// Restaurar el estado de plegado persistido.
 	if persisted := store.LoadCollapsed(); len(persisted) > 0 {
 		for k, v := range persisted {
 			m.collapsed[k] = v
@@ -314,13 +314,13 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 	}
 	m.tree = m.buildTree()
 	m.updateLayout()
-	// Wrap de líneas largas en la consola (spec 0005 R33): el viewport
+	// Wrap de líneas largas en la consola: el viewport
 	// corta ANSI-aware y conserva el estilo en las líneas de continuación.
 	m.consoleView.SoftWrap = true
 	return m
 }
 
-// updateLayout recalcula las dimensiones del dashboard (R18): cuerpo,
+// updateLayout recalcula las dimensiones del dashboard: cuerpo,
 // panel derecho y viewport de consola.
 func (m *Model) updateLayout() {
 	bodyH := m.height - 5 // header + separator + 2 help lines + blank
@@ -333,7 +333,7 @@ func (m *Model) updateLayout() {
 		rightW = 10
 	}
 	m.rightW = rightW
-	// El panel de detalles es fijo (0004 R30): solo se oculta si no cabe.
+	// El panel de detalles es fijo: solo se oculta si no cabe.
 	m.detailsShown = rightW >= detailsWidthMin && bodyH >= detailsHeight+4
 	contentH := bodyH - 1 // barra de pestañas
 	if m.detailsShown {
@@ -374,7 +374,7 @@ type stoppedMsg struct {
 }
 
 // consoleDeltaMsg transporta los bytes nuevos de ambos streams desde el
-// último tick de consola (spec 0002 R19).
+// último tick de consola.
 type consoleDeltaMsg struct {
 	path   string
 	stdout string
@@ -393,14 +393,14 @@ type threadsMsg struct {
 
 type statusMsg struct{ message string }
 
-// stackResultMsg es el resultado de la orquestación de un stack (0010).
+// stackResultMsg es el resultado de la orquestación de un stack.
 type stackResultMsg struct {
 	result orchestrate.LaunchResult
 	err    error
 }
 
-// jobMsg es el resultado de un comando one-shot (build/install/task,
-// spec 0003 R27): exitCode 0 = ok, err = fallo al lanzar.
+// jobMsg es el resultado de un comando one-shot (build/install/task):
+// exitCode 0 = ok, err = fallo al lanzar.
 type jobMsg struct {
 	path     string
 	kind     string
@@ -421,7 +421,7 @@ func consoleTickCmd() tea.Cmd {
 }
 
 // refreshCmd re-verifica liveness de todos los servicios configurados
-// leyendo meta.json del disco (soporta re-adjunta, spec 0001 S7.2/R9) y
+// leyendo meta.json del disco (soporta re-adjunta) y
 // actualiza la rama git cacheada de cada proyecto.
 func refreshCmd(store *state.Store, manager process.Manager, projects []scanner.Project) tea.Cmd {
 	return func() tea.Msg {
@@ -436,7 +436,7 @@ func refreshCmd(store *state.Store, manager process.Manager, projects []scanner.
 			case errors.Is(err, os.ErrNotExist):
 				r.status = process.StatusStopped
 			case err != nil:
-				// S5.1: meta corrupto → stopped + warning, sin crashear.
+				// Meta corrupto → stopped + warning, sin crashear.
 				r.status = process.StatusStopped
 				r.warn = fmt.Sprintf("%s: meta.json ilegible, marcado stopped (%v)", p.Name, err)
 			default:
@@ -493,7 +493,7 @@ func startCmd(store *state.Store, manager process.Manager, p scanner.Project) te
 // stopCmd para un servicio: si el manifiesto define command_stop lo
 // ejecuta primero (parada graciosa para servicios donde matar el PGID
 // no basta, ej. `docker stop`), y después aplica siempre el shutdown
-// de limpieza (S8.1/S8.2: SIGTERM al PGID, timeout 5s, SIGKILL).
+// de limpieza (SIGTERM al PGID, timeout 5s, SIGKILL).
 func stopCmd(store *state.Store, manager process.Manager, path, stopCommand string) tea.Cmd {
 	return func() tea.Msg {
 		var cmdErr error
@@ -521,7 +521,7 @@ func stopCmd(store *state.Store, manager process.Manager, path, stopCommand stri
 }
 
 // consoleTailCmd lee los bytes nuevos de ambos streams desde los offsets
-// actuales (spec R19). El strip de ANSI se hace aquí, una sola vez.
+// actuales. El strip de ANSI se hace aquí, una sola vez.
 func consoleTailCmd(path string, offS, offE int64, stdoutPath, stderrPath string) tea.Cmd {
 	return func() tea.Msg {
 		msg := consoleDeltaMsg{path: path, offS: offS, offE: offE}
@@ -539,7 +539,7 @@ func readNewStripped(path string, offset int64) (string, int64, error) {
 	return tail.StripANSI(data), off, nil
 }
 
-// threadsCmd muestrea los hilos del PID (spec R20).
+// threadsCmd muestrea los hilos del PID.
 func threadsCmd(path string, pid int) tea.Cmd {
 	return func() tea.Msg {
 		threads, err := process.ListThreads(pid)
@@ -559,13 +559,13 @@ func appendLine(path, line string) error {
 }
 
 // jobBanner compone el separador que marca el inicio de un job
-// one-shot dentro del log (0003 R27).
+// one-shot dentro del log.
 func jobBanner(kind, text string) string {
 	return fmt.Sprintf("── vroom ▶ %s: %s ──", kind, text)
 }
 
-// runLogged ejecuta un comando one-shot con `sh -c` en workDir (0003
-// R27): escribe un banner, lanza el comando con salida en append a los
+// runLogged ejecuta un comando one-shot con `sh -c` en workDir: escribe
+// un banner, lanza el comando con salida en append a los
 // logs del servicio (visibles en la pestaña Console vía el tail
 // existente) y añade un footer con el resultado. Devuelve la duración,
 // el exit code (0 si ok o fallo de lanzamiento) y el error de ejecución.
@@ -608,8 +608,8 @@ func runLogged(kind, command, workDir, stdoutPath, stderrPath string) (time.Dura
 	return elapsed, 0, nil
 }
 
-// jobCmd ejecuta un comando one-shot (build/install/task, spec 0003
-// R27) sobre runLogged y devuelve jobMsg con el exit code.
+// jobCmd ejecuta un comando one-shot (build/install/task) sobre runLogged
+// y devuelve jobMsg con el exit code.
 func jobCmd(path, kind, command, workDir, stdoutPath, stderrPath string) tea.Cmd {
 	return func() tea.Msg {
 		elapsed, exitCode, err := runLogged(kind, command, workDir, stdoutPath, stderrPath)
@@ -625,7 +625,7 @@ func jobCmd(path, kind, command, workDir, stdoutPath, stderrPath string) tea.Cmd
 }
 
 // editLogsCmd suspende la TUI y abre ambos ficheros de log en el editor
-// del usuario (spec 0001 R17): $VISUAL/$EDITOR, default nvim. Para
+// del usuario: $VISUAL/$EDITOR, default nvim. Para
 // vim/nvim añade -O (split vertical) con el foco en el stream activo.
 func editLogsCmd(editor, stdoutPath, stderrPath string, stderrFirst bool) tea.Cmd {
 	cmd := buildEditorCmd(editor, stdoutPath, stderrPath, stderrFirst)
@@ -671,15 +671,15 @@ func resolveEditor() string {
 
 func (m Model) View() tea.View {
 	content := m.renderDashboard()
-	if m.askPromptOpen { // modal del prompt de ask AI (0004 R32)
+	if m.askPromptOpen { // modal del prompt de ask AI
 		content = overlay(content, m.askBox(), m.width, m.height)
-	} else if m.pickerOpen { // modal de selección centrado (0003 R28)
+	} else if m.pickerOpen { // modal de selección centrado
 		content = overlay(content, m.pickerBox(), m.width, m.height)
-	} else if m.termOpen { // modal de terminal embebida (0009 R52)
+	} else if m.termOpen { // modal de terminal embebida
 		content = overlay(content, m.termBox(), m.width, m.height)
 	}
 	v := tea.NewView(content)
-	v.AltScreen = true                    // dashboard a pantalla completa (0002 R18)
+	v.AltScreen = true                    // dashboard a pantalla completa
 	v.MouseMode = tea.MouseModeCellMotion // rueda del mouse: scroll de consola
 	return v
 }
@@ -699,7 +699,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.updateLayout()
-		// S18.5: reajustar la ventana del árbol al nuevo alto.
+		// Reajustar la ventana del árbol al nuevo alto.
 		if len(m.entries) > 0 {
 			_, cl := m.treeLines()
 			if cl < m.treeTop {
@@ -708,7 +708,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.treeTop = cl - m.treeVis() + 1
 			}
 		}
-		// 0009 R55: la terminal embebida sigue las nuevas dimensiones.
+		// La terminal embebida sigue las nuevas dimensiones.
 		if s := m.term; s != nil && s.alive() {
 			w, h := m.termW(), m.termH()
 			if cw, ch := s.dims(); cw != w || ch != h {
@@ -757,7 +757,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		for _, r := range msg.results {
 			if r.warn != "" {
-				m.notify(r.warn) // S5.1: warning visible
+				m.notify(r.warn) // Warning visible
 				break
 			}
 		}
@@ -795,7 +795,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notify("error stopping: " + msg.err.Error())
 			return m, nil
 		}
-		if m.pendingRestart[msg.path] { // S14.2: stop → start
+		if m.pendingRestart[msg.path] { // Stop → start
 			delete(m.pendingRestart, msg.path)
 			if p := m.projectByPath(msg.path); p != nil && sv != nil {
 				sv.Status = statusStarting
@@ -820,7 +820,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case jobMsg:
-		delete(m.jobs, msg.path) // R27: libera el bloqueo del proyecto
+		delete(m.jobs, msg.path) // Libera el bloqueo del proyecto
 		switch {
 		case msg.err != nil:
 			m.notify(msg.kind + " error: " + msg.err.Error())
@@ -831,17 +831,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case ptyDataMsg: // 0009 R54: bytes del shell → emulador; re-arma el loop
+	case ptyDataMsg: // Bytes del shell → emulador; re-arma el loop
 		if s := m.term; s != nil {
 			s.write(msg.data)
 			return m, readPtyCmd(s)
 		}
 		return m, nil
 
-	case ptyEOFMsg: // 0009 R56: el reaper (armado al abrir) hace el cleanup
+	case ptyEOFMsg: // El reaper (armado al abrir) hace el cleanup
 		return m, nil
 
-	case ptyExitMsg: // sesión reaped: cleanup + aviso (0009 R56)
+	case ptyExitMsg: // sesión reaped: cleanup + aviso
 		if s := m.term; s != nil {
 			s.shutdown() // idempotente; desbloquea el read loop si quedó
 			m.termOpen = false
@@ -854,7 +854,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case stackResultMsg: // 0010: resultado de orquestación de stack
+	case stackResultMsg: // Resultado de orquestación de stack
 		if msg.err != nil {
 			m.notify("stack error: " + msg.err.Error())
 		} else if !msg.result.OK {
@@ -864,7 +864,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case composersResultMsg: // 0010: resultado de lanzar todos los stacks de un group
+	case composersResultMsg: // Resultado de lanzar todos los stacks de un group
 		failed := 0
 		for _, r := range msg.results {
 			if !r.OK {
@@ -932,36 +932,36 @@ func mapUIStatus(s process.Status) uiStatus {
 func (m Model) handleKey(msg tea.Msg) (tea.Model, tea.Cmd) {
 	keyMsg := msg.(tea.KeyMsg)
 	key := keyMsg.String()
-	if m.termOpen { // modal de terminal captura las teclas (0009 R54)
+	if m.termOpen { // modal de terminal captura las teclas
 		return m.termKey(keyMsg)
 	}
-	if m.askPromptOpen { // modal del prompt captura las teclas (0004 R32)
+	if m.askPromptOpen { // modal del prompt captura las teclas
 		return m.askKey(keyMsg)
 	}
-	if m.pickerOpen { // modal: el picker captura las teclas (0003 R28)
+	if m.pickerOpen { // modal: el picker captura las teclas
 		return m.pickerKey(key)
 	}
-	if m.filterOpen { // barra de filtro captura las teclas (0007 R40)
+	if m.filterOpen { // barra de filtro captura las teclas
 		return m.filterKey(keyMsg)
 	}
-	// Teclas universales (0008 R47): navegación, especiales y las
-	// permanentes "/" (filter) y "!" (terminal, 0009 R52). No
+	// Teclas universales: navegación, especiales y las
+	// permanentes "/" (filter) y "!" (terminal). No
 	// remapeables.
 	switch key {
 	case "q", "ctrl+c":
 		return m, m.quitCmd()
-	case "esc": // 0004 R30: sin panel que cerrar; esc sale
-		if m.filterText != "" { // 0007 S42.3: con filtro, esc limpia (no sale)
+	case "esc": // Sin panel que cerrar; esc sale
+		if m.filterText != "" { // Con filtro, esc limpia (no sale)
 			return m.applyFilter("")
 		}
 		return m, m.quitCmd()
-	case "!": // 0009 R52: abre/muestra la terminal embebida
+	case "!": // Abre/muestra la terminal embebida
 		return m.openTerm()
-	case "/": // 0007 R40: abre el filtro del árbol
+	case "/": // Abre el filtro del árbol
 		return m.openFilter()
-	case "enter": // R24: colapsar/expandir el grupo seleccionado
+	case "enter": // Colapsar/expandir el grupo seleccionado
 		return m.enterSelection()
-	case "j", "k", "up", "down": // S12.1 + S18.5
+	case "j", "k", "up", "down":
 		return m.navigate(key)
 	case "tab":
 		if m.activeTab == tabConsole {
@@ -972,7 +972,7 @@ func (m Model) handleKey(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.switchTab(tabConsole)
 	case "2":
 		return m.switchTab(tabThreads)
-	case "pgup": // S19.4: scroll pausa el follow; si stack/group seleccionado, scroll details
+	case "pgup": // Scroll pausa el follow; si stack/group seleccionado, scroll details
 		if m.detailsShown && m.selectedItemKind() != itemProject {
 			m.scrollDetails(-detailsHeight)
 			return m, nil
@@ -988,7 +988,7 @@ func (m Model) handleKey(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.consoleView.PageDown()
 		return m, nil
 	}
-	// Acciones configurables (0008 R46/R50): tecla → acción vía el mapa
+	// Acciones configurables: tecla → acción vía el mapa
 	// inverso precalculado. Con defaults coincide con el comportamiento
 	// histórico.
 	switch m.keyActions[key] {
@@ -996,42 +996,42 @@ func (m Model) handleKey(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.toggleSelected()
 	case "restart":
 		return m.restartSelected()
-	case "build": // 0003 R26: build one-shot
+	case "build": // Build one-shot
 		if it, ok := m.selectedItem(); ok && it.kind == itemStack {
 			m.notify("not available for stacks")
 			return m, nil
 		}
 		return m.runBuild()
-	case "install": // 0003 R26: install one-shot
+	case "install": // Install one-shot
 		if it, ok := m.selectedItem(); ok && it.kind == itemStack {
 			m.notify("not available for stacks")
 			return m, nil
 		}
 		return m.runInstall()
-	case "tasks": // 0003 R28: picker de tasks de mise
+	case "tasks": // Picker de tasks de mise
 		return m.openPicker()
-	case "ask": // 0004 R32: ask AI (dispatch configurable)
+	case "ask": // Ask AI (dispatch configurable)
 		return m.openAsk()
-	case "clear": // 0004 R31: limpiar la consola en memoria
+	case "clear": // Limpiar la consola en memoria
 		return m.clearConsole()
-	case "stream": // S19.3: cicla merged → stdout → stderr
+	case "stream": // Cicla merged → stdout → stderr
 		m.stream = (m.stream + 1) % 3
 		return m, m.syncConsoleView()
-	case "top": // S19.4: goto top pausa el follow
+	case "top": // Goto top pausa el follow
 		m.consoleFollow = false
 		m.consoleView.GotoTop()
 		return m, nil
-	case "bottom": // reactiva el follow (S19.4)
+	case "bottom": // reactiva el follow
 		m.consoleFollow = true
 		m.consoleView.GotoBottom()
 		return m, nil
-	case "logs": // S22.1: abre los logs en el editor
+	case "logs": // Abre los logs en el editor
 		if it, ok := m.selectedItem(); ok && it.kind == itemStack {
 			m.notify("not available for stacks")
 			return m, nil
 		}
 		return m.openLogEditor()
-	case "refresh": // S22.2: refresh forzado sin cambiar de vista
+	case "refresh": // Refresh forzado sin cambiar de vista
 		return m, m.refreshBatch()
 	}
 	if key == "o" { // alias fijo de logs, salvo que el config lo reclame
@@ -1042,7 +1042,7 @@ func (m Model) handleKey(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // navigate mueve el cursor cíclicamente por el árbol (grupos y
 // proyectos) y ajusta la ventana visible para mantener el cursor en
-// pantalla (S12.1 + S18.5).
+// pantalla.
 func (m Model) navigate(key string) (tea.Model, tea.Cmd) {
 	if len(m.tree) == 0 {
 		return m, nil
@@ -1055,7 +1055,7 @@ func (m Model) navigate(key string) (tea.Model, tea.Cmd) {
 	}
 	m.detailsTop = 0 // reset scroll al cambiar de item
 	_, cursorLine := m.treeLines()
-	visH := m.treeVis() // 0007 R44: la barra consume una línea del árbol
+	visH := m.treeVis() // La barra consume una línea del árbol
 	if cursorLine < m.treeTop {
 		m.treeTop = cursorLine
 	} else if cursorLine >= m.treeTop+visH {
@@ -1064,7 +1064,7 @@ func (m Model) navigate(key string) (tea.Model, tea.Cmd) {
 	return m.onSelect()
 }
 
-// enterSelection es la acción de `enter` (R24 + 0006 R38): sobre un
+// enterSelection es la acción de `enter`: sobre un
 // header alterna su propio nivel (primario o secundario); sobre un
 // proyecto pliega el contenedor más interno al que pertenece (su
 // secundario si tiene, si no su primario). El header conserva su índice
@@ -1081,11 +1081,11 @@ func (m Model) enterSelection() (tea.Model, tea.Cmd) {
 		key := m.secondaryKey(it.primary, it.secondary)
 		m.collapsed[key] = !m.collapsed[key]
 	case itemStack:
-		return m, nil // stacks no se pliegan (0010 R56 S56.3)
+		return m, nil // stacks no se pliegan
 	case itemRepo:
-		m.toggleRepoCollapse(it.repoPath) // contenedor sintetizado (0011)
+		m.toggleRepoCollapse(it.repoPath) // contenedor sintetizado
 	case itemProject:
-		if it.hasKids { // fila de repo: pliega/expande sus worktrees (0011)
+		if it.hasKids { // fila de repo: pliega/expande sus worktrees
 			m.toggleRepoCollapse(it.repoPath)
 			break
 		}
@@ -1104,8 +1104,8 @@ func (m Model) enterSelection() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// onSelect refresca la consola (y threads) al cambiar la selección
-// (S19.2); sobre un grupo o stack muestra un placeholder.
+// onSelect refresca la consola (y threads) al cambiar la selección;
+// sobre un grupo o stack muestra un placeholder.
 func (m Model) onSelect() (tea.Model, tea.Cmd) {
 	p := m.selected()
 	if p == nil {
@@ -1143,7 +1143,7 @@ func (m Model) switchTab(tab tabKind) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// refreshBatch re-verifica liveness + tail + muestreo de threads (S22.2).
+// refreshBatch re-verifica liveness + tail + muestreo de threads.
 func (m Model) refreshBatch() tea.Cmd {
 	cmds := []tea.Cmd{refreshCmd(m.store, m.manager, m.projects), m.refreshThreads()}
 	if p := m.selected(); p != nil && p.Configured {
@@ -1178,7 +1178,7 @@ func (m Model) tailCmd() tea.Cmd {
 }
 
 // applyConsoleDelta integra los bytes nuevos en los buffers del servicio
-// (S19.1/S23.1) y actualiza el viewport si es visible.
+// y actualiza el viewport si es visible.
 func (m *Model) applyConsoleDelta(msg consoleDeltaMsg) {
 	cs := m.consoleStateFor(msg.path)
 	cs.off[0], cs.off[1] = msg.offS, msg.offE
@@ -1197,9 +1197,9 @@ func (m *Model) applyConsoleDelta(msg consoleDeltaMsg) {
 }
 
 // applyThreads computa la tabla de hilos con CPU% por delta entre
-// muestras (S20.1/S20.2).
+// muestras.
 func (m *Model) applyThreads(msg threadsMsg) {
-	if msg.err != nil { // S20.5: proceso muerto entre ticks
+	if msg.err != nil { // Proceso muerto entre ticks
 		m.threads[msg.path] = nil
 		return
 	}
@@ -1229,7 +1229,7 @@ func ticksOf(threads []process.ThreadInfo) map[int]uint64 {
 }
 
 // consoleStateFor devuelve (creando si falta) el estado de consola del
-// servicio: los buffers persisten mientras corre la TUI (S19.2).
+// servicio: los buffers persisten mientras corre la TUI.
 func (m *Model) consoleStateFor(path string) *consoleState {
 	cs, ok := m.consoleStates[path]
 	if !ok {
@@ -1240,12 +1240,12 @@ func (m *Model) consoleStateFor(path string) *consoleState {
 }
 
 // setConsoleContent vuelca el buffer al viewport respetando el modo de
-// follow: si está pausado se conserva el offset de scroll (S19.4). El
+// follow: si está pausado se conserva el offset de scroll. El
 // contenido pasa por el saneo de CR y el resaltado de niveles antes de
-// renderizarse (S19.8).
+// renderizarse.
 func (m *Model) setConsoleContent(content string) {
 	if content == "" {
-		content = "No logs available" // S16.2 heredado
+		content = "No logs available" // Heredado
 	}
 	y := m.consoleView.YOffset()
 	m.consoleView.SetContent(highlightConsole(sanitizeConsole(content)))
@@ -1279,11 +1279,11 @@ func (m Model) syncConsoleView() tea.Cmd {
 	return nil
 }
 
-// ---- Acciones de servicio (spec 0001 R14/R15) ----
+// ---- Acciones de servicio ----
 
 // toggleSelected es la acción contextual de `s`: start si está parado,
 // stop si está corriendo (o unknown). Nunca hace doble start: si el
-// estado es running el toggle SIEMPRE para (S15.1).
+// estado es running el toggle SIEMPRE para.
 func (m Model) toggleSelected() (tea.Model, tea.Cmd) {
 	it, ok := m.selectedItem()
 	if !ok {
@@ -1306,7 +1306,7 @@ func (m Model) toggleSelected() (tea.Model, tea.Cmd) {
 	if p == nil {
 		return m, nil
 	}
-	if !p.Configured { // S11.2
+	if !p.Configured {
 		m.notify("No manifest — create a .vroom.toml to enable")
 		return m, nil
 	}
@@ -1319,7 +1319,7 @@ func (m Model) toggleSelected() (tea.Model, tea.Cmd) {
 	case statusStarting, statusStopping:
 		return m, nil // en tránsito: ignorar
 	default: // stopped
-		sv.Status = statusStarting // S14.1
+		sv.Status = statusStarting
 		m.clearMessage()
 		// Limpiar la consola en memoria inmediatamente al pulsar start
 		// para que no se vean los logs viejos mientras arranca el proceso.
@@ -1332,8 +1332,8 @@ func (m Model) toggleSelected() (tea.Model, tea.Cmd) {
 	}
 }
 
-// toggleNode aplica el toggle contextual a los miembros del nodo (R24;
-// 0006 R39): de un primario a todos sus miembros (incluidos los de todos
+// toggleNode aplica el toggle contextual a los miembros del nodo;
+// de un primario a todos sus miembros (incluidos los de todos
 // sus secundarios); de un secundario, solo a los suyos. Si hay parados
 // arranca los parados; si no, para los running.
 func (m Model) toggleNode(primary, secondary string) (tea.Model, tea.Cmd) {
@@ -1434,7 +1434,7 @@ type composersResultMsg struct {
 	results []orchestrate.LaunchResult
 }
 
-// toggleStack alterna el estado de un stack (0010 R56): lanza la
+// toggleStack alterna el estado de un stack: lanza la
 // orquestación si está stopped, para todos los servicios si está running.
 func (m Model) toggleStack(s *orchestrate.Stack) (tea.Model, tea.Cmd) {
 	if m.engine == nil {
@@ -1469,7 +1469,7 @@ func (m Model) toggleStack(s *orchestrate.Stack) (tea.Model, tea.Cmd) {
 }
 
 // markStackStopping marca como stopping los servicios del stack resueltos
-// con el criterio compartido (0011).
+// con el criterio compartido.
 func (m Model) markStackStopping(s *orchestrate.Stack) {
 	seen := make(map[string]bool)
 	for _, stage := range s.Stages {
@@ -1493,7 +1493,7 @@ func (m Model) markStackStopping(s *orchestrate.Stack) {
 // de un primario, todos sus miembros (incluidos los de todos sus
 // secundarios); de un secundario, solo los del par primario/secundario.
 // Los worktrees anidados y las filas contenedoras se excluyen: se
-// renderizan bajo su fila de repo, no dentro de este grupo (0011).
+// renderizan bajo su fila de repo, no dentro de este grupo.
 func (m Model) nodeMembers(primary, secondary string) []scanner.Project {
 	var out []scanner.Project
 	for _, e := range m.entries {
@@ -1511,9 +1511,9 @@ func (m Model) nodeMembers(primary, secondary string) []scanner.Project {
 	return out
 }
 
-// nodeStats cuenta miembros y servicios en ejecución del nodo (R24);
-// el conteo del primario suma todos sus secundarios (S38.5).
-// Los stacks no se cuentan (0010).
+// nodeStats cuenta miembros y servicios en ejecución del nodo;
+// el conteo del primario suma todos sus secundarios.
+// Los stacks no se cuentan.
 func (m Model) nodeStats(primary, secondary string) (running, total int) {
 	for _, p := range m.nodeMembers(primary, secondary) {
 		total++
@@ -1552,8 +1552,8 @@ func manifestStop(p scanner.Project) string {
 	return p.Manifest.Stop
 }
 
-// openLogEditor abre ambos logs del servicio seleccionado en el editor
-// (S22.1): el foco sigue el modo de stream actual.
+// openLogEditor abre ambos logs del servicio seleccionado en el editor;
+// el foco sigue el modo de stream actual.
 func (m Model) openLogEditor() (tea.Model, tea.Cmd) {
 	p := m.selected()
 	if p == nil {
@@ -1574,7 +1574,7 @@ func (m Model) openLogEditor() (tea.Model, tea.Cmd) {
 	)
 }
 
-// ---- Jobs one-shot (spec 0003 R26/R27) ----
+// ---- Jobs one-shot ----
 
 // runInstall lanza el comando install del manifiesto (tecla i).
 func (m Model) runInstall() (tea.Model, tea.Cmd) {
@@ -1617,7 +1617,7 @@ func (m Model) runBuild() (tea.Model, tea.Cmd) {
 }
 
 // launchJob valida el bloqueo de jobs concurrentes sobre el mismo
-// proyecto (R27) y despacha jobCmd.
+// proyecto y despacha jobCmd.
 func (m Model) launchJob(kind, command string) (tea.Model, tea.Cmd) {
 	p := m.selected()
 	if m.jobs[p.Path] != "" {
@@ -1694,7 +1694,7 @@ func (m Model) pickerKey(key string) (tea.Model, tea.Cmd) {
 		}
 		it := m.pickerItems[m.pickerCursor]
 		switch m.pickerKind {
-		case pickerAgents: // 0004 R32: agente elegido → input del prompt
+		case pickerAgents: // Agente elegido → input del prompt
 			m.pickerOpen = false
 			return m.startAskPrompt(agents.Agent{Name: it.Name, Cmd: it.agentCmd})
 		default: // pickerTasks: ejecutar `mise run <task>` como job
@@ -1705,10 +1705,10 @@ func (m Model) pickerKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil // modal: el resto de teclas se ignoran
 }
 
-// ---- Filtro del árbol (spec 0007 R40) ----
+// ---- Filtro del árbol ----
 
 // openFilter abre la barra de filtro: conserva el texto ya aplicado para
-// que `/` sirva de "editar el filtro" (S40.4).
+// que `/` sirva de "editar el filtro".
 func (m Model) openFilter() (tea.Model, tea.Cmd) {
 	m.filterOpen = true
 	m.filterInput.SetValue(m.filterText)
@@ -1716,8 +1716,8 @@ func (m Model) openFilter() (tea.Model, tea.Cmd) {
 }
 
 // filterKey maneja las teclas del box abierto: el texto va al input y
-// recalcula el árbol en vivo (S40.3); enter cierra aplicando el filtro
-// actual; esc cierra limpiando (S42.2); ctrl+c sigue saliendo.
+// recalcula el árbol en vivo; enter cierra aplicando el filtro
+// actual; esc cierra limpiando; ctrl+c sigue saliendo.
 func (m Model) filterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
@@ -1727,12 +1727,12 @@ func (m Model) filterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.filterInput.Reset()
 		return m.applyFilter("")
 	case "enter":
-		m.filterOpen = false // S42.1: el filtro ya está aplicado en vivo
+		m.filterOpen = false // El filtro ya está aplicado en vivo
 		return m, nil
 	}
 	ni, cmd := m.filterInput.Update(msg)
 	m.filterInput = ni
-	if v := ni.Value(); v != m.filterText { // S40.3: filtrado en vivo
+	if v := ni.Value(); v != m.filterText { // Filtrado en vivo
 		next, _ := m.applyFilter(v)
 		m = next.(Model)
 	}
@@ -1740,9 +1740,9 @@ func (m Model) filterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // applyFilter recompone el árbol con los proyectos que matchean q
-// (S41.*): re-ejecuta group.Arrange sobre los filtrados (los headers de
+// re-ejecuta group.Arrange sobre los filtrados (los headers de
 // grupo solo aparecen con miembros que matchean) y resetea cursor y
-// treeTop (S43.2). q vacío restaura el árbol completo.
+// treeTop. q vacío restaura el árbol completo.
 func (m Model) applyFilter(q string) (tea.Model, tea.Cmd) {
 	m.filterText = q
 	projects := m.projects
@@ -1760,7 +1760,7 @@ func (m Model) applyFilter(q string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// ---- Ask AI (spec 0004 R32) ----
+// ---- Ask AI ----
 
 // openAsk inicia el flujo de ask AI sobre el proyecto seleccionado:
 // picker de agentes (solo instalados) o directo al prompt si hay uno.
@@ -1793,7 +1793,7 @@ func (m Model) openAsk() (tea.Model, tea.Cmd) {
 
 // startAskPrompt abre el modal de prompt para el agente elegido. El
 // input (textarea multi-línea) se prellena con el template del config
-// (spec 0005 R35): [ask] prompt con placeholders {name}/{dir}/{logs};
+// [ask] prompt con placeholders {name}/{dir}/{logs};
 // vacío → sin prefill. El alto crece con el contenido hasta el cap de
 // pantalla; más allá, el textarea hace scroll interno.
 func (m Model) startAskPrompt(ag agents.Agent) (tea.Model, tea.Cmd) {
@@ -1860,7 +1860,7 @@ func (m Model) askKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // dispatchAsk lanza el agente con el prompt vía el launcher
-// configurado (herdr/inline/custom, 0004 R32).
+// configurado (herdr/inline/custom).
 func (m Model) dispatchAsk() (tea.Model, tea.Cmd) {
 	prompt := strings.TrimSpace(m.promptInput.Value())
 	if prompt == "" {
@@ -1907,7 +1907,7 @@ func launchAskCmd(l *launcher.Launcher, strategy string, req launcher.Request) t
 	}
 }
 
-// ---- Limpiar consola (spec 0004 R31) ----
+// ---- Limpiar consola ----
 
 // fileSizeOrZero devuelve el tamaño del fichero, o 0 si no existe.
 func fileSizeOrZero(path string) int64 {
@@ -2006,14 +2006,14 @@ func (m Model) selectedNode() (primary, secondary string) {
 	return it.primary, it.secondary
 }
 
-// secondaryKey es la clave de plegado de un secundario (0006 R38):
+// secondaryKey es la clave de plegado de un secundario:
 // compuesta `primario/secundario` para evitar colisión de nombres entre
-// primarios distintos (S38.6).
+// primarios distintos.
 func (m Model) secondaryKey(primary, secondary string) string {
 	return primary + "/" + secondary
 }
 
-// toggleRepoCollapse alterna la expansión de una fila de repo (0011). El
+// toggleRepoCollapse alterna la expansión de una fila de repo. El
 // estado vive en el mismo mapa persistido pero con la clave `repo:<path>`
 // y semántica invertida (default colapsado).
 func (m Model) toggleRepoCollapse(repoPath string) {

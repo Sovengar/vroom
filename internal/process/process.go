@@ -10,7 +10,7 @@ package process
 
 import "time"
 
-// Status es el estado de un servicio evaluado (spec R9).
+// Status es el estado de un servicio evaluado.
 type Status string
 
 const (
@@ -19,7 +19,7 @@ const (
 	StatusUnknown Status = "unknown"
 )
 
-// DefaultStopTimeout es el timeout de SIGTERM antes de SIGKILL (spec R8).
+// DefaultStopTimeout es el timeout de SIGTERM antes de SIGKILL.
 const DefaultStopTimeout = 5 * time.Second
 
 // StartSpec describe el arranque de un servicio daemonizado.
@@ -55,13 +55,13 @@ type EvalSpec struct {
 // Manager es la abstracción de gestión de procesos portable a Windows.
 type Manager interface {
 	// Start daemoniza el comando: nuevo session leader, stdout/stderr a
-	// ficheros, y sobrevive al cierre del padre (spec R7).
+	// ficheros, y sobrevive al cierre del padre.
 	Start(spec StartSpec) (StartResult, error)
 
-	// Stop envía SIGTERM al PGID y SIGKILL tras timeout (spec R8, unix).
+	// Stop envía SIGTERM al PGID y SIGKILL tras timeout (unix).
 	Stop(spec StopSpec) error
 
 	// Evaluate determina el estado del servicio con protección anti
-	// PID-reuse vía creation_time (spec R9).
+	// PID-reuse vía creation_time.
 	Evaluate(spec EvalSpec) Status
 }

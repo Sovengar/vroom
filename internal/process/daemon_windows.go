@@ -5,7 +5,7 @@ package process
 import "fmt"
 
 // windowsManager es un placeholder documentado para v2 (el diseño no
-// bloquea Windows, ver proposal "Consideraciones cross-platform").
+// bloquea Windows).
 //
 // Plan de implementación v2:
 //   - Spawn: exec.Command con SysProcAttr{CreationFlags: CREATE_NEW_PROCESS_GROUP |

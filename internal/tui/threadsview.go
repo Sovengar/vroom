@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// threadRow es una fila de la tabla de hilos (spec 0002 R20).
+// threadRow es una fila de la tabla de hilos.
 type threadRow struct {
 	Name  string
 	TID   int
@@ -14,7 +14,7 @@ type threadRow struct {
 	CPU   float64
 }
 
-// sortRows ordena por CPU% descendente con desempate por TID (S20.3).
+// sortRows ordena por CPU% descendente con desempate por TID.
 func sortRows(rows []threadRow) {
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].CPU != rows[j].CPU {
@@ -31,11 +31,11 @@ type threadSample struct {
 }
 
 // threadsLines renderiza la tabla de hilos del servicio seleccionado
-// (S20.1-S20.4): nombre, TID, estado y CPU% ordenados por CPU.
+// Nombre, TID, estado y CPU% ordenados por CPU.
 func (m Model) threadsLines(w, h int) []string {
 	p := m.selected()
 	if p == nil {
-		if m.onHeader() { // R24 + 0006 R39: nodo sin proceso propio
+		if m.onHeader() { // Nodo sin proceso propio
 			return []string{styleDim.Render(trunc("group selected — pick a service to inspect threads", w))}
 		}
 		return nil
@@ -43,7 +43,7 @@ func (m Model) threadsLines(w, h int) []string {
 	if !p.Configured {
 		return []string{styleDim.Render(trunc("No manifest — create a .vroom.toml to enable", w))}
 	}
-	if !m.isRunning(p.Path) { // S20.4
+	if !m.isRunning(p.Path) {
 		return []string{styleDim.Render("service not running")}
 	}
 	rows := m.threads[p.Path]

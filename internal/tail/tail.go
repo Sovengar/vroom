@@ -1,5 +1,5 @@
 // Package tail proporciona lectura incremental de ficheros de log para la
-// consola en tiempo real (spec 0002 R19): solo bytes nuevos por llamada,
+// consola en tiempo real: solo bytes nuevos por llamada,
 // strip de ANSI y cap de buffer.
 package tail
 
@@ -43,7 +43,7 @@ func ReadNew(path string, offset int64) (data string, newOffset int64, err error
 
 // StripANSI elimina secuencias de escape ANSI (CSI, OSC y escapes de 2
 // bytes) de s. Los logs de servicios traen color y el viewport no los
-// interpreta: sin strip el ancho se rompe (spec R19/S19.5).
+// interpreta: sin strip el ancho se rompe.
 func StripANSI(s string) string {
 	if !strings.ContainsRune(s, '\x1b') {
 		return s
@@ -91,7 +91,7 @@ func StripANSI(s string) string {
 
 // CapBuffer recorta s a como máximo maxBytes conservando el final (el
 // contenido más reciente), cortando por línea completa cuando es posible
-// y sin partir runes multibyte (spec R19/S19.6).
+// y sin partir runes multibyte.
 func CapBuffer(s string, maxBytes int) string {
 	if maxBytes <= 0 || len(s) <= maxBytes {
 		return s

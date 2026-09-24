@@ -159,7 +159,7 @@ cmd = "hermes chat -q {prompt}"
 [ask.agents.jcode]
 cmd = "jcode run {prompt}"
 
-# ── Keybindings (0008) ───────────────────────────────────────
+# ── Keybindings ───────────────────────────────────────
 # Mapea nombre de acción → tecla; cualquier acción ausente conserva su
 # default. Remapear sobre una tecla universal, duplicar una tecla entre
 # acciones o usar una acción desconocida invalida la config (defaults
@@ -276,5 +276,3 @@ al reabrirla se re-adjunta al estado y verifica procesos con protección anti PI
 go test ./...        # unit + integración
 go vet ./...
 ```
-
-Spec funcional completa: `docs/planning/0001-feature-vroom-tui/`.

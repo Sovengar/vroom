@@ -51,7 +51,7 @@ func newTestModel(t *testing.T) (Model, *state.Store) {
 }
 
 // newJobsTestModel extiende el árbol base con comandos install/build en
-// tienda-api y un mise.toml con tasks en tienda-web (0003 R26/R28).
+// tienda-api y un mise.toml con tasks en tienda-web.
 func newJobsTestModel(t *testing.T) (Model, *state.Store) {
 	t.Helper()
 	isolateConfig(t)
@@ -71,7 +71,7 @@ func isolateConfig(t *testing.T) {
 
 // newTestModelWithConfig construye el modelo leyendo la config del
 // contenido dado (para probar claves del config.toml, ej. el prefill
-// de ask, spec 0005 R35).
+// de ask).
 func newTestModelWithConfig(t *testing.T, content string) (Model, *state.Store) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.toml")
@@ -209,7 +209,7 @@ func pathOfSelected(t *testing.T, m Model) string {
 	return p.Path
 }
 
-// S12.1: navegación cíclica sobre el árbol (grupos + proyectos, R24).
+// Navegación cíclica sobre el árbol (grupos + proyectos).
 func TestNavigationCyclic(t *testing.T) {
 	m, _ := newTestModel(t)
 	if len(m.entries) != 3 {
@@ -236,7 +236,7 @@ func TestNavigationCyclic(t *testing.T) {
 	}
 }
 
-// Toggle sobre running: SIEMPRE para (nunca doble start, S15.1).
+// Toggle sobre running: SIEMPRE para (nunca doble start).
 func TestToggleRunningStops(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -268,7 +268,7 @@ func TestToggleUnknownStops(t *testing.T) {
 	}
 }
 
-// S14.1: toggle sobre stopped → starting (transitorio) + comando de spawn.
+// Toggle sobre stopped → starting (transitorio) + comando de spawn.
 func TestToggleStoppedStarts(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -298,7 +298,7 @@ func TestToggleInTransitIgnored(t *testing.T) {
 	}
 }
 
-// S14.2: restart = stop → start encadenados.
+// Restart = stop → start encadenados.
 func TestRestartChainsStopAndStart(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -337,7 +337,7 @@ func TestRestartRequiresRunning(t *testing.T) {
 	}
 }
 
-// R13/S13.1: el polling actualiza estados desde meta.json.
+// El polling actualiza estados desde meta.json.
 func TestRefreshUpdatesStatuses(t *testing.T) {
 	m, store := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -367,7 +367,7 @@ func TestRefreshUpdatesStatuses(t *testing.T) {
 	}
 }
 
-// S5.1: meta corrupto → stopped + warning visible, sin crashear.
+// Meta corrupto → stopped + warning visible, sin crashear.
 func TestRefreshWithCorruptMeta(t *testing.T) {
 	m, store := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -394,7 +394,7 @@ func TestRefreshWithCorruptMeta(t *testing.T) {
 	}
 }
 
-// S9.3: unknown se mapea a estado unknown con indicador en el dashboard.
+// Unknown se mapea a estado unknown con indicador en el dashboard.
 func TestRefreshMapsUnknown(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -413,7 +413,7 @@ func TestRefreshMapsUnknown(t *testing.T) {
 	}
 }
 
-// S7.2: al refrescar con meta en disco el modelo re-adjunta el estado.
+// Al refrescar con meta en disco el modelo re-adjunta el estado.
 func TestReattachFromDisk(t *testing.T) {
 	m, store := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -448,9 +448,9 @@ func TestTickReschedules(t *testing.T) {
 	_ = m2
 }
 
-// ---- Dashboard (0002 R18) ----
+// ---- Dashboard ----
 
-// 0004 R30: el panel de detalles es fijo (sin toggle); `d` no existe y
+// El panel de detalles es fijo (sin toggle); `d` no existe y
 // esc sale directamente.
 func TestDetailsAlwaysVisible(t *testing.T) {
 	m, _ := newTestModel(t)
@@ -471,7 +471,7 @@ func TestDetailsAlwaysVisible(t *testing.T) {
 	}
 }
 
-// 0006 S38.4: enter sobre un proyecto pliega el contenedor más interno;
+// Enter sobre un proyecto pliega el contenedor más interno;
 // aquí (sin secundario en el árbol base) su primario. No emite comandos.
 func TestEnterOnProjectTogglesInnermost(t *testing.T) {
 	m, _ := newTestModel(t)
@@ -488,7 +488,7 @@ func TestEnterOnProjectTogglesInnermost(t *testing.T) {
 	}
 }
 
-// S18.3: en anchos mínimos el detalle se auto-oculta aunque esté abierto.
+// En anchos mínimos el detalle se auto-oculta aunque esté abierto.
 func TestDetailsAutoHideNarrow(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.width = 50
@@ -505,7 +505,7 @@ func TestDetailsAutoHideNarrow(t *testing.T) {
 	}
 }
 
-// S18.4: la pestaña activa se renderiza con estilo distinto.
+// La pestaña activa se renderiza con estilo distinto.
 func TestActiveTabMarked(t *testing.T) {
 	if tabLabel(tabConsole, true) == tabLabel(tabConsole, false) {
 		t.Error("la pestaña activa debe renderizarse distinto a la inactiva")
@@ -515,7 +515,7 @@ func TestActiveTabMarked(t *testing.T) {
 	}
 }
 
-// S18.5: el árbol hace scroll automático al navegar más allá de lo visible.
+// El árbol hace scroll automático al navegar más allá de lo visible.
 func TestTreeAutoScroll(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
@@ -552,7 +552,7 @@ func TestTreeAutoScroll(t *testing.T) {
 		t.Errorf("cursor fuera de la ventana: cl=%d top=%d bodyH=%d total=%d",
 			cl2, m2.treeTop, m2.bodyH, len(tree))
 	}
-	// Volver al inicio: el cursor 0 fuerza treeTop a 0 (S18.5).
+	// Volver al inicio: el cursor 0 fuerza treeTop a 0.
 	m3 := m2
 	for i := 0; i < 10; i++ {
 		m3, _ = press(m3, "k")
@@ -562,7 +562,7 @@ func TestTreeAutoScroll(t *testing.T) {
 	}
 }
 
-// S18.1: el dashboard muestra árbol (dots/nombres), header de grupo y
+// El dashboard muestra árbol (dots/nombres), header de grupo y
 // pestañas.
 func TestRenderDashboard(t *testing.T) {
 	m, _ := newTestModel(t)
@@ -586,7 +586,7 @@ func TestRenderDashboard(t *testing.T) {
 	}
 }
 
-// R21/S21.1: la rama git aparece en el panel de detalles.
+// La rama git aparece en el panel de detalles.
 func TestDetailsShowsBranch(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -595,7 +595,7 @@ func TestDetailsShowsBranch(t *testing.T) {
 	if !strings.Contains(joined, "branch:") || !strings.Contains(joined, "main") {
 		t.Errorf("detalle sin rama git: %q", joined)
 	}
-	// S21.4: proyecto sin repo no muestra la fila.
+	// Proyecto sin repo no muestra la fila.
 	m = moveCursorTo(t, m, "suelto")
 	for _, l := range m.detailsLines(m.rightW) {
 		if strings.Contains(l, "branch:") {
@@ -624,9 +624,9 @@ func TestDetailsShowsCommands(t *testing.T) {
 	}
 }
 
-// ---- Consola (0002 R19/R23) ----
+// ---- Consola ----
 
-// S19.1: append incremental sin resetear contenido previo.
+// Append incremental sin resetear contenido previo.
 func TestConsoleIncrementalAppend(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -648,7 +648,7 @@ func TestConsoleIncrementalAppend(t *testing.T) {
 	}
 }
 
-// S23.1: merged intercala ambos deltas sin duplicar bytes.
+// Merged intercala ambos deltas sin duplicar bytes.
 func TestConsoleMergedNoDuplicates(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -665,7 +665,7 @@ func TestConsoleMergedNoDuplicates(t *testing.T) {
 	}
 }
 
-// S19.2: navegar entre servicios conserva los buffers y offsets.
+// Navegar entre servicios conserva los buffers y offsets.
 func TestConsoleBuffersSurviveNavigation(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -691,7 +691,7 @@ func TestConsoleBuffersSurviveNavigation(t *testing.T) {
 	}
 }
 
-// S19.4: scroll pausa el follow; G lo reactiva.
+// Scroll pausa el follow; G lo reactiva.
 func TestConsoleFollowPause(t *testing.T) {
 	m, _ := newTestModel(t)
 	if !m.consoleFollow {
@@ -707,7 +707,7 @@ func TestConsoleFollowPause(t *testing.T) {
 	}
 }
 
-// pgup y pgdown hacen scroll real de la consola (S19.4).
+// pgup y pgdown hacen scroll real de la consola.
 func TestConsolePageScroll(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -728,7 +728,7 @@ func TestConsolePageScroll(t *testing.T) {
 }
 
 // La rueda del mouse hace scroll de la consola: arriba pausa el follow,
-// abajo hasta el final lo reactiva (S19.4).
+// abajo hasta el final lo reactiva.
 func TestMouseWheelScroll(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -767,7 +767,7 @@ func TestMouseWheelScroll(t *testing.T) {
 	}
 }
 
-// S19.3 + 0003 R29: c cicla merged → stdout → stderr → merged (antes t,
+// c cicla merged → stdout → stderr → merged (antes t,
 // ahora reservada para el picker de tasks).
 func TestToggleStreamMode(t *testing.T) {
 	m, _ := newTestModel(t)
@@ -785,7 +785,7 @@ func TestToggleStreamMode(t *testing.T) {
 	}
 }
 
-// Buffer con cap (S19.6) a nivel de modelo: los buffers nunca crecen
+// Buffer con cap a nivel de modelo: los buffers nunca crecen
 // infinito aunque el delta sea grande.
 func TestConsoleBufferCapped(t *testing.T) {
 	m, _ := newTestModel(t)
@@ -803,7 +803,7 @@ func TestConsoleBufferCapped(t *testing.T) {
 	}
 }
 
-// S16.2 heredado: buffer vacío muestra placeholder en el viewport.
+// Heredado: buffer vacío muestra placeholder en el viewport.
 func TestEmptyConsoleShowsPlaceholder(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -823,7 +823,7 @@ func offBy(got, want float64) bool {
 	return d > 0.5
 }
 
-// Integración end-to-end del pipeline de consola (S19.1): tail real
+// Integración end-to-end del pipeline de consola: tail real
 // sobre ficheros en disco, dos ticks, solo bytes nuevos.
 func TestConsoleTailPipelineRealFiles(t *testing.T) {
 	m, store := newTestModel(t)
@@ -863,7 +863,7 @@ func TestConsoleTailPipelineRealFiles(t *testing.T) {
 	}
 }
 
-// ---- Pestañas (S22: 1/2/tab) ----
+// ---- Pestañas ----
 
 func TestTabSwitching(t *testing.T) {
 	m, _ := newTestModel(t)
@@ -884,9 +884,9 @@ func TestTabSwitching(t *testing.T) {
 	}
 }
 
-// ---- Threads (0002 R20) ----
+// ---- Threads ----
 
-// S20.4: servicio no running → placeholder.
+// Servicio no running → placeholder.
 func TestThreadsPlaceholderNotRunning(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -901,7 +901,7 @@ func TestThreadsPlaceholderNotRunning(t *testing.T) {
 	}
 }
 
-// S20.1/S20.2/S20.3: tabla ordenada por CPU desc, con delta entre
+// Tabla ordenada por CPU desc, con delta entre
 // muestras (100 ticks en 2s = 50%).
 func TestThreadsTableAndCPU(t *testing.T) {
 	m, _ := newTestModel(t)
@@ -945,7 +945,7 @@ func TestThreadsTableAndCPU(t *testing.T) {
 	}
 }
 
-// S20.5: error de muestreo (proceso muerto) → sin filas ni crash.
+// Error de muestreo (proceso muerto) → sin filas ni crash.
 func TestThreadsSamplingError(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -1007,7 +1007,7 @@ func TestBadgeShowsPort(t *testing.T) {
 	}
 }
 
-// R17 heredado: `l`/`o` compone el editor correctamente (nvim -O, foco
+// Heredado: `l`/`o` compone el editor correctamente (nvim -O, foco
 // según el stream activo, editores no-vim sin -O).
 func TestBuildEditorCmd(t *testing.T) {
 	stdoutLog := "/state/services/abc/stdout.log"
@@ -1069,7 +1069,7 @@ func TestResolveEditor(t *testing.T) {
 }
 
 // La ayuda menciona `l logfile`, las pestañas, el colapso de grupos y
-// las acciones de 0003/0004; `d` (toggle) desapareció.
+// las acciones one-shot y ask; `d` (toggle) desapareció.
 func TestHelpWording(t *testing.T) {
 	full := dashboardHelp1(200, nil) + " · " + dashboardHelp2(200, nil) // nil = defaults
 	for _, want := range []string{"l logfile", "1/2 tabs", "enter collapse", "b build", "i install", "t tasks", "a ask", "C clear", "/ filter", "! shell"} {
@@ -1082,9 +1082,9 @@ func TestHelpWording(t *testing.T) {
 	}
 }
 
-// ---- Keybindings configurables (spec 0008) ----
+// ---- Keybindings configurables ----
 
-// R50.1 + R51.1 + 0009 R52: con defaults la help reproduce el texto
+// Con defaults la help reproduce el texto
 // histórico más el segmento de la terminal embebida, y las teclas
 // disparan sus acciones (los tests existentes lo cubren uno a uno).
 func TestHelpDefaultsDerived(t *testing.T) {
@@ -1098,7 +1098,7 @@ func TestHelpDefaultsDerived(t *testing.T) {
 	}
 }
 
-// R51.2: la help refleja un remap (x start/stop, no s start/stop).
+// La help refleja un remap (x start/stop, no s start/stop).
 func TestHelpRemapped(t *testing.T) {
 	kb := map[string]string{"start_stop": "x"}
 	full1 := dashboardHelp1(200, kb)
@@ -1110,7 +1110,7 @@ func TestHelpRemapped(t *testing.T) {
 	}
 }
 
-// R46.2/S50.2: remap de start_stop a "x" — x dispara el toggle y s queda
+// Remap de start_stop a "x" — x dispara el toggle y s queda
 // libre.
 func TestRemappedStartStop(t *testing.T) {
 	m, _ := newTestModelWithConfig(t, "[keybindings]\nstart_stop = \"x\"\n")
@@ -1135,7 +1135,7 @@ func TestRemappedStartStop(t *testing.T) {
 	}
 }
 
-// R50.2: remap de tasks a "m" — m abre el picker (sin mise.toml notifica
+// Remap de tasks a "m" — m abre el picker (sin mise.toml notifica
 // como lo haría t hoy) y t queda libre.
 func TestRemappedTasks(t *testing.T) {
 	m, _ := newTestModelWithConfig(t, "[keybindings]\ntasks = \"m\"\n")
@@ -1154,7 +1154,7 @@ func TestRemappedTasks(t *testing.T) {
 	}
 }
 
-// R50.4: con un remap activo, las universales siguen operando (1/2
+// Con un remap activo, las universales siguen operando (1/2
 // pestañas, / filtro, enter plegado, tab cicla).
 func TestUniversalsWithRemap(t *testing.T) {
 	m, _ := newTestModelWithConfig(t, "[keybindings]\nstart_stop = \"x\"\nrestart = \"z\"\n")
@@ -1185,7 +1185,7 @@ func TestUniversalsWithRemap(t *testing.T) {
 	}
 }
 
-// R50.3: el alias fijo `o` abre los logs; si el config reclama "o" para
+// El alias fijo `o` abre los logs; si el config reclama "o" para
 // otra acción, gana la acción configurada.
 func TestLogsAliasFixed(t *testing.T) {
 	// Alias con defaults: o abre los logs (cmd del editor) como l.
@@ -1206,7 +1206,7 @@ func TestLogsAliasFixed(t *testing.T) {
 	}
 }
 
-// ---- Grupos seleccionables y colapsables (0002 R24) ----
+// ---- Grupos seleccionables y colapsables ----
 
 // Seleccionar un grupo y colapsarlo con enter: los miembros se ocultan
 // y el header muestra running/total; enter de nuevo los expande.
@@ -1258,7 +1258,7 @@ func TestGroupCollapse(t *testing.T) {
 }
 
 // s sobre un grupo: si hay parados arranca los parados; si no, para los
-// running (toggle de grupo, R24).
+// running (toggle de grupo).
 func TestGroupToggleAll(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.cursor = findPrimary(m, "tienda")
@@ -1329,13 +1329,13 @@ func pathOfSelectedNamed(t *testing.T, m Model, name string) string {
 	return m.tree[idx].project.Path
 }
 
-// ---- Agrupación jerárquica de dos niveles (0006 R36-R39) ----
+// ---- Agrupación jerárquica de dos niveles ----
 
 // newNestedTestModel construye un árbol con primarios y secundarios:
 // tienda (backend: tienda-api, tienda-billing; sin secundario:
 // tienda-inventory; frontend: tienda-web), otros (backend: otros-api) y
 // suelto sin manifiesto. Tienda y otros comparten el nombre de
-// secundario "backend" para verificar claves sin colisión (S38.6).
+// secundario "backend" para verificar claves sin colisión.
 // Filas esperadas: P otros, S backend, otros-api, suelto, P tienda,
 // S backend, tienda-api, tienda-billing, tienda-inventory, S frontend,
 // tienda-web.
@@ -1377,7 +1377,7 @@ func newNestedTestModel(t *testing.T) Model {
 	return m
 }
 
-// S38.1: header primario en columna 0 y secundario indentado 2 espacios.
+// Header primario en columna 0 y secundario indentado 2 espacios.
 func TestNestedTreeRender(t *testing.T) {
 	m := newNestedTestModel(t)
 	tree, _ := m.treeLines()
@@ -1402,7 +1402,7 @@ func TestNestedTreeRender(t *testing.T) {
 	}
 }
 
-// S38.2: plegar un secundario oculta solo sus proyectos; el primario y
+// Plegar un secundario oculta solo sus proyectos; el primario y
 // sus otros secundarios siguen visibles.
 func TestSecondaryCollapse(t *testing.T) {
 	m := newNestedTestModel(t)
@@ -1438,7 +1438,7 @@ func TestSecondaryCollapse(t *testing.T) {
 	}
 }
 
-// S38.3: plegar el primario oculta también sus headers secundarios.
+// Plegar el primario oculta también sus headers secundarios.
 func TestPrimaryCollapseHidesSecondaries(t *testing.T) {
 	m := newNestedTestModel(t)
 	pi := findPrimary(m, "tienda")
@@ -1463,7 +1463,7 @@ func TestPrimaryCollapseHidesSecondaries(t *testing.T) {
 	}
 }
 
-// S38.4: enter sobre un proyecto con secundario pliega el secundario,
+// Enter sobre un proyecto con secundario pliega el secundario,
 // no el primario; sobre uno sin secundario, el primario.
 func TestEnterOnProjectInnermostNested(t *testing.T) {
 	m := newNestedTestModel(t)
@@ -1479,7 +1479,7 @@ func TestEnterOnProjectInnermostNested(t *testing.T) {
 	}
 }
 
-// S38.5: el conteo del primario suma a todos sus secundarios.
+// El conteo del primario suma a todos sus secundarios.
 func TestPrimaryCountIncludesSecondaries(t *testing.T) {
 	m := newNestedTestModel(t)
 	m.services[pathOfSelectedNamed(t, m, "tienda-api")].Status = statusRunning
@@ -1492,7 +1492,7 @@ func TestPrimaryCountIncludesSecondaries(t *testing.T) {
 	}
 }
 
-// S38.6: plegar tienda/backend no pliega otros/backend (claves
+// Plegar tienda/backend no pliega otros/backend (claves
 // compuestas sin colisión).
 func TestSecondaryCollapseKeysNoCollision(t *testing.T) {
 	m := newNestedTestModel(t)
@@ -1508,7 +1508,7 @@ func TestSecondaryCollapseKeysNoCollision(t *testing.T) {
 	}
 }
 
-// S39.2: s sobre el primario aplica el toggle a todos sus miembros,
+// s sobre el primario aplica el toggle a todos sus miembros,
 // incluidos los de todos sus secundarios.
 func TestPrimaryToggleAllSecondaries(t *testing.T) {
 	m := newNestedTestModel(t)
@@ -1524,7 +1524,7 @@ func TestPrimaryToggleAllSecondaries(t *testing.T) {
 	}
 }
 
-// S39.3: s sobre el secundario aplica solo a los miembros de ese
+// s sobre el secundario aplica solo a los miembros de ese
 // secundario.
 func TestSecondaryToggleScoped(t *testing.T) {
 	m := newNestedTestModel(t)
@@ -1544,7 +1544,7 @@ func TestSecondaryToggleScoped(t *testing.T) {
 	}
 }
 
-// S39.1: el panel de detalles del secundario lista solo sus miembros.
+// El panel de detalles del secundario lista solo sus miembros.
 func TestSecondaryDetails(t *testing.T) {
 	m := newNestedTestModel(t)
 	m.cursor = findSecondary(m, "tienda", "backend")
@@ -1563,7 +1563,7 @@ func TestSecondaryDetails(t *testing.T) {
 	}
 }
 
-// S39.4: la fila group: del panel de detalles muestra el compuesto
+// La fila group: del panel de detalles muestra el compuesto
 // primario/secundario (o solo el primario sin secundario).
 func TestDetailsGroupComposite(t *testing.T) {
 	m := newNestedTestModel(t)
@@ -1577,7 +1577,7 @@ func TestDetailsGroupComposite(t *testing.T) {
 	}
 }
 
-// ---- Jobs one-shot (0003 R26/R27) ----
+// ---- Jobs one-shot ----
 
 // b lanza el comando build del manifiesto: marca el job, ejecuta,
 // libera el bloqueo y notifica el resultado; la salida (con banner)
@@ -1667,7 +1667,7 @@ func TestInstallKey(t *testing.T) {
 }
 
 // Con un job en curso sobre el proyecto, otra acción one-shot se
-// bloquea con notificación (R27); otros proyectos siguen libres.
+// bloquea con notificación; otros proyectos siguen libres.
 func TestJobBusyBlock(t *testing.T) {
 	m, _ := newJobsTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -1737,7 +1737,7 @@ func TestJobCmdFailure(t *testing.T) {
 	}
 }
 
-// ---- Picker de tasks de mise (0003 R28) ----
+// ---- Picker de tasks de mise ----
 
 // t abre el modal con los tasks ordenados (sin los hide); j/k navegan;
 // enter cierra y lanza `mise run <task>` como job; el render muestra
@@ -1838,7 +1838,7 @@ func TestPickerNoTasks(t *testing.T) {
 	}
 }
 
-// ---- Limpiar consola (0004 R31) ----
+// ---- Limpiar consola ----
 
 // C vacía los buffers y salta los offsets al EOF: el viewport queda
 // limpio, el siguiente tail no reintroduce nada y los ficheros no
@@ -1900,7 +1900,7 @@ func TestClearConsoleGuards(t *testing.T) {
 	}
 }
 
-// ---- Ask AI (0004 R32) ----
+// ---- Ask AI ----
 
 // Sin agentes instalados → notify, sin abrir nada.
 func TestAskNoAgents(t *testing.T) {
@@ -1958,7 +1958,7 @@ func TestAskPromptGuards(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, _ := press(m, "a")
-	m2.promptInput.SetValue("") // el prefill default (R35) deja el input no vacío
+	m2.promptInput.SetValue("") // el prefill default deja el input no vacío
 
 	m3, _ := press(m2, "enter")
 	if !m3.askPromptOpen || !strings.Contains(m3.message, "empty prompt") {
@@ -2015,7 +2015,7 @@ func TestAskOnGroup(t *testing.T) {
 	}
 }
 
-// El prefill default (R35) rellena el input con el template builtin
+// El prefill default rellena el input con el template builtin
 // expandido: {name} → nombre del proyecto, {logs} → dir del servicio.
 // Teclear añade al final (comportamiento editable real).
 func TestAskPromptPrefillDefault(t *testing.T) {
@@ -2057,7 +2057,7 @@ prompt = "About {name} in {dir}, logs at {logs}: "
 	}
 }
 
-// prompt = "" en config → sin prefill (comportamiento pre-R35).
+// prompt = "" en config → sin prefill (comportamiento previo).
 func TestAskPromptPrefillEmpty(t *testing.T) {
 	t.Setenv("PATH", fakeBin(t, "pi"))
 	m, _ := newTestModelWithConfig(t, "[ask]\nprompt = \"\"\n")
@@ -2068,7 +2068,7 @@ func TestAskPromptPrefillEmpty(t *testing.T) {
 	}
 }
 
-// R35: el textarea del prompt crece con el contenido hasta el cap de
+// El textarea del prompt crece con el contenido hasta el cap de
 // pantalla (16) y ahí se queda (scroll interno), nunca lo excede.
 func TestAskPromptDynamicHeight(t *testing.T) {
 	t.Setenv("PATH", fakeBin(t, "pi"))
@@ -2096,7 +2096,7 @@ func TestAskPromptDynamicHeight(t *testing.T) {
 	}
 }
 
-// R33: las líneas largas de la consola se envuelven (soft wrap) en vez
+// Las líneas largas de la consola se envuelven (soft wrap) en vez
 // de truncarse al borde derecho.
 func TestConsoleSoftWrap(t *testing.T) {
 	m, _ := newTestModel(t)
@@ -2118,7 +2118,7 @@ func TestConsoleSoftWrap(t *testing.T) {
 	}
 }
 
-// R33: el contenido pre-estilizado conserva el color en la continuación
+// El contenido pre-estilizado conserva el color en la continuación
 // (ansi.Cut re-emite las secuencias previas al corte).
 func TestConsoleSoftWrapKeepsStyle(t *testing.T) {
 	m, _ := newTestModel(t)
@@ -2135,10 +2135,10 @@ func TestConsoleSoftWrapKeepsStyle(t *testing.T) {
 	}
 }
 
-// ---- Filtro del árbol con "/" (0007) ----
+// ---- Filtro del árbol con "/" ----
 
 // writeFilterTree extiende el árbol base con un secondary_group en
-// tienda-web (frontend) para probar el match por secundario (S41.3).
+// tienda-web (frontend) para probar el match por secundario.
 func writeFilterTree(t *testing.T) string {
 	t.Helper()
 	root := writeTestTree(t, false)
@@ -2162,7 +2162,7 @@ func newFilterTestModel(t *testing.T) Model {
 }
 
 // typeFilter teclea s carácter a carácter en el filtro abierto
-// (filtrado en vivo, S40.3).
+// (filtrado en vivo).
 func typeFilter(m Model, s string) Model {
 	for _, r := range s {
 		next, _ := press(m, string(r))
@@ -2171,7 +2171,7 @@ func typeFilter(m Model, s string) Model {
 	return m
 }
 
-// S40.1/S40.2: "/" abre la barra inline; las teclas van al input (q no
+// "/" abre la barra inline; las teclas van al input (q no
 // sale) y el placeholder es visible; sin texto el árbol queda intacto.
 func TestFilterOpenCapturesKeys(t *testing.T) {
 	m, _ := newTestModel(t)
@@ -2199,7 +2199,7 @@ func TestFilterOpenCapturesKeys(t *testing.T) {
 	}
 }
 
-// S40.4: reabrir con "/" conserva el texto aplicado.
+// Reabrir con "/" conserva el texto aplicado.
 func TestFilterReopenKeepsText(t *testing.T) {
 	m, _ := newTestModel(t)
 	m2, _ := press(m, "/")
@@ -2211,7 +2211,7 @@ func TestFilterReopenKeepsText(t *testing.T) {
 	}
 }
 
-// S41.1/S41.2: match por nombre (case-insensitive) y por primary_group.
+// Match por nombre (case-insensitive) y por primary_group.
 func TestFilterMatchNameAndPrimary(t *testing.T) {
 	m, _ := newTestModel(t)
 	m2, _ := press(m, "/")
@@ -2228,7 +2228,7 @@ func TestFilterMatchNameAndPrimary(t *testing.T) {
 	}
 }
 
-// S41.3: match por secondary_group (el texto no aparece en ningún
+// Match por secondary_group (el texto no aparece en ningún
 // nombre ni en el primario).
 func TestFilterMatchSecondary(t *testing.T) {
 	m := newFilterTestModel(t)
@@ -2249,7 +2249,7 @@ func TestFilterMatchSecondary(t *testing.T) {
 	}
 }
 
-// S41.4: los headers solo aparecen con miembros que matchean.
+// Los headers solo aparecen con miembros que matchean.
 func TestFilterHeadersOnlyWithMembers(t *testing.T) {
 	m := newFilterTestModel(t)
 	m2, _ := press(m, "/")
@@ -2267,7 +2267,7 @@ func TestFilterHeadersOnlyWithMembers(t *testing.T) {
 	}
 }
 
-// S41.5: sin matches el árbol queda vacío y el render muestra la línea
+// Sin matches el árbol queda vacío y el render muestra la línea
 // "no matches".
 func TestFilterNoMatches(t *testing.T) {
 	m, _ := newTestModel(t)
@@ -2281,7 +2281,7 @@ func TestFilterNoMatches(t *testing.T) {
 	}
 }
 
-// S42.1/S43.1: enter cierra el box aplicando el filtro; la barra queda
+// Enter cierra el box aplicando el filtro; la barra queda
 // como indicador persistente `⌕ texto · n`.
 func TestFilterEnterApplies(t *testing.T) {
 	m, _ := newTestModel(t)
@@ -2302,7 +2302,7 @@ func TestFilterEnterApplies(t *testing.T) {
 	}
 }
 
-// S42.2: esc dentro del box cierra limpiando (árbol completo).
+// Esc dentro del box cierra limpiando (árbol completo).
 func TestFilterEscInBoxClears(t *testing.T) {
 	m, _ := newTestModel(t)
 	m2, _ := press(m, "/")
@@ -2319,7 +2319,7 @@ func TestFilterEscInBoxClears(t *testing.T) {
 	}
 }
 
-// S42.3: esc con filtro aplicado limpia el filtro y NO sale de la TUI.
+// Esc con filtro aplicado limpia el filtro y NO sale de la TUI.
 func TestFilterEscAppliedDoesNotQuit(t *testing.T) {
 	m, _ := newTestModel(t)
 	m2, _ := press(m, "/")
@@ -2334,7 +2334,7 @@ func TestFilterEscAppliedDoesNotQuit(t *testing.T) {
 	}
 }
 
-// S42.4: esc sin filtro sigue saliendo (0002 R30, sin cambios).
+// Esc sin filtro sigue saliendo (sin cambios).
 func TestFilterEscWithoutFilterQuits(t *testing.T) {
 	m, _ := newTestModel(t)
 	_, cmd := press(m, "esc")
@@ -2343,7 +2343,7 @@ func TestFilterEscWithoutFilterQuits(t *testing.T) {
 	}
 }
 
-// S43.2: al filtrar, cursor y treeTop se resetean a 0.
+// Al filtrar, cursor y treeTop se resetean a 0.
 func TestFilterResetsCursor(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.cursor = len(m.tree) - 1
@@ -2354,7 +2354,7 @@ func TestFilterResetsCursor(t *testing.T) {
 	}
 }
 
-// S44.1 (fix): el render del árbol respeta treeTop; con el cursor en la
+// Fix: el render del árbol respeta treeTop; con el cursor en la
 // última fila de un árbol más alto que el cuerpo, la primera línea
 // visible es la fila treeTop (hoy se dibuja siempre desde 0).
 func TestTreeRenderRespectsTreeTop(t *testing.T) {
@@ -2362,7 +2362,7 @@ func TestTreeRenderRespectsTreeTop(t *testing.T) {
 	m.height = 6 // bodyH = 3 < filas del árbol (4)
 	m.updateLayout()
 	m.cursor = 2
-	m2, _ := press(m, "j") // cursor=3, treeTop=1 (S18.5)
+	m2, _ := press(m, "j") // cursor=3, treeTop=1
 	if m2.treeTop != 1 {
 		t.Fatalf("treeTop = %d, want 1", m2.treeTop)
 	}
@@ -2376,12 +2376,12 @@ func TestTreeRenderRespectsTreeTop(t *testing.T) {
 	}
 }
 
-// S44.2: con la barra visible, la línea 0 del árbol es el indicador y
+// Con la barra visible, la línea 0 del árbol es el indicador y
 // las filas del árbol empiezan en la línea 1.
 func TestFilterBarConsumesTreeLine(t *testing.T) {
 	m, _ := newTestModel(t)
 	if len(m.treeColumnLines()) != 4 {
-		t.Fatal("sin barra el árbol ocupa todo el alto (S44.3)")
+		t.Fatal("sin barra el árbol ocupa todo el alto")
 	}
 	m2, _ := press(m, "/")
 	m3 := typeFilter(m2, "tienda")

@@ -67,7 +67,7 @@ func NewEngine(manager process.Manager, store *state.Store) *Engine {
 // LookupService resuelve un nombre de servicio a exactamente un proyecto.
 // Manifest.Name no es identidad única (worktrees pueden repetirlo): ante
 // duplicados devuelve un error explícito con los paths en orden estable,
-// nunca un last-wins silencioso (0011).
+// nunca un last-wins silencioso.
 func LookupService(name string, projects []scanner.Project) (scanner.Project, error) {
 	var matches []scanner.Project
 	for _, p := range projects {
