@@ -337,6 +337,26 @@ func TestBareContainerNotOperable(t *testing.T) {
 	}
 }
 
+// Un contenedor bare sin worktrees no muestra glifo de expansión (no hay
+// nada que expandir).
+func TestBareContainerWithoutWorktreesHasNoGlyph(t *testing.T) {
+	root := t.TempDir()
+	bare := filepath.Join(root, "bare")
+	projects := []scanner.Project{{Path: bare, Name: "bare", IsBareContainer: true}}
+	m := newRepoModel(t, projects, nil)
+	it := m.tree[findRepo(t, m, "bare")]
+	if it.hasKids {
+		t.Fatal("sin worktrees no debe marcar hijos")
+	}
+	joined := strings.Join(mustTree(t, m), "\n")
+	if strings.Contains(joined, "▸") || strings.Contains(joined, "▾") {
+		t.Errorf("un contenedor sin hijos no debe mostrar glifo: %q", joined)
+	}
+	if !strings.Contains(joined, "(bare)") {
+		t.Errorf("el contenedor debe seguir mostrando (bare): %q", joined)
+	}
+}
+
 // S4a: un worktree detached muestra su sha como rama.
 func TestDetachedWorktreeShowsSha(t *testing.T) {
 	root := t.TempDir()

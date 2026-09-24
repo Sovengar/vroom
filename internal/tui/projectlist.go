@@ -263,7 +263,11 @@ func (m Model) treeLines() ([]string, int) {
 		case itemStack:
 			lines = append(lines, cursor+"  "+m.stackRow(it.stack))
 		case itemRepo:
-			lines = append(lines, cursor+m.repoGlyph(it.repoPath)+" "+m.containerRow(it))
+			glyph := ""
+			if it.hasKids {
+				glyph = m.repoGlyph(it.repoPath) + " "
+			}
+			lines = append(lines, cursor+glyph+m.containerRow(it))
 		default:
 			lines = append(lines, cursor+strings.Repeat("  ", it.indent)+m.projectRow(it))
 		}
