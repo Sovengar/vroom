@@ -75,6 +75,49 @@ func TestScanRealGitWorktrees(t *testing.T) {
 	}
 }
 
+// TestScanRealBareRepoWithWorktree cubre el camino IsBareRepo + consulta
+// git real: un bare repo se detecta como fila contenedora y sus worktrees
+// se anotan (RepoRoot) para el anidado.
+func TestScanRealBareRepoWithWorktree(t *testing.T) {
+	requireGit(t)
+	root := t.TempDir()
+	seed := filepath.Join(root, "seed")
+	bare := filepath.Join(root, "bare")
+	wt := filepath.Join(root, "bare-wt-a")
+	if err := os.MkdirAll(seed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runGit(t, root, "init", "-q", "-b", "main", seed)
+	write(filepath.Join(seed, "README.md"), "seed\n")
+	runGit(t, seed, "add", "-A")
+	runGit(t, seed, "commit", "-q", "-m", "init")
+	runGit(t, root, "clone", "-q", "--bare", seed, bare)
+	runGit(t, bare, "worktree", "add", "-q", wt, "main")
+	write(filepath.Join(wt, ".vroom.toml"), "name = \"api\"\ncommand_start = \"echo\"\n")
+
+	result, err := Scan(root, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := find(result.Projects, "bare")
+	if b == nil || !b.IsBareContainer || b.Configured {
+		t.Fatalf("bare repo mal detectado: %+v", b)
+	}
+	w := find(result.Projects, "bare-wt-a")
+	if w == nil || !w.IsWorktree || w.RepoRoot != bare {
+		t.Fatalf("worktree del bare mal anotado: %+v", w)
+	}
+}
+
 // TestScanRealGitSubmoduleNotWorktree verifica que un submodule no se
 // anida como worktree de su repo padre.
 func TestScanRealGitSubmoduleNotWorktree(t *testing.T) {
