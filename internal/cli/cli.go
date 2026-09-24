@@ -59,6 +59,7 @@ type ProjectInfo struct {
 	RepoRoot       string `json:"repo_root,omitempty"`
 	IsWorktree     bool   `json:"is_worktree,omitempty"`
 	BareContainer  bool   `json:"bare_container,omitempty"`
+	WorktreeErr    string `json:"worktree_error,omitempty"`
 	Collapsed      bool   `json:"collapsed"`
 	Pid            int    `json:"pid,omitempty"`
 	Pgid           int    `json:"pgid,omitempty"`
@@ -275,6 +276,7 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 		RepoRoot:      p.RepoRoot,
 		IsWorktree:    p.IsWorktree,
 		BareContainer: p.IsBareContainer,
+		WorktreeErr:   p.WorktreeErr,
 	}
 
 	if !p.Configured {

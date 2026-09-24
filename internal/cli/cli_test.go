@@ -197,3 +197,39 @@ func TestListExposesRelationFlat(t *testing.T) {
 		t.Errorf("bare_container no debe aparecer cuando es false: %v", entry)
 	}
 }
+
+// vroom list expone el error de topología (WorktreeErr) de forma aditiva y
+// omitempty (back-compat).
+func TestListExposesWorktreeError(t *testing.T) {
+	manager := process.NewManager()
+	store := state.NewStoreAt(t.TempDir())
+
+	p := scanner.Project{
+		Path: "/repo", Name: "repo", Configured: true,
+		Manifest:    &manifest.Manifest{Name: "repo", Command: "echo"},
+		WorktreeErr: "git binary not available",
+	}
+	info := buildProjectInfo(manager, store, map[string]bool{}, p)
+	if info.WorktreeErr != "git binary not available" {
+		t.Errorf("WorktreeErr no propagado: %+v", info)
+	}
+	data, err := json.Marshal(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"worktree_error":"git binary not available"`) {
+		t.Errorf("JSON sin worktree_error: %s", data)
+	}
+
+	// omitempty: ausente cuando no hay error de topología.
+	clean := buildProjectInfo(manager, store, map[string]bool{}, scanner.Project{
+		Path: "/x", Name: "x", Configured: true, Manifest: &manifest.Manifest{Name: "x"},
+	})
+	cleanData, err := json.Marshal(clean)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(cleanData), "worktree_error") {
+		t.Errorf("worktree_error no debe aparecer sin error: %s", cleanData)
+	}
+}
