@@ -121,7 +121,7 @@ func TestRepoCollapsedSingleRow(t *testing.T) {
 	if !strings.Contains(joined, "▸") || !strings.Contains(joined, "repo") {
 		t.Errorf("la fila de repo debe estar colapsada (▸): %q", joined)
 	}
-	if !m.collapsed[repoKey(repo)] && m.repoExpanded(repo) {
+	if m.repoExpanded(repo) {
 		t.Error("el repo debe estar colapsado por defecto")
 	}
 }
