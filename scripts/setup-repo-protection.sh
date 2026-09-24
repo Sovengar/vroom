@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # setup-repo-protection.sh — idempotently configure the `protect-main` branch
-# ruleset plus the repo setting that keeps main safe.
+# ruleset, the repo merge setting, and the labels dependabot.yml references.
 #
 # Policy (see the plan / PR description for the rationale):
 #   - block branch deletion            (`deletion`)
@@ -17,8 +17,15 @@
 # check runs of the most recently updated PR head, so the gate can never be
 # configured against check names that do not exist.
 #
-# The repo-admin role is granted an always-on bypass: the owner can still push
-# to main directly (approved escape hatch) without weakening the gate for PRs.
+# BYPASS — accepted consequence, deliberate; do not "fix": the repo-admin role
+# keeps `bypass_mode: always`. The admin can therefore merge red PRs and push or
+# force-push `main`, bypassing every rule above. The gate is absolute only for
+# non-admin actors. Strict mode (no escape hatch) = remove `bypass_actors` and
+# temporarily disable the ruleset for hotfixes.
+#
+# Labels: dependabot.yml references `dependencies` and `ci`. GitHub silently
+# drops undefined labels, so this script creates them when missing (idempotent;
+# a renamed label is recreated under the new name).
 #
 # Requires: gh (authenticated, repo admin) and jq.
 #
@@ -36,12 +43,19 @@ BRANCH="${BRANCH:-main}"
 GH_ACTIONS_APP_ID="${GH_ACTIONS_APP_ID:-15368}"
 REQUIRED_DEFAULT=(Build Lint Test)
 
+# Labels referenced by .github/dependabot.yml, as "name|color|description".
+LABELS=(
+  "dependencies|0366d6|Dependency updates"
+  "ci|0e8a16|CI / build pipeline"
+)
+
 DRY_RUN=0
 OPT_CONTEXTS=""
 OPT_SHA=""
 
 usage() {
-  sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+  # Print the leading comment block (everything after the shebang).
+  awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"
   exit 0
 }
 
@@ -61,6 +75,47 @@ done
 
 REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
 [ -n "$REPO" ] || { echo "ERROR: could not resolve owner/repo (run inside the repository)." >&2; exit 1; }
+
+# find_ruleset_id prints the id of the ruleset named RULESET_NAME, or nothing.
+# The list is paginated (per_page=100) so a large collection cannot make us miss
+# the existing ruleset and create a duplicate. A gh failure is fatal — a
+# transient error must never be read as "no ruleset exists". `jq -s` slurps the
+# concatenated per-page arrays that `gh api --paginate` emits.
+find_ruleset_id() {
+  local json
+  if ! json="$(gh api "repos/${REPO}/rulesets?per_page=100" --paginate)"; then
+    echo "ERROR: could not list rulesets for ${REPO}." >&2
+    exit 1
+  fi
+  printf '%s' "$json" | jq -s -r --arg name "$RULESET_NAME" \
+    '[.[][] | select(.name == $name) | .id] | first // empty'
+}
+
+# ensure_label NAME COLOR DESCRIPTION — create the label only if it is missing,
+# so renames are picked up and existing labels are left untouched.
+ensure_label() {
+  local name="$1" color="$2" desc="$3" existing=""
+  if existing="$(gh api "repos/${REPO}/labels/${name}" --jq '.name' 2>/dev/null)" && [ -n "$existing" ]; then
+    echo "==> Label '${name}' already exists"
+    return 0
+  fi
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "--- would POST repos/${REPO}/labels { name: ${name}, color: ${color} } ---"
+    return 0
+  fi
+  gh api -X POST "repos/${REPO}/labels" \
+    -f "name=${name}" -f "color=${color}" -f "description=${desc}" >/dev/null
+  echo "==> Label '${name}' created"
+}
+
+# ensure_labels applies the LABELS table.
+ensure_labels() {
+  local spec name color desc
+  for spec in "${LABELS[@]}"; do
+    IFS='|' read -r name color desc <<< "$spec"
+    ensure_label "$name" "$color" "$desc"
+  done
+}
 
 echo "==> Repository: ${REPO}"
 echo "==> Ruleset:    ${RULESET_NAME} (target=refs/heads/${BRANCH}, enforcement=active)"
@@ -138,6 +193,13 @@ checks_json+="]"
 
 # ---------------------------------------------------------------------------
 # 3. Build the ruleset payload.
+#
+# NOTE on `bypass_actors` below: the repo-admin role (actor_id 5) keeps
+# `bypass_mode: "always"` on purpose — it is the owner's approved escape hatch.
+# Accepted consequence (deliberate): an admin can merge red PRs and push or
+# force-push `main`, so the ruleset is absolute only for non-admin actors.
+# Strict enforcement (no escape hatch) = drop `bypass_actors` and disable the
+# ruleset explicitly during a hotfix.
 # ---------------------------------------------------------------------------
 payload="$(cat <<JSON
 {
@@ -167,7 +229,9 @@ payload="$(cat <<JSON
         "dismiss_stale_reviews_on_push": false,
         "require_code_owner_review": false,
         "require_last_push_approval": false,
-        "required_review_thread_resolution": false
+        "required_review_thread_resolution": false,
+        "require_extra_approval_for_unattributed_changes": true,
+        "allowed_merge_methods": ["merge", "squash", "rebase"]
       }
     },
     {
@@ -189,7 +253,7 @@ printf '%s' "$payload" | jq -e . >/dev/null
 # ---------------------------------------------------------------------------
 # 4. Find an existing ruleset with this name (idempotency).
 # ---------------------------------------------------------------------------
-existing_id="$(gh api "repos/${REPO}/rulesets" --jq ".[] | select(.name == \"${RULESET_NAME}\") | .id" 2>/dev/null | head -n1 || true)"
+existing_id="$(find_ruleset_id)"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "==> DRY RUN — no mutations will be performed."
@@ -200,6 +264,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   fi
   printf '%s\n' "$payload"
   echo "--- would PATCH repos/${REPO} { \"delete_branch_on_merge\": true } ---"
+  ensure_labels
   exit 0
 fi
 
@@ -214,14 +279,22 @@ else
   printf '%s' "$payload" | gh api -X POST "repos/${REPO}/rulesets" --input - >/dev/null
 fi
 
-ruleset_id="$(gh api "repos/${REPO}/rulesets" --jq ".[] | select(.name == \"${RULESET_NAME}\") | .id" | head -n1)"
-[ -n "$ruleset_id" ] || { echo "ERROR: ruleset '${RULESET_NAME}' not found after write." >&2; exit 1; }
+ruleset_id="$(find_ruleset_id)"
+if [ -z "$ruleset_id" ]; then
+  echo "ERROR: ruleset '${RULESET_NAME}' not found after write." >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # 6. Repo setting: delete the head branch once a PR is merged.
 # ---------------------------------------------------------------------------
 gh api -X PATCH "repos/${REPO}" -f delete_branch_on_merge=true >/dev/null
 echo "==> Repo setting delete_branch_on_merge=true applied"
+
+# ---------------------------------------------------------------------------
+# 6b. Dependabot labels — created only when missing (idempotent).
+# ---------------------------------------------------------------------------
+ensure_labels
 
 # ---------------------------------------------------------------------------
 # 7. Audit summary — read the ruleset back from the API.
@@ -252,5 +325,13 @@ printf '%s' "$readback" | jq -r '
 echo
 echo "bypass actors:"
 printf '%s' "$readback" | jq -r '.bypass_actors[]? | "  - \(.actor_type) actor_id=\(.actor_id) mode=\(.bypass_mode)"'
+echo
+echo "labels:"
+for spec in "${LABELS[@]}"; do
+  name="${spec%%|*}"
+  if ! gh api "repos/${REPO}/labels/${name}" --jq '"  - \(.name) #\(.color) — \(.description)"' 2>/dev/null; then
+    echo "  - ${name} MISSING"
+  fi
+done
 echo "================================================="
 echo "==> Done. ruleset_id=${ruleset_id}"
