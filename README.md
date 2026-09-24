@@ -1,5 +1,7 @@
 # vroom
 
+[![CI](https://github.com/Sovengar/vroom/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Sovengar/vroom/actions/workflows/ci.yml)
+
 TUI en Go + Bubbletea para gestionar servicios de múltiples proyectos desde un solo punto.
 Usa [fd](https://github.com/sharkdp/fd) para buscar rápidamente `.vroom.toml` en el
 árbol de directorios (profundidad configurable). Permite iniciar/detener servicios
