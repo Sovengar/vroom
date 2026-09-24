@@ -9,17 +9,23 @@ var (
 
 	styleGroupHeader = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
 
-	styleRunning      = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-	styleStopped      = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	styleUnknown      = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
-	styleStarting     = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
-	styleStopping     = lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
-	styleUnconfigured = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Faint(true)
+	styleRunning = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	styleStopped = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+
+	// Badge +N de worktrees en ejecución bajo una fila de repo (0012):
+	// cyan (6) para distinguirlo del verde del servicio propio (10), del
+	// magenta de stopping (13) y del cyan brillante/negrita del header de
+	// grupo (14), que además nunca comparte fila con el badge.
+	styleWorktreeRunning = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	styleUnknown         = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
+	styleStarting        = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+	styleStopping        = lipgloss.NewStyle().Foreground(lipgloss.Color("13"))
+	styleUnconfigured    = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Faint(true)
 
 	styleSelected = lipgloss.NewStyle().Bold(true)
 	styleWarn     = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
 	styleDim      = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Faint(true)
-	styleHelp     = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Faint(true)
+	styleHelp     = lipgloss.NewStyle().Foreground(lipgloss.Color("#6c7086")).Faint(true)
 	styleMsg      = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	styleLabel    = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
 

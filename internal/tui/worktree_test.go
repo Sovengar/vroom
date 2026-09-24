@@ -702,3 +702,156 @@ func TestGroupAggregationExcludesNestedWorktrees(t *testing.T) {
 		t.Errorf("el worktree debe ir indentado, indent=%d", m2.tree[idx].indent)
 	}
 }
+
+// rowLine devuelve la línea renderizada de la fila del árbol en el
+// índice del cursor para ese nombre.
+func rowLine(t *testing.T, m Model, name string) string {
+	t.Helper()
+	idx := findCursor(m, name)
+	if idx < 0 {
+		t.Fatalf("no se encontró la fila %q", name)
+	}
+	tree, _ := m.treeLines()
+	if idx >= len(tree) {
+		t.Fatalf("índice %d fuera de las líneas (%d)", idx, len(tree))
+	}
+	return tree[idx]
+}
+
+// 0012: la fila de repo indica con +N los worktrees en ejecución aunque
+// estén plegados, sin confundirse con el servicio propio del main.
+func TestRepoRowBadgeCountsRunningWorktrees(t *testing.T) {
+	projects, repo, wtA, _ := repoFixture(t)
+
+	// Ningún worktree corriendo: sin badge.
+	m := newRepoModel(t, projects, nil)
+	if row := rowLine(t, m, "repo"); strings.Contains(row, "+") {
+		t.Errorf("sin worktrees corriendo no debe haber badge: %q", row)
+	}
+
+	// Un worktree corriendo, repo plegado: +1 en la fila del repo.
+	m.services[wtA].Status = statusRunning
+	if row := rowLine(t, m, "repo"); !strings.Contains(row, "+1") {
+		t.Errorf("un worktree corriendo debe marcar +1: %q", row)
+	}
+
+	// Solo el main corriendo: sigue sin badge.
+	m2 := newRepoModel(t, projects, nil)
+	m2.services[repo].Status = statusRunning
+	if row := rowLine(t, m2, "repo"); strings.Contains(row, "+") {
+		t.Errorf("solo el main corriendo no debe marcar badge: %q", row)
+	}
+
+	// Main + worktree a la vez: el badge convive con la bolita del main.
+	m2.services[wtA].Status = statusRunning
+	row := rowLine(t, m2, "repo")
+	if !strings.Contains(row, "+1") {
+		t.Errorf("main + worktree corriendo debe marcar +1: %q", row)
+	}
+	if !strings.Contains(row, "●") {
+		t.Errorf("la bolita del main debe seguir visible junto al badge: %q", row)
+	}
+}
+
+// 0012: la fila contenedora (sin servicio propio) también marca +N sus
+// worktrees en ejecución.
+func TestContainerRowBadgeCountsRunningWorktrees(t *testing.T) {
+	outside := "/outside/repo"
+	wtA := "/root/repo-wt-a"
+	projects := []scanner.Project{
+		{Path: wtA, Name: "repo-wt-a", Configured: true, Manifest: manifestNamed("api", ""),
+			IsWorktree: true, RepoRoot: outside},
+	}
+	m := newRepoModel(t, projects, map[string]bool{repoKey(outside): true})
+	m.services[wtA].Status = statusRunning
+	idx := findRepo(t, m, "repo")
+	if idx < 0 {
+		t.Fatal("falta la fila contenedora sintetizada")
+	}
+	tree, _ := m.treeLines()
+	if !strings.Contains(tree[idx], "+1") {
+		t.Errorf("la fila contenedora debe marcar +1: %q", tree[idx])
+	}
+}
+
+// 0012: el badge no rompe el ancho fijo de la columna de árbol, ni con
+// nombres largos (recorte), ni plegado/expandido, ni en contenedoras.
+func TestRepoRowBadgeKeepsColumnWidth(t *testing.T) {
+	root := t.TempDir()
+	long := strings.Repeat("r", 40)
+	repo := filepath.Join(root, long)
+	wt := filepath.Join(root, long+"-wt")
+	projects := []scanner.Project{
+		{Path: repo, Name: long, Configured: true, Manifest: manifestNamed("repo", "")},
+		{Path: wt, Name: long + "-wt", Configured: true, Manifest: manifestNamed("api", ""),
+			IsWorktree: true, RepoRoot: repo},
+	}
+	for _, expanded := range []bool{false, true} {
+		collapsed := map[string]bool{}
+		if expanded {
+			collapsed[repoKey(repo)] = true
+		}
+		m := newRepoModel(t, projects, collapsed)
+		m.services[wt].Status = statusRunning
+		line := rowLine(t, m, long)
+		if w := lipglossWidth(line); w > treeWidth {
+			t.Errorf("expanded=%v: la línea mide %d, excede treeWidth=%d: %q", expanded, w, treeWidth, line)
+		}
+		if !strings.Contains(line, "+1") {
+			t.Errorf("expanded=%v: falta el badge: %q", expanded, line)
+		}
+	}
+
+	// Contenedora sintetizada (sin servicio propio) con nombre largo.
+	outside := filepath.Join(root, long+"-outside")
+	mc := newRepoModel(t, []scanner.Project{
+		{Path: wt, Name: long + "-wt", Configured: true, Manifest: manifestNamed("api", ""),
+			IsWorktree: true, RepoRoot: outside},
+	}, nil)
+	mc.services[wt].Status = statusRunning
+	idx := findRepo(t, mc, filepath.Base(outside))
+	if idx < 0 {
+		t.Fatal("falta la contenedora sintetizada")
+	}
+	tree, _ := mc.treeLines()
+	if w := lipglossWidth(tree[idx]); w > treeWidth {
+		t.Errorf("contenedora: la línea mide %d, excede treeWidth=%d: %q", w, treeWidth, tree[idx])
+	}
+
+	// Repo con error de topología (⚠) y nombre largo.
+	mw := newRepoModel(t, []scanner.Project{{
+		Path: repo, Name: long, Configured: true, Manifest: manifestNamed("repo", ""),
+		WorktreeErr: "git binary not available",
+	}}, nil)
+	if line := rowLine(t, mw, long); lipglossWidth(line) > treeWidth {
+		t.Errorf("repo con WorktreeErr: la línea mide %d: %q", lipglossWidth(line), line)
+	}
+
+	// Repo con ⚠ y badge a la vez (glifo + ⚠ + badge).
+	me := newRepoModel(t, []scanner.Project{
+		{Path: repo, Name: long, Configured: true, Manifest: manifestNamed("repo", ""), WorktreeErr: "boom"},
+		{Path: wt, Name: long + "-wt", Configured: true, Manifest: manifestNamed("api", ""),
+			IsWorktree: true, RepoRoot: repo},
+	}, nil)
+	me.services[wt].Status = statusRunning
+	if line := rowLine(t, me, long); lipglossWidth(line) > treeWidth {
+		t.Errorf("repo con ⚠ y badge: la línea mide %d: %q", lipglossWidth(line), line)
+	}
+
+	// Contenedora bare con ⚠ y nombre largo.
+	bare := filepath.Join(root, long+"-bare")
+	wt2 := filepath.Join(root, long+"-bare-wt")
+	mb := newRepoModel(t, []scanner.Project{
+		{Path: bare, Name: filepath.Base(bare), IsBareContainer: true, WorktreeErr: "boom"},
+		{Path: wt2, Name: long + "-bare-wt", Configured: true, Manifest: manifestNamed("api", ""),
+			IsWorktree: true, RepoRoot: bare},
+	}, nil)
+	bi := findRepo(t, mb, filepath.Base(bare))
+	if bi < 0 {
+		t.Fatal("falta la contenedora bare")
+	}
+	btree, _ := mb.treeLines()
+	if w := lipglossWidth(btree[bi]); w > treeWidth {
+		t.Errorf("contenedora bare con ⚠: la línea mide %d, excede treeWidth=%d: %q", w, treeWidth, btree[bi])
+	}
+}

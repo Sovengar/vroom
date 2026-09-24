@@ -223,6 +223,32 @@ func (m Model) repoGlyph(repoPath string) string {
 	return "▸"
 }
 
+// repoRunningKids cuenta los worktrees del repo cuyo servicio está en
+// ejecución (0012): alimenta el badge +N de la fila de repo, que de otro
+// modo oculta esa actividad cuando los worktrees están plegados.
+func (m Model) repoRunningKids(repoPath string) int {
+	n := 0
+	for _, e := range m.entries {
+		p := e.Project
+		if !p.IsWorktree || p.RepoRoot != repoPath {
+			continue
+		}
+		if sv := m.services[p.Path]; sv != nil && sv.Status == statusRunning {
+			n++
+		}
+	}
+	return n
+}
+
+// runningBadge marca con +N los worktrees en ejecución tras una fila de
+// repo (0012); "" si no hay ninguno.
+func runningBadge(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return " " + styleWorktreeRunning.Render(fmt.Sprintf("+%d", n))
+}
+
 // stacksForPrimary devuelve los stacks que pertenecen a un primary_group.
 func (m Model) stacksForPrimary(primary string) []orchestrate.Stack {
 	if m.composeFile == nil {
@@ -272,12 +298,27 @@ func (m Model) treeLines() ([]string, int) {
 }
 
 // projectRow dibuja una fila de proyecto; las filas de repo con
-// worktrees anteponen el glifo de expansión y los worktrees anidados
-// usan worktreeRow (rama incluida). Un error de topología (WorktreeErr)
+// worktrees anteponen el glifo de expansión, añaden el badge +N de
+// worktrees en ejecución (0012) y los worktrees anidados usan
+// worktreeRow (rama incluida). Un error de topología (WorktreeErr)
 // se marca con ⚠ de forma independiente de si hay hijos: un fallo de
 // `git worktree list` implica cero worktrees descubiertos.
 func (m Model) projectRow(it treeItem) string {
-	row := m.treeRow(it.project)
+	badge := ""
+	if it.hasKids {
+		badge = runningBadge(m.repoRunningKids(it.repoPath))
+	}
+	// El ancho de nombre descuenta cursor(2)+bolita+espacio(2) y los
+	// prefijos que se anteponen (glifo de expansión, ⚠) para no rebasar
+	// la columna fija treeWidth (padW no recorta).
+	prefixW := 0
+	if it.hasKids {
+		prefixW += 2 // "▸ "
+	}
+	if it.project.WorktreeErr != "" {
+		prefixW += 2 // "⚠ "
+	}
+	row := m.treeRow(it.project, treeWidth-4-prefixW-lipglossWidth(badge))
 	if it.indent > 0 {
 		row = m.worktreeRow(it.project)
 	}
@@ -287,17 +328,33 @@ func (m Model) projectRow(it treeItem) string {
 	if it.project.WorktreeErr != "" {
 		row = styleWarn.Render("⚠") + " " + row
 	}
-	return row
+	return row + badge
 }
 
 // containerRow dibuja una fila contenedora (bare repo o main checkout
-// fuera del scan root): no ejecutable, sin estado de servicio.
+// fuera del scan root): no ejecutable y sin estado de servicio propio,
+// pero con el badge +N de sus worktrees en ejecución (0012).
 func (m Model) containerRow(it treeItem) string {
-	row := trunc(it.project.Name, treeWidth-6)
+	badge := runningBadge(m.repoRunningKids(it.repoPath))
+	// Presupuesto: cursor(2) + glifo de expansión + sufijo "(bare)" +
+	// badge, todo descontado del nombre para no rebasar treeWidth.
+	extraW := 0
+	if it.hasKids {
+		extraW += 2 // "▸ "
+	}
+	if it.project.IsBareContainer {
+		extraW += len(" (bare)")
+	}
+	warn := ""
+	if it.project.WorktreeErr != "" {
+		warn = styleWarn.Render("⚠") + " "
+		extraW += 2
+	}
+	row := trunc(it.project.Name, treeWidth-2-extraW-lipglossWidth(badge))
 	if it.project.IsBareContainer {
 		row += " " + styleDim.Render("(bare)")
 	}
-	return row
+	return warn + row + badge
 }
 
 // worktreeRow dibuja una fila de worktree anidada: estado + nombre +
@@ -340,8 +397,8 @@ func (m Model) groupHeaderRow(key, label string, running, total int) string {
 // treeRow dibuja la fila del proyecto: punto de estado + nombre. El
 // texto del estado vive en el panel de detalles; en el árbol la bolita
 // basta (y los sin manifiesto llevan icono de "roto").
-func (m Model) treeRow(p scanner.Project) string {
-	return treeDot(p, m.services[p.Path], m.spinner.View(), m.startSpinner.View()) + " " + trunc(p.Name, treeWidth-4)
+func (m Model) treeRow(p scanner.Project, nameW int) string {
+	return treeDot(p, m.services[p.Path], m.spinner.View(), m.startSpinner.View()) + " " + trunc(p.Name, nameW)
 }
 
 // treeDot es el glifo de estado: ● running, spinner para starting,
