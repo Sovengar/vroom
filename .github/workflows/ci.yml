@@ -81,9 +81,15 @@ jobs:
       # the documented local environment (`make test` assumes fd is present).
       - name: Install fd
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq fd-find
-          sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
+          export DEBIAN_FRONTEND=noninteractive
+          sudo -E apt-get update -q
+          sudo -E apt-get install -y -q fd-find
+          # Debian installs the binary as `fdfind`; expose it as `fd` unless the
+          # runner already provides one. Fail loudly if fdfind is absent.
+          if ! command -v fd >/dev/null; then
+            fdfind="$(command -v fdfind)" || { echo "ERROR: fdfind not found after install"; exit 1; }
+            sudo ln -sf "$fdfind" /usr/local/bin/fd
+          fi
           fd --version
       # Same test set as `make test` (`go test -race`, no `-short`, so the
       # internal/process integration tests run) plus an atomic coverage profile.
