@@ -1,4 +1,4 @@
-.PHONY: build install test lint run clean
+.PHONY: build install test lint check run clean
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -ldflags "-X main.Version=$(VERSION)"
@@ -19,6 +19,8 @@ test:
 
 lint:
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run
+
+check: build lint test
 
 clean:
 	rm -rf .local/bin/
