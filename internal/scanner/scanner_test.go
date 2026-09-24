@@ -386,8 +386,22 @@ func TestScanDetectsBareRepo(t *testing.T) {
 	}
 }
 
-// Un bare repo se consulta vía git aunque no tenga .git: sus worktrees
-// in-root sin manifiesto se descubren y se sintetizan anidadas (H1).
+// finalize deduplica la fila contenedora bare cuando ya existe un
+// proyecto con esa ruta (no se duplica la fila).
+func TestFinalizeDedupsBareContainer(t *testing.T) {
+	dir := t.TempDir()
+	project := Project{Path: dir, Name: "bare", Configured: true}
+	bare := Project{Path: dir, Name: "bare", IsBareContainer: true}
+	got := finalize([]Project{project}, []Project{bare}, t.TempDir())
+	if len(got) != 1 {
+		t.Fatalf("esperaba 1 fila, got %d: %+v", len(got), got)
+	}
+	if got[0].IsBareContainer || !got[0].Configured {
+		t.Errorf("debe conservarse el proyecto, no el contenedor: %+v", got[0])
+	}
+}
+
+// Un bare repo se consulta vía git aunque no tenga .git: sus worktrees// in-root sin manifiesto se descubren y se sintetizan anidadas (H1).
 func TestScanBareRepoDiscoversManifestlessWorktree(t *testing.T) {
 	tr := newTree(t).
 		file("bare/HEAD", "ref: refs/heads/main\n").
