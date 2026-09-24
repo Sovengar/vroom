@@ -6,6 +6,7 @@
 package worktree
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -70,16 +71,25 @@ func listWith(dir, git string) ([]Worktree, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, git, "-C", dir, "worktree", "list", "--porcelain")
 	cmd.WaitDelay = listWaitDelay
-	out, err := cmd.CombinedOutput()
+	// stdout lleva el porcelain a parsear; stderr solo alimenta el
+	// mensaje de error. Mezclarlos (CombinedOutput) corrompería el parseo
+	// con cualquier warning de git.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			// Degradación por timeout: se envuelve el error de contexto
 			// para que errors.Is(err, context.DeadlineExceeded) funcione.
 			return nil, fmt.Errorf("git worktree list timed out in %s: %w", dir, ctxErr)
 		}
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return nil, fmt.Errorf("git worktree list failed in %s: %w: %s", dir, err, msg)
+		}
 		return nil, fmt.Errorf("git worktree list failed in %s: %w", dir, err)
 	}
-	return ParsePorcelain(string(out))
+	return ParsePorcelain(stdout.String())
 }
 
 // ParsePorcelain interpreta la salida de `git worktree list --porcelain`.

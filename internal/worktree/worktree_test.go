@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -37,6 +38,18 @@ func itoa(n int) string {
 		return "0"
 	}
 	return "1"
+}
+
+// fakeGitStreams escribe un git falso que separa stdout y stderr y sale
+// con code; devuelve el PATH con ese directorio al frente.
+func fakeGitStreams(t *testing.T, stdout, stderr string, code int) string {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\ncat <<'EOF'\n" + stdout + "EOF\ncat >&2 <<'EOF'\n" + stderr + "EOF\nexit " + itoa(code) + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir + string(os.PathListSeparator) + os.Getenv("PATH")
 }
 
 // ParsePorcelain reconoce main + worktrees, detached, bare y prunable.
@@ -210,6 +223,32 @@ func TestListFakeGit(t *testing.T) {
 	}
 	if len(wts) != 1 || wts[0].Path != "/repo" || wts[0].Branch != "main" {
 		t.Fatalf("worktrees inesperados: %+v", wts)
+	}
+}
+
+// Un warning en stderr no debe corromper el parseo del stdout (no se
+// mezclan streams).
+func TestListSeparatesStdoutFromStderr(t *testing.T) {
+	out := "worktree /repo\nHEAD aaaa000000000000000000000000000000000000\nbranch refs/heads/main\n\n"
+	t.Setenv("PATH", fakeGitStreams(t, out, "warning: something on stderr\n", 0))
+	wts, err := List("/whatever")
+	if err != nil {
+		t.Fatalf("stderr no debe romper el parseo: %v", err)
+	}
+	if len(wts) != 1 || wts[0].Path != "/repo" {
+		t.Fatalf("worktrees inesperados: %+v", wts)
+	}
+}
+
+// El mensaje de error incluye el stderr del fallo.
+func TestListFailureIncludesStderr(t *testing.T) {
+	t.Setenv("PATH", fakeGitStreams(t, "", "fatal: not a git repository\n", 1))
+	_, err := List("/whatever")
+	if err == nil {
+		t.Fatal("exit != 0 debe devolver error")
+	}
+	if !strings.Contains(err.Error(), "not a git repository") {
+		t.Errorf("el error debe incluir el stderr: %v", err)
 	}
 }
 
