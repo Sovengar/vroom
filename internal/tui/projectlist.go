@@ -202,10 +202,16 @@ func (m Model) repoBlock(p scanner.Project, primary, secondary string, children 
 	return out
 }
 
+// repoKeyPrefix namespacea las claves de plegado de nodos repo con un byte
+// NUL, que no puede producir un nombre de grupo leído de un manifiesto, de
+// modo que la clave de un nodo repo no puede colisionar con una clave de
+// grupo (primary o primary/secondary).
+const repoKeyPrefix = "\x00repo:"
+
 // repoKey es la clave de plegado de una fila de repo (0011): namespace
-// propio, disjunto de las claves de grupo (primary o primary/secondary),
-// para que el estado persistido no colisione.
-func repoKey(repoPath string) string { return "repo:" + repoPath }
+// propio, estructuralmente disjunto de las claves de grupo, para que el
+// estado persistido no colisione.
+func repoKey(repoPath string) string { return repoKeyPrefix + repoPath }
 
 // repoExpanded reporta si la fila de repo está expandida. Default:
 // colapsada (inverso al default de los grupos, que empiezan expandidos).

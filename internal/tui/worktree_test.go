@@ -264,6 +264,48 @@ func TestRepoCollapsePersistedAndNamespaced(t *testing.T) {
 	}
 }
 
+// La clave del nodo repo es estructuralmente disjunta de las claves de
+// grupo: un primary_group literalmente igual a "repo:<path>" no colisiona.
+func TestRepoKeyDoesNotCollideWithGroupKey(t *testing.T) {
+	projects, repo, _, _ := repoFixture(t)
+	groupKey := "repo:" + repo // misma cadena que usaba el viejo repoKey
+	for i := range projects {
+		if projects[i].Path == repo {
+			projects[i].Manifest.PrimaryGroup = groupKey
+		}
+	}
+	build := func() Model {
+		m := newRepoModel(t, projects, nil)
+		if findPrimary(m, groupKey) < 0 {
+			t.Fatalf("falta el header del grupo %q: %+v", groupKey, m.tree)
+		}
+		return m
+	}
+
+	// Plegar el grupo no debe tocar el estado del nodo repo.
+	g := build()
+	g.cursor = findPrimary(g, groupKey)
+	g2, _ := press(g, "enter")
+	if !g2.collapsed[groupKey] {
+		t.Fatal("enter sobre el grupo debe plegarlo")
+	}
+	if g2.repoExpanded(repo) {
+		t.Error("plegar el grupo no debe expandir el repo (colisión de claves)")
+	}
+
+	// Expandir el repo no debe tocar el grupo (modelo fresco: el mapa de
+	// colapso se comparte por referencia entre copias del modelo).
+	r := build()
+	r = moveCursorTo(t, r, "repo")
+	r2, _ := press(r, "enter")
+	if !r2.repoExpanded(repo) {
+		t.Error("enter sobre la fila del repo debe expandirlo")
+	}
+	if r2.collapsed[groupKey] {
+		t.Error("expandir el repo no debe plegar el grupo (colisión de claves)")
+	}
+}
+
 // S3: bare repo se muestra como contenedor no ejecutable y anida sus worktrees.
 func TestBareContainerNotOperable(t *testing.T) {
 	root := t.TempDir()
