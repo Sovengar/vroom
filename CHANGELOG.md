@@ -25,6 +25,14 @@ y este proyecto sigue [Semantic Versioning](https://semver.org/lang/es/).
 - Resolver los stacks de orquestación de forma determinista: ante un
   `Manifest.Name` duplicado falla explícitamente listando los paths candidatos,
   en lugar de elegir arbitrariamente el último.
+- CI en GitHub Actions con tres gates que corren en cada PR y en cada push a
+  `main`: `Build` (`go build ./...` + `go vet ./...`), `Lint` (`make lint`,
+  golangci-lint v2.13.2) y `Test` (`go test -race` de todo el suite, con `fd`
+  instalado en el runner para los tests del scanner). El merge a `main` queda
+  gobernado por la ruleset `protect-main`: PR obligatorio, checks verdes
+  requeridos y bloqueo de force-push/borrado, con bypass de admin (deliberado).
+  Dependabot actualiza GitHub Actions de forma semanal y el README muestra el
+  badge de estado del workflow.
 
 ### Fixed
 - Consultar los bare repos para descubrir sus worktrees (antes se omitían).
