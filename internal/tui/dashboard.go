@@ -124,13 +124,24 @@ func (m Model) detailsContentLines() []string {
 }
 
 // consoleContentLines devuelve exactamente contentH+1 líneas: la barra de
-// pestañas y el contenido de la pestaña activa (consola o hilos).
+// pestañas y el contenido de la pestaña activa del panel Output.
 func (m Model) consoleContentLines() []string {
 	lines := []string{m.tabsBar(m.rightW)}
-	if m.activeTab == tabConsole {
+	switch m.activeTab {
+	case tabConsole:
 		lines = append(lines, strings.Split(m.consoleView.View(), "\n")...)
-	} else {
+	case tabThreads:
 		lines = append(lines, m.threadsLines(m.rightW, m.contentH)...)
+	case tabMetrics:
+		lines = append(lines, m.metricsLines(m.rightW)...)
+	case tabGit:
+		lines = append(lines, m.gitLines(m.rightW)...)
+	case tabEnv:
+		lines = append(lines, m.envLines(m.rightW)...)
+	case tabTimeline:
+		lines = append(lines, m.timelineLines(m.rightW)...)
+	case tabHealth:
+		lines = append(lines, m.healthLines(m.rightW)...)
 	}
 	return fitLines(padLines(lines, m.contentH+1), m.rightW)
 }
@@ -172,37 +183,49 @@ func (m Model) keybindsBox() string {
 // tabLabel renderiza la etiqueta de una pestaña: activa con fondo
 // invertido, inactiva atenuada.
 func tabLabel(tab tabKind, active bool) string {
-	text := "[1] Console"
-	if tab == tabThreads {
-		text = "[2] Threads"
-	}
+	text := tabLabelText(tab)
 	if active {
 		return styleTabActive.Render(text)
 	}
 	return styleTabInactive.Render(text)
 }
 
-// tabsBar dibuja las pestañas con la activa resaltada y, a la
-// derecha, el estado del stream o del proceso muestreado.
+// tabsBar dibuja todas las pestañas del panel Output con la activa resaltada
+// y, a la derecha, el estado del stream o del proceso muestreado.
 func (m Model) tabsBar(w int) string {
+	parts := make([]string, 0, tabCount)
+	for k := tabKind(0); k < tabCount; k++ {
+		parts = append(parts, tabLabel(k, m.activeTab == k))
+	}
+	bar := strings.Join(parts, " ")
+
 	var info string
-	if m.activeTab == tabConsole {
+	switch m.activeTab {
+	case tabConsole:
 		info = m.stream.String()
 		if m.consoleFollow {
 			info += " · follow"
 		} else {
 			info += " · paused"
 		}
-	} else if p := m.selected(); p != nil && p.Configured {
-		if sv := m.services[p.Path]; sv != nil && sv.Meta.Pid > 0 {
-			info = "pid " + strconv.Itoa(sv.Meta.Pid)
-		} else {
-			info = "pid —"
+	case tabThreads, tabMetrics, tabEnv:
+		if p := m.selected(); p != nil && p.Configured {
+			if sv := m.services[p.Path]; sv != nil && sv.Meta.Pid > 0 {
+				info = "pid " + strconv.Itoa(sv.Meta.Pid)
+			} else {
+				info = "pid —"
+			}
+		}
+	case tabHealth:
+		if p := m.selected(); p != nil && p.Configured && p.Manifest != nil && p.Manifest.Port > 0 {
+			info = ":" + strconv.Itoa(p.Manifest.Port)
+		}
+	case tabTimeline:
+		if p := m.selected(); p != nil {
+			info = fmt.Sprintf("%d events", len(m.events[p.Path]))
 		}
 	}
-	bar := tabLabel(tabConsole, m.activeTab == tabConsole) + " " +
-		tabLabel(tabThreads, m.activeTab == tabThreads)
-	if info != "" && lipglossWidth(bar)+1+lipglossWidth(info) <= w {
+	if info != "" && lipglossWidth(bar)+2+lipglossWidth(info) <= w {
 		bar = padW(bar, w-lipglossWidth(info)-1) + styleDim.Render(info)
 	}
 	return truncANSI(bar, w)

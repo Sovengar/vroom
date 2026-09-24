@@ -47,13 +47,45 @@ const (
 // groupConsoleHint es el placeholder de consola con un grupo seleccionado.
 const groupConsoleHint = "group selected — pick a service to view its console"
 
-// tabKind es la pestaña activa del panel inferior.
+// tabKind es la pestaña activa del panel Output.
 type tabKind int
 
 const (
 	tabConsole tabKind = iota
 	tabThreads
+	tabMetrics
+	tabGit
+	tabEnv
+	tabTimeline
+	tabHealth
+	tabCount // centinela: nº de pestañas
 )
+
+// tabTitle devuelve la etiqueta corta de una pestaña (sin el número).
+func tabTitle(k tabKind) string {
+	switch k {
+	case tabThreads:
+		return "Threads"
+	case tabMetrics:
+		return "Metrics"
+	case tabGit:
+		return "Git"
+	case tabEnv:
+		return "Env"
+	case tabTimeline:
+		return "Timeline"
+	case tabHealth:
+		return "Health"
+	default:
+		return "Console"
+	}
+}
+
+// tabLabelText compone la etiqueta de la pestaña: "n Título" (sin corchetes,
+// para que las 7 pestañas quepan en el ancho típico del panel).
+func tabLabelText(k tabKind) string {
+	return fmt.Sprintf("%d %s", int(k)+1, tabTitle(k))
+}
 
 // streamMode es el stream mostrado en la consola: mergeado por
 // defecto, con toggle para aislar stdout o stderr.
@@ -120,6 +152,13 @@ type Model struct {
 	threads       map[string][]threadRow   // tabla de hilos por servicio
 	threadPrev    map[string]*threadSample // muestra previa para CPU%
 	branches      map[string]string        // rama git por servicio
+
+	metrics     map[string]*metricsView  // métricas de recursos por servicio
+	metricsPrev map[string]*metricsSample
+	gitStatus   map[string]gitinfo.Status // estado git por servicio (tab Git)
+	envVars     map[string][]string       // entorno resuelto por servicio (tab Env)
+	healthRes   map[string]*healthResult  // último probe de salud (tab Health)
+	events      map[string][]timelineEvent // timeline por servicio (en memoria)
 
 	message          string
 	messageExpiresAt time.Time // cero = sin expiración
@@ -262,6 +301,12 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 		threads:        make(map[string][]threadRow),
 		threadPrev:     make(map[string]*threadSample),
 		branches:       make(map[string]string),
+		metrics:        make(map[string]*metricsView),
+		metricsPrev:    make(map[string]*metricsSample),
+		gitStatus:      make(map[string]gitinfo.Status),
+		envVars:        make(map[string][]string),
+		healthRes:      make(map[string]*healthResult),
+		events:         make(map[string][]timelineEvent),
 		width:          80,
 		height:         24,
 		activeTab:      tabConsole,
@@ -754,6 +799,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds := []tea.Cmd{refreshCmd(m.store, m.manager, m.projects), tickCmd()}
 		if p := m.selected(); p != nil && p.Configured && m.isRunning(p.Path) {
 			cmds = append(cmds, threadsCmd(p.Path, m.services[p.Path].Meta.Pid))
+			if m.activeTab == tabMetrics {
+				cmds = append(cmds, m.metricsCmd())
+			}
+		}
+		if m.activeTab == tabHealth {
+			cmds = append(cmds, m.healthCmd())
 		}
 		return m, tea.Batch(cmds...)
 
@@ -799,6 +850,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if sv != nil {
 			sv.Status = statusRunning
 		}
+		m.addEvent(msg.path, "start", "", 0, true)
 		// Los logs se truncan en daemon_unix.go Start(); limpiar los
 		// buffers en memoria para que la vista no muestre contenido viejo.
 		cs := m.consoleStateFor(msg.path)
@@ -821,6 +873,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.pendingRestart[msg.path] { // Stop → start
 			delete(m.pendingRestart, msg.path)
+			m.addEvent(msg.path, "restart", "", 0, true)
 			if p := m.projectByPath(msg.path); p != nil && sv != nil {
 				sv.Status = statusStarting
 				return m, startCmd(m.store, m.manager, *p)
@@ -829,6 +882,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if sv != nil {
 			sv.Status = statusStopped
 		}
+		m.addEvent(msg.path, "stop", "", 0, true)
 		return m, nil
 
 	case consoleDeltaMsg:
@@ -839,12 +893,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyThreads(msg)
 		return m, nil
 
+	case metricsMsg:
+		m.applyMetrics(msg)
+		return m, nil
+
+	case gitMsg:
+		m.applyGit(msg)
+		return m, nil
+
+	case envMsg:
+		m.applyEnv(msg)
+		return m, nil
+
+	case healthMsg:
+		m.healthRes[msg.path] = msg.r
+		return m, nil
+
 	case statusMsg:
 		m.notify(msg.message)
 		return m, nil
 
 	case jobMsg:
 		delete(m.jobs, msg.path) // Libera el bloqueo del proyecto
+		ok := msg.err == nil && msg.exitCode == 0
+		m.addEvent(msg.path, msg.kind, msg.command, msg.elapsed, ok)
 		switch {
 		case msg.err != nil:
 			m.notify(msg.kind + " error: " + msg.err.Error())
@@ -883,8 +955,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notify("stack error: " + msg.err.Error())
 		} else if !msg.result.OK {
 			m.notify("stack failed: " + msg.result.Error)
+			m.recordStackEventByName(msg.result.Stack, false)
 		} else {
 			m.notify(fmt.Sprintf("stack %s launched", msg.result.Stack))
+			m.recordStackEventByName(msg.result.Stack, true)
 		}
 		return m, nil
 
@@ -894,6 +968,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !r.OK {
 				failed++
 			}
+			m.recordStackEventByName(r.Stack, r.OK)
 		}
 		if failed > 0 {
 			m.notify(fmt.Sprintf("%d stack(s) failed in %s", failed, msg.primary))
@@ -988,14 +1063,11 @@ func (m Model) handleKey(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "j", "k", "up", "down":
 		return m.navigate(key)
 	case "tab":
-		if m.activeTab == tabConsole {
-			return m.switchTab(tabThreads)
-		}
-		return m.switchTab(tabConsole)
-	case "1":
-		return m.switchTab(tabConsole)
-	case "2":
-		return m.switchTab(tabThreads)
+		return m.switchTab((m.activeTab + 1) % tabCount)
+	case "shift+tab":
+		return m.switchTab((m.activeTab + tabCount - 1) % tabCount)
+	case "1", "2", "3", "4", "5", "6", "7":
+		return m.switchTab(tabKind(key[0] - '1'))
 	case "pgup": // Scroll pausa el follow; si stack/group seleccionado, scroll details
 		if m.detailsShown && m.selectedItemKind() != itemProject {
 			m.scrollDetails(-detailsHeight)
@@ -1128,8 +1200,8 @@ func (m Model) enterSelection() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// onSelect refresca la consola (y threads) al cambiar la selección;
-// sobre un grupo o stack muestra un placeholder.
+// onSelect refresca el contenido de la pestaña activa al cambiar la
+// selección; sobre un grupo o stack la consola muestra un placeholder.
 func (m Model) onSelect() (tea.Model, tea.Cmd) {
 	p := m.selected()
 	if p == nil {
@@ -1141,37 +1213,48 @@ func (m Model) onSelect() (tea.Model, tea.Cmd) {
 	if !p.Configured {
 		return m, nil
 	}
-	cs := m.consoleStateFor(p.Path)
-	m.setConsoleContent(cs.view(m.stream))
-	var cmds []tea.Cmd
-	if m.activeTab == tabConsole {
-		cmds = append(cmds, m.tailCmd())
-	}
-	if m.activeTab == tabThreads && m.isRunning(p.Path) {
-		cmds = append(cmds, threadsCmd(p.Path, m.services[p.Path].Meta.Pid))
-	}
-	return m, tea.Batch(cmds...)
+	return m, m.refreshTab()
 }
 
-// switchTab cambia la pestaña activa y rellena el contenido.
+// switchTab cambia la pestaña activa del panel Output y lanza la carga de
+// datos que necesite.
 func (m Model) switchTab(tab tabKind) (tea.Model, tea.Cmd) {
 	m.activeTab = tab
-	if tab != tabConsole {
-		return m, m.refreshThreads()
-	}
-	if p := m.selected(); p != nil && p.Configured {
-		cs := m.consoleStateFor(p.Path)
-		m.setConsoleContent(cs.view(m.stream))
-		return m, tea.Batch(m.tailCmd())
-	}
-	return m, nil
+	return m, m.refreshTab()
 }
 
-// refreshBatch re-verifica liveness + tail + muestreo de threads.
+// refreshTab devuelve el comando de refresco de la pestaña activa según el
+// item seleccionado. Puntero para que el refresco de la consola (que
+// reescribe el viewport) sobreviva al retorno.
+func (m *Model) refreshTab() tea.Cmd {
+	p := m.selected()
+	switch m.activeTab {
+	case tabConsole:
+		if p != nil && p.Configured {
+			cs := m.consoleStateFor(p.Path)
+			m.setConsoleContent(cs.view(m.stream))
+			return m.tailCmd()
+		}
+	case tabThreads:
+		return m.refreshThreads()
+	case tabMetrics:
+		return m.metricsCmd()
+	case tabGit:
+		return m.gitCmd()
+	case tabEnv:
+		return m.envCmd()
+	case tabHealth:
+		return m.healthCmd()
+	}
+	return nil
+}
+
+// refreshBatch re-verifica liveness + refresca la pestaña activa y el estado
+// git cacheado del proyecto seleccionado.
 func (m Model) refreshBatch() tea.Cmd {
-	cmds := []tea.Cmd{refreshCmd(m.store, m.manager, m.projects), m.refreshThreads()}
-	if p := m.selected(); p != nil && p.Configured {
-		cmds = append(cmds, m.tailCmd())
+	cmds := []tea.Cmd{refreshCmd(m.store, m.manager, m.projects), m.gitCmd()}
+	if c := m.refreshTab(); c != nil {
+		cmds = append(cmds, c)
 	}
 	return tea.Batch(cmds...)
 }
@@ -2156,7 +2239,7 @@ func dashboardHelp2(width int, kb map[string]string) string {
 		helpSeg(kb, "stream", "stream"),
 		helpSeg(kb, "logs", "logfile"),
 		helpSeg(kb, "refresh", "refresh"),
-		"1/2 tabs",
+		"1-7 tabs",
 	}, " · ")
 	compact := strings.Join([]string{
 		helpSeg(kb, "start_stop", "start/stop"),

@@ -14,6 +14,8 @@
 //	                        para servicios donde matar el PGID no basta,
 //	                    ej. `docker stop ...`; se ejecuta antes del
 //	                    SIGTERM/SIGKILL de limpieza)
+//	health_path     string  default "/" (ruta HTTP de la tab Health;
+//	                        requiere port > 0)
 package manifest
 
 import (
@@ -43,6 +45,19 @@ type Manifest struct {
 	Install        string `toml:"command_install"` // comando one-shot (tecla i); puede ser `mise run install`
 	Build          string `toml:"command_build"`   // comando one-shot (tecla b); puede ser `mise run build`
 	Stop           string `toml:"command_stop"`    // parada graciosa opcional: corre antes del SIGTERM/SIGKILL al PGID
+	HealthPath     string `toml:"health_path"`     // ruta HTTP del probe de la tab Health ("" = "/")
+}
+
+// DefaultHealthPath es la ruta HTTP usada por la tab Health cuando el
+// manifiesto no define health_path.
+const DefaultHealthPath = "/"
+
+// HealthURLPath devuelve la ruta del probe de salud: health_path o "/".
+func (m *Manifest) HealthURLPath() string {
+	if m.HealthPath == "" {
+		return DefaultHealthPath
+	}
+	return m.HealthPath
 }
 
 // Parse lee y valida el manifiesto en path.

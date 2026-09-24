@@ -142,6 +142,8 @@ func press(m Model, key string) (Model, tea.Cmd) {
 		km = tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "tab":
 		km = tea.KeyPressMsg{Code: tea.KeyTab}
+	case "shift+tab":
+		km = tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
 	case "esc":
 		km = tea.KeyPressMsg{Code: tea.KeyEsc}
 	case "up":
@@ -510,7 +512,7 @@ func TestActiveTabMarked(t *testing.T) {
 	if tabLabel(tabConsole, true) == tabLabel(tabConsole, false) {
 		t.Error("la pestaña activa debe renderizarse distinto a la inactiva")
 	}
-	if !strings.Contains(tabLabel(tabThreads, true), "[2] Threads") {
+	if !strings.Contains(tabLabel(tabThreads, true), "2 Threads") {
 		t.Error("la etiqueta de la pestaña debe conservar su texto")
 	}
 }
@@ -596,7 +598,7 @@ func TestRenderDashboard(t *testing.T) {
 			t.Errorf("falta el título de sección %q", want)
 		}
 	}
-	for _, want := range []string{"tienda-api", "tienda-web", "suelto", "▾ tienda", "[1] Console", "[2] Threads"} {
+	for _, want := range []string{"tienda-api", "tienda-web", "suelto", "▾ tienda", "1 Console", "2 Threads"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("el dashboard no contiene %q", want)
 		}
@@ -897,12 +899,28 @@ func TestTabSwitching(t *testing.T) {
 	if m2.activeTab != tabThreads {
 		t.Error("tecla 2 debe activar Threads")
 	}
-	m3, _ := press(m2, "tab")
-	if m3.activeTab != tabConsole {
-		t.Error("tab debe ciclar a Console")
+	m3, _ := press(m2, "3")
+	if m3.activeTab != tabMetrics {
+		t.Error("tecla 3 debe activar Metrics")
 	}
-	m4, _ := press(m3, "1")
-	if m4.activeTab != tabConsole {
+	if m4, _ := press(m3, "7"); m4.activeTab != tabHealth {
+		t.Error("tecla 7 debe activar Health")
+	}
+	// `tab` cicla a la siguiente pestaña (7 en total) y `shift+tab` atrás.
+	m5, _ := press(m3, "tab")
+	if m5.activeTab != tabGit {
+		t.Errorf("tab desde Metrics debe ir a Git, got %v", m5.activeTab)
+	}
+	m6, _ := press(m5, "shift+tab")
+	if m6.activeTab != tabMetrics {
+		t.Errorf("shift+tab debe volver a Metrics, got %v", m6.activeTab)
+	}
+	m7, _ := press(m, "tab")
+	if m7.activeTab != tabThreads {
+		t.Errorf("tab desde Console debe ir a Threads, got %v", m7.activeTab)
+	}
+	m8, _ := press(m7, "1")
+	if m8.activeTab != tabConsole {
 		t.Error("tecla 1 debe activar Console")
 	}
 }
@@ -1095,7 +1113,7 @@ func TestResolveEditor(t *testing.T) {
 // las acciones one-shot y ask; `d` (toggle) desapareció.
 func TestHelpWording(t *testing.T) {
 	full := dashboardHelp1(200, nil) + " · " + dashboardHelp2(200, nil) // nil = defaults
-	for _, want := range []string{"l logfile", "1/2 tabs", "enter collapse", "b build", "i install", "t tasks", "a ask", "C clear", "/ filter", "! shell"} {
+	for _, want := range []string{"l logfile", "1-7 tabs", "enter collapse", "b build", "i install", "t tasks", "a ask", "C clear", "/ filter", "! shell"} {
 		if !strings.Contains(full, want) {
 			t.Errorf("help sin %q: %q", want, full)
 		}
@@ -1112,7 +1130,7 @@ func TestHelpWording(t *testing.T) {
 // disparan sus acciones (los tests existentes lo cubren uno a uno).
 func TestHelpDefaultsDerived(t *testing.T) {
 	want1 := "/ filter · shift+click select · ! shell · q quit · s start/stop · R restart · b build · i install"
-	want2 := "j/k move · enter collapse · t tasks · a ask · C clear · c stream · l logfile · r refresh · 1/2 tabs"
+	want2 := "j/k move · enter collapse · t tasks · a ask · C clear · c stream · l logfile · r refresh · 1-7 tabs"
 	if got := dashboardHelp1(200, nil); got != want1 {
 		t.Errorf("help1 defaults = %q, want %q", got, want1)
 	}
@@ -1203,8 +1221,8 @@ func TestUniversalsWithRemap(t *testing.T) {
 		t.Error("enter debe plegar el grupo aun con remap")
 	}
 	m6, _ := press(m5, "tab")
-	if m6.activeTab != tabConsole {
-		t.Error("tab debe ciclar a Console aun con remap")
+	if m6.activeTab != tabMetrics {
+		t.Error("tab debe ciclar a la siguiente pestaña aun con remap")
 	}
 }
 

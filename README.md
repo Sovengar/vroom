@@ -8,23 +8,36 @@ y detección de estado (PID + puerto + patrón de proceso).
 
 ## Dashboard
 
-Un único dashboard estilo panel "Services" de IntelliJ:
+Un único dashboard estilo panel "Services" de IntelliJ, compuesto por cuatro
+secciones con borde redondeado y título en el borde: `Projects` (izquierda,
+alto completo), `Details` (arriba-derecha), `Output` (abajo-derecha) y
+`Keybinds` (abajo, ancho completo; el mensaje de estado aparece como leyenda
+en su borde inferior derecho).
 
-- **Árbol de proyectos** (izquierda, ancho fijo, scroll automático):
+- **Árbol de proyectos** (caja `Projects`, izquierda, ancho fijo, scroll automático):
   grupos seleccionables y colapsables con `enter` (colapsado muestra
   `grupo (running/total)`), filas compactas de glifo + nombre (⚠ = sin
   manifiesto); `s` sobre un grupo arranca/para todos sus miembros.
-- **Panel de detalles** (derecha, fijo, dos columnas): a la izquierda
+- **Panel de detalles** (caja `Details`, derecha, fijo, dos columnas): a la izquierda
   ruta, lenguaje, rama git, grupo, puerto, patrón, PID y logs; a la
   derecha los comandos del manifiesto (`start`/`stop`/`install`/`build`,
   con `—` los no configurados).
-- **Panel inferior con pestañas**:
+- **Panel `Output` con pestañas**:
   - `Console` — stdout + stderr mergeados en tiempo real (tail incremental
-    cada 400ms, auto-follow, pausa al hacer scroll-up). `t` alterna merged/
+    cada 400ms, auto-follow, pausa al hacer scroll-up). `c` alterna merged/
     stdout/stderr.
   - `Threads` — hilos del proceso a nivel OS (`/proc/<pid>/task`): nombre,
     TID, estado y CPU% ordenados por consumo. Funciona para cualquier
     lenguaje sin debugger (Java expone nombres de hilo, Go goroutines).
+  - `Metrics` — recursos del proceso muestreados cada tick: CPU% (delta de
+    ticks), RSS, descriptores abiertos y nº de hilos.
+  - `Git` — rama, estado (limpio/nº de cambios) y últimos commits del repo
+    del proyecto.
+  - `Env` — entorno del proceso (`/proc/<pid>/environ`), ordenado.
+  - `Timeline` — eventos operativos de la sesión (start/stop/restart/build/
+    install/task/stack) con hora y duración, más reciente arriba.
+  - `Health` — GET HTTP al puerto del manifiesto (`health_path`, default
+    `/`) con timeout corto: código, latencia, content-type y primeras líneas.
 
 ## Instalación
 
@@ -90,6 +103,7 @@ process_pattern = ""             # patrón pgrep (opcional)
 command_install = "npm install"  # one-shot con la tecla i (opcional)
 command_build = "mise run build" # one-shot con la tecla b (opcional)
 command_stop = "docker stop x"   # parada graciosa con la tecla s (opcional)
+health_path = "/healthz"         # ruta del probe de la tab Health (default "/")
 ```
 
 La agrupación es jerárquica: con `primary_group` + `secondary_group` la TUI
@@ -117,7 +131,7 @@ el shutdown de limpieza habitual (SIGTERM → 5s → SIGKILL al PGID).
 | `t` | **Tasks**: picker de tasks del `mise.toml` (ver [mise](#integración-con-mise-opcional)) |
 | `a` | **Ask AI**: pregunta a un agente (opencode/pi/hermes/jcode) con tu prompt → chat nuevo; el input se prellena con contexto de la app ([config global](#configuración-global-ask-ai)); el despacho es configurable |
 | `C` | **Clear**: limpia la consola en memoria (los ficheros conservan el histórico) |
-| `1` / `2` | Pestaña Console / Threads (`tab` cicla) |
+| `1` … `7` | Pestañas del panel Output: Console / Threads / Metrics / Git / Env / Timeline / Health (`tab` cicla, `shift+tab` atrás) |
 | `c` | Modo de consola: merged → stdout → stderr |
 | `pgup`/`pgdn`, `g`/`G` | Scroll de consola con teclado (pausa el follow; `G` lo reactiva) |
 | rueda del mouse | Scroll de consola (3 líneas por click; hasta el final reactiva el follow) |
@@ -132,8 +146,8 @@ El panel de detalles es fijo: se muestra siempre que hay espacio y no tiene togg
 
 Las teclas de las acciones son configurables vía `[keybindings]` (ver
 [configuración global](#configuración-global-ask-ai)); las de navegación y
-especiales (`q`, `Esc`, `enter`, `tab`, `j`/`k`, flechas, `pgup`/`pgdn`,
-`1`/`2`, `/`, `!`) son universales y no se remapean.
+especiales (`q`, `Esc`, `enter`, `tab`/`shift+tab`, `j`/`k`, flechas, `pgup`/`pgdn`,
+`1`…`7`, `/`, `!`) son universales y no se remapean.
 
 ## Configuración global (ask AI)
 

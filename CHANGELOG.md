@@ -8,6 +8,12 @@ y este proyecto sigue [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- Panel `Output` con cinco pestañas nuevas además de Console y Threads:
+  `Metrics` (CPU%, RSS, FDs e hilos), `Git` (rama, estado y últimos commits),
+  `Env` (entorno del proceso), `Timeline` (eventos de la sesión con duración)
+  y `Health` (probe HTTP al puerto del manifiesto).
+- Campo opcional `health_path` en `.vroom.toml` para la ruta del probe de la
+  tab Health (default `/`).
 - Anidar los worktrees de git bajo la fila de su repo: el repo se muestra como
   una única fila colapsable (colapsada por defecto) y sus worktrees aparecen
   indentados al expandir, cada uno operable como cualquier proyecto.
@@ -38,6 +44,14 @@ y este proyecto sigue [Semantic Versioning](https://semver.org/lang/es/).
   parseo, e ignorar bloques de salida con ruta vacía.
 
 ### Changed
+- El dashboard se compone de cuatro secciones con borde redondeado y título
+  (`Projects`, `Details`, `Output`, `Keybinds`) y ya no muestra la cabecera
+  `vroom — projects in …`, desfasada al ser configurable el root de escaneo.
+- El panel `Console` pasa a llamarse `Output` (también alberga Threads y las
+  nuevas pestañas); la navegación pasa a `1`…`7`, con `tab`/`shift+tab` para
+  ciclar.
+- Las pestañas inactivas usan gris claro legible (antes el ANSI 8 quedaba
+  casi invisible en temas oscuros).
 - El parseo de `--path` es predecible: acepta `--path <valor>` y
   `--path=<valor>`, y falla con un error claro ante valor ausente, vacío o
   duplicado (antes se ignoraba en silencio).
