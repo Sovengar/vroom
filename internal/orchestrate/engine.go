@@ -285,6 +285,7 @@ func (e *Engine) validateServices(stack *Stack, projects []scanner.Project) ([]R
 	for name := range allNames {
 		names = append(names, name)
 	}
+	sort.Strings(names) // orden estable: mensajes/errores reproducibles
 	return e.ResolveServices(names, projects)
 }
 
