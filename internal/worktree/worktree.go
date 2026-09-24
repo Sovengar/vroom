@@ -177,16 +177,60 @@ func IsBareRepo(dir string) bool {
 	return hasBareMarker(filepath.Join(dir, "config"))
 }
 
-// hasBareMarker busca la clave bare = true en el config de git.
+// hasBareMarker reporta si el config de git declara core.bare = true. La
+// clave se busca solo dentro de la sección [core]: un `bare = true` en
+// otra sección (o en un fichero que no es un config de git) no cuenta, así
+// que un directorio cualquiera con HEAD/objects/refs no se confunde con un
+// bare repo.
 func hasBareMarker(configPath string) bool {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return false
 	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.TrimSpace(line) == "bare = true" {
+	inCore := false
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(stripConfigComment(raw))
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			inCore = strings.EqualFold(line, "[core]")
+			continue
+		}
+		if !inCore {
+			continue
+		}
+		key, val, ok := strings.Cut(line, "=")
+		if !ok || !strings.EqualFold(strings.TrimSpace(key), "bare") {
+			continue
+		}
+		if isTrueConfigValue(strings.TrimSpace(val)) {
 			return true
 		}
+	}
+	return false
+}
+
+// stripConfigComment elimina un comentario inline de git config (`#` o
+// `;`) sin tocar valores entre comillas simples.
+func stripConfigComment(line string) string {
+	inQuote := false
+	for i, r := range line {
+		switch {
+		case r == '\'':
+			inQuote = !inQuote
+		case (r == '#' || r == ';') && !inQuote:
+			return line[:i]
+		}
+	}
+	return line
+}
+
+// isTrueConfigValue interpreta un booleano de git config.
+func isTrueConfigValue(v string) bool {
+	switch strings.ToLower(v) {
+	case "true", "yes", "on", "1":
+		return true
 	}
 	return false
 }

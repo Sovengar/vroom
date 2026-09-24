@@ -197,6 +197,29 @@ func TestIsBareRepo(t *testing.T) {
 	}
 }
 
+// El marcador bare solo cuenta dentro de [core]: un `bare = true` en otra
+// sección no convierte un directorio en bare repo (falso positivo).
+func TestIsBareRepoScopesMarkerToCore(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "HEAD"), "ref: refs/heads/main\n")
+	writeFile(t, filepath.Join(dir, "config"), "[remote \"origin\"]\n\tbare = true\n")
+	if err := os.MkdirAll(filepath.Join(dir, "objects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "refs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if IsBareRepo(dir) {
+		t.Error("bare fuera de [core] no debe detectarse como bare repo")
+	}
+
+	// Con la clave dentro de [core] (aunque haya comentario inline) sí.
+	writeFile(t, filepath.Join(dir, "config"), "[core]\n\tbare = true # bare repo\n")
+	if !IsBareRepo(dir) {
+		t.Error("bare = true dentro de [core] debe detectarse")
+	}
+}
+
 // List sin git en PATH devuelve ErrGitUnavailable.
 func TestListGitUnavailable(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
