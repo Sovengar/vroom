@@ -1,0 +1,106 @@
+name: CI
+
+# NOTE: this workflow intentionally has NO `paths` / `paths-ignore` filters.
+# A path-filtered push/PR skips the workflow entirely; a skipped workflow leaves
+# its required status checks stuck in "pending" forever, which deadlocks every
+# PR that does not touch the filtered paths. The gates run on every change.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege by default; every job inherits this.
+permissions:
+  contents: read
+
+# Superseded runs on the same ref are cancelled so a new push ends the previous
+# check run. Main is exempt: every commit landing on main gets a complete run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  Build:
+    name: Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+
+  Lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          # Makefile is part of the cache key: GOLANGCI_LINT_VERSION lives there,
+          # so bumping the linter busts the cached modules instead of reusing stale ones.
+          cache-dependency-path: |
+            go.sum
+            Makefile
+      # Exact `make lint` parity: same pinned golangci-lint v2.13.2 as local,
+      # invoked through the repo Makefile (no .golangci.yml exists -> default linter set).
+      - name: Lint
+        run: make lint
+
+  Test:
+    name: Test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      # Same test set as `make test` (`go test -race`, no `-short`, so the
+      # internal/process integration tests run) plus an atomic coverage profile.
+      - name: Test
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ ! -f coverage.out ]; then
+            echo "coverage.out not produced (tests failed before it was written)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          total=$(go tool cover -func=coverage.out | tail -n1 | awk '{print $3}')
+          {
+            echo "## Test coverage"
+            echo ""
+            echo "**Total: ${total}**"
+            echo ""
+            echo "| Package | Coverage |"
+            echo "| --- | --- |"
+            awk 'NR > 1 {
+              split($1, a, ":"); f = a[1];
+              n = split(f, p, "/"); pkg = "";
+              for (i = 1; i < n; i++) pkg = pkg (i > 1 ? "/" : "") p[i];
+              tot[pkg] += $2;
+              if ($3 + 0 > 0) cov[pkg] += $2;
+            }
+            END {
+              for (k in tot) printf "| %s | %.1f%% |\n", k, (tot[k] > 0 ? 100 * cov[k] / tot[k] : 0);
+            }' coverage.out | sort
+          } >> "$GITHUB_STEP_SUMMARY"
