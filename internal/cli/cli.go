@@ -193,19 +193,46 @@ func findByPath(projects []scanner.Project, path string) (scanner.Project, error
 	return scanner.Project{}, fmt.Errorf("project not found: %s", path)
 }
 
-// extractPathFlag separa el flag --path <valor> de los demás argumentos
-// (posicionales y otros flags, p.ej. --tail/--stream de logs).
-func extractPathFlag(args []string) (rest []string, path string) {
+// extractPathFlag separa el flag --path <valor> (o --path=<valor>) de los
+// demás argumentos (posicionales y otros flags, p.ej. --tail/--stream de
+// logs). Devuelve error si --path aparece sin valor, con valor vacío o más
+// de una vez: el comportamiento es predecible en vez de ignorarlo en
+// silencio.
+func extractPathFlag(args []string) (rest []string, path string, err error) {
 	rest = make([]string, 0, len(args))
+	seen := false
+	set := func(val string) error {
+		if seen {
+			return fmt.Errorf("--path specified more than once")
+		}
+		if val == "" {
+			return fmt.Errorf("--path requires a non-empty value")
+		}
+		seen = true
+		path = val
+		return nil
+	}
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--path" && i+1 < len(args) {
-			path = args[i+1]
+		a := args[i]
+		if a == "--path" {
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+				return nil, "", fmt.Errorf("--path requires a value")
+			}
+			if err := set(args[i+1]); err != nil {
+				return nil, "", err
+			}
 			i++
 			continue
 		}
-		rest = append(rest, args[i])
+		if val, ok := strings.CutPrefix(a, "--path="); ok {
+			if err := set(val); err != nil {
+				return nil, "", err
+			}
+			continue
+		}
+		rest = append(rest, a)
 	}
-	return rest, path
+	return rest, path, nil
 }
 
 // evaluateStatus devuelve el estado evaluado de un proyecto.
@@ -289,31 +316,46 @@ func Run(args []string) bool {
 	case "list", "status":
 		cmdList()
 	case "start":
-		rest, path := extractPathFlag(args[1:])
+		rest, path, err := extractPathFlag(args[1:])
+		if err != nil {
+			outputError(err.Error())
+		}
 		if len(rest) < 1 {
 			outputError("usage: vroom start <project-name|path> [--path <path>]")
 		}
 		cmdStart(rest[0], path)
 	case "stop":
-		rest, path := extractPathFlag(args[1:])
+		rest, path, err := extractPathFlag(args[1:])
+		if err != nil {
+			outputError(err.Error())
+		}
 		if len(rest) < 1 {
 			outputError("usage: vroom stop <project-name|path> [--path <path>]")
 		}
 		cmdStop(rest[0], path)
 	case "build":
-		rest, path := extractPathFlag(args[1:])
+		rest, path, err := extractPathFlag(args[1:])
+		if err != nil {
+			outputError(err.Error())
+		}
 		if len(rest) < 1 {
 			outputError("usage: vroom build <project-name|path> [--path <path>]")
 		}
 		cmdBuild(rest[0], path)
 	case "install":
-		rest, path := extractPathFlag(args[1:])
+		rest, path, err := extractPathFlag(args[1:])
+		if err != nil {
+			outputError(err.Error())
+		}
 		if len(rest) < 1 {
 			outputError("usage: vroom install <project-name|path> [--path <path>]")
 		}
 		cmdInstall(rest[0], path)
 	case "logs":
-		rest, path := extractPathFlag(args[1:])
+		rest, path, err := extractPathFlag(args[1:])
+		if err != nil {
+			outputError(err.Error())
+		}
 		if len(rest) < 1 {
 			outputError("usage: vroom logs <project-name|path> [--path <path>] [--tail N --stream merged|stdout|stderr]")
 		}

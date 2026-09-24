@@ -82,13 +82,46 @@ func TestFindProjectUnknownPath(t *testing.T) {
 
 // extractPathFlag separa --path del resto sin perder otros flags.
 func TestExtractPathFlag(t *testing.T) {
-	rest, path := extractPathFlag([]string{"api", "--path", "/repo-wt/b", "--tail", "50"})
+	rest, path, err := extractPathFlag([]string{"api", "--path", "/repo-wt/b", "--tail", "50"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if path != "/repo-wt/b" {
 		t.Errorf("path = %q", path)
 	}
 	want := []string{"api", "--tail", "50"}
 	if strings.Join(rest, " ") != strings.Join(want, " ") {
 		t.Errorf("rest = %v, want %v", rest, want)
+	}
+}
+
+// extractPathFlag: forma --path=valor y posición respecto al posicional.
+func TestExtractPathFlagEqualsForm(t *testing.T) {
+	rest, path, err := extractPathFlag([]string{"--path=/repo-wt/a", "api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/repo-wt/a" {
+		t.Errorf("path = %q, want /repo-wt/a", path)
+	}
+	if len(rest) != 1 || rest[0] != "api" {
+		t.Errorf("rest = %v, want [api]", rest)
+	}
+}
+
+// extractPathFlag: casos borde → error predecible, nunca silencio.
+func TestExtractPathFlagEdgeCases(t *testing.T) {
+	cases := [][]string{
+		{"api", "--path"},                       // sin valor
+		{"api", "--path", "--tail"},             // seguido de otro flag
+		{"api", "--path="},                      // forma = vacía
+		{"api", "--path", ""},                   // valor vacío
+		{"api", "--path", "/a", "--path", "/b"}, // duplicado
+	}
+	for _, args := range cases {
+		if _, _, err := extractPathFlag(args); err == nil {
+			t.Errorf("extractPathFlag(%v) debe devolver error", args)
+		}
 	}
 }
 
