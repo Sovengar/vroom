@@ -336,6 +336,29 @@ func TestScanSkipsPrunableWorktree(t *testing.T) {
 	}
 }
 
+// Un worktree prunable cuyo directorio sigue existiendo se trata como
+// worktree normal (se anota/nida), no se omite.
+func TestScanKeepsPrunableWorktreeWhenDirExists(t *testing.T) {
+	tr := newTree(t).
+		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo/.git/config", "[core]\n\tbare = false\n").
+		file("repo-wt-a/.vroom.toml", "name = \"api\"\ncommand_start = \"echo\"\n").
+		file("repo-wt-a/.git", "gitdir: /nowhere/.git/worktrees/a\n")
+	main := filepath.Join(tr.path(), "repo")
+	wtA := filepath.Join(tr.path(), "repo-wt-a")
+	out := porcelainRepo(main) + "worktree " + wtA + "\nHEAD bbbb000000000000000000000000000000000000\nbranch refs/heads/wta\nprunable gitdir file points to non-existent location\n\n"
+	t.Setenv("PATH", fakeGitPATH(t, out, 0))
+
+	result, err := Scan(tr.path(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := find(result.Projects, "repo-wt-a")
+	if p == nil || !p.IsWorktree || p.RepoRoot != main {
+		t.Errorf("prunable con directorio existente debe anotarse como worktree: %+v", p)
+	}
+}
+
 // Un bare repo se detecta y se expone como contenedor no configurado.
 func TestScanDetectsBareRepo(t *testing.T) {
 	tr := newTree(t).

@@ -418,7 +418,12 @@ func queryWorktreeRelations(projects []Project) map[string]repoRelation {
 		main := wts[0].Path // git lista el main checkout primero
 		for _, wt := range wts {
 			if wt.Prunable {
-				continue // prunable/ausente: no se renderiza
+				// Prunable con directorio existente: git lo marca
+				// obsoleto pero el worktree sigue en disco, así que se
+				// trata como normal. Solo se omite si ya no existe.
+				if _, err := os.Stat(wt.Path); err != nil {
+					continue
+				}
 			}
 			rel := repoRelation{main: main, isWorktree: wt.Path != main}
 			if prev, ok := info[wt.Path]; ok && prev.isWorktree {
