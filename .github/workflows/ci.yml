@@ -92,9 +92,11 @@ jobs:
           fi
           fd --version
       # Same test set as `make test` (`go test -race`, no `-short`, so the
-      # internal/process integration tests run) plus an atomic coverage profile.
+      # internal/process integration tests run) plus an atomic coverage profile
+      # and `-count=1`: with the Go build cache restored, a cached `ok` must
+      # never mask a failure.
       - name: Test
-        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+        run: go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
       - name: Coverage summary
         if: always()
         run: |
