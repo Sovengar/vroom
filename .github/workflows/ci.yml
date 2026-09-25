@@ -77,18 +77,68 @@ jobs:
       # The scanner prefers fd (`fd --hidden`) and its tests assert hidden-dir
       # discovery, but ubuntu runners ship no `fd` (Debian packages it as
       # `fdfind`). Without it the WalkDir fallback runs, which skips hidden dirs,
-      # and TestScanFindsVroomTomlInHiddenDirs fails. Install it for parity with
+      # and TestScanFindsVroomTomlInHiddenDirs fails. Provide it for parity with
       # the documented local environment (`make test` assumes fd is present).
+      #
+      # Instead of `apt-get install fd-find` on every run (apt is the most
+      # expensive part of this job and the binary never changes), cache a pinned
+      # static musl build of the upstream sharkdp/fd release. The release
+      # publishes no checksums asset, so FD_SHA256 below is a self-pinned digest
+      # of the exact tarball; a mismatch fails the job loudly. A cache miss pays
+      # only a single curl+tar+install. The key includes the fd version plus
+      # OS/arch and deliberately omits restore-keys: a versioned tool must never
+      # silently fall back to a different version.
+      - name: Cache fd binary
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/fd-bin
+          key: fd-${{ runner.os }}-${{ runner.arch }}-v10.5.0
       - name: Install fd
         run: |
-          export DEBIAN_FRONTEND=noninteractive
-          sudo -E apt-get update -q
-          sudo -E apt-get install -y -q fd-find
-          # Debian installs the binary as `fdfind`; expose it as `fd` unless the
-          # runner already provides one. Fail loudly if fdfind is absent.
+          set -euo pipefail
+          FD_VERSION="v10.5.0"
+          FD_ASSET="fd-v10.5.0-x86_64-unknown-linux-musl.tar.gz"
+          FD_SHA256="761c72dc8e120d85b22292063be8a796e2eeb20eb3e4f38b8fa2343ccf3514a7"
+          FD_BIN_DIR="$HOME/.cache/fd-bin"
+          FD_BIN="$FD_BIN_DIR/fd"
+
+          if [ "${{ runner.arch }}" != "X64" ]; then
+            echo "ERROR: fd asset is pinned for X64 but the runner is ${{ runner.arch }}" >&2
+            exit 1
+          fi
+
+          if [ -x "$FD_BIN" ]; then
+            echo "fd restored from cache ($FD_BIN)"
+          else
+            echo "fd cache miss; downloading $FD_ASSET"
+            mkdir -p "$FD_BIN_DIR"
+            tmp="$(mktemp -d)"
+            curl -fsSL -o "$tmp/$FD_ASSET" \
+              "https://github.com/sharkdp/fd/releases/download/$FD_VERSION/$FD_ASSET"
+            actual="$(sha256sum "$tmp/$FD_ASSET" | awk '{print $1}')"
+            if [ "$actual" != "$FD_SHA256" ]; then
+              echo "ERROR: sha256 mismatch for $FD_ASSET" >&2
+              echo "expected: $FD_SHA256" >&2
+              echo "actual:   $actual" >&2
+              exit 1
+            fi
+            tar -xzf "$tmp/$FD_ASSET" -C "$tmp"
+            install -m 0755 "$tmp/fd-v10.5.0-x86_64-unknown-linux-musl/fd" "$FD_BIN"
+            rm -rf "$tmp"
+          fi
+
+          # Expose a stable `fd` on PATH for the Test step (the Go tests resolve
+          # it via exec.LookPath). Fail loudly if neither cache nor download
+          # produced a usable binary, never silently fall back to WalkDir.
+          mkdir -p "$HOME/.local/bin"
+          ln -sf "$FD_BIN" "$HOME/.local/bin/fd"
+          if ! grep -qxF "$HOME/.local/bin" "$GITHUB_PATH" 2>/dev/null; then
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          fi
+          export PATH="$HOME/.local/bin:$PATH"
           if ! command -v fd >/dev/null; then
-            fdfind="$(command -v fdfind)" || { echo "ERROR: fdfind not found after install"; exit 1; }
-            sudo ln -sf "$fdfind" /usr/local/bin/fd
+            echo "ERROR: no usable fd on PATH after cache restore/download" >&2
+            exit 1
           fi
           fd --version
       # Same test set as `make test` (`go test -race`, no `-short`, so the
