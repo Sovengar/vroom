@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 #
-# setup-repo-protection.sh — idempotently configure the `protect-main` branch
-# ruleset, the repo merge setting, and the labels dependabot.yml references.
+# setup-repo-protection.sh — idempotently configure the `protect-<default-branch>`
+# branch ruleset, the repo merge setting, and the labels dependabot.yml references.
+#
+# The protected branch and the ruleset name are DERIVED FROM THE REPO, never
+# hardcoded: the default branch is read from `gh repo view --json
+# defaultBranchRef`, and the ruleset is named `protect-<branch>` (for a repo
+# whose default branch is `main` that is `protect-main`). Hardcoding `main` on a
+# repo whose default branch is something else would silently protect a branch
+# that does not exist.
 #
 # Policy (see the plan / PR description for the rationale):
 #   - block branch deletion            (`deletion`)
@@ -19,9 +26,9 @@
 #
 # BYPASS — accepted consequence, deliberate; do not "fix": the repo-admin role
 # keeps `bypass_mode: always`. The admin can therefore merge red PRs and push or
-# force-push `main`, bypassing every rule above. The gate is absolute only for
-# non-admin actors. Strict mode (no escape hatch) = remove `bypass_actors` and
-# temporarily disable the ruleset for hotfixes.
+# force-push the protected branch, bypassing every rule above. The gate is
+# absolute only for non-admin actors. Strict mode (no escape hatch) = remove
+# `bypass_actors` and temporarily disable the ruleset for hotfixes.
 #
 # Labels: dependabot.yml references `dependencies` and `ci`. GitHub silently
 # drops undefined labels, so this script creates them when missing (idempotent;
@@ -33,12 +40,10 @@
 #   scripts/setup-repo-protection.sh [--dry-run] [--contexts Build,Lint,Test] [--sha <commit>]
 #
 # Env overrides:
-#   RULESET_NAME=protect-main   BRANCH=main   GH_ACTIONS_APP_ID=15368
+#   RULESET_NAME=protect-<branch>   BRANCH=<default branch>   GH_ACTIONS_APP_ID=15368
 
 set -euo pipefail
 
-RULESET_NAME="${RULESET_NAME:-protect-main}"
-BRANCH="${BRANCH:-main}"
 # GitHub Actions is the integration that reports our CI check runs.
 GH_ACTIONS_APP_ID="${GH_ACTIONS_APP_ID:-15368}"
 REQUIRED_DEFAULT=(Build Lint Test)
@@ -75,6 +80,16 @@ done
 
 REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
 [ -n "$REPO" ] || { echo "ERROR: could not resolve owner/repo (run inside the repository)." >&2; exit 1; }
+
+# The protected branch is the repo's ACTUAL default branch, not a guess.
+DEFAULT_BRANCH="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
+if [ -z "$DEFAULT_BRANCH" ] || [ "$DEFAULT_BRANCH" = "null" ]; then
+  echo "ERROR: could not resolve the default branch for ${REPO}." >&2
+  exit 1
+fi
+
+BRANCH="${BRANCH:-$DEFAULT_BRANCH}"
+RULESET_NAME="${RULESET_NAME:-protect-${BRANCH}}"
 
 # find_ruleset_id prints the id of the ruleset named RULESET_NAME, or nothing.
 # The list is paginated (per_page=100) so a large collection cannot make us miss
@@ -118,6 +133,7 @@ ensure_labels() {
 }
 
 echo "==> Repository: ${REPO}"
+echo "==> Default branch: ${DEFAULT_BRANCH}"
 echo "==> Ruleset:    ${RULESET_NAME} (target=refs/heads/${BRANCH}, enforcement=active)"
 
 # ---------------------------------------------------------------------------
@@ -197,9 +213,9 @@ checks_json+="]"
 # NOTE on `bypass_actors` below: the repo-admin role (actor_id 5) keeps
 # `bypass_mode: "always"` on purpose — it is the owner's approved escape hatch.
 # Accepted consequence (deliberate): an admin can merge red PRs and push or
-# force-push `main`, so the ruleset is absolute only for non-admin actors.
-# Strict enforcement (no escape hatch) = drop `bypass_actors` and disable the
-# ruleset explicitly during a hotfix.
+# force-push the protected branch, so the ruleset is absolute only for non-admin
+# actors. Strict enforcement (no escape hatch) = drop `bypass_actors` and
+# disable the ruleset explicitly during a hotfix.
 # ---------------------------------------------------------------------------
 payload="$(cat <<JSON
 {
