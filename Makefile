@@ -25,7 +25,10 @@ check: build lint test
 mutate:
 	go tool gremlins unleash --workers 4 --timeout-coefficient 3 --output report.json
 
+# gremlins silently falls back to the whole module when the diff is empty (base == HEAD),
+# so fail fast instead of running a full-module run that looks diff-scoped.
 mutate-diff:
+	@git diff --name-only main...HEAD | grep -q '\.go$$' || { echo "no .go changes vs main - nothing to mutate"; exit 0; }
 	go tool gremlins unleash --diff main --workers 4 --timeout-coefficient 3 --output report.json
 
 clean:
