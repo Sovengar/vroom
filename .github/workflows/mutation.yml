@@ -30,6 +30,8 @@ jobs:
     name: Mutation calibration
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    outputs:
+      calibrated: ${{ steps.check.outputs.calibrated }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,7 +52,7 @@ jobs:
   Mutation:
     name: Mutation
     needs: Calibration
-    if: needs.Calibration.outputs.check.outputs.calibrated == 'true'
+    if: needs.Calibration.outputs.calibrated == 'true'
     runs-on: ubuntu-24.04
     # Hard cap. gremlins is never signalled: on SIGTERM it panics
     # ("send on closed channel") and writes no report.json, so a timeout can only
