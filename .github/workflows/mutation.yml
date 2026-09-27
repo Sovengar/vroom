@@ -1,10 +1,12 @@
 name: Mutation
 
-# Advisory mutation testing via gremlins. Deliberately has NO `paths` filters and is
-# deliberately NOT a required status check: a path-filtered workflow that ever becomes
-# required leaves its check stuck in "pending" on every PR that skips it, which
-# deadlocks those PRs. The .go scope is enforced INSIDE the job instead, mirroring the
-# guard in `make mutate-diff`.
+# Mutation testing via gremlins, with a blocking gate on new surviving mutants.
+# Deliberately has NO `paths` filters: a path-filtered workflow that ever becomes a
+# required check leaves that check stuck in "pending" on every PR that skips it,
+# which deadlocks those PRs. The .go scope is enforced INSIDE the job instead,
+# mirroring the guard in `make mutate-diff`.
+# Because there are no path filters, this workflow is SAFE to mark as a required
+# status check; do that in branch protection if you want the gate to block merges.
 on:
   pull_request:
   workflow_dispatch:
@@ -20,7 +22,7 @@ concurrency:
 
 jobs:
   Mutation:
-    name: Mutation (advisory)
+    name: Mutation
     runs-on: ubuntu-24.04
     # Hard cap. gremlins is never signalled: on SIGTERM it panics
     # ("send on closed channel") and writes no report.json, so a timeout can only
@@ -64,22 +66,63 @@ jobs:
             echo "no .go changes vs $BASE - nothing to mutate"
           fi
 
-      - name: Mutate (advisory, never fails the PR)
+      - name: Mutate
         if: steps.scope.outputs.run == 'true'
+        # A gremlins crash must not be read as a mutation failure: the Gate step
+        # below decides, and it treats a missing report.json as "no result".
         continue-on-error: true
         run: make mutate-diff MUTATE_BASE=origin/${{ github.base_ref || github.event.repository.default_branch }}
 
-      - name: Summary
+      # Blocking gate: fail on any surviving mutant in the diff that is not already
+      # listed in .mutation-allowlist.
+      - name: Gate
         if: always() && steps.scope.outputs.run == 'true'
+        env:
+          ALLOWLIST: .mutation-allowlist
         run: |
-          {
-            echo "### Mutation testing (advisory)"
-            if [ -f report.json ]; then
-              jq -r '"- total mutants: \(.mutants_total)\n- killed: \(.mutants_killed)\n- **lived (no test caught them)**: \(.mutants_lived)\n- not covered: \(.mutants_not_covered)\n- not viable: \(.mutants_not_viable)\n- test efficacy: \(.test_efficacy)%\n- mutator coverage: \(.mutations_coverage)%\n- elapsed: \(.elapsed_time)s"' report.json || echo "- could not parse report.json"
-            else
-              echo "- no report.json produced (timed out, or gremlins was interrupted)"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          set -uo pipefail
+          S="$GITHUB_STEP_SUMMARY"
+          : > "$S"
+          echo "### Mutation testing" >> "$S"
+
+          if [ ! -f report.json ]; then
+            echo "- no report.json (timed out, or gremlins crashed) -> no result, gate passes" >> "$S"
+            exit 0
+          fi
+
+          echo "- total: $(jq -r '.mutants_total' report.json)" >> "$S"
+          echo "- killed: $(jq -r '.mutants_killed' report.json)" >> "$S"
+          echo "- survived: $(jq -r '.mutants_lived' report.json)" >> "$S"
+          echo "- not covered: $(jq -r '.mutants_not_covered' report.json)" >> "$S"
+          echo "- test efficacy: $(jq -r '.test_efficacy' report.json)%" >> "$S"
+          echo "- mutator coverage: $(jq -r '.mutations_coverage' report.json)%" >> "$S"
+          echo "- note: gremlins does not report TIMED OUT mutants in report.json, and efficacy excludes them" >> "$S"
+
+          jq -r '.files[] | .file_name as $f | .mutations[] | select(.status=="LIVED") | "\(.type) \($f):\(.line)"' report.json | sort -u > /tmp/lived.txt
+          total=$(wc -l < /tmp/lived.txt)
+
+          if [ ! -f "$ALLOWLIST" ]; then
+            echo "- surviving in diff: $total" >> "$S"
+            echo "- gate NOT calibrated: $ALLOWLIST is missing, so this run reports only and cannot block" >> "$S"
+            exit 0
+          fi
+
+          grep -vE '^[[:space:]]*(#|$)' "$ALLOWLIST" | sed 's/[[:space:]]*$//' | sort -u > /tmp/allow.txt
+          comm -23 /tmp/lived.txt /tmp/allow.txt > /tmp/new_lived.txt
+          new=$(wc -l < /tmp/new_lived.txt)
+
+          echo "- surviving in diff: $total (allowlisted: $((total - new)), new: $new)" >> "$S"
+
+          if [ "$new" -gt 0 ]; then
+            {
+              echo ""
+              echo "New surviving mutants - no test catches these changes:"
+              sed 's/^/- /' /tmp/new_lived.txt
+              echo ""
+              echo "Add a test that kills them, or - only if provably equivalent - add the line to $ALLOWLIST with a comment saying why."
+            } >> "$S"
+            exit 1
+          fi
 
       - name: Upload report
         if: always()
