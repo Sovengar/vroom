@@ -7,6 +7,11 @@ name: Mutation
 # mirroring the guard in `make mutate-diff`.
 # Because there are no path filters, this workflow is SAFE to mark as a required
 # status check; do that in branch protection if you want the gate to block merges.
+# The Mutation job is gated on a Calibration job: in a repo without
+# .mutation-allowlist the Mutation job is SKIPPED (visibly not-a-pass) instead of
+# reporting green while measuring nothing. Consequence: a skipped job is a skipped
+# check, so `Mutation` must NOT be marked as a required status check in branch
+# protection - same deadlock class as path filters.
 on:
   pull_request:
   workflow_dispatch:
@@ -21,8 +26,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  Calibration:
+    name: Mutation calibration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Check calibration
+        id: check
+        run: |
+          if [ -f .mutation-allowlist ]; then
+            echo "calibrated=true" >> "$GITHUB_OUTPUT"
+            echo "calibrated: .mutation-allowlist present"
+          else
+            echo "calibrated=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Mutation testing not calibrated::.mutation-allowlist is missing, so the gate cannot run and no surviving mutant is being detected. Seed it with: make mutate, then commit .mutation-allowlist"
+          fi
+
   Mutation:
     name: Mutation
+    needs: Calibration
+    if: needs.Calibration.outputs.check.outputs.calibrated == 'true'
     runs-on: ubuntu-24.04
     # Hard cap. gremlins is never signalled: on SIGTERM it panics
     # ("send on closed channel") and writes no report.json, so a timeout can only
