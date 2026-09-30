@@ -5,6 +5,7 @@ package process
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -26,6 +27,37 @@ import (
 // global de máquina y podría matar o culpar a la corrida de otro proceso, que
 // es exactamente el falso positivo que no se quiere en un guard.
 
+// testBinaryPath resuelve el ejecutable de este binario de test. Falla en
+// lugar de devolver cadena vacía: si esto no se puede resolver, un guard que
+// no encuentra NADA parece un guard que pasa, y eso es peor que no tenerlo.
+func testBinaryPath(t *testing.T) string {
+	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+	resolved, err := filepath.EvalSymlinks(self)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%s): %v", self, err)
+	}
+	return resolved
+}
+
+// isTestBinary dice si el proceso pid ejecuta el binario `self`. Es la única
+// pieza de lógica del guard, y está aparte para poder probarla contra un
+// proceso que el test posee y controla, sin spawn ni shell de por medio.
+func isTestBinary(root, self string, pid int) bool {
+	exe, err := os.Readlink(filepath.Join(root, strconv.Itoa(pid), "exe"))
+	if err != nil {
+		return false // ya no existe, o no es nuestro
+	}
+	resolved, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		return false
+	}
+	return resolved == self
+}
+
 // leakedTestBinaries devuelve los pids que ejecutan ESTE binario de test y que
 // siguen corriendo.
 func leakedTestBinaries() []int {
@@ -33,8 +65,7 @@ func leakedTestBinaries() []int {
 	if err != nil {
 		return nil
 	}
-	self, err = filepath.EvalSymlinks(self)
-	if err != nil {
+	if self, err = filepath.EvalSymlinks(self); err != nil {
 		return nil
 	}
 
@@ -64,22 +95,12 @@ func leakedTestBinaries() []int {
 		if isAncestor(pid, me) {
 			continue
 		}
-		exe, err := os.Readlink(filepath.Join(procRoot, e.Name(), "exe"))
-		if err != nil {
-			continue // ya no existe, o no es nuestro
-		}
-		if resolved, err := filepath.EvalSymlinks(exe); err == nil && resolved == self {
+		if isTestBinary(procRoot, self, pid) {
 			leaked = append(leaked, pid)
 		}
 	}
 	return leaked
 }
-
-// helperEnvVar marca los procesos que son un helper lanzado por la propia
-// suite. Hace falta porque un helper ES este mismo binario: sin esta guarda,
-// el TestMain del hijo buscaría fugas, encontraría al padre (mismo ejecutable)
-// y lo mataría.
-const helperEnvVar = "VROOM_TEST_HELPER"
 
 // isAncestor dice si candidate está en la cadena de padres de pid.
 func isAncestor(candidate, pid int) bool {
@@ -98,6 +119,9 @@ func isAncestor(candidate, pid int) bool {
 	return false
 }
 
+// helperEnvVar marca los procesos que son un helper lanzado por la suite.
+const helperEnvVar = "VROOM_TEST_HELPER"
+
 func TestMain(m *testing.M) {
 	code := m.Run()
 
@@ -109,11 +133,10 @@ func TestMain(m *testing.M) {
 	if len(leaked) == 0 {
 		os.Exit(code)
 	}
-
 	// Se limpian igual: un guard que además deja la fuga puesta es peor que
 	// no tener guard.
 	for _, pid := range leaked {
-		_ = syscallKill(pid)
+		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
 	fmt.Fprintf(os.Stderr,
 		"\nHYGIENE: %d proceso(s) de este binario de test sobrevivieron a la suite: %v\n"+
@@ -122,40 +145,82 @@ func TestMain(m *testing.M) {
 	os.Exit(1)
 }
 
-// El guard tiene que poder FALLAR. Si el emparejamiento por ejecutable no
-// detectara nada, este test no valdría nada; así que se comprueba sobre un
-// proceso real del propio binario.
-func TestHygieneGuardDetectsItsOwnBinary(t *testing.T) {
+// ---- El guard tiene que poder fallar ----
+
+// TestHygieneGuardMatchesOwnBinary comprueba la lógica de emparejamiento
+// contra un proceso que este test POSEE Y CONTROLA — su propio pid — y sin
+// spawn ni shell. Es determinista por construcción: no hay carrera, no hay
+// ventana de tiempo y no depende de qué /bin/sh sea en la máquina.
+//
+// La versión anterior de este test comprobaba lo mismo racing a un helper
+// lanzado por `sh -c` y usando el pid del WRAPPER. Eso sólo funciona si la
+// shell hace exec, y exec no está garantizado: en CI /bin/sh es dash y ahí
+// reventó con un timeout de 5 s y ningún otro rastro. Este no puede fallar
+// por el entorno.
+func TestHygieneGuardMatchesOwnBinary(t *testing.T) {
+	self := testBinaryPath(t)
+
+	if !isTestBinary(procRoot, self, os.Getpid()) {
+		t.Errorf("el guard tiene que reconocer su propio binario (pid %d)", os.Getpid())
+	}
+
+	// Control negativo: pid 1 no es este binario. Sin esto, un isTestBinary
+	// que devolviera true siempre pasaría el aserto anterior.
+	if isTestBinary(procRoot, self, 1) {
+		t.Error("pid 1 no ejecuta este binario: el emparejamiento no discrimina")
+	}
+
+	// Un pid que no existe no puede generar un falso positivo.
+	if isTestBinary(procRoot, self, 999999999) {
+		t.Error("un pid inexistente no puede ser este binario")
+	}
+
+	// Y el guard completo no se incluye a sí mismo ni a sus antepasados.
+	if containsInt(leakedTestBinaries(), os.Getpid()) {
+		t.Error("el guard no puede listarse a sí mismo: se mataría al terminar")
+	}
+}
+
+// TestHygieneGuardFindsSpawnedHelper es la parte de descubrimiento: un helper
+// real tiene que aparecer. Se lanza SIN shell (exec directo), así que el pid
+// es inequívocamente nuestro y la aserción no depende de que `sh` haga exec.
+func TestHygieneGuardFindsSpawnedHelper(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
 	}
 
 	before := len(leakedTestBinaries())
 
-	// Esto lanza un helper, así que hay que declararlo: si no, el TestMain
-	// del hijo correría el guard y mataría a este proceso.
-	t.Setenv(helperEnvVar, "listener")
-
-	res := startSleep(t, newTestManager(t), StartSpec{
-		Command:    testBinary(t) + " -test.run=^TestHelperListener$",
-		WorkDir:    t.TempDir(),
-		StdoutPath: filepath.Join(t.TempDir(), "out.log"),
-		StderrPath: filepath.Join(t.TempDir(), "err.log"),
-	})
+	pid := spawnTestHelperDirectly(t)
 	t.Cleanup(func() {
-		_ = syscallKillGroup(res.Pgid)
-		_ = syscallKill(res.Pid)
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		_ = syscall.Kill(pid, syscall.SIGKILL)
 	})
-	waitFor(t, 5*time.Second, "helper vivo", func() bool {
-		return containsInt(leakedTestBinaries(), res.Pid)
+
+	waitFor(t, 10*time.Second, "helper visible para el guard", func() bool {
+		return containsInt(leakedTestBinaries(), pid)
 	})
 
 	if got := len(leakedTestBinaries()); got != before+1 {
-		t.Errorf("el guard vio %d fugas, esperaba %d: el emparejamiento no funciona", got, before+1)
+		t.Errorf("el guard vio %d fugas, esperaba %d: el descubrimiento no funciona", got, before+1)
 	}
-	if !strings.Contains(testBinary(t), "test") {
-		t.Skip("ruta de test inesperada")
+	if !strings.Contains(os.Args[0], "test") {
+		t.Errorf("ruta de test inesperada: %q", os.Args[0])
 	}
+}
+
+// spawnTestHelperDirectly lanza este binario sin pasar por una shell, de modo
+// que el pid devuelto es el del helper y no el de un wrapper.
+func spawnTestHelperDirectly(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperListener$")
+	cmd.Env = append(os.Environ(), helperEnvVar+"=listener", "VROOM_TEST_PORT=0")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("helper directo: %v", err)
+	}
+	go func() { _ = cmd.Wait() }()
+	return cmd.Process.Pid
 }
 
 func containsInt(xs []int, x int) bool {
