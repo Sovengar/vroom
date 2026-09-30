@@ -1,10 +1,12 @@
 package orchestrate
 
 import (
+	"errors"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -281,4 +283,154 @@ func closedTCPPort(t *testing.T) int {
 	port := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
 	return port
+}
+
+// M-A: un puerto sin resolver es un TERCER resultado no fatal. Antes caía en
+// el genérico `Port <= 0 → ErrPortPending`, que es un error duro: stageErr y
+// abortAndCleanup apagaban al hermano sano.
+//
+// El test es conductual, no de strings: mira que la launch no falla y que el
+// hermano SIGUE VIVO con su CreationTimeMs intacto.
+func TestLaunchPortUnresolvedDoesNotAbortStack(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integración: spawn real")
+	}
+
+	// El servicio con el puerto sin decidir ya está corriendo y su discovery
+	// YA TERMINÓ: eso es lo que significa el estado. Se siembra así en vez
+	// de provocar un discovery lento, para que el test vaya por el camino
+	// "already_running" sin esperar la ventana de gracia.
+	dir := t.TempDir()
+	live := startHelperProcess(t, "sleep 120")
+
+	slow := scanner.Project{
+		Path: dir, Name: "slow", Configured: true,
+		Manifest: &manifest.Manifest{
+			Name: "slow", Command: "sleep 120",
+			Port: 8080, PortMode: manifest.PortModeDynamic,
+		},
+	}
+
+	// El hermano lo arranca ESTA launch, de modo que entra en
+	// startedThisSession y es exactamente lo que abortAndCleanup apagaría.
+	sibling := scanner.Project{
+		Path: t.TempDir(), Name: "api", Configured: true,
+		Manifest: &manifest.Manifest{
+			Name: "api", Command: "sleep 120", Port: 0, PortMode: manifest.PortModeNone,
+		},
+	}
+	projects := []scanner.Project{sibling, slow}
+
+	store := state.NewStoreAt(t.TempDir())
+	engine := NewEngine(process.NewManager(), store)
+	t.Cleanup(func() {
+		_ = engine.StopStack(&Stack{Name: "s"}, projects)
+		_ = syscall.Kill(-live.Pgid, syscall.SIGKILL)
+	})
+
+	if _, err := store.EnsureServiceDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveMeta(dir, state.Meta{
+		Name: "slow", ProjectPath: dir, Port: 0,
+		Pid: live.Pid, Pgid: live.Pgid, CreationTimeMs: live.CreationTimeMs,
+		State: state.StatePortUnresolved,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	stack := &Stack{
+		Name:   "s",
+		Stages: []Stage{{Name: "stage1", Services: []string{"api", "slow"}, Timeout: 2 * time.Second}},
+	}
+
+	result, err := engine.Launch(stack, projects)
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+
+	// (a) La launch NO falla.
+	if !result.OK {
+		t.Fatalf("un puerto sin resolver no debe fallar la launch: %s", result.Error)
+	}
+
+	byName := map[string]ServiceResult{}
+	for _, sr := range result.Stages[0].Services {
+		byName[sr.Name] = sr
+	}
+	slowRes := byName["slow"]
+
+	// (b) Se distingue de "sin puerto TCP" y de "resuelto".
+	if !slowRes.PortUnresolved {
+		t.Errorf("el servicio con el puerto sin decidir debe marcarse PortUnresolved: %+v", slowRes)
+	}
+	if slowRes.NoPort {
+		t.Error("puerto sin resolver no es lo mismo que no tener puerto TCP")
+	}
+	if slowRes.Error != "" {
+		t.Errorf("un puerto sin resolver no es un fallo: %q", slowRes.Error)
+	}
+	if byName["api"].PortUnresolved || byName["api"].NoPort {
+		t.Errorf("el hermano sano no debe llevar ninguna marca de puerto: %+v", byName["api"])
+	}
+
+	// (c) El mensaje no puede decir "pending": el discovery ya terminó, así
+	// que "pending" manda al usuario a esperar algo que ya acabó.
+	if strings.Contains(result.Error, "pending") || strings.Contains(slowRes.Error, "pending") {
+		t.Errorf("un puerto sin resolver no puede describirse como pending: %q / %q", result.Error, slowRes.Error)
+	}
+
+	// (d) El hermano SIGUE VIVO. Es el aserto que hace útil este test: lo
+	// arrancó esta misma launch, así que un abort lo habría apagado.
+	apiMeta, err := store.LoadMeta(sibling.Path)
+	if err != nil {
+		t.Fatalf("meta del hermano: %v", err)
+	}
+	if apiMeta.Pid == 0 {
+		t.Fatal("el hermano quedó sin PID: el stack se abortó")
+	}
+	if !process.Alive(apiMeta.Pid, apiMeta.CreationTimeMs) {
+		t.Errorf("el hermano %d está muerto: abortAndCleanup lo apagó", apiMeta.Pid)
+	}
+
+	// (e) El servicio con el puerto sin decidir queda vivo y operable.
+	if !process.Alive(live.Pid, live.CreationTimeMs) {
+		t.Errorf("el servicio %d debe seguir vivo y ser detenible", live.Pid)
+	}
+}
+
+// startHelperProcess arranca un proceso real y devuelve sus credenciales.
+func startHelperProcess(t *testing.T, cmd string) process.StartResult {
+	t.Helper()
+	dir := t.TempDir()
+	res, err := process.NewManager().Start(process.StartSpec{
+		Command:    cmd,
+		WorkDir:    dir,
+		StdoutPath: dir + "/out.log",
+		StderrPath: dir + "/err.log",
+	})
+	if err != nil {
+		t.Fatalf("helper: %v", err)
+	}
+	return res
+}
+
+// ErrPortUnresolved describe lo que pasó, y ErrPortPending sigue siendo
+// distinto. Un servicio vivo con el puerto sin decidir no puede fallar una
+// etapa; uno con el discovery en vuelo, sí.
+func TestAwaitPortUnresolvedIsNotPending(t *testing.T) {
+	err := AwaitPort(PortWait{
+		Mode:       manifest.PortModeDynamic,
+		Unresolved: true,
+	}, time.Second)
+
+	if !errors.Is(err, ErrPortUnresolved) {
+		t.Fatalf("AwaitPort = %v, want ErrPortUnresolved", err)
+	}
+	if errors.Is(err, ErrPortPending) {
+		t.Error("un puerto sin resolver no puede confundirse con uno pendiente")
+	}
+	if !strings.Contains(err.Error(), "unresolved") {
+		t.Errorf("el mensaje debe nombrarse unresolved, no pending: %q", err.Error())
+	}
 }

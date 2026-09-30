@@ -145,9 +145,8 @@ Feature: Puertos dinamicos por worktree con el puerto real como unica verdad
     And NO queda en estado "puerto sin resolver"
 
   Scenario: Un puerto sin resolver no es lo mismo que no tener puerto
-    Given un servicio en modo dinamico al que NO se le puede decidir el puerto:
-      o el plazo se agota antes de que aparezca, o hay varios listeners y
-      ninguno se puede declarar principal
+    Given un servicio en modo dinamico que abrio listeners pero su conjunto
+      nunca se estabiliza, asi que no se puede declarar ninguno principal
     When el usuario mira el estado y la tab de salud
     Then vroom NO lo etiqueta como "sin puerto"
     And vroom dice explicitamente que el puerto esta sin resolver
@@ -262,6 +261,26 @@ Feature: Puertos dinamicos por worktree con el puerto real como unica verdad
     And la launch NO aborta ni hace rollback de los ya arrancados
     And el hermano de la misma etapa sigue corriendo
     And el servicio sin puerto queda igualmente operable y detenible
+
+  Scenario: Un puerto sin resolver no hace fracasar la etapa
+    Given una etapa de stack con un servicio cuyo puerto quedo sin resolver
+      y cuyo discovery YA TERMINO
+    And esa etapa comparte etapa con un hermano sano que se acaba de arrancar
+    When el motor espera la salud de esa etapa
+    Then la etapa NO falla
+    And el resultado NO dice "pending", porque nada mas va a cambiar
+    And el resultado se distingue de "sin puerto TCP" y de "resuelto"
+    And NO se dispara el rollback de los ya arrancados
+    And el hermano sano sigue corriendo
+    And el servicio con el puerto sin resolver sigue vivo y detenible
+
+  Scenario: Un puerto PENDIENTE si hace fracasar la etapa
+    Given una etapa de stack con un servicio cuyo discovery sigue en vuelo
+      y cuyo puerto esta reservado pero todavia no escucha
+    When el motor espera la salud de esa etapa
+    Then la etapa falla
+    And la causa se nombra como puerto pendiente
+    And NO se confunde con un puerto ya sin resolver
 
   Scenario: La regla de retencion solo aplica en modo dynamic
     Given un stack con una etapa en modo fixed cuyo puerto nunca abre
