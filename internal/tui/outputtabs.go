@@ -13,6 +13,7 @@ import (
 	"vroom/internal/gitinfo"
 	"vroom/internal/orchestrate"
 	"vroom/internal/process"
+	"vroom/internal/scanner"
 )
 
 // ---- Tab 3: Metrics ----
@@ -320,13 +321,14 @@ type healthMsg struct {
 	r    *healthResult
 }
 
-// healthCmd hace un GET al puerto del manifest con timeout corto.
+// healthCmd hace un GET al puerto REAL del servicio con timeout corto. El
+// puerto del manifiesto es el default de la app, no el que está escuchando.
 func (m Model) healthCmd() tea.Cmd {
 	p := m.selected()
-	if p == nil || !p.Configured || p.Manifest == nil || p.Manifest.Port == 0 {
+	if p == nil || !p.Configured || p.Manifest == nil || displayPort(*p, m.services[p.Path]) == 0 {
 		return nil
 	}
-	url := fmt.Sprintf("http://127.0.0.1:%d%s", p.Manifest.Port, p.Manifest.HealthURLPath())
+	url := healthURL(p, m.services[p.Path])
 	path := p.Path
 	return func() tea.Msg { return healthMsg{path: path, r: probeHealth(url)} }
 }
@@ -361,6 +363,11 @@ func firstLine(s string) string {
 	return ""
 }
 
+// healthURL es la URL que se sondea: puerto real + health_path.
+func healthURL(p *scanner.Project, sv *ServiceState) string {
+	return fmt.Sprintf("http://127.0.0.1:%d%s", displayPort(*p, sv), p.Manifest.HealthURLPath())
+}
+
 // healthLines renderiza el último probe de salud del servicio.
 func (m Model) healthLines(w int) []string {
 	p := m.selected()
@@ -370,7 +377,7 @@ func (m Model) healthLines(w int) []string {
 	if !p.Configured {
 		return []string{styleDim.Render(trunc("no manifest — create a .vroom.toml to enable", w))}
 	}
-	if p.Manifest == nil || p.Manifest.Port == 0 {
+	if p.Manifest == nil || displayPort(*p, m.services[p.Path]) == 0 {
 		return []string{styleDim.Render("no port configured — set port = N in .vroom.toml")}
 	}
 	if !m.isRunning(p.Path) {
@@ -384,7 +391,7 @@ func (m Model) healthLines(w int) []string {
 		return []string{
 			styleWarn.Render(trunc("probe failed: "+r.Err, w)),
 			"",
-			styleDim.Render("url: http://127.0.0.1:" + fmt.Sprintf("%d%s", p.Manifest.Port, p.Manifest.HealthURLPath())),
+			styleDim.Render("url: " + healthURL(p, m.services[p.Path])),
 		}
 	}
 	status := styleRunning.Render(fmt.Sprintf("HTTP %d", r.StatusCode))

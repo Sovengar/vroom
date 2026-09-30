@@ -440,11 +440,11 @@ func writeProcFixture(t *testing.T, tree map[int]procInfo) string {
 // excluyendo procesos de otros linajes y el propio init.
 func TestDescendantsAtFollowsResidChild(t *testing.T) {
 	root := writeProcFixture(t, map[int]procInfo{
-		100: {ppid: 1, pgid: 100},    // raíz del servicio
-		101: {ppid: 100, pgid: 100},  // hijo en el mismo grupo
-		102: {ppid: 101, pgid: 102},  // nieto que hizo setsid
-		103: {ppid: 102, pgid: 102},  // bisnieto del re-sid
-		200: {ppid: 1, pgid: 200},    // twin de otro worktree
+		100: {ppid: 1, pgid: 100},   // raíz del servicio
+		101: {ppid: 100, pgid: 100}, // hijo en el mismo grupo
+		102: {ppid: 101, pgid: 102}, // nieto que hizo setsid
+		103: {ppid: 102, pgid: 102}, // bisnieto del re-sid
+		200: {ppid: 1, pgid: 200},   // twin de otro worktree
 		201: {ppid: 200, pgid: 200},
 	})
 	got := descendantsAt(root, 100)

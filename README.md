@@ -38,8 +38,9 @@ en su borde inferior derecho).
   - `Env` — entorno del proceso (`/proc/<pid>/environ`), ordenado.
   - `Timeline` — eventos operativos de la sesión (start/stop/restart/build/
     install/task/stack) con hora y duración, más reciente arriba.
-  - `Health` — GET HTTP al puerto del manifiesto (`health_path`, default
-    `/`) con timeout corto: código, latencia, content-type y primeras líneas.
+  - `Health` — GET HTTP al **puerto real** del servicio (`health_path`,
+    default `/`) con timeout corto: código, latencia, content-type y
+    primeras líneas.
 
 ## Instalación
 
@@ -100,7 +101,8 @@ name = "mi-servicio"
 primary_group = "tienda"         # nivel superior de agrupación (opcional)
 secondary_group = "backend"      # nivel interno, solo con primary_group (opcional)
 command_start = "go run main.go"
-port = 8080                      # para detección (0 = deshabilitado)
+port = 8080                      # puerto por defecto de la app (0 = deshabilitado)
+port_mode = "fixed"              # "fixed" | "dynamic" | "none" (default "fixed")
 process_pattern = ""             # patrón pgrep (opcional)
 command_install = "npm install"  # one-shot con la tecla i (opcional)
 command_build = "mise run build" # one-shot con la tecla b (opcional)
@@ -117,7 +119,45 @@ plegado del header o, sobre un proyecto, de su contenedor más interno).
 `command_stop` es para servicios donde matar el process group no basta (el
 proceso hijo sobrevive al kill, ej. un contenedor Docker): al pulsar `s`, vroom
 ejecuta ese comando primero (con banner, visible en la consola) y después aplica
-el shutdown de limpieza habitual (SIGTERM → 5s → SIGKILL al PGID).
+el shutdown de limpieza habitual (SIGTERM → 5s → SIGKILL al process group **y
+a sus descendientes**, incluidos los que hicieron `setsid`).
+
+### `port_mode`: el mismo manifiesto para varios worktrees
+
+`port` no es el mecanismo de detección: es el puerto **por defecto de tu app**,
+el mismo valor de `PORT=${PORT:-8080}`. `port_mode` decide qué hace vroom con él.
+Sin `port_mode` (o con `port = 0`) el comportamiento es exactamente el de
+siempre.
+
+| Modo | Qué hace vroom |
+|---|---|
+| `fixed` (default) | Arranca el servicio en `port`. Es el comportamiento histórico. |
+| `none` | El servicio no tiene puerto por diseño. Ninguna espera de puerto. |
+| `dynamic` | vroom reserva un puerto libre en `4000–4999`, lo inyecta como `PORT` (y `HOST=127.0.0.1`), arranca el servicio y **descubre y verifica** el puerto real antes de devolver el control. |
+
+Con `dynamic`, el mismo `.vroom.toml` sirve para N worktrees a la vez: cada uno
+arranca en su propio puerto y la UI, el JSON y la sonda de salud muestran
+**ese mismo número**. El contrato con tu app es una línea:
+
+```bash
+PORT=${PORT:-8080} node server.js
+```
+
+Si la app **ignora** `PORT` y hace bind a su propio puerto fijo, el arranque
+**no falla**: vroom descubre el puerto real, lo persiste y emite un aviso
+visible. Si la app no abre ningún puerto TCP (sólo UDP, un worker…), queda
+registrado como "sin puerto" y el servicio sigue siendo operable.
+
+El descubrimiento se acota por deadline y por la liveness del proceso: un
+servicio que muere al arrancar se reporta en ~1 s, no tras agotar el timeout.
+Un servicio que tarda 3,5 s en hacer bind conserva su puerto y no se reporta
+como "sin puerto".
+
+**No es una garantía:** una app que además de no ser HTTP ignora `PORT` deja a
+vroom sin forma de saber cuál de sus listeners es el principal. En ese caso se
+elige el de menor número (determinista) y el servicio se marca como **"puerto
+no verificado"**. Ver `docs/adr/adr-0012-port-ownership-contract-and-dynamic-ports.md`
+para el contrato completo de propiedad del puerto.
 
 ## Keybindings
 

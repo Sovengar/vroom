@@ -10,6 +10,7 @@ import (
 
 	"vroom/internal/process"
 	"vroom/internal/scanner"
+	"vroom/internal/startsvc"
 	"vroom/internal/state"
 )
 
@@ -21,16 +22,16 @@ type ResolvedService struct {
 
 // LaunchResult es el resultado de lanzar un stack.
 type LaunchResult struct {
-	OK     bool         `json:"ok"`
-	Stack  string       `json:"stack"`
+	OK     bool          `json:"ok"`
+	Stack  string        `json:"stack"`
 	Stages []StageResult `json:"stages"`
-	Error  string       `json:"error,omitempty"`
+	Error  string        `json:"error,omitempty"`
 }
 
 // StageResult es el resultado de una etapa.
 type StageResult struct {
-	Name     string            `json:"name"`
-	Services []ServiceResult   `json:"services"`
+	Name     string          `json:"name"`
+	Services []ServiceResult `json:"services"`
 }
 
 // ServiceResult es el resultado de arrancar un servicio individual.
@@ -43,9 +44,9 @@ type ServiceResult struct {
 
 // DryRunResult muestra el plan de ejecución sin ejecutar nada.
 type DryRunResult struct {
-	OK     bool           `json:"ok"`
-	Stack  string         `json:"stack"`
-	Stages []DryRunStage  `json:"stages"`
+	OK     bool          `json:"ok"`
+	Stack  string        `json:"stack"`
+	Stages []DryRunStage `json:"stages"`
 }
 
 // DryRunStage es una etapa en el plan de dry run.
@@ -259,6 +260,7 @@ func (e *Engine) StackStatus(stack *Stack, projects []scanner.Project) (running,
 					CreationTimeMs: meta.CreationTimeMs,
 					Port:           meta.Port,
 					ProcessPattern: meta.ProcessPattern,
+					PortPending:    meta.State == state.StatePortPending,
 				})
 				if status == process.StatusRunning {
 					running++
@@ -297,10 +299,11 @@ func (e *Engine) startService(svc ResolvedService, timeout time.Duration) Servic
 			CreationTimeMs: meta.CreationTimeMs,
 			Port:           meta.Port,
 			ProcessPattern: meta.ProcessPattern,
+			PortPending:    meta.State == state.StatePortPending,
 		})
 		if status == process.StatusRunning {
 			// Ya corriendo: verificar health y continuar
-			if err := WaitForPort(p.Manifest.Port, timeout); err != nil {
+			if err := e.awaitPort(p, meta, timeout); err != nil {
 				return ServiceResult{Name: svc.Name, Error: fmt.Sprintf("health check failed: %v", err)}
 			}
 			return ServiceResult{Name: svc.Name, Action: "already_running"}
@@ -311,38 +314,38 @@ func (e *Engine) startService(svc ResolvedService, timeout time.Duration) Servic
 	if _, err := e.store.EnsureServiceDir(p.Path); err != nil {
 		return ServiceResult{Name: svc.Name, Error: err.Error()}
 	}
-	res, err := e.manager.Start(process.StartSpec{
-		Command:    p.Manifest.Command,
-		WorkDir:    p.Path,
+	out, err := startsvc.Start(startsvc.Request{
+		Manifest:   p.Manifest,
+		Path:       p.Path,
+		Store:      e.store,
+		Manager:    e.manager,
 		StdoutPath: e.store.StdoutLog(p.Path),
 		StderrPath: e.store.StderrLog(p.Path),
 	})
 	if err != nil {
 		return ServiceResult{Name: svc.Name, Error: err.Error()}
 	}
-
-	// Guardar meta
-	meta = state.Meta{
-		Name:           p.Manifest.Name,
-		ProjectPath:    p.Path,
-		Port:           p.Manifest.Port,
-		ProcessPattern: p.Manifest.ProcessPattern,
-		Command:        p.Manifest.Command,
-		Pid:            res.Pid,
-		Pgid:           res.Pgid,
-		CreationTimeMs: res.CreationTimeMs,
-		StartedAt:      time.Now().Format(time.RFC3339),
-		State:          state.StateRunning,
+	for _, w := range out.Warnings {
+		_ = appendLine(e.store.StderrLog(p.Path), "── vroom ▶ start: "+w)
 	}
-	_ = e.store.SaveMeta(p.Path, meta)
-	_ = e.store.RegisterPid(p.Path, res.Pid, res.Pgid)
 
-	// Health check
-	if err := WaitForPort(p.Manifest.Port, timeout); err != nil {
+	// Health check sobre el puerto REAL, con el modo que lo gobierna.
+	if err := e.awaitPort(p, out.Meta, timeout); err != nil {
 		return ServiceResult{Name: svc.Name, Error: fmt.Sprintf("health check failed: %v", err)}
 	}
 
-	return ServiceResult{Name: svc.Name, Action: "started", Pid: res.Pid}
+	return ServiceResult{Name: svc.Name, Action: "started", Pid: out.Pid}
+}
+
+// awaitPort gatea la salud de una etapa. El puerto viene del meta (el real),
+// no del manifiesto (el default de la app).
+func (e *Engine) awaitPort(p scanner.Project, meta state.Meta, timeout time.Duration) error {
+	return AwaitPort(PortWait{
+		Port:        meta.Port,
+		Mode:        p.Manifest.EffectivePortMode(),
+		PortPending: meta.State == state.StatePortPending,
+		NoPort:      meta.State == state.StateNoPort,
+	}, timeout)
 }
 
 // stopService para un servicio individual.

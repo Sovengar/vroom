@@ -26,6 +26,14 @@ const (
 	StateStopped = "stopped"
 	// StateUnknown indica PID vivo pero verificación de puerto/pattern fallida.
 	StateUnknown = "unknown"
+	// StatePortPending indica que el proceso está vivo y el puerto real aún
+	// no se ha resuelto (reservado, discovery en vuelo). Se persiste para
+	// que un reinicio de la TUI no lo lea como "sin puerto" y no lo confunda
+	// con "vivo y sano".
+	StatePortPending = "port_pending"
+	// StateNoPort indica que el proceso está vivo y NO tiene puerto TCP, y
+	// que eso es su estado, no una espera pendiente.
+	StateNoPort = "no_port"
 )
 
 // Meta es el schema de meta.json.
@@ -39,7 +47,11 @@ type Meta struct {
 	Pgid           int    `json:"pgid"`
 	CreationTimeMs int64  `json:"creation_time_ms"`
 	StartedAt      string `json:"started_at"` // RFC3339
-	State          string `json:"state"`      // running|stopped|unknown
+	State          string `json:"state"`      // running|stopped|unknown|port_pending|no_port
+	// PortVerified dice si el puerto persistido fue confirmado contra un
+	// listener real del linaje. False = el puerto fue elegido sin prueba
+	// (multi-puerto sin heurística posible). Ver docs/adr/adr-0012.
+	PortVerified bool `json:"port_verified"`
 }
 
 // Store accede al directorio de estado persistente.

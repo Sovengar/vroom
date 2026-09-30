@@ -217,8 +217,10 @@ func (m Model) tabsBar(w int) string {
 			}
 		}
 	case tabHealth:
-		if p := m.selected(); p != nil && p.Configured && p.Manifest != nil && p.Manifest.Port > 0 {
-			info = ":" + strconv.Itoa(p.Manifest.Port)
+		if p := m.selected(); p != nil && p.Configured && p.Manifest != nil {
+			if n := displayPort(*p, m.services[p.Path]); n > 0 {
+				info = ":" + strconv.Itoa(n)
+			}
 		}
 	case tabTimeline:
 		if p := m.selected(); p != nil {
