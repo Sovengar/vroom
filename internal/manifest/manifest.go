@@ -19,6 +19,9 @@
 //	                    SIGTERM/SIGKILL de limpieza)
 //	health_path     string  default "/" (ruta HTTP de la tab Health;
 //	                        requiere un puerto en algún modo)
+//	route_mode      string  default "off"; "off" | "auto" | "named"
+//	route_name      string  default "" (sólo con route_mode = "named";
+//	                        requiere un puerto en algún modo)
 package manifest
 
 import (
@@ -50,6 +53,36 @@ type Manifest struct {
 	Build          string `toml:"command_build"`   // comando one-shot (tecla b); puede ser `mise run build`
 	Stop           string `toml:"command_stop"`    // parada graciosa opcional: corre antes del SIGTERM/SIGKILL al PGID
 	HealthPath     string `toml:"health_path"`     // ruta HTTP del probe de la tab Health ("" = "/")
+	// RouteMode es la INTENCIÓN de ruta. "off" es el default y significa que
+	// vroom ni siquiera busca el binario de portless, así que un manifiesto que
+	// no declara nada se comporta exactamente como antes de este campo.
+	RouteMode string `toml:"route_mode"` // "off" | "auto" | "named"; "" = off
+	// RouteName es el nombre estable de la ruta, sólo con route_mode =
+	// "named". Es lo que exigen un callback OAuth o una regla CORS, donde la
+	// dirección no puede depender de una rama.
+	RouteName string `toml:"route_name"`
+}
+
+// Semántica de tres estados de route_mode. El default es off, de modo que
+// añadir el campo no molesta a ningún manifiesto existente: con off, vroom no
+// toca portless en absoluto.
+const (
+	// RouteModeOff: sin ruta. vroom no resuelve ni el binario.
+	RouteModeOff = "off"
+	// RouteModeAuto: nombre derivado del worktree, sin escribir nada.
+	RouteModeAuto = "auto"
+	// RouteModeNamed: nombre estable y explícito (route_name).
+	RouteModeNamed = "named"
+)
+
+// EffectiveRouteMode resuelve route_mode con su default: ausente es off.
+func (m *Manifest) EffectiveRouteMode() string {
+	switch m.RouteMode {
+	case RouteModeAuto, RouteModeNamed, RouteModeOff:
+		return m.RouteMode
+	default:
+		return RouteModeOff // inválido: Validate lo rechaza
+	}
 }
 
 // Semántica de tres estados de port_mode. El default es fixed, de modo que
@@ -147,6 +180,24 @@ func (m *Manifest) Validate() error {
 	}
 	if m.SecondaryGroup == ReservedSecondaryGroup {
 		return fmt.Errorf("secondary_group %q is reserved for orchestration stacks", ReservedSecondaryGroup)
+	}
+	switch m.RouteMode {
+	case "", RouteModeOff, RouteModeAuto, RouteModeNamed:
+	default:
+		return fmt.Errorf("route_mode must be %q, %q or %q, got %q",
+			RouteModeOff, RouteModeAuto, RouteModeNamed, m.RouteMode)
+	}
+	if m.RouteName != "" && m.RouteMode != RouteModeNamed {
+		// route_name sin named es un nombre que nadie va a usar: o se ignora
+		// en silencio o se aplica sin querer. Se rechaza.
+		return fmt.Errorf("route_name requires route_mode = %q, got %q",
+			RouteModeNamed, m.RouteMode)
+	}
+	if m.EffectiveRouteMode() != RouteModeOff && !m.HasPort() {
+		// Una ruta apunta a un puerto. Sin puerto no hay nada honesto que
+		// apuntar, y aceptarlo sería una promesa que vroom no puede cumplir.
+		return fmt.Errorf("route_mode = %q requires a port in every mode but %q; declare port > 0 or drop route_mode",
+			m.EffectiveRouteMode(), PortModeNone)
 	}
 	return nil
 }

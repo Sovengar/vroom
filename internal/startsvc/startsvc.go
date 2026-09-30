@@ -14,7 +14,17 @@
 //     pasa de sub-ms a segundos, y un tick que leyera el meta viejo
 //     reportaría "stopped" con el proceso vivo
 //  4. descubrir y verificar el puerto real acotado por la liveness
-//  5. persistir el puerto real antes de devolver el control
+//  5. reconciliar y registrar la ruta de portless, si el manifiesto la pide
+//  6. persistir el puerto real antes de devolver el control
+//
+// El paso 5 va DESPUÉS del discovery y no antes por un hecho medido: el puerto
+// destino no necesita estar escuchando, así que registrar antes sólo compra una
+// ventana de error visible, mientras que registrar tarde garantiza que nunca
+// se publica una ruta para un servicio cuyo puerto sigue sin resolver.
+//
+// Y ese paso no puede hacer fallar el arranque: la ausencia de portless, de su
+// proxy, o un binario colgado degradan a un aviso. La salud de un servicio
+// NUNCA depende de que exista su ruta. Ver docs/adr/adr-0013.
 package startsvc
 
 import (
@@ -22,6 +32,7 @@ import (
 	"time"
 
 	"vroom/internal/manifest"
+	"vroom/internal/portless"
 	"vroom/internal/process"
 	"vroom/internal/state"
 )
@@ -38,6 +49,31 @@ type Request struct {
 	// DiscoveryTimeout acota la espera del puerto real. 0 = default.
 	// Un linaje que muere antes se reporta de inmediato, sin gastarlo.
 	DiscoveryTimeout time.Duration
+
+	// Routes es el seam hacia portless. Nil = este servicio no registra
+	// rutas, y es lo que pasa con route_mode = "off": no se busca el binario,
+	// no se shellea a nada y el arranque es idéntico al de antes de este
+	// campo. Es inyectable para que la suite sea hermética —el runner de CI no
+	// tiene portless, ni Node 24, ni proxy— igual que procRoot lo es para las
+	// lecturas de /proc.
+	Routes RouteRegistrar
+
+	// Branch es la rama git del proyecto, usada para derivar el nombre de ruta
+	// en route_mode = "auto".
+	Branch string
+}
+
+// RouteRegistrar es el seam de rutas que necesita startsvc. Existe para que el
+// paquete no dependa de cómo se construye el cliente de portless y para que los
+// tests puedan ejercitar el ciclo completo sin un portless real.
+type RouteRegistrar interface {
+	// Apply registra la ruta del servicio en el puerto dado y devuelve lo que
+	// se ha podido PROBAR. Nunca devuelve error: la ausencia de portless es
+	// una degradación con aviso, no un fallo de arranque.
+	Apply(name string, port int) portless.Result
+	// Reconcile limpia las rutas que este servicio se dejó en un arranque
+	// anterior. Devuelve avisos, nunca errores.
+	Reconcile(prev string, prevPort int, current string) []string
 }
 
 // Result es el arranque resuelto.
@@ -93,12 +129,29 @@ func Start(req Request) (Result, error) {
 		State:          state.StateRunning,
 	}
 
+	// La ruta que este servicio se dejó en el arranque anterior se lee ANTES de
+	// sobrescribir el Meta, porque es lo que la reconciliación necesita para
+	// distinguir "mi ruta huérfana" de "una ruta viva de otro servicio". Se
+	// conserva en la base para que el tramo dynamic pueda usarla.
+	if prev, err := req.Store.LoadMeta(req.Path); err == nil {
+		base.RouteName = prev.RouteName
+		base.RoutePort = prev.RoutePort
+	}
+
 	if mode != manifest.PortModeDynamic {
+		// En fixed el puerto es el declarado y ya es el real, así que la ruta
+		// se registra igual que en dynamic; en none no hay puerto y no hay nada
+		// que apuntar. El manifiesto ya no deja pasar route_mode sin puerto
+		// (Validate), así que esto sólo es una defensa.
+		out := Result{Meta: base, Pid: res.Pid, Port: req.Manifest.Port}
+		if mode == manifest.PortModeFixed {
+			applyRoute(req, &base, req.Manifest.Port, &out)
+		}
 		if err := req.Store.SaveMeta(req.Path, base); err != nil {
 			return Result{}, err
 		}
 		_ = req.Store.RegisterPid(req.Path, res.Pid, res.Pgid)
-		return Result{Meta: base, Pid: res.Pid, Port: req.Manifest.Port}, nil
+		return out, nil
 	}
 	return resolveDynamicPort(req, base, reserved)
 }
@@ -173,8 +226,69 @@ func resolveDynamicPort(req Request, attempt state.Meta, reserved int) (Result, 
 	}
 
 	out.Meta = final
+	// La ruta se registra DESPUÉS del discovery y ANTES del SaveMeta final: el
+	// puerto real ya está confirmado, y persistirla en el mismo Meta evita que
+	// un Meta en disco afirme una ruta que nadie ha visto funcionar. Con el
+	// puerto sin resolver no se registra nada, que es lo que hace imposible la
+	// "ventana de 502" de la que habla el ADR.
+	if final.State == state.StateRunning && final.Port > 0 {
+		applyRoute(req, &final, final.Port, &out)
+		out.Meta = final
+	}
 	if err := req.Store.SaveMeta(req.Path, final); err != nil {
 		return Result{}, err
 	}
 	return out, nil
+}
+
+// applyRoute es el ÚNICO punto donde vroom habla con portless en el arranque.
+// Reconcilia primero lo que este servicio se dejó antes, registra la ruta
+// actual y deja el resultado en el Meta y en los avisos.
+//
+// Nada de esto puede fallar el arranque: si portless no está, no funciona, se
+// cuelga, o su proxy no está en marcha, el servicio queda running en su puerto
+// y el usuario recibe un aviso. La salud no depende de la ruta: una ruta es una
+// dirección, no una dependencia.
+func applyRoute(req Request, meta *state.Meta, port int, out *Result) {
+	if req.Routes == nil {
+		return // route_mode = "off": ni binario, ni shell, ni ruta
+	}
+
+	name, err := routeName(req)
+	if err != nil {
+		out.Warnings = append(out.Warnings, err.Error())
+		return
+	}
+
+	// La reconciliación va ANTES del alta: sin ella, una rama renombrada
+	// dejaría la ruta vieja apuntando a un puerto muerto para siempre, porque
+	// `portless prune` no toca las rutas de alias (medido).
+	out.Warnings = append(out.Warnings, req.Routes.Reconcile(meta.RouteName, meta.RoutePort, name)...)
+
+	res := req.Routes.Apply(name, port)
+	meta.RouteName = res.Name
+	meta.RoutePort = port
+	meta.RouteStatus = res.Status
+	meta.RouteReason = res.Reason
+	// La Url sólo se persiste si se ha VISTO responder. Un Meta en disco que
+	// afirmara una URL sin verificar publicaría una dirección falsa a quien lo
+	// leyera después.
+	if res.Succeeded() {
+		meta.RouteURL = res.Url
+	} else {
+		meta.RouteURL = ""
+	}
+	if warn := portless.Warn(res); warn != "" {
+		out.Warnings = append(out.Warnings, warn)
+	}
+}
+
+// routeName deriva el nombre de ruta del manifiesto, el proyecto y la rama.
+func routeName(req Request) (string, error) {
+	name, err := portless.DeriveName(
+		req.Manifest.EffectiveRouteMode(), req.Manifest.RouteName, req.Branch, req.Manifest.Name)
+	if err != nil {
+		return "", fmt.Errorf("portless route: %w", err)
+	}
+	return name, nil
 }
