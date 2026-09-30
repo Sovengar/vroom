@@ -62,11 +62,17 @@ Medidos con portless 0.15.6 / Node 24.15.0. Los cinco primeros en un proxy
 declara nada se comporta exactamente como hoy — con `off`, vroom ni siquiera busca
 el binario.
 
-Dos campos porque el nombre sirve para dos cosas distintas: `auto` da URL propia a
-cada worktree sin escribir nada; `named` da la URL **estable** que exigen un
+Dos campos porque el nombre sirve para dos cosas distintas: `auto` da URL derivada
+de la **rama** sin escribir nada; `named` da la URL **estable** que exigen un
 callback OAuth o una regla CORS. La convención nativa de portless deriva de la
 **rama**, que cambia con un `git branch -m` — y la reconciliación (§5) es
 precisamente lo que hace que ese cambio no deje basura.
+
+> **Corrección posterior al plan (review).** Este texto decía que `auto` daba
+> "URL propia a cada worktree". Es falso: `DeriveName` recibe la rama y el
+> proyecto, no la ruta del worktree, así que `auto` es scope de **rama**. Dos
+> worktrees en la misma rama derivan el mismo nombre y el segundo recibe un
+> conflicto, no una segunda dirección. Ver la nota de alcance en `adr-0013` §3.
 
 Reglas cross-field: `route_mode != "off"` exige puerto en algún modo;
 `route_name` sin `named` se rechaza.
@@ -175,7 +181,7 @@ Cada fila está **medida** o **eliminada**. No hay filas "aceptadas" ni
 
 | # | Riesgo | Estado | Evidencia o mecanismo |
 |---|---|---|---|
-| R1 | `exit 0` no prueba propiedad: dos vrooms se pisan en silencio | **medido** + **eliminado** | M8: upsert incondicional, sin detección de conflictos. Eliminado por la lectura de vuelta obligatoria (comparar puerto) más la verificación contra el proxy vivo. Sin la comparación, `conflict` es inalcanzable y vroom publicaría una url ajena |
+| R1 | `exit 0` no prueba propiedad: dos vrooms se pisan en silencio | **medido** + **eliminado** | M8: upsert incondicional, sin detección de conflictos. **Eliminado por el ORDEN: se consulta el nombre ANTES de escribir, y si lo tiene un puerto que no es el nuestro ni el persistido no se escribe** (`route_conflict`, ruta ajena intacta) — más la lectura de vuelta posterior, que cubre la ventana, y la verificación en vivo. La lectura de vuelta **sola** no bastaba: registrada primero, comparaba el puerto recién escrito contra sí mismo y era una tautología. Ver la corrección en `adr-0013` §5 |
 | R2 | Un vroom que muere deja rutas apuntando a puertos muertos | **eliminado** | M5: `prune` no las toca, luego **vroom es el único que puede**. La reconciliación de cada arranque (§5) las encuentra en el estado persistido, comprueba que no responden y las retira. Ya no es una limitación: es un mecanismo |
 | R3 | Ruta registrada contra puerto cerrado → `502` | **eliminado** | M9 + orden: se registra sólo después de que el discovery confirme el puerto. La ventana es despreciable y la verificación en vivo distingue "el proxy enruta" de "el servicio responde" |
 | R4 | Ruta apunta al **reservado** y no al **real** | **eliminado** | La fuente es `d.Port` del discovery, nunca `reserved` ni `meta.ReservedPort`. Escenario propio, porque es el fallo silencioso plausible de este slice |

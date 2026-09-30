@@ -179,12 +179,20 @@ route_name = "mi-api"              # sólo con route_mode = "named"
 | Modo | Qué hace vroom |
 |---|---|
 | `off` (default) | No registra ninguna ruta. **Ni siquiera busca el binario.** |
-| `auto` | Nombre derivado del worktree: `<rama>.<proyecto>`, sin escribir nada. |
+| `auto` | Nombre derivado de la **rama**: `<rama>.<proyecto>`, sin escribir nada. |
 | `named` | El nombre estable de `route_name`. Es lo que exigen OAuth y CORS. |
 
-Con `auto` cada worktree del mismo repo tiene su propia dirección, sin
-configuración. Usa `named` cuando la URL **no puede depender de una rama** —
-porque la vas a meter en un `redirect_uri` o en una lista de orígenes.
+`auto` separa **ramas** distintas del mismo repo, que es lo que evita que dos
+ramas en marcha compartan una dirección. Ojo al alcance: el nombre viene de la
+rama, no de la carpeta del worktree, así que **dos worktrees en la misma rama
+derivan el mismo nombre** (por ejemplo, dos clones ambos en `main`, o un
+`git worktree --force` sobre una rama ya usada). Cuando eso pasa, el segundo
+servicio no recibe una segunda dirección sino un **aviso de conflicto**: la ruta
+del primero se queda intacta y este servicio sigue funcionando en su puerto.
+
+Usa `named` cuando quieras una dirección propia o estable — y es
+obligatorio cuando la URL **no puede depender de una rama**, porque la vas a
+meter en un `redirect_uri` o en una lista de orígenes.
 
 **vroom sólo registra la ruta. No arranca, no gestiona, no supervisa ni muestra el
 proxy.** Si no hay `portless`, o no está en el `PATH` del servicio, o su proxy no

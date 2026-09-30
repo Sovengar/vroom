@@ -74,10 +74,20 @@ eliminado por diseño.
    siquiera busca el binario. `route_mode != "off"` exige puerto en algún modo;
    `route_name` sin `named` se rechaza.
 
-3. **El nombre es derivable y configurable.** `auto` da URL propia a cada worktree
-   sin escribir nada; `named` da la URL **estable** que exigen un callback OAuth o
-   una regla CORS. Ambas hacen falta porque la convención nativa de portless (M13)
-   deriva de la rama y cambia con un `git branch -m`.
+3. **El nombre es derivable y configurable.** `auto` da URL derivada de la
+   **rama** sin escribir nada; `named` da la URL **estable** que exigen un
+   callback OAuth o una regla CORS. Ambas hacen falta porque la convención
+   nativa de portless (M13) deriva de la rama y cambia con un `git branch -m`.
+
+   > **ALCANCE REAL DE `auto`.** Este texto decía "URL propia a cada worktree",
+   > y es falso: `DeriveName` recibe la rama y el proyecto, **no** la ruta del
+   > worktree. `auto` es scope de **rama**. Dos worktrees en la misma rama
+   > derivan el mismo nombre —dos clones en `main`, o un
+   > `git worktree --force` sobre una rama ya usada— y el segundo NO obtiene una
+   > segunda dirección sino un **conflicto limpio**, con la ruta del primero
+   > intacta (§5, decisión 5). `named` es la respuesta, y no una opción
+   > estética: es único por construcción. El ADR ya era honesto al citar M13; la
+   > sobreafirmación estaba en el comentario del código y en el README.
 
 4. **Se registra después de descubrir y antes de persistir el `Meta` final.** Por
    **M9**, registrar antes sólo compra una ventana de `502`; registrar tarde
@@ -85,10 +95,27 @@ eliminado por diseño.
    `port_unresolved` o `no_port`. El punto único de enganche es
    `internal/startsvc`, por el que ya pasan TUI, CLI y stacks.
 
-5. **La lectura de vuelta es obligatoria.** Tras registrar, vroom lee la ruta
-   (`list`) y compara el puerto publicado con el suyo. Por **M8** esto no es
-   opcional: sin la comparación, dos instancias registrando el mismo nombre se
-   pisan y **ambas reportan éxito**.
+5. **La lectura de vuelta es obligatoria — y va ANTES de escribir.** Por **M8**
+   el alta es un upsert incondicional, así que escribir primero y leer después
+   es una **tautología**: la tabla compararía el puerto recién escrito contra sí
+   mismo y no podría distinguir la ruta propia de la de otro. Por eso se
+   **consulta el nombre antes de escribir** y, si lo tiene un puerto que no es
+   el nuestro ni el persistido, **no se escribe**: se degrada con
+   `route_conflict` y la ruta ajena queda intacta. Es el mismo fallo cerrado que
+   gobierna la limpieza, aplicado al alta.
+
+   Tras el alta se lee de vuelta igualmente, para cubrir la ventana entre la
+   consulta y la escritura.
+
+   > **CORRECCIÓN (review).** Esta decisión decía "tras registrar, vroom lee la
+   > ruta", y eso era una tautología en el caso común. El R1 de `plan.md` estaba
+   > marcado *eliminado* y no lo estaba: la evidencia del R1 es el **orden**, no
+   > la lectura de vuelta.
+
+   La distinción entre "de otro dueño" y "la nuestra, y la app reinició en otro
+   puerto" la da `prevPort`, el puerto que este servicio persistió. Sin él los
+   dos casos son idénticos, y legítimamente uno debe actualizarse y el otro
+   rechazarse.
 
 6. **Y además, se verifica contra el proxy vivo.** Ésta es la decisión que M1 y
    M2 obligan a escribir y de la que este slice no podría prescindir:
