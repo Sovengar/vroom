@@ -64,16 +64,25 @@ func sanitizeName(name string) string {
 //
 // Dos modos, porque el nombre sirve para dos cosas distintas:
 //
-//   - RouteModeAuto: nombre propio de cada worktree, derivado y sin escribir
-//     nada en el manifiesto. Es lo que evita que dos worktrees del mismo repo
-//     compartan una dirección.
+//   - RouteModeAuto: nombre derivado de la RAMA, sin escribir nada en el
+//     manifiesto.
 //   - RouteModeNamed: la URL ESTABLE que exigen un callback OAuth o una regla
 //     CORS, que no puede depender de una rama.
 //
-// La convención nativa de portless deriva de la RAMA, que cambia con un
-// `git branch -m`; por eso la reconciliación del arranque (Reconcile) existe y
-// es obligatoria. Un proyecto sin rama, o cuya rama no sea utilizable, cae al
-// nombre del manifiesto: preferimos una dirección estable y algo fea a ninguna.
+// ALCANCE DE `auto`: es scope de RAMA, no de worktree. La función recibe la
+// rama y el nombre del proyecto, y NO la ruta del worktree, así que no puede —y
+// no pretende— separar dos worktrees que están en la misma rama. Lo que evita es
+// que dos RAMAS distintas del mismo repo compartan una dirección.
+//
+// La consequence honesta: dos clones en `main` derivan el mismo nombre, y el
+// segundo NO recibe una segunda dirección sino un conflicto claro, con la ruta
+// del primero intacta (ver Apply). Para el caso de la rama repetida está
+// `named`, que es único por construcción y es justo lo que OAuth y CORS
+// necesitan. La convención nativa de portless deriva de la rama también (M13),
+// así que `auto` no introduce una convención nueva: sigue la de la herramienta.
+//
+// Y al derivarse de la rama, un `git branch -m` cambia el nombre: por eso la
+// reconciliación del arranque (Reconcile) existe y es obligatoria.
 func DeriveName(mode, routeName, branch, project string) (string, error) {
 	switch mode {
 	case RouteModeNamed:

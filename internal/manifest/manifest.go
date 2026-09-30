@@ -69,7 +69,8 @@ type Manifest struct {
 const (
 	// RouteModeOff: sin ruta. vroom no resuelve ni el binario.
 	RouteModeOff = "off"
-	// RouteModeAuto: nombre derivado del worktree, sin escribir nada.
+	// RouteModeAuto: nombre derivado de la RAMA, sin escribir nada. Es scope
+	// de rama: dos worktrees en la misma rama colisionan.
 	RouteModeAuto = "auto"
 	// RouteModeNamed: nombre estable y explícito (route_name).
 	RouteModeNamed = "named"

@@ -19,7 +19,9 @@ import (
 const (
 	// RouteModeOff: sin ruta. vroom no toca portless en absoluto.
 	RouteModeOff = "off"
-	// RouteModeAuto: nombre derivado del worktree, sin escribir nada.
+	// RouteModeAuto: nombre derivado de la RAMA, sin escribir nada. Es scope
+	// de rama, no de worktree: dos worktrees en la misma rama colisionan, y la
+	// colisión produce un conflicto limpio, no una segunda dirección.
 	RouteModeAuto = "auto"
 	// RouteModeNamed: nombre estable y explícito (route_name).
 	RouteModeNamed = "named"

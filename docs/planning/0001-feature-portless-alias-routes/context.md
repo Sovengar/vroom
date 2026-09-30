@@ -87,7 +87,7 @@ Rutas de tests nuevos: `/home/buble/dev/projects/vroom/.worktrees/vroom.feat-por
 |---|---|---|
 | Paquete nuevo con seam inyectado y degradación | `internal/worktree` | `worktree.go:61` `List`, `worktree.go:168` `IsBareRepo`, y el sentinel `ErrGitUnavailable` |
 | Invocar un binario externo **acotado** | `internal/worktree` | `worktree.go` usa `exec.CommandContext` con timeout |
-| Nombre derivado del worktree | `gitinfo.Branch(path)` + `scanner.Project.{RepoRoot,IsWorktree}` | `gitinfo/gitinfo.go:15`; `scanner/scanner.go:30–31` |
+| Nombre derivado de la **rama** (no del worktree: `DeriveName` no recibe la ruta) | `gitinfo.Branch(path)` | `gitinfo/gitinfo.go:15` |
 | Aviso no fatal que llega a la TUI | `Result.Warnings` → `m.notify` | `startsvc/startsvc.go:148` → `tui/app.go:884` |
 | Tri-estado honesto en JSON | `PortVerified *bool` | `cli/cli.go:62–68` — el comentario explica por qué `*bool` y no `bool`+`omitempty` |
 | Campo aditivo de tres estados | `PortMode` + `EffectivePortMode` + `port = 0` como alias | `manifest/manifest.go:57–82`, test en `manifest/portmode_test.go` |

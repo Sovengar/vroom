@@ -307,7 +307,7 @@ func TestReconcileWarningsSurfaceAsWarnings(t *testing.T) {
 	}
 }
 
-// La ruta se deriva del worktree con route_mode = "auto".
+// La ruta se deriva de la RAMA con route_mode = "auto".
 func TestRouteNameDerivedFromBranchInAutoMode(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
