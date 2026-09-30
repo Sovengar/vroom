@@ -229,7 +229,7 @@ func TestDeadAtStartupFailsFast(t *testing.T) {
 	f.command(t, "die")
 
 	start := time.Now()
-	_, err := f.start(t, 30*time.Second)
+	out, err := f.start(t, 30*time.Second)
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -237,6 +237,12 @@ func TestDeadAtStartupFailsFast(t *testing.T) {
 	}
 	if elapsed > 5*time.Second {
 		t.Errorf("el fallo debe ser del orden de 1s, tardó %s (agotó el timeout del discovery)", elapsed)
+	}
+	// El helper se muere él solo (exit 1), así que no hay nada que parar y por
+	// eso no hay cleanup. Que quede dicho explícitamente: el guard de higiene
+	// de este paquete es quien verifica esa suposición al final.
+	if out.Pid != 0 {
+		t.Errorf("un arranque fallido no debe devolver un proceso que alguien tenga que parar: %d", out.Pid)
 	}
 }
 
@@ -422,8 +428,14 @@ func TestFailedAttemptReleasesItsReservedPort(t *testing.T) {
 
 	for i := 0; i < 40; i++ {
 		baseline := process.ReservedPortCount()
-		if _, err := f.start(t, 5*time.Second); err == nil {
+		// El helper muere por sí solo, así que no hay nada que parar; el
+		// guard de higiene del paquete lo comprueba al terminar.
+		out, err := f.start(t, 5*time.Second)
+		if err == nil {
 			t.Fatal("un servicio que muere debe fallar el arranque")
+		}
+		if out.Pid != 0 {
+			t.Errorf("intento %d devolvió pid %d sin parar nada", i, out.Pid)
 		}
 		if got := process.ReservedPortCount(); got != baseline {
 			t.Fatalf("intento %d dejó la reserva en el set: %d != %d", i, got, baseline)

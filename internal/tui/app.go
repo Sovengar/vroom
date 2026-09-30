@@ -590,7 +590,10 @@ func stopCmd(store *state.Store, manager process.Manager, path, stopCommand stri
 			}
 		}
 		meta, err := store.LoadMeta(path)
-		if err == nil && (meta.Pgid > 0 || meta.Port > 0) {
+		// Un PID sin PGID sigue siendo una raíz creíble: Stop lo termina
+		// señalándolo a él y a su linaje. Excluirlo era lo que dejaba procesos
+		// vivos sin grupo que los alcanzara.
+		if err == nil && (meta.Pid > 0 || meta.Pgid > 0 || meta.Port > 0) {
 			var warns []string
 			_ = manager.Stop(process.StopSpec{
 				Pid: meta.Pid, Pgid: meta.Pgid, Port: meta.Port,
