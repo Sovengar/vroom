@@ -64,6 +64,20 @@ type Meta struct {
 	// listener real del linaje. False = el puerto fue elegido sin prueba
 	// (multi-puerto sin heurística posible). Ver docs/adr/adr-0012.
 	PortVerified bool `json:"port_verified"`
+	// RouteName es el nombre de ruta que vroom registró para este servicio, y
+	// el puerto al que apuntaba (RoutePort). Se persisten porque su ciclo de
+	// vida es DISTINTO del del servicio: la ruta sobrevive a un reinicio del
+	// proxy (medido, M3) y no la limpia `portless prune` (M5), así que sin
+	// esto ni el stop ni la reconciliación del arranque podrían encontrarla.
+	// Vacío = este servicio no registró ninguna ruta.
+	RouteName   string `json:"route_name,omitempty"`
+	RoutePort   int    `json:"route_port,omitempty"`
+	RouteStatus string `json:"route_status,omitempty"` // registered | degraded
+	// RouteReason explica una degradación. Vacío cuando la ruta funciona. El
+	// estado de la RUTA nunca afecta al State del servicio: la salud no
+	// depende de la dirección.
+	RouteReason string `json:"route_reason,omitempty"`
+	RouteURL    string `json:"route_url,omitempty"`
 }
 
 // Store accede al directorio de estado persistente.
