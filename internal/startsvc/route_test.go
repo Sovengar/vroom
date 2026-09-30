@@ -16,11 +16,9 @@ import (
 // portless, ni Node 24, ni proxy, así que la suite ejercita el ciclo completo
 // contra un doble con el comportamiento MEDIDO.
 type fakeRoutes struct {
-	applied []string // "name:port" en orden de registro
-	removed []string
-	warns   []string          // lo que devuelve Reconcile
-	result  portless.Result   // lo que devuelve Apply
-	reasons map[string]string // motivo por nombre, si se quiere por nombre
+	applied []string        // "name:port" en orden de registro
+	warns   []string        // lo que devuelve Reconcile
+	result  portless.Result // lo que devuelve Apply
 }
 
 // Apply devuelve SIEMPRE el nombre que recibió, que es lo que el cliente real

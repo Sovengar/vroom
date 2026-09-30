@@ -38,5 +38,8 @@ func releaseRoute(meta state.Meta) {
 	if meta.RouteName == "" {
 		return
 	}
-	portless.Default().Remove(meta.RouteName)
+	// El error se descarta a propósito: quitar una ruta que no existe sale con
+	// 1 (medido) y un stop repetido no es un error. El servicio ya está parado,
+	// y parar no puede fallar por una dirección.
+	_ = portless.Default().Remove(meta.RouteName)
 }
