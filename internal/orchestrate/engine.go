@@ -493,7 +493,10 @@ func (e *Engine) stopProcess(path string, meta state.Meta) {
 	// sale con 1 y un stop repetido no es un error), y esto cubre tanto
 	// stopService como abortAndCleanup.
 	if meta.RouteName != "" {
-		portless.Default().Remove(meta.RouteName)
+		// Benigno por diseño: quitar una ruta inexistente sale con 1 y un stop
+		// repetido no es un error. El servicio ya está parado, y parar no
+		// puede fallar por una dirección.
+		_ = portless.Default().Remove(meta.RouteName)
 	}
 	for _, w := range warns {
 		_ = appendLine(e.store.StderrLog(path), "── vroom ▶ stop: "+w)
