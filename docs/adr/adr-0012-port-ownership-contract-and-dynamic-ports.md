@@ -85,6 +85,15 @@ efímeros vuelve mucho más peligroso un `fuser` equivocado:
    `/proc` y se captura **antes** de señalizar: al morir la raíz sus hijos se
    reparentan a init y la relación se pierde.
 
+   Y hay **dos raíces creíbles**, no una: con PGID se mata el grupo y los
+   re-sid por su lineage; con sólo PID, sin grupo al que matar, se señaliza la
+   raíz y su linaje. Ambas comparten la MISMA escalera de escalada, para que
+   no puedan divergir en semántica. `StopSpec.Pid` está documentado como raíz
+   del linaje: como objetivo de muerte era decorativo, porque todo el bloque
+   estaba bajo `Pgid > 0` y un spec con sólo PID no hacía absolutamente nada.
+   Sin ninguna raíz creíble, `Stop` sigue siendo un no-op y el fallback de
+   puerto no se dispara: la prueba de propiedad no se debilita.
+
 7. **El guard de propiedad del puerto falla cerrado.** `fuser -k` sólo corre si
    hay **un único dueño conocido** y **pertenece al linaje** del servicio. Cero
    dueños (permisos, `/proc` ilegible), varios dueños (mismo número en IPv4 e

@@ -114,14 +114,24 @@ func mergeEnv(parent, extra []string) []string {
 	return out
 }
 
-// Stop ejecuta el shutdown gradual: SIGTERM al PGID, espera timeout, y si
-// sigue vivo SIGKILL al PGID. Kill(-pgid) no alcanza a los descendientes que
-// hicieron setsid (nohup, pm2, docker run -d): quedan en otro process group y
-// siguen escuchando. Por eso el linaje real se captura de /proc ANTES de
-// señalizar — una vez muerto el root sus hijos se reparentan a init y la
-// relación se pierde — y se itera hasta vaciar grupo y linaje.
-// Si tras SIGKILL el puerto sigue abierto, sólo se libera si vroom puede
-// PROBAR que el dueño pertenece a su propio linaje; si no, avisa y no mata.
+// Stop termina el servicio con una escalera SIGTERM -> espera -> SIGKILL.
+//
+// Hay dos raíces creíbles y las dos se atienden, porque el linaje se captura
+// igual en ambas:
+//
+//	PGID conocido -> kill(-pgid) alcanza el grupo entero, más los descendientes
+//	                re-sid que viven fuera de él (nohup, pm2, docker run -d).
+//	PID conocido  -> no hay grupo al que matar, pero la raíz sí es un objetivo
+//	                válido y su linaje se señala pid a pid.
+//
+// Antes todo el bloque estaba bajo `if spec.Pgid > 0`, así que un spec con
+// sólo PID —válido según el propio doc de StopSpec— no mataba nada. Eso es lo
+// que dejó procesos vivos reteniendo puertos del rango de reserva.
+//
+// El linaje se captura de /proc ANTES de señalizar: una vez muerto el root sus
+// hijos se reparentan a init y la relación se pierde. Sin ninguna raíz
+// creíble, Stop es un no-op y el fallback de puerto NO se dispara: la prueba
+// de propiedad no se debilita un milímetro.
 func (u *unixManager) Stop(spec StopSpec) error {
 	timeout := spec.Timeout
 	if timeout <= 0 {
@@ -130,22 +140,7 @@ func (u *unixManager) Stop(spec StopSpec) error {
 
 	root, lineage := captureLineage(spec)
 
-	if spec.Pgid > 0 {
-		_ = syscall.Kill(-spec.Pgid, syscall.SIGTERM)
-		if waitLineageGone(spec.Pgid, lineage, timeout) {
-			return nil
-		}
-		_ = syscall.Kill(-spec.Pgid, syscall.SIGKILL)
-		// Los re-sid viven en otro grupo: kill(-pgid) no los toca.
-		for _, pid := range lineage {
-			if pid == spec.Pgid {
-				continue
-			}
-			_ = syscall.Kill(pid, syscall.SIGKILL)
-		}
-		if waitLineageGone(spec.Pgid, lineage, 2*time.Second) {
-			return nil
-		}
+	if root > 0 && !terminate(root, spec.Pgid, lineage, timeout) {
 		spec.warnf("stop: quedan procesos vivos tras SIGKILL (%s)", lineageDesc(root, lineage))
 	}
 
@@ -154,6 +149,34 @@ func (u *unixManager) Stop(spec StopSpec) error {
 		killPortHolderWith(spec.Port, root, lineage, PortOwnerPIDs, spec.Warn)
 	}
 	return nil
+}
+
+// terminate es la escalera de parada, y es la ÚNICA implementación: la vía del
+// grupo y la vía del PID la comparten para que no puedan divergir en semántica.
+// pgid es 0 en la vía del PID, y entonces kill(-0, sig) nunca llega a emitirse.
+//
+// Un cambio de comportamiento deliberado en la vía del grupo: los descendientes
+// re-sid ahora reciben SIGTERM antes que SIGKILL. Antes sólo recibían SIGKILL,
+// porque kill(-pgid) no los alcanza y el bucle de refuerzo sólo iba a esa
+// señal. Es una mejora (parada graciosa en vez de caza) y no cambia el
+// contrato observable, que es "tras Stop no queda ningún pid del linaje vivo".
+func terminate(root, pgid int, lineage []int, timeout time.Duration) bool {
+	signal := func(sig syscall.Signal) {
+		if pgid > 0 {
+			_ = syscall.Kill(-pgid, sig)
+		}
+		for _, pid := range lineage {
+			_ = syscall.Kill(pid, sig)
+		}
+	}
+
+	signal(syscall.SIGTERM)
+	if waitLineageGone(pgid, lineage, timeout) {
+		return true
+	}
+
+	signal(syscall.SIGKILL)
+	return waitLineageGone(pgid, lineage, 2*time.Second)
 }
 
 // lineageDesc describe el linaje para un mensaje de aviso.
@@ -279,6 +302,12 @@ func waitLineageGone(pgid int, lineage []int, timeout time.Duration) bool {
 
 // pgidAlive comprueba si queda algún proceso en el grupo via kill(-pgid, 0).
 func pgidAlive(pgid int) bool {
+	// kill(0, sig) no significa "no hay grupo": el pid 0 es "mi propio grupo
+	// de procesos", así que consultarlo sin guardia señalaría al propio vroom
+	// y devolvería true siempre. Sin PGID no hay grupo que preguntarle.
+	if pgid <= 0 {
+		return false
+	}
 	err := syscall.Kill(-pgid, syscall.Signal(0))
 	switch err {
 	case nil:

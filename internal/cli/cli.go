@@ -548,7 +548,7 @@ func cmdStop(name, path string) {
 	}
 
 	meta, err := store.LoadMeta(p.Path)
-	if err == nil && (meta.Pgid > 0 || meta.Port > 0) {
+	if err == nil && (meta.Pid > 0 || meta.Pgid > 0 || meta.Port > 0) {
 		var warns []string
 		_ = manager.Stop(process.StopSpec{
 			Pid: meta.Pid, Pgid: meta.Pgid, Port: meta.Port,

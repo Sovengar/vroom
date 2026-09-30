@@ -439,7 +439,7 @@ func (e *Engine) stopService(p scanner.Project) {
 	// Parada graciosa no implementada en el engine: p.Manifest.Stop se
 	// ignora intencionadamente (simplified stop; aquí no hay runLogged).
 	meta, err := e.store.LoadMeta(p.Path)
-	if err == nil && (meta.Pgid > 0 || meta.Port > 0) {
+	if err == nil && (meta.Pid > 0 || meta.Pgid > 0 || meta.Port > 0) {
 		e.stopProcess(p.Path, meta)
 	}
 	_ = e.store.ClearPid(p.Path)
@@ -456,7 +456,7 @@ func (e *Engine) stopService(p scanner.Project) {
 func (e *Engine) abortAndCleanup(paths []string) {
 	for _, path := range paths {
 		meta, err := e.store.LoadMeta(path)
-		if err == nil && (meta.Pgid > 0 || meta.Port > 0) {
+		if err == nil && (meta.Pid > 0 || meta.Pgid > 0 || meta.Port > 0) {
 			e.stopProcess(path, meta)
 		}
 		_ = e.store.ClearPid(path)
