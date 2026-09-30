@@ -2,6 +2,7 @@ package orchestrate
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -353,7 +354,7 @@ func (e *Engine) stopService(p scanner.Project) {
 	// ignora intencionadamente (simplified stop; aquí no hay runLogged).
 	meta, err := e.store.LoadMeta(p.Path)
 	if err == nil && (meta.Pgid > 0 || meta.Port > 0) {
-		_ = e.manager.Stop(process.StopSpec{Pgid: meta.Pgid, Port: meta.Port, Timeout: process.DefaultStopTimeout})
+		e.stopProcess(p.Path, meta)
 	}
 	_ = e.store.ClearPid(p.Path)
 	if err == nil {
@@ -369,7 +370,7 @@ func (e *Engine) abortAndCleanup(paths []string) {
 	for _, path := range paths {
 		meta, err := e.store.LoadMeta(path)
 		if err == nil && (meta.Pgid > 0 || meta.Port > 0) {
-			_ = e.manager.Stop(process.StopSpec{Pgid: meta.Pgid, Port: meta.Port, Timeout: process.DefaultStopTimeout})
+			e.stopProcess(path, meta)
 		}
 		_ = e.store.ClearPid(path)
 		if err == nil {
@@ -379,4 +380,30 @@ func (e *Engine) abortAndCleanup(paths []string) {
 			_ = e.store.SaveMeta(path, meta)
 		}
 	}
+}
+
+// stopProcess detiene el proceso y deja rastro de los avisos: el guard de
+// propiedad del puerto falla cerrado, y un aviso silencioso se lee como que
+// el puerto quedó libre cuando no lo está.
+func (e *Engine) stopProcess(path string, meta state.Meta) {
+	var warns []string
+	_ = e.manager.Stop(process.StopSpec{
+		Pid: meta.Pid, Pgid: meta.Pgid, Port: meta.Port,
+		Timeout: process.DefaultStopTimeout,
+		Warn:    func(f string, a ...any) { warns = append(warns, fmt.Sprintf(f, a...)) },
+	})
+	for _, w := range warns {
+		_ = appendLine(e.store.StderrLog(path), "── vroom ▶ stop: "+w)
+	}
+}
+
+// appendLine añade una línea al log de un servicio.
+func appendLine(path, line string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	_, err = f.WriteString(line + "\n")
+	return err
 }

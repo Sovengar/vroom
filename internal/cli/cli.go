@@ -521,7 +521,15 @@ func cmdStop(name, path string) {
 
 	meta, err := store.LoadMeta(p.Path)
 	if err == nil && (meta.Pgid > 0 || meta.Port > 0) {
-		_ = manager.Stop(process.StopSpec{Pgid: meta.Pgid, Port: meta.Port, Timeout: process.DefaultStopTimeout})
+		var warns []string
+		_ = manager.Stop(process.StopSpec{
+			Pid: meta.Pid, Pgid: meta.Pgid, Port: meta.Port,
+			Timeout: process.DefaultStopTimeout,
+			Warn:    func(f string, a ...any) { warns = append(warns, fmt.Sprintf(f, a...)) },
+		})
+		for _, w := range warns {
+			_ = appendLine(store.StderrLog(p.Path), "── vroom ▶ stop: "+w)
+		}
 	}
 
 	if err := store.ClearPid(p.Path); err != nil {
