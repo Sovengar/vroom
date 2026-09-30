@@ -1,6 +1,7 @@
 package orchestrate
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -39,6 +40,10 @@ type ServiceResult struct {
 	Name   string `json:"name"`
 	Action string `json:"action"`
 	Pid    int    `json:"pid,omitempty"`
+	// NoPort marca un servicio VIVO que no expone puerto TCP. No es un
+	// error: no falla la etapa, no aborta el stack y no toca a sus
+	// hermanos. Es el caso "solo UDP / worker / sin servidor".
+	NoPort bool   `json:"no_port,omitempty"`
 	Error  string `json:"error,omitempty"`
 }
 
@@ -303,10 +308,11 @@ func (e *Engine) startService(svc ResolvedService, timeout time.Duration) Servic
 		})
 		if status == process.StatusRunning {
 			// Ya corriendo: verificar health y continuar
-			if err := e.awaitPort(p, meta, timeout); err != nil {
+			noPort, err := e.awaitPortOutcome(p, meta, timeout)
+			if err != nil {
 				return ServiceResult{Name: svc.Name, Error: fmt.Sprintf("health check failed: %v", err)}
 			}
-			return ServiceResult{Name: svc.Name, Action: "already_running"}
+			return ServiceResult{Name: svc.Name, Action: "already_running", NoPort: noPort}
 		}
 	}
 
@@ -330,22 +336,34 @@ func (e *Engine) startService(svc ResolvedService, timeout time.Duration) Servic
 	}
 
 	// Health check sobre el puerto REAL, con el modo que lo gobierna.
-	if err := e.awaitPort(p, out.Meta, timeout); err != nil {
+	noPort, err := e.awaitPortOutcome(p, out.Meta, timeout)
+	if err != nil {
 		return ServiceResult{Name: svc.Name, Error: fmt.Sprintf("health check failed: %v", err)}
 	}
 
-	return ServiceResult{Name: svc.Name, Action: "started", Pid: out.Pid}
+	return ServiceResult{Name: svc.Name, Action: "started", Pid: out.Pid, NoPort: noPort}
 }
 
-// awaitPort gatea la salud de una etapa. El puerto viene del meta (el real),
-// no del manifiesto (el default de la app).
-func (e *Engine) awaitPort(p scanner.Project, meta state.Meta, timeout time.Duration) error {
-	return AwaitPort(PortWait{
+// awaitPortOutcome gatea la salud de una etapa y traduce el veredicto a un
+// resultado. El puerto viene del meta (el real), no del manifiesto (el
+// default de la app).
+//
+// ErrNoPort NO es un fallo: el servicio está vivo y no expone puerto TCP, y
+// eso hay que reportarlo sin tumbar la etapa. Tratarlo como error encadenaba
+// hasta abortAndCleanup, que paraba a los hermanos ya arrancados en la misma
+// launch. ErrPortPending sí es un fallo de verdad: la etapa no puede darse
+// por buena con un puerto sin decidir.
+func (e *Engine) awaitPortOutcome(p scanner.Project, meta state.Meta, timeout time.Duration) (bool, error) {
+	err := AwaitPort(PortWait{
 		Port:        meta.Port,
 		Mode:        p.Manifest.EffectivePortMode(),
 		PortPending: meta.State == state.StatePortPending,
 		NoPort:      meta.State == state.StateNoPort,
 	}, timeout)
+	if errors.Is(err, ErrNoPort) {
+		return true, nil
+	}
+	return false, err
 }
 
 // stopService para un servicio individual.

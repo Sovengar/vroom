@@ -234,11 +234,15 @@ Feature: Puertos dinamicos por worktree con el puerto real como unica verdad
   Scenario: Modo dynamic sin puerto nunca termina en espera infinita
     Given un stack con una etapa en modo dinamico donde no aparece ningun puerto
     TCP, por ejemplo porque el servicio es solo UDP
+    And esa etapa comparte etapa con otro servicio que SI abre puerto
     When el motor espera la salud de esa etapa
     Then la espera termina de forma acotada
     And NUNCA se queda colgada hasta un timeout crudo
     And el resultado se reporta como "sin puerto"
     And NO se reporta como un error de arranque
+    And la launch NO aborta ni hace rollback de los ya arrancados
+    And el hermano de la misma etapa sigue corriendo
+    And el servicio sin puerto queda igualmente operable y detenible
 
   Scenario: La regla de retencion solo aplica en modo dynamic
     Given un stack con una etapa en modo fixed cuyo puerto nunca abre
