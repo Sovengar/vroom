@@ -81,30 +81,54 @@ func (u *unixManager) Start(spec StartSpec) (StartResult, error) {
 	return result, nil
 }
 
-// Stop ejecuta el shutdown gradual: SIGTERM al PGID, espera
-// timeout, y si sigue vivo SIGKILL al PGID (mata todo el grupo,
-// incluyendo hijos que hayan hecho fork).
-// Si tras SIGKILL el puerto sigue abierto, usa fuser como último recurso
-// para liberarlo (servicios reiniciados externamente con PID ajeno).
+// Stop ejecuta el shutdown gradual: SIGTERM al PGID, espera timeout, y si
+// sigue vivo SIGKILL al PGID. Kill(-pgid) no alcanza a los descendientes que
+// hicieron setsid (nohup, pm2, docker run -d): quedan en otro process group y
+// siguen escuchando. Por eso el linaje real se captura de /proc ANTES de
+// señalizar — una vez muerto el root sus hijos se reparentan a init y la
+// relación se pierde — y se itera hasta vaciar grupo y linaje.
+// Si tras SIGKILL el puerto sigue abierto, sólo se libera si vroom puede
+// PROBAR que el dueño pertenece a su propio linaje; si no, avisa y no mata.
 func (u *unixManager) Stop(spec StopSpec) error {
 	timeout := spec.Timeout
 	if timeout <= 0 {
 		timeout = DefaultStopTimeout
 	}
+
+	root, lineage := captureLineage(spec)
+
 	if spec.Pgid > 0 {
 		_ = syscall.Kill(-spec.Pgid, syscall.SIGTERM)
-		if waitGroupGone(spec.Pgid, timeout) {
+		if waitLineageGone(spec.Pgid, lineage, timeout) {
 			return nil
 		}
 		_ = syscall.Kill(-spec.Pgid, syscall.SIGKILL)
-		waitGroupGone(spec.Pgid, 2*time.Second)
+		// Los re-sid viven en otro grupo: kill(-pgid) no los toca.
+		for _, pid := range lineage {
+			if pid == spec.Pgid {
+				continue
+			}
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+		if waitLineageGone(spec.Pgid, lineage, 2*time.Second) {
+			return nil
+		}
+		spec.warnf("stop: quedan procesos vivos tras SIGKILL (%s)", lineageDesc(root, lineage))
 	}
 
-	// Último recurso: si el puerto sigue abierto, matar lo que lo ocupe.
+	// Último recurso: liberar el puerto, pero sólo con prueba de propiedad.
 	if spec.Port > 0 && PortOpen(spec.Port) {
-		killPortHolder(spec.Port)
+		killPortHolderWith(spec.Port, root, lineage, PortOwnerPIDs, spec.Warn)
 	}
 	return nil
+}
+
+// lineageDesc describe el linaje para un mensaje de aviso.
+func lineageDesc(root int, lineage []int) string {
+	if len(lineage) <= 1 {
+		return "pgid " + strconv.Itoa(root)
+	}
+	return "pgid " + strconv.Itoa(root) + " y " + strconv.Itoa(len(lineage)-1) + " descendiente(s)"
 }
 
 // Evaluate implementa el orden de confianza:
@@ -148,11 +172,16 @@ func (u *unixManager) Evaluate(spec EvalSpec) Status {
 		}
 		if portOpen {
 			ownerPID := PortOwnerPID(spec.Port)
-			if ownerPID > 0 {
-				ownerAlive := Alive(int(ownerPID), spec.CreationTimeMs)
-				if !ownerAlive {
-					return StatusStopped
-				}
+			if ownerPID <= 0 {
+				// Propietario indeterminado o ambiguo: resolver a
+				// "running" sería el veredicto optimista que hace que un
+				// twin de otro worktree se reporte vivo. Degrada a
+				// indeterminado.
+				return StatusUnknown
+			}
+			ownerAlive := Alive(int(ownerPID), spec.CreationTimeMs)
+			if !ownerAlive {
+				return StatusStopped
 			}
 			return StatusRunning
 		}
@@ -186,11 +215,12 @@ func PatternMatch(pattern string) bool {
 	return false
 }
 
-// waitGroupGone sondea hasta que el process group desaparece o expira.
-func waitGroupGone(pgid int, timeout time.Duration) bool {
+// waitLineageGone sondea hasta que el process group y todos los pids del
+// linaje capturado han desaparecido, o expira el timeout.
+func waitLineageGone(pgid int, lineage []int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for {
-		if !pgidAlive(pgid) {
+		if !pgidAlive(pgid) && !lineageRunning(lineage) {
 			return true
 		}
 		if time.Now().After(deadline) {
@@ -215,9 +245,29 @@ func pgidAlive(pgid int) bool {
 	}
 }
 
-// killPortHolder mata el proceso que escucha en el puerto dado usando fuser
-// y espera a que el puerto se libere.
-func killPortHolder(port int) {
+// killPortHolderWith libera el puerto MATANDO SÓLO si puede probar que el
+// proceso que lo escucha pertenece a su propio linaje. Es el fallo cerrado
+// del contrato de propiedad: sin prueba no se mata nada y se avisa.
+//
+// La prueba exige un único dueño conocido y contenido en el linaje. Cero
+// dueños (permisos, /proc ilegible), varios dueños (mismo puerto en IPv4 e
+// IPv6, o dos procesos) o un dueño ajeno: los tres son "no se puede probar".
+func killPortHolderWith(port, rootPid int, lineage []int, owners func(int) []int32, warn func(string, ...any)) {
+	if warn == nil {
+		warn = func(string, ...any) {}
+	}
+
+	candidates := distinctOwners(owners(port))
+	if len(candidates) != 1 {
+		warn("puerto %d ocupado pero vroom no puede probar quién lo tiene: no se mata nada", port)
+		return
+	}
+	owner := candidates[0]
+	if owner != rootPid && !containsPid(lineage, owner) {
+		warn("puerto %d lo tiene el pid %d, fuera del linaje de este servicio: no se mata nada", port, owner)
+		return
+	}
+
 	_ = exec.Command("fuser", "-k", fmt.Sprintf("%d/tcp", port)).Run()
 	// Esperar a que el puerto se libere (max 3s).
 	deadline := time.Now().Add(3 * time.Second)
@@ -227,4 +277,27 @@ func killPortHolder(port int) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+	warn("puerto %d sigue ocupado tras kill: hay un proceso que no se deja matar", port)
+}
+
+func distinctOwners(pids []int32) []int {
+	seen := make(map[int32]bool, len(pids))
+	out := make([]int, 0, len(pids))
+	for _, p := range pids {
+		if p <= 0 || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, int(p))
+	}
+	return out
+}
+
+func containsPid(pids []int, pid int) bool {
+	for _, p := range pids {
+		if p == pid {
+			return true
+		}
+	}
+	return false
 }

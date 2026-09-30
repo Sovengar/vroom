@@ -38,16 +38,30 @@ func PortOpen(port int) bool {
 }
 
 // PortOwnerPID devuelve el PID del proceso que escucha en el puerto dado.
-// Retorna 0 si no se puede determinar (puerto libre, permisos, etc.).
+// Retorna 0 si no se puede determinar (puerto libre, permisos, o varios
+// dueños ⇒ ambiguo). Ambiguo y desconocido son la misma cosa a propósito:
+// quien pregunta necesita una prueba, no un candidato.
 func PortOwnerPID(port int) int32 {
-	conns, err := gopsnet.ConnectionsPid("tcp", 0)
-	if err != nil {
-		return 0
-	}
-	for _, c := range conns {
-		if c.Status == "LISTEN" && c.Laddr.Port == uint32(port) && c.Pid > 0 {
-			return c.Pid
-		}
+	owners := PortOwnerPIDs(port)
+	if len(owners) == 1 {
+		return owners[0]
 	}
 	return 0
+}
+
+// PortOwnerPIDs devuelve todos los PIDs que escuchan en el puerto dado, sin
+// deduplicar el orden. Más de uno = el puerto está compartido (mismo número
+// en IPv4 e IPv6, o dos procesos), y por tanto la propiedad NO está probada.
+func PortOwnerPIDs(port int) []int32 {
+	conns, err := gopsnet.ConnectionsPid("tcp", 0)
+	if err != nil {
+		return nil
+	}
+	var out []int32
+	for _, c := range conns {
+		if c.Status == "LISTEN" && c.Laddr.Port == uint32(port) && c.Pid > 0 {
+			out = append(out, c.Pid)
+		}
+	}
+	return out
 }

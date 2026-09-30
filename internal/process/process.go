@@ -39,9 +39,21 @@ type StartResult struct {
 
 // StopSpec describe la parada de un process group.
 type StopSpec struct {
+	Pid     int            // raíz del linaje; 0 = deducirla del PGID
 	Pgid    int
 	Port    int           // 0 = no verificar puerto tras stop
 	Timeout time.Duration
+
+	// Warn recibe los avisos no fatales del stop (p.ej. no poder probar
+	// que el dueño del puerto es propio). Nil = descartarlos.
+	Warn func(format string, args ...any)
+}
+
+// warnf emite un aviso por el Warn del spec, si lo hay.
+func (s StopSpec) warnf(format string, args ...any) {
+	if s.Warn != nil {
+		s.Warn(format, args...)
+	}
 }
 
 // EvalSpec contiene las credenciales registradas para evaluar el estado.
