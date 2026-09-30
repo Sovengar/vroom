@@ -39,6 +39,20 @@ efímeros vuelve mucho más peligroso un `fuser` equivocado:
    mutex y un set en memoria de puertos ya entregados: **dentro de un proceso
    vroom** dos reservas concurrentes nunca coinciden. Entre procesos vroom
    distintos la ventana `bind`+`close` sigue abierta (ver trade-offs).
+
+   **La reserva tiene ciclo de vida: se adquiere al arrancar y se devuelve al
+   parar.** El puerto reservado se persiste aparte del real
+   (`Meta.ReservedPort`), porque los dos tienen vidas distintas: el real es lo
+   que se muestra y se sondea, el reservado es lo que hay que liberar. Sin
+   persistirlo no hay forma de que el stop sepa qué devolver. Los cuatro
+   caminos de parada (TUI, CLI, `stopService` y `abortAndCleanup`) lo liberan y
+   ponen `ReservedPort = 0`, porque un stop repetido que leyera una reserva
+   vieja liberaría un puerto que otro servicio ya tiene tomado.
+
+   El set es **por proceso y muere con él**: un crash no encoge el rango
+   permanentemente, el siguiente vroom arranca con el set vacío. Y una entrada
+   obsoleta solo puede hacer que se salte un puerto realmente libre, nunca
+   provocar una colisión, porque `bind` es la verdad sobre ocupación.
    El descubrimiento
    está acotado por tres cosas: deadline, **liveness del linaje** (fallo rápido
    de orden de 1 s si el proceso muere) y **ventana de estabilización**: el

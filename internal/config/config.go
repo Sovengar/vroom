@@ -64,8 +64,8 @@ type ScannerConfig struct {
 
 // Config es la configuración global de vroom.
 type Config struct {
-	Ask      AskConfig         `toml:"ask"`
-	Scanner  ScannerConfig     `toml:"scanner"`
+	Ask         AskConfig         `toml:"ask"`
+	Scanner     ScannerConfig     `toml:"scanner"`
 	Keybindings map[string]string `toml:"keybindings"`
 
 	// Err acumula el error de parseo, si lo hubo (defaults aplicados).

@@ -409,8 +409,10 @@ func TestTwoDynamicStartsGetDistinctPorts(t *testing.T) {
 	}
 }
 
-// Un intento fallido devuelve su puerto: el set no debe，依照累加器leakear
-// huecos en un proceso de larga vida.
+// Un intento fallido devuelve su puerto al set, y el aserto es sobre el
+// tamaño del set. La versión anterior solo comprobaba que el arranque fallara
+// 40 veces, lo cual se cumple igual si el rango se agota: el comentario
+// prometía detectar una fuga que el test no podía detectar.
 func TestFailedAttemptReleasesItsReservedPort(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -418,12 +420,59 @@ func TestFailedAttemptReleasesItsReservedPort(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "die") // muere antes de hacer bind
 
-	// El puerto que el intento fallido liberó tiene que volver a estar
-	// disponible: se reserva muchísimas veces y nunca se agota el rango.
 	for i := 0; i < 40; i++ {
+		baseline := process.ReservedPortCount()
 		if _, err := f.start(t, 5*time.Second); err == nil {
 			t.Fatal("un servicio que muere debe fallar el arranque")
 		}
+		if got := process.ReservedPortCount(); got != baseline {
+			t.Fatalf("intento %d dejó la reserva en el set: %d != %d", i, got, baseline)
+		}
+	}
+}
+
+// M-B: detener un servicio devuelve su reserva. El servicio arranca y ocupa
+// su puerto; al pararlo el set tiene que volver a su tamaño previo. Sin
+// esto el set crece con cada ciclo start/stop y un proceso de larga vida
+// acaba sin puertos que ofrecer.
+func TestStopReleasesTheReservation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integración: spawn real")
+	}
+	f := newFixture(t)
+	f.command(t, "honors-port")
+
+	baseline := process.ReservedPortCount()
+
+	out, err := f.start(t, 5*time.Second)
+	if err != nil {
+		t.Fatalf("arranque: %v", err)
+	}
+	f.cleanup(t, out)
+
+	// El puerto reservado se persiste aparte del real: es lo que permite al
+	// stop saber qué reserva devolver.
+	meta, err := f.store.LoadMeta(f.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.ReservedPort == 0 {
+		t.Fatal("meta.ReservedPort no se persistió: el stop no tendría qué liberar")
+	}
+	if got := process.ReservedPortCount(); got != baseline+1 {
+		t.Fatalf("el set mide %d tras arrancar, want %d", got, baseline+1)
+	}
+
+	// Parar el servicio, como haría cualquier call site de stop.
+	if err := process.NewManager().Stop(process.StopSpec{
+		Pid: out.Pid, Pgid: out.Meta.Pgid, Port: out.Meta.Port, Timeout: 2 * time.Second,
+	}); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	process.ReleasePort(meta.ReservedPort)
+
+	if got := process.ReservedPortCount(); got != baseline {
+		t.Errorf("tras detener, el set mide %d, want %d: la reserva no volvió", got, baseline)
 	}
 }
 

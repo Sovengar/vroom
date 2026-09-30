@@ -6,88 +6,13 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
-)
-
-// Rango de reserva del modo dynamic. Fijo por ahora, ampliable después:
-// 4000-4999 es la banda que los backends de desarrollo ya usan, así que un
-// listener legítimo ajeno que caiga dentro es improbable pero posible.
-const (
-	DynamicPortLow  = 4000
-	DynamicPortHigh = 4999
-)
-
-// DefaultDynamicPortTimeout acota la ventana de arranque→bind.
-const DefaultDynamicPortTimeout = 8 * time.Second
-
-// DefaultDynamicUnresolvedGrace es la segunda ventana que se concede cuando
-// el plazo se agota. Existe porque el vencimiento del plazo no prueba
-// ausencia: un Next.js que compila 12 s y un servicio solo-UDP lucen igual
-// durante 12 s. Es la vía de recuperación acotada: si el puerto aparece aquí,
-// se resuelve como siempre y no queda sin resolver.
-const DefaultDynamicUnresolvedGrace = 8 * time.Second
-
-// ReservePort pide un puerto libre del rango dynamic.
-//
-// Qué protege: dos reservas concurrentes DENTRO de un mismo proceso vroom
-// nunca devuelven el mismo puerto. Sin esto, una tecla sobre un nodo de
-// grupo con dos miembros en dynamic (toggleNode devuelve tea.Batch, y
-// bubbletea corre los comandos en paralelo) o una etapa de stack (Launch
-// arranca cada servicio en su propia goroutine) repartían el mismo primer
-// hueco libre del rango. Medido antes del arreglo: 99,5 % de colisiones
-// entre pares concurrentes.
-//
-// Qué NO protege: dos procesos vroom DISTINTOS. Cada uno tiene su propio
-// set y ambos hacen bind+close sobre el mismo pool del kernel. Esa ventana
-// es el TOCTOU documentado más abajo y mitigarla exigiría socket passing,
-// que no cabe en sh -c.
-//
-// TOCTOU documentado: bind(127.0.0.1:port) + close devuelve el puerto al
-// pool antes de que el hijo llegue a hacer bind. La ventana existe.
-func ReservePort() (int, error) {
-	reserveMu.Lock()
-	defer reserveMu.Unlock()
-
-	for port := DynamicPortLow; port <= DynamicPortHigh; port++ {
-		if reservedPorts[port] {
-			continue // ya entregado a otro arranque de este proceso
-		}
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-		if err != nil {
-			continue // ocupado o no disponible; el siguiente del rango
-		}
-		if err := ln.Close(); err != nil {
-			return 0, fmt.Errorf("could not release the reserved port %d: %w", port, err)
-		}
-		reservedPorts[port] = true
-		return port, nil
-	}
-	return 0, fmt.Errorf("no free port in range %d-%d", DynamicPortLow, DynamicPortHigh)
-}
-
-// ReleasePort devuelve al set un puerto que el hijo nunca llegó a tomar.
-// Sólo para intentos fallidos: si el proceso vive, el puerto es suyo durante
-// el resto de la sesión aunque todavía no haya hecho bind.
-func ReleasePort(port int) {
-	if port <= 0 {
-		return
-	}
-	reserveMu.Lock()
-	defer reserveMu.Unlock()
-	delete(reservedPorts, port)
-}
-
-var (
-	reserveMu     sync.Mutex
-	reservedPorts = make(map[int]bool, 16)
 )
 
 // DiscoveryResult es el resultado de resolver el puerto real de un linaje.

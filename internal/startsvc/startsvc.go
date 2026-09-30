@@ -111,9 +111,13 @@ func resolveDynamicPort(req Request, attempt state.Meta, reserved int) (Result, 
 	// meta of the previous run whose CreationTimeMs no longer describes
 	// anything.
 	attempt.Port = reserved
+	attempt.ReservedPort = reserved
 	attempt.State = state.StatePortPending
 	if err := req.Store.SaveMeta(req.Path, attempt); err != nil {
-		process.ReleasePort(reserved)
+		// No se libera aquí: Manager.Start ya devolvió y el hijo está vivo
+		// usando ese puerto. Devolverlo al set reabriría la carrera de H1
+		// en este camino y dejaría un hijo vivo sin registrar. La reserva
+		// se queda hasta el stop, como cualquier otra.
 		return Result{}, err
 	}
 	_ = req.Store.RegisterPid(req.Path, attempt.Pid, attempt.Pgid)
