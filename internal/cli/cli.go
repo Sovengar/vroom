@@ -421,6 +421,37 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 
 func boolPtr(b bool) *bool { return &b }
 
+// cliRouteReleaser devuelve el seam de retirada, o nil para que portless
+// construya el cliente real.
+//
+// El punto de inyección existe porque sin él la retirada de la CLI no la
+// observaba nadie: el reviewer comprobó que borrando los tres call sites de
+// Release la suite seguía en verde, de modo que la decisión 13 del ADR —"se
+// retira en los tres caminos"— no la verificaba nada. En producción ambas
+// variables están a cero y sale el camino real.
+var (
+	cliReleaseStub          portless.ReleaserFunc
+	cliReleaseStubInstalled bool
+)
+
+func cliRouteReleaser() portless.Releaser {
+	if cliReleaseStubInstalled && cliReleaseStub != nil {
+		return cliReleaseStub
+	}
+	return nil
+}
+
+// releaseRouteOnStop retira la ruta de un servicio parado.
+//
+// Va FUERA del guard de proceso a propósito, y por eso es una función con
+// nombre: un servicio que ya estaba muerto cuando se paró (Pid 0) también deja
+// una ruta detrás, y dentro del guard esa ruta se quedaba para siempre. Que sea
+// una función aparte, y no una línea en cmdStop, es lo que permite que los tests
+// la exertan de verdad en vez de reimplementarla.
+func releaseRouteOnStop(meta state.Meta) {
+	portless.Release(cliRouteReleaser(), meta.RouteName)
+}
+
 // ---- Commands ----
 
 // Run es el punto de entrada del CLI. Devuelve true si manejó un
@@ -611,7 +642,26 @@ func cmdStop(name, path string) {
 		}
 	}
 
-	meta, err := store.LoadMeta(p.Path)
+	stopCleanup(store, manager, p.Path)
+
+	outputJSON(ActionResult{
+		OK:      true,
+		Project: name,
+		Action:  "stopped",
+	})
+}
+
+// stopCleanup es todo lo que hace cmdStop DESPUÉS de matar el proceso, con el
+// manager inyectado.
+//
+// Está separado del comando a propósito: cmdStop escanea disco, resuelve config
+// y escribe JSON, así que no se puede ejercer en un test sin convertir el test en
+// una integración de todo el CLI. Y la alternativa —dejar la lógica escrita en
+// el comando y "probarla" reimplementándola en el test— es peor: un test que
+// replica la lógica pasa aunque la lógica se borre, que es exactamente el hueco
+// que dejó la primera versión (borrar los tres call sites dejaba la suite verde).
+func stopCleanup(store *state.Store, manager process.Manager, path string) {
+	meta, err := store.LoadMeta(path)
 	if err == nil && (meta.Pid > 0 || meta.Pgid > 0 || meta.Port > 0) {
 		var warns []string
 		_ = manager.Stop(process.StopSpec{
@@ -620,34 +670,30 @@ func cmdStop(name, path string) {
 			Warn:    func(f string, a ...any) { warns = append(warns, fmt.Sprintf(f, a...)) },
 		})
 		for _, w := range warns {
-			_ = appendLine(store.StderrLog(p.Path), "── vroom ▶ stop: "+w)
+			_ = appendLine(store.StderrLog(path), "── vroom ▶ stop: "+w)
 		}
 		// El servicio ya está parado: su reserva vuelve al pool.
 		process.ReleasePort(meta.ReservedPort)
+	}
+	if err == nil {
 		// Y su ruta deja de existir: una dirección que apunta a un puerto
-		// muerto es peor que ninguna. El fallo es benigno.
-		portless.Release(meta.RouteName)
+		// muerto es peor que ninguna. Va FUERA del guard de proceso a
+		// propósito: un servicio que ya estaba muerto cuando se paró (Pid 0)
+		// también deja una ruta detrás.
+		releaseRouteOnStop(meta)
 	}
 
-	if err := store.ClearPid(p.Path); err != nil {
+	if err := store.ClearPid(path); err != nil {
 		outputError("could not clear pid: " + err.Error())
 	}
-
 	if err == nil {
 		meta.State = state.StateStopped
 		meta.Pid = 0
 		meta.Pgid = 0
 		meta.ReservedPort = 0
-		_ = store.SaveMeta(p.Path, meta)
+		_ = store.SaveMeta(path, meta)
 	}
-
-	_ = appendLine(store.StderrLog(p.Path), "── vroom ▶ stop: service stopped ──")
-
-	outputJSON(ActionResult{
-		OK:      true,
-		Project: name,
-		Action:  "stopped",
-	})
+	_ = appendLine(store.StderrLog(path), "── vroom ▶ stop: service stopped ──")
 }
 
 // cmdBuild ejecuta command_build de forma síncrona.

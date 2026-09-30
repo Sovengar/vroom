@@ -23,25 +23,8 @@ import (
 // Se ejecuta a propósito con VROOM_PORTLESS_INTEGRATION=1 porque tocar un proxy
 // real, aunque aislado, no es algo que debayk happen por sorpresa.
 func TestIntegrationRealPortless(t *testing.T) {
-	if os.Getenv("VROOM_PORTLESS_INTEGRATION") != "1" {
-		t.Skip("integracion real: pon VROOM_PORTLESS_INTEGRATION=1 (aísla el estado en un temporal)")
-	}
-	if _, err := net.LookupPort("tcp", "0"); err != nil {
-		t.Skip("sin red")
-	}
-
-	stateDir := t.TempDir()
-	t.Setenv("PORTLESS_STATE_DIR", stateDir)
-	t.Setenv("PORTLESS_HTTPS", "0")
-	t.Setenv("PORTLESS_SYNC_HOSTS", "0")
-
-	bin := os.Getenv("PORTLESS_BIN")
-	if bin == "" {
-		bin = portless.ResolveBinary()
-	}
-	if bin == "" {
-		t.Skip("no hay portless instalado")
-	}
+	stateDir := integrationStateDir(t)
+	bin := integrationBin(t)
 	c := portless.New(
 		portless.WithBinary(bin),
 		portless.WithStateDir(stateDir),
@@ -160,6 +143,42 @@ func closedPort(t *testing.T) int {
 	port := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
 	return port
+}
+
+// integrationStateDir aísla el estado de portless en un temporal y lo limpia al
+// terminar. NUNCA toca ~/.portless del usuario: su proxy está en marcha y ese
+// estado no es nuestro.
+func integrationStateDir(t *testing.T) string {
+	t.Helper()
+	requireIntegration(t)
+	dir := t.TempDir()
+	t.Setenv("PORTLESS_STATE_DIR", dir)
+	t.Setenv("PORTLESS_HTTPS", "0")
+	t.Setenv("PORTLESS_SYNC_HOSTS", "0")
+	return dir
+}
+
+// integrationBin devuelve el binario real, o se salta.
+func integrationBin(t *testing.T) string {
+	t.Helper()
+	requireIntegration(t)
+	if bin := os.Getenv("PORTLESS_BIN"); bin != "" {
+		return bin
+	}
+	if bin := portless.ResolveBinary(); bin != "" {
+		return bin
+	}
+	t.Skip("no hay portless instalado")
+	return ""
+}
+
+// requireIntegration exige la variable de activación. Tocar un portless real,
+// aunque aislado, no debe pasar por sorpresa.
+func requireIntegration(t *testing.T) {
+	t.Helper()
+	if os.Getenv("VROOM_PORTLESS_INTEGRATION") != "1" {
+		t.Skip("integración real: pon VROOM_PORTLESS_INTEGRATION=1 (aísla el estado en un temporal)")
+	}
 }
 
 // ---- el proxy.port real ----

@@ -31,6 +31,25 @@ const (
 // resuelve ni el binario: es la puerta de compatibilidad hacia atrás.
 func RouteModeEnabled(mode string) bool { return mode != "" && mode != RouteModeOff }
 
+// Releaser es el seam de retirada, con la misma forma que el de registro.
+//
+// Existe por el mismo motivo que existe portless.Release: sin un punto de
+// inyección, la retirada no la puede probar nadie. `Release` construye su
+// cliente internamente, así que ningún test podía observar si se llamaba, y la
+// consecuencia fue que borrar los tres call sites dejaba la suite en verde —
+// o sea, que la decisión 13 del ADR ("se retira en los tres caminos") no la
+// verificaba nada. Un seam que nadie puede injectar no es un seam.
+type Releaser interface {
+	// Remove retira la ruta name. El fallo es benigno.
+	Remove(name string) error
+}
+
+// ReleaserFunc adapta una función a Releaser.
+type ReleaserFunc func(name string) error
+
+// Remove implementa Releaser.
+func (f ReleaserFunc) Remove(name string) error { return f(name) }
+
 // ClientFor devuelve el seam ya resuelto para un manifiesto, o nil si no hay
 // contrato de ruta.
 //
@@ -46,20 +65,28 @@ func ClientFor(m *manifest.Manifest) *Client {
 	return Default()
 }
 
-// Release retira la ruta de un servicio parado. El fallo es BENIGNO por diseño:
-// quitar una ruta que no existe sale con 1 (medido, M10) y un stop repetido no
-// es un error, porque el servicio ya está parado y parar no puede fallar por una
-// dirección.
+// Release retira la ruta de un servicio parado.
+//
+// El fallo es BENIGNO por diseño: quitar una ruta que no existe sale con 1
+// (medido, M10) y un stop repetido no es un error, porque el servicio ya está
+// parado y parar no puede fallar por una dirección.
 //
 // Recibe el NOMBRE, no el Meta: este paquete es un seam y no debe depender del
 // tipo de persistencia. Y no relee el manifiesto, que pudo cambiar desde el
 // arranque; se retira lo que se registró, que es lo único que se puede demostrar
 // como propio.
-func Release(name string) {
+//
+// r es el punto de inyección. nil significa "construye el cliente real", que es
+// lo que usan los tres caminos de stop en producción; los tests pasan un doble.
+func Release(r Releaser, name string) {
 	if name == "" {
 		return
 	}
-	_ = Default().Remove(name)
+	if r == nil {
+		r = Default()
+	}
+	// El error se descarta a propósito: ver el doc de Remove.
+	_ = r.Remove(name)
 }
 
 // Result es el resultado de aplicar una ruta. Tri-estado y honesto por
@@ -91,7 +118,7 @@ func Degraded(name, reason string) Result {
 // prevPort es el puerto al que apuntaba la ruta de ESTE servicio en el arranque
 // anterior, o 0 si no tenía ninguna. Es lo que permite distinguir dos casos que
 // a primera vista son el mismo —el nombre ya existe con otro puerto— y que
-// tienen后果 opuestos:
+// tienen consecuencias opuestas:
 //
 //   - es la ruta de otro dueño → no se toca y se degrada con conflicto. El
 //     fallo cerrado que gobierna la limpieza, aplicado al alta: no se puede
