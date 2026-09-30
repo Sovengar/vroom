@@ -1022,29 +1022,63 @@ func TestHelpResponsive(t *testing.T) {
 	}
 }
 
-// El badge muestra el puerto junto a running/unknown.
+// El badge muestra el puerto REAL (meta.Port), no el declarado. En dynamic
+// los dos difieren y el declarado miente.
 func TestBadgeShowsPort(t *testing.T) {
 	p := scanner.Project{
 		Path: "/tmp/x", Name: "x",
 		Configured: true,
-		Manifest:   &manifest.Manifest{Name: "x", Command: "run", Port: 8081},
+		Manifest:   &manifest.Manifest{Name: "x", Command: "run", Port: 8081, PortMode: manifest.PortModeDynamic},
 	}
-	sv := &ServiceState{Status: statusRunning}
-	if badge := statusBadge(p, sv, "·", "·"); !strings.Contains(badge, ":8081") {
-		t.Errorf("badge running sin puerto: %q", badge)
+	sv := &ServiceState{Status: statusRunning, Meta: state.Meta{Port: 41501}}
+	if badge := statusBadge(p, sv, "·", "·"); !strings.Contains(badge, ":41501") {
+		t.Errorf("badge running con el puerto real: %q", badge)
+	}
+	if badge := statusBadge(p, sv, "·", "·"); strings.Contains(badge, ":8081") {
+		t.Errorf("el badge no debe emitir el puerto declarado: %q", badge)
 	}
 	sv.Status = statusUnknown
-	if badge := statusBadge(p, sv, "·", "·"); !strings.Contains(badge, ":8081") {
-		t.Errorf("badge unknown sin puerto: %q", badge)
+	if badge := statusBadge(p, sv, "·", "·"); !strings.Contains(badge, ":41501") {
+		t.Errorf("badge unknown con el puerto real: %q", badge)
 	}
 	sv.Status = statusStopped
-	if badge := statusBadge(p, sv, "·", "·"); strings.Contains(badge, ":8081") {
+	if badge := statusBadge(p, sv, "·", "·"); strings.Contains(badge, ":41501") {
 		t.Errorf("badge stopped no debe mostrar puerto: %q", badge)
 	}
 	// Sin manifiesto: nunca puerto
 	p2 := scanner.Project{Path: "/tmp/y", Name: "y"}
 	if badge := statusBadge(p2, &ServiceState{Status: statusUnconfigured}, "·", "·"); strings.Contains(badge, ":") {
 		t.Errorf("badge unconfigured con puerto: %q", badge)
+	}
+}
+
+// El puerto pendiente tiene representación propia: no se disfraza de sano
+// con el spinner genérico, y sigue siendo detenible.
+func TestBadgePortPendingIsItsOwnState(t *testing.T) {
+	p := scanner.Project{
+		Path: "/tmp/x", Name: "x", Configured: true,
+		Manifest: &manifest.Manifest{Name: "x", Command: "run", Port: 8081, PortMode: manifest.PortModeDynamic},
+	}
+	sv := &ServiceState{Status: statusPortPending, Meta: state.Meta{Port: 41501, Pid: 4242}}
+
+	badge := statusBadge(p, sv, "SPIN", "START")
+	if strings.Contains(badge, "SPIN") || strings.Contains(badge, "unknown") {
+		t.Errorf("el puerto pendiente no debe usar el spinner genérico: %q", badge)
+	}
+	if !strings.Contains(badge, "port pending") {
+		t.Errorf("el puerto pendiente debe nombrarse: %q", badge)
+	}
+	if !sv.Status.alive() {
+		t.Error("el puerto pendiente debe seguir siendo detenible")
+	}
+
+	// Un servicio sin puerto TCP tampoco está sano, pero tampoco roto.
+	sv.Status = statusNoPort
+	if badge := statusBadge(p, sv, "SPIN", "START"); !strings.Contains(badge, "no port") {
+		t.Errorf("servicio sin puerto debe nombrarse: %q", badge)
+	}
+	if !sv.Status.alive() {
+		t.Error("un servicio sin puerto sigue siendo detenible")
 	}
 }
 

@@ -17,6 +17,13 @@ const (
 	StatusRunning Status = "running"
 	StatusStopped Status = "stopped"
 	StatusUnknown Status = "unknown"
+	// StatusPortPending: el proceso está vivo y el puerto ya está reservado
+	// pero aún no escuchando. NO es "unknown": es un estado con nombre, para
+	// que "arrancando" no se disfrace de "sano" ni de "roto".
+	StatusPortPending Status = "port_pending"
+	// StatusNoPort: el proceso está vivo y no tiene puerto TCP, y eso es su
+	// estado, no una espera pendiente.
+	StatusNoPort Status = "no_port"
 )
 
 // DefaultStopTimeout es el timeout de SIGTERM antes de SIGKILL.
@@ -28,6 +35,11 @@ type StartSpec struct {
 	WorkDir    string // directorio de trabajo del proceso
 	StdoutPath string // fichero donde capturar stdout
 	StderrPath string // fichero donde capturar stderr
+
+	// Env son variables "KEY=VALUE" a INYECTAR (p.ej. PORT=41501). Se
+	// fusionan con el entorno del padre; nunca lo reemplazan. Nil = el
+	// hijo hereda el entorno tal cual, como hasta ahora.
+	Env []string
 }
 
 // StartResult contiene las credenciales del proceso arrancado.
@@ -39,9 +51,9 @@ type StartResult struct {
 
 // StopSpec describe la parada de un process group.
 type StopSpec struct {
-	Pid     int            // raíz del linaje; 0 = deducirla del PGID
+	Pid     int // raíz del linaje; 0 = deducirla del PGID
 	Pgid    int
-	Port    int           // 0 = no verificar puerto tras stop
+	Port    int // 0 = no verificar puerto tras stop
 	Timeout time.Duration
 
 	// Warn recibe los avisos no fatales del stop (p.ej. no poder probar
@@ -62,6 +74,10 @@ type EvalSpec struct {
 	CreationTimeMs int64
 	Port           int    // 0 = no verificar
 	ProcessPattern string // "" = no verificar
+	// PortPending marca que el puerto está reservado y el discovery sigue en
+	// vuelo: si el proceso vive y el puerto aún no abre, el estado es
+	// "pending", no "unknown". Sólo lo fija el arranque en modo dynamic.
+	PortPending bool
 }
 
 // Manager es la abstracción de gestión de procesos portable a Windows.

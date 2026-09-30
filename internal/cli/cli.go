@@ -29,6 +29,7 @@ import (
 	"vroom/internal/orchestrate"
 	"vroom/internal/process"
 	"vroom/internal/scanner"
+	"vroom/internal/startsvc"
 	"vroom/internal/state"
 	"vroom/internal/tail"
 )
@@ -48,6 +49,8 @@ type ProjectInfo struct {
 	Configured     bool   `json:"configured"`
 	Status         string `json:"status"`
 	Port           int    `json:"port"`
+	PortMode       string `json:"port_mode,omitempty"`
+	PortVerified   bool   `json:"port_verified,omitempty"`
 	Command        string `json:"command,omitempty"`
 	CommandStop    string `json:"command_stop,omitempty"`
 	CommandBuild   string `json:"command_build,omitempty"`
@@ -288,7 +291,6 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 	}
 
 	m := p.Manifest
-	info.Port = m.Port
 	info.Command = m.Command
 	info.CommandStop = m.Stop
 	info.CommandBuild = m.Build
@@ -296,6 +298,7 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 	info.ProcessPattern = m.ProcessPattern
 	info.PrimaryGroup = m.PrimaryGroup
 	info.SecondaryGroup = m.SecondaryGroup
+	info.PortMode = m.EffectivePortMode()
 
 	// Colapso: clave = primary o primary/secondary
 	if m.PrimaryGroup != "" {
@@ -313,6 +316,15 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 		info.Pgid = meta.Pgid
 		info.StartedAt = meta.StartedAt
 	}
+
+	// El puerto se resuelve DESPUÉS de evaluateStatus: meta es el estado real
+	// del servicio. Asignarlo antes haría que el JSON emita siempre el puerto
+	// declarado, que es exactamente el bug que este cambio elimina.
+	info.Port = m.Port
+	if meta.Port > 0 {
+		info.Port = meta.Port
+	}
+	info.PortVerified = meta.PortVerified
 
 	return info
 }
@@ -453,40 +465,26 @@ func cmdStart(name, path string) {
 		outputError("could not create service dir: " + err.Error())
 	}
 
-	res, err := manager.Start(process.StartSpec{
-		Command:    p.Manifest.Command,
-		WorkDir:    p.Path,
+	out, err := startsvc.Start(startsvc.Request{
+		Manifest:   p.Manifest,
+		Path:       p.Path,
+		Store:      store,
+		Manager:    manager,
 		StdoutPath: store.StdoutLog(p.Path),
 		StderrPath: store.StderrLog(p.Path),
 	})
 	if err != nil {
 		outputError("start failed: " + err.Error())
 	}
-
-	meta := state.Meta{
-		Name:           p.Manifest.Name,
-		ProjectPath:    p.Path,
-		Port:           p.Manifest.Port,
-		ProcessPattern: p.Manifest.ProcessPattern,
-		Command:        p.Manifest.Command,
-		Pid:            res.Pid,
-		Pgid:           res.Pgid,
-		CreationTimeMs: res.CreationTimeMs,
-		StartedAt:      time.Now().Format(time.RFC3339),
-		State:          state.StateRunning,
-	}
-	if err := store.SaveMeta(p.Path, meta); err != nil {
-		outputError("could not save meta: " + err.Error())
-	}
-	if err := store.RegisterPid(p.Path, res.Pid, res.Pgid); err != nil {
-		outputError("could not register pid: " + err.Error())
+	for _, w := range out.Warnings {
+		_ = appendLine(store.StderrLog(p.Path), "── vroom ▶ start: "+w)
 	}
 
 	outputJSON(ActionResult{
 		OK:      true,
 		Project: name,
 		Action:  "started",
-		Pid:     res.Pid,
+		Pid:     out.Pid,
 	})
 }
 

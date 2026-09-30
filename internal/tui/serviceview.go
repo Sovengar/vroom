@@ -81,8 +81,8 @@ func (m Model) metaColumn(p scanner.Project, sv *ServiceState, w int) []string {
 		}
 		row("group:", g)
 	}
-	if p.Manifest != nil && p.Manifest.Port > 0 {
-		row("port:", fmt.Sprintf("%d", p.Manifest.Port))
+	if n := displayPort(p, sv); n > 0 {
+		row("port:", fmt.Sprintf("%d", n))
 	}
 	if p.Manifest != nil && p.Manifest.ProcessPattern != "" {
 		row("pattern:", p.Manifest.ProcessPattern)
@@ -164,8 +164,8 @@ func (m Model) groupDetailsLines(primary, secondary string, w int) []string {
 	)
 	for _, p := range m.nodeMembers(primary, secondary) {
 		label := trunc(p.Name, w-3)
-		if p.Manifest != nil && p.Manifest.Port > 0 {
-			label += styleDim.Render(fmt.Sprintf(":%d", p.Manifest.Port))
+		if n := displayPort(p, m.services[p.Path]); n > 0 {
+			label += styleDim.Render(fmt.Sprintf(":%d", n))
 		}
 		lines = append(lines, treeDot(p, m.services[p.Path], m.spinner.View(), m.startSpinner.View())+" "+label)
 	}
@@ -215,8 +215,8 @@ func (m Model) stackDetailsLines(s *orchestrate.Stack, w int) []string {
 				lines = append(lines, "    "+styleWarn.Render("⚠")+" "+label)
 				continue
 			}
-			if p.Manifest.Port > 0 {
-				label += styleDim.Render(fmt.Sprintf(":%d", p.Manifest.Port))
+			if n := displayPort(p, m.services[p.Path]); n > 0 {
+				label += styleDim.Render(fmt.Sprintf(":%d", n))
 			}
 			dot := treeDot(p, m.services[p.Path], m.spinner.View(), m.startSpinner.View())
 			lines = append(lines, "    "+dot+" "+label)

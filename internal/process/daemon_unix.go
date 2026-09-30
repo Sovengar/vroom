@@ -62,6 +62,10 @@ func (u *unixManager) Start(spec StartSpec) (StartResult, error) {
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	// En Go, cmd.Env == nil hereda os.Environ() y CUALQUIER slice no-nil la
+	// reemplaza por completo. Inyectar PORT con append(spec.Env, ...) dejaría
+	// al hijo con una sola variable y sin PATH. Se fusiona explícitamente.
+	cmd.Env = mergeEnv(os.Environ(), spec.Env)
 
 	if err := cmd.Start(); err != nil {
 		return StartResult{}, fmt.Errorf("failed to start %q: %w", spec.Command, err)
@@ -79,6 +83,35 @@ func (u *unixManager) Start(spec StartSpec) (StartResult, error) {
 		}
 	}
 	return result, nil
+}
+
+// mergeEnv fusiona el entorno del padre con las variables del spec. Una
+// variable del spec pisa a la del padre; el resto sobrevive. Devuelve nil si
+// no hay nada que inyectar, para que exec aplique la herencia normal.
+func mergeEnv(parent, extra []string) []string {
+	if len(extra) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(parent)+len(extra))
+	out = append(out, parent...)
+	for _, kv := range extra {
+		key, _, _ := strings.Cut(kv, "=")
+		if key == "" {
+			continue
+		}
+		replaced := false
+		for i, existing := range out {
+			if k, _, _ := strings.Cut(existing, "="); k == key {
+				out[i] = kv
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 // Stop ejecuta el shutdown gradual: SIGTERM al PGID, espera timeout, y si
@@ -156,6 +189,9 @@ func (u *unixManager) Evaluate(spec EvalSpec) Status {
 
 	if pidAlive {
 		if checked && !ok {
+			if spec.PortPending && spec.Port > 0 {
+				return StatusPortPending
+			}
 			return StatusUnknown
 		}
 		return StatusRunning

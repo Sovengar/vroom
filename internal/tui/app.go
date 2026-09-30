@@ -26,6 +26,7 @@ import (
 	"vroom/internal/orchestrate"
 	"vroom/internal/process"
 	"vroom/internal/scanner"
+	"vroom/internal/startsvc"
 	"vroom/internal/state"
 	"vroom/internal/tail"
 )
@@ -119,7 +120,23 @@ const (
 	statusUnknown      uiStatus = "unknown"
 	statusStarting     uiStatus = "starting"
 	statusStopping     uiStatus = "stopping"
+	// statusPortPending: vivo, puerto reservado, bind todavía en vuelo. No
+	// es sano y no es roto: se muestra como lo que es.
+	statusPortPending uiStatus = "starting, port pending"
+	// statusNoPort: vivo y sin puerto TCP por diseño.
+	statusNoPort uiStatus = "running, no port"
 )
+
+// aliveStatuses son los estados en los que hay un proceso vivo detrás. Un
+// puerto pendiente o ausente NO lo deja de ser: sigue siendo detenible.
+func (s uiStatus) alive() bool {
+	switch s {
+	case statusRunning, statusUnknown, statusPortPending, statusNoPort:
+		return true
+	default:
+		return false
+	}
+}
 
 // ServiceState es el estado en memoria de un proyecto gestionable.
 type ServiceState struct {
@@ -153,11 +170,11 @@ type Model struct {
 	threadPrev    map[string]*threadSample // muestra previa para CPU%
 	branches      map[string]string        // rama git por servicio
 
-	metrics     map[string]*metricsView  // métricas de recursos por servicio
+	metrics     map[string]*metricsView // métricas de recursos por servicio
 	metricsPrev map[string]*metricsSample
-	gitStatus   map[string]gitinfo.Status // estado git por servicio (tab Git)
-	envVars     map[string][]string       // entorno resuelto por servicio (tab Env)
-	healthRes   map[string]*healthResult  // último probe de salud (tab Health)
+	gitStatus   map[string]gitinfo.Status  // estado git por servicio (tab Git)
+	envVars     map[string][]string        // entorno resuelto por servicio (tab Env)
+	healthRes   map[string]*healthResult   // último probe de salud (tab Health)
 	events      map[string][]timelineEvent // timeline por servicio (en memoria)
 
 	message          string
@@ -432,9 +449,11 @@ type refreshResult struct {
 type refreshedMsg struct{ results map[string]refreshResult }
 
 type startedMsg struct {
-	path string
-	res  process.StartResult
-	err  error
+	path  string
+	res   process.StartResult
+	meta  state.Meta
+	warns []string
+	err   error
 }
 
 type stoppedMsg struct {
@@ -515,6 +534,7 @@ func refreshCmd(store *state.Store, manager process.Manager, projects []scanner.
 					CreationTimeMs: meta.CreationTimeMs,
 					Port:           meta.Port,
 					ProcessPattern: meta.ProcessPattern,
+					PortPending:    meta.State == state.StatePortPending,
 				})
 			}
 			results[p.Path] = r
@@ -528,34 +548,26 @@ func startCmd(store *state.Store, manager process.Manager, p scanner.Project) te
 		if _, err := store.EnsureServiceDir(p.Path); err != nil {
 			return startedMsg{path: p.Path, err: err}
 		}
-		res, err := manager.Start(process.StartSpec{
-			Command:    p.Manifest.Command,
-			WorkDir:    p.Path,
+		out, err := startsvc.Start(startsvc.Request{
+			Manifest:   p.Manifest,
+			Path:       p.Path,
+			Store:      store,
+			Manager:    manager,
 			StdoutPath: store.StdoutLog(p.Path),
 			StderrPath: store.StderrLog(p.Path),
 		})
 		if err != nil {
 			return startedMsg{path: p.Path, err: err}
 		}
-		meta := state.Meta{
-			Name:           p.Manifest.Name,
-			ProjectPath:    p.Path,
-			Port:           p.Manifest.Port,
-			ProcessPattern: p.Manifest.ProcessPattern,
-			Command:        p.Manifest.Command,
-			Pid:            res.Pid,
-			Pgid:           res.Pgid,
-			CreationTimeMs: res.CreationTimeMs,
-			StartedAt:      time.Now().Format(time.RFC3339),
-			State:          state.StateRunning,
+		for _, w := range out.Warnings {
+			_ = appendLine(store.StderrLog(p.Path), "── vroom ▶ start: "+w)
 		}
-		if err := store.SaveMeta(p.Path, meta); err != nil {
-			return startedMsg{path: p.Path, err: err}
+		return startedMsg{
+			path:  p.Path,
+			res:   process.StartResult{Pid: out.Pid, Pgid: out.Meta.Pgid, CreationTimeMs: out.Meta.CreationTimeMs},
+			meta:  out.Meta,
+			warns: out.Warnings,
 		}
-		if err := store.RegisterPid(p.Path, res.Pid, res.Pgid); err != nil {
-			return startedMsg{path: p.Path, err: err}
-		}
-		return startedMsg{path: p.Path, res: res}
 	}
 }
 
@@ -855,8 +867,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notify("error starting: " + msg.err.Error())
 			return m, nil
 		}
+		for _, w := range msg.warns {
+			m.notify(w) // visible, no bloqueante: el servicio opera igual
+		}
 		if sv != nil {
-			sv.Status = statusRunning
+			sv.Status = mapUIStatus(stateOfMeta(msg.meta))
+			sv.Meta = msg.meta
 		}
 		m.addEvent(msg.path, "start", "", 0, true)
 		// Los logs se truncan en daemon_unix.go Start(); limpiar los
@@ -1031,9 +1047,23 @@ func mapUIStatus(s process.Status) uiStatus {
 		return statusRunning
 	case process.StatusUnknown:
 		return statusUnknown
+	case process.StatusPortPending:
+		return statusPortPending
+	case process.StatusStopped:
+		return statusStopped
 	default:
 		return statusStopped
 	}
+}
+
+// stateOfMeta traduce el estado persistido a un process.Status. Los mismos
+// nombres existen en state y en process a propósito (ver adr-0012): el
+// translate vive en un solo sitio para que no se separen.
+func stateOfMeta(meta state.Meta) process.Status {
+	if meta.State == "" {
+		return process.StatusUnknown
+	}
+	return process.Status(meta.State)
 }
 
 func (m Model) handleKey(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1278,7 +1308,7 @@ func (m Model) refreshThreads() tea.Cmd {
 
 func (m Model) isRunning(path string) bool {
 	sv, ok := m.services[path]
-	return ok && sv.Meta.Pid > 0 && (sv.Status == statusRunning || sv.Status == statusUnknown)
+	return ok && sv.Meta.Pid > 0 && sv.Status.alive()
 }
 
 // tailCmd construye el comando de tail con los offsets actuales del
@@ -1427,7 +1457,7 @@ func (m Model) toggleSelected() (tea.Model, tea.Cmd) {
 	}
 	sv := m.services[p.Path]
 	switch sv.Status {
-	case statusRunning, statusUnknown:
+	case statusRunning, statusUnknown, statusPortPending, statusNoPort:
 		sv.Status = statusStopping
 		m.clearMessage()
 		return m, stopCmd(m.store, m.manager, p.Path, p.Manifest.Stop)
@@ -1483,7 +1513,7 @@ func (m Model) toggleNode(primary, secondary string) (tea.Model, tea.Cmd) {
 				m.setConsoleContent("")
 			}
 			cmds = append(cmds, startCmd(m.store, m.manager, p))
-		case !anyStopped && (sv.Status == statusRunning || sv.Status == statusUnknown):
+		case !anyStopped && sv.Status.alive():
 			sv.Status = statusStopping
 			cmds = append(cmds, stopCmd(m.store, m.manager, p.Path, manifestStop(p)))
 		}
@@ -1597,7 +1627,7 @@ func (m Model) markStackStopping(s *orchestrate.Stack) {
 			if err != nil {
 				continue
 			}
-			if sv := m.services[p.Path]; sv != nil && (sv.Status == statusRunning || sv.Status == statusUnknown) {
+			if sv := m.services[p.Path]; sv != nil && sv.Status.alive() {
 				sv.Status = statusStopping
 			}
 		}
@@ -2144,11 +2174,25 @@ func (m Model) projectByPath(path string) *scanner.Project {
 	return nil
 }
 
+// displayPort es el número que se muestra. El manifiesto declara el puerto
+// POR DEFECTO de la app; en dynamic no es el puerto real, así que la única
+// fuente de verdad para lo vivo es meta.Port. Sólo cuando no hay servicio
+// en marcha se cae al declarado, que es lo que el usuario espera ver parado.
+func displayPort(p scanner.Project, sv *ServiceState) int {
+	if sv != nil && sv.Meta.Port > 0 {
+		return sv.Meta.Port
+	}
+	if p.Manifest != nil && p.Manifest.Port > 0 {
+		return p.Manifest.Port
+	}
+	return 0
+}
+
 func statusBadge(p scanner.Project, sv *ServiceState, spinnerView, startSpinnerView string) string {
 	if p.Configured && p.ManifestErr == "" {
 		port := ""
-		if p.Manifest != nil && p.Manifest.Port > 0 {
-			port = " " + styleDim.Render(fmt.Sprintf(":%d", p.Manifest.Port))
+		if n := displayPort(p, sv); n > 0 {
+			port = " " + styleDim.Render(fmt.Sprintf(":%d", n))
 		}
 		switch sv.Status {
 		case statusRunning:
@@ -2157,6 +2201,10 @@ func statusBadge(p scanner.Project, sv *ServiceState, spinnerView, startSpinnerV
 			return startSpinnerView + styleStarting.Render(" starting")
 		case statusStopping:
 			return styleStopping.Render("○ stopping")
+		case statusPortPending:
+			return startSpinnerView + styleStarting.Render(" starting, port pending")
+		case statusNoPort:
+			return styleRunning.Render("● running") + " " + styleDim.Render("(no port)")
 		case statusUnknown:
 			return spinnerView + styleUnknown.Render(" unknown") + port
 		default:
