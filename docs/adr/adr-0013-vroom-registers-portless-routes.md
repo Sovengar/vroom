@@ -170,6 +170,19 @@ eliminado por diseño.
     motor de stacks). Por **M10**, `--remove` de un nombre inexistente es `exit 1`
     y es **benigno**: un stop repetido no es un error.
 
+14. **"No responde" en la reconciliación significa "no hay nadie detrás", no
+    sólo "el proxy no responde".** Una ruta de un vroom muerto **sigue enruta**:
+    el proxy devuelve `502` porque el puerto ya no lo escucha nadie, y leer ese
+    `502` como "viva" la deja para siempre — que es justo lo que §8 existe para
+    evitar. `liveRoute` distingue por eso tres estados: no servida (`404` o sin
+    proxy), enruta-sin-backend (`502`/`504`) y viva. Y sólo se retira cuando se
+    puede **probar** la propiedad —el nombre y el puerto que este servicio
+    persistió—, para que el fallo cerrado siga aplicando a la limpieza.
+
+    El mismo `502` cambia de signo según la pregunta: en el alta **prueba** el
+    enrutado y por eso la ruta se publica; en la limpieza significa que no hay
+    nadie detrás. Tratarlo igual en los dos sitios es un error en uno de los dos.
+
 ## Consecuencias
 
 - Positivas: la salud de un servicio **nunca** depende de que exista su ruta; el
