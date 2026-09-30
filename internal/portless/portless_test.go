@@ -347,6 +347,41 @@ func TestReconcileRemovesRenamedOrphanAndKeepsForeignLiveRoute(t *testing.T) {
 		}
 	})
 
+	t.Run("retira la huérfana enruta pero sin backend", func(t *testing.T) {
+		// El caso que un smoke real destapó: el proxy ENRUTA la ruta y
+		// devuelve 502 porque nadie escucha detrás. Eso prueba que la ruta
+		// existe, no que haya alguien sirviendo, y es exactamente la huella de
+		// un vroom que murió sin parar su servicio. Sin esta rama la ruta
+		// sobrevivía para siempre, porque `prune` tampoco la toca.
+		f := newFake()
+		c := f.client(t)
+		f.routes[Hostname("orphan")] = 39997 // puerto muerto
+		f.probeStatus = 502                  // enruta, backend caído
+
+		if warns := c.Reconcile("orphan", 39997, "current"); len(warns) != 0 {
+			t.Errorf("retirar una huérfana propia no avisa: %v", warns)
+		}
+		if _, still := f.routes[Hostname("orphan")]; still {
+			t.Error("una ruta enruta sin backend es una huérfana y debe retirarse")
+		}
+	})
+
+	t.Run("NO retira una ruta viva y propia", func(t *testing.T) {
+		// El caso simétrico: mismo nombre y mismo puerto, pero con alguien
+		// detrás. Reconciliar es idempotente y no toca lo que está sano.
+		f := newFake()
+		c := f.client(t)
+		f.routes[Hostname("mine")] = 4321
+		f.probeStatus = 200
+
+		if warns := c.Reconcile("mine", 4321, "other"); len(warns) != 0 {
+			t.Errorf("una ruta viva y propia no genera avisos: %v", warns)
+		}
+		if _, still := f.routes[Hostname("mine")]; !still {
+			t.Error("una ruta viva y propia no se toca")
+		}
+	})
+
 	t.Run("es idempotente con la ruta persistida", func(t *testing.T) {
 		f := newFake()
 		c := f.client(t)

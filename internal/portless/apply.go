@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -290,6 +291,22 @@ func Warn(r Result) string {
 	}
 }
 
+// routeState es lo que se ha podido PROBAR de una ruta ajena al registro. La
+// distinción entre "viva" y "enrutada pero muerta" es la que hace que la
+// reconciliación sirva de algo: una ruta cuyo backend no responde es exactamente
+// la huella que deja un vroom que murió sin parar su servicio.
+type routeState int
+
+const (
+	// routeUnknown: el proxy no sirve esta ruta (404) o no hay proxy. No
+	//responde.
+	routeUnknown routeState = iota
+	// routeRoutedDead: el proxy ENRUTA la ruta y el backend no responde (502).
+	routeRoutedDead
+	// routeAlive: el proxy enruta la ruta y hay alguien detrás.
+	routeAlive
+)
+
 // Reconcile limpia las rutas que este servicio se dejó a sí mismo en un
 // arranque anterior. Es OBLIGATORIA en cada arranque, no una mejora pendiente.
 //
@@ -299,20 +316,22 @@ func Warn(r Result) string {
 // parar su servicio sería permanente sin esto.
 //
 // La regla que gobierna la limpieza es el fallo cerrado que ya gobierna el
-// cambio de puertos: una ruta que RESPONDE y no es nuestra no se retira nunca,
-// se avisa. Borrar algo ajeno es peor que dejar una ruta de más.
+// cambio de puertos: sólo se retira lo que se puede PROBAR propio —el nombre y
+// el puerto que este servicio persistió—, y una ruta que responde con OTRO
+// puerto se avisa pero no se toca, porque no hay forma de probar que sea ajena.
+// Borrar algo ajeno es peor que dejar una ruta de más.
 //
 // prev es el nombre que este servicio persistió en su Meta anterior ("" si no
-// registró ninguno) y prevPort el puerto al que apuntaba, que es lo que
-// permite distinguir "la mía, y además muerta" de "viva, y no es mía".
+// registró ninguno) y prevPort el puerto al que apuntaba, que es lo que permite
+// distinguir "la mía" de "de otro dueño".
 func (c *Client) Reconcile(prev string, prevPort int, current string) []string {
 	if !c.HasBinary() || prev == "" || prev == current {
 		return nil // nada que reconciliar, o ya es la misma ruta
 	}
 
-	published, served := c.liveRoute(prev)
+	published, st := c.liveRoute(prev)
 	switch {
-	case !served:
+	case st == routeUnknown:
 		// No responde: es una ruta huérfana de este servicio —rama renombrada,
 		// o un vroom que murió sin pararla—. Retirarla es lo único que
 		// corresponde, y lo único que `portless prune` no va a hacer.
@@ -324,26 +343,32 @@ func (c *Client) Reconcile(prev string, prevPort int, current string) []string {
 		return []string{fmt.Sprintf(
 			"a portless route named %q is already serving another port (%d); it was left untouched",
 			Hostname(prev), published)}
+	case st == routeRoutedDead:
+		// El nombre y el puerto son los que persistimos —o sea, es nuestra— y
+		// el backend no responde: nadie la está sirviendo. Es la huella de un
+		// vroom que murió sin parar, y es lo único que prune no limpia.
+		_ = c.Remove(prev)
+		return nil
 	default:
-		return nil // responde con nuestro puerto: es nuestra y está viva
+		return nil // viva y con nuestro puerto: no se toca. Idempotente.
 	}
 }
 
 // liveRoute sondea un nombre de ruta contra el proxy vivo y devuelve el puerto
-// que portless publica para él, y si el proxy lo está sirviendo.
+// que portless publica para él, y en qué estado se ha encontrado.
 //
 // Las dos cosas se necesitan juntas: que responda no basta (podría estar
 // sirviendo OTRO nombre) y el puerto del fichero tampoco basta (M2: sólo
 // prueba que escribimos). Por eso se cruzan.
-func (c *Client) liveRoute(name string) (port int, served bool) {
+func (c *Client) liveRoute(name string) (int, routeState) {
 	proxyPort, err := c.ProxyPort()
 	if err != nil {
-		return 0, false // no hay proxy: nada responde, y no se puede distinguir más
+		return 0, routeUnknown // no hay proxy: nada responde
 	}
 	for _, scheme := range []string{"https", "http"} {
 		status, err := c.probeWithTimeout(scheme, Hostname(name), proxyPort, probePath)
 		if err != nil {
-			continue
+			continue // fallo de conexión o timeout: nadie atiende
 		}
 		if status == 404 {
 			continue // el proxy no conoce el host: no lo está sirviendo
@@ -352,7 +377,24 @@ func (c *Client) liveRoute(name string) (port int, served bool) {
 		if lookupErr != nil || !found {
 			continue
 		}
-		return published, true
+		if isBackendDown(status) {
+			// MEDIDO: el proxy enruta la ruta y devuelve 502 porque el backend
+			// no responde. Prueba que la ruta existe, y NO que haya alguien
+			// detrás — que es justo la huella de un servicio muerto.
+			return published, routeRoutedDead
+		}
+		return published, routeAlive
 	}
-	return 0, false
+	return 0, routeUnknown
+}
+
+// isBackendDown distingue "el proxy enruta pero el servicio no responde" de
+// "hay alguien sirviendo". Sólo los errores de pasarela generated por el proxy
+// cuentan: un 500 lo genera la propia app, que está viva.
+//
+// Es la misma distinción que gobierna la verificación del alta —donde 502 SÍ
+// prueba el enrutado— pero aquí la pregunta es otra: no importa si el proxy
+// enruta, sino si hay alguien detrás que justifique dejar la ruta.
+func isBackendDown(status int) bool {
+	return status == http.StatusBadGateway || status == http.StatusGatewayTimeout
 }
