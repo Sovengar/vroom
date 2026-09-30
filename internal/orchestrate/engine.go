@@ -270,6 +270,7 @@ func (e *Engine) StackStatus(stack *Stack, projects []scanner.Project) (running,
 					ProcessPattern: meta.ProcessPattern,
 					PortPending:    meta.State == state.StatePortPending,
 					PortUnresolved: meta.State == state.StatePortUnresolved,
+					NoPort:         meta.State == state.StateNoPort,
 				})
 				if status == process.StatusRunning {
 					running++
@@ -323,6 +324,7 @@ func (e *Engine) startService(svc ResolvedService, timeout time.Duration) Servic
 			ProcessPattern: meta.ProcessPattern,
 			PortPending:    meta.State == state.StatePortPending,
 			PortUnresolved: meta.State == state.StatePortUnresolved,
+			NoPort:         meta.State == state.StateNoPort,
 		})
 		if processAlive(status) {
 			// Ya corriendo: verificar salud y continuar. Los estados de

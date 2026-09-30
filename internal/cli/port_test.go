@@ -35,8 +35,8 @@ func TestBuildProjectInfoEmitsResolvedPort(t *testing.T) {
 	if info.Port != 41501 {
 		t.Errorf("Port = %d, want el puerto real 41501 (no el declarado 8080)", info.Port)
 	}
-	if !info.PortVerified {
-		t.Error("PortVerified debe propagarse")
+	if info.PortVerified == nil || !*info.PortVerified {
+		t.Errorf("PortVerified = %v, want un puntero a true", info.PortVerified)
 	}
 	if info.PortMode != manifest.PortModeDynamic {
 		t.Errorf("PortMode = %q, want dynamic", info.PortMode)
@@ -56,7 +56,8 @@ func TestBuildProjectInfoEmitsResolvedPort(t *testing.T) {
 }
 
 // Sin meta (servicio parado) el JSON vuelve al puerto declarado: es lo que
-// el usuario espera ver en un servicio que no está corriendo.
+// el usuario espera ver en un servicio que no está corriendo. Para uno PARADO
+// el declarado es la única información que existe, así que se conserva.
 func TestBuildProjectInfoFallsBackToDeclaredPort(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	p := scanner.Project{

@@ -44,13 +44,28 @@ type ListResult struct {
 // ProjectInfo contiene toda la información de un proyecto para consumo
 // externo (IA).
 type ProjectInfo struct {
-	Name           string `json:"name"`
-	Path           string `json:"path"`
-	Configured     bool   `json:"configured"`
-	Status         string `json:"status"`
-	Port           int    `json:"port"`
-	PortMode       string `json:"port_mode,omitempty"`
-	PortVerified   bool   `json:"port_verified,omitempty"`
+	Name       string `json:"name"`
+	Path       string `json:"path"`
+	Configured bool   `json:"configured"`
+	Status     string `json:"status"`
+	// Port es el puerto REAL: el que vroom confirmó que el proceso escucha,
+	// o 0 cuando no hay ninguno confirmado. Nunca es el declarado: un puerto
+	// que vroom no confirmó puede ser el del twin de otro worktree, y un
+	// agente que lo lea se disconnecta del sitio equivocado.
+	Port int `json:"port"`
+	// DeclaredPort es lo que dice el manifiesto: el puerto por DEFECTO de la
+	// app (PORT=${PORT:-N}). Se publica aparte para que "no hay puerto real"
+	// no se confunda con "no hay puerto en el manifiesto", y para no perder
+	// la información al quitar el fallback de Port.
+	DeclaredPort int    `json:"declared_port,omitempty"`
+	PortMode     string `json:"port_mode,omitempty"`
+	// PortVerified es tri-estado a propósito, y por eso es *bool:
+	//   ausente → la fila no está configurada o su manifiesto no parseó, así
+	//            que no hay contrato de puerto que afirmar;
+	//   false   → hay contrato de puerto y vroom NO confirmó ninguno. Esto
+	//            es lo que un `bool` con omitempty hacía imposible de emitir.
+	//   true    → el puerto publicado está confirmado contra un listener real.
+	PortVerified   *bool  `json:"port_verified,omitempty"`
 	Command        string `json:"command,omitempty"`
 	CommandStop    string `json:"command_stop,omitempty"`
 	CommandBuild   string `json:"command_build,omitempty"`
@@ -264,6 +279,13 @@ func evaluateStatus(manager process.Manager, store *state.Store, path string) (s
 		CreationTimeMs: meta.CreationTimeMs,
 		Port:           meta.Port,
 		ProcessPattern: meta.ProcessPattern,
+		// Los tres estados de puerto se pasan desde el meta persistido. Sin
+		// esto la TUI y el JSON cuentan historias distintas sobre el mismo
+		// servicio: el mismo meta leía "port_unresolved" en una y "running"
+		// en la otra.
+		PortPending:    meta.State == state.StatePortPending,
+		PortUnresolved: meta.State == state.StatePortUnresolved,
+		NoPort:         meta.State == state.StateNoPort,
 	})
 	return string(status), meta
 }
@@ -320,14 +342,22 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 	// El puerto se resuelve DESPUÉS de evaluateStatus: meta es el estado real
 	// del servicio. Asignarlo antes haría que el JSON emita siempre el puerto
 	// declarado, que es exactamente el bug que este cambio elimina.
-	info.Port = m.Port
-	if meta.Port > 0 {
+	//
+	// Y no hay fallback al declarado para un servicio vivo: 0 es la verdad
+	// y el declarado vive en declared_port. Para uno parado se conserva,
+	// porque entonces es la única información que hay.
+	info.DeclaredPort = m.Port
+	if meta.Pid > 0 {
 		info.Port = meta.Port
+		info.PortVerified = boolPtr(meta.PortVerified)
+	} else {
+		info.Port = m.Port
 	}
-	info.PortVerified = meta.PortVerified
 
 	return info
 }
+
+func boolPtr(b bool) *bool { return &b }
 
 // ---- Commands ----
 

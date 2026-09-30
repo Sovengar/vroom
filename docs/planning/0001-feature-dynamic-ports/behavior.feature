@@ -293,6 +293,65 @@ Feature: Puertos dinamicos por worktree con el puerto real como unica verdad
     And el modo fixed no gana ninguna semantica nueva por el hecho de existir
       port_mode
 
+  # -------------------------------------------------------------------------
+  # JSON: el contrato que consumen los agentes
+  #
+  # Regla unica: `port` es el puerto REAL. 0 significa "no hay ninguno
+  # confirmado" y nunca es un valor inventado. `declared_port` es lo que
+  # dice el manifiesto. `port_verified` es tri-estado: ausente = la fila no
+  # esta configurada, false = hay contrato de puerto y vroom no confirmo
+  # ninguno, true = el puerto publicado esta confirmado.
+  # -------------------------------------------------------------------------
+
+  Scenario: JSON de un servicio dinamico resuelto
+    Given un servicio en modo dinamico cuyo puerto real es 41501
+    When el agente lee el JSON de "vroom list"
+    Then "port" vale 41501
+    And "port_verified" vale true
+    And "status" no menciona ningun problema de puerto
+    And "declared_port" conserva el 8080 del manifiesto, aparte
+
+  Scenario: JSON de un puerto sin resolver
+    Given un servicio cuyo puerto quedo sin resolver
+    When el agente lee su fila
+    Then "port" vale 0, NO el puerto declarado
+    And "port_verified" esta presente y vale false
+    And "status" vale "port_unresolved"
+
+  Scenario: JSON de un servicio sin puerto TCP
+    Given un servicio vivo que no expone puerto TCP
+    When el agente lee su fila
+    Then "port" vale 0
+    And "status" vale "no_port"
+    And "status" NO dice "running", porque running con port 0 seria mentir
+    And "status" NO dice "port_unresolved", porque son hechos distintos
+
+  Scenario: JSON de un puerto pendiente
+    Given un servicio cuyo discovery sigue en vuelo con el puerto reservado
+    When el agente lee su fila
+    Then "status" vale "port_pending"
+    And "status" NO dice "port_unresolved", porque el discovery no ha terminado
+    And "port_verified" vale false, porque reservar no es confirmar
+
+  Scenario: JSON de una fila no configurada
+    Given un proyecto sin .vroom.toml valido
+    When el agente lee su fila
+    Then "port_verified" esta AUSENTE, porque no hay contrato de puerto
+    And "configured" vale false
+
+  Scenario: JSON de un manifiesto legacy sin puerto
+    Given un manifiesto sin port_mode y con port = 0
+    When el agente lee su fila
+    Then "port" vale 0, exactamente como antes de este cambio
+    And "status" no cambia por la existencia de port_mode
+    And no aparece ningun campo nuevo que contradiga lo anterior
+
+  Scenario: La TUI y el JSON cuentan la misma historia
+    Given un servicio con un estado de puerto concreto
+    When se lee el mismo meta desde la TUI y desde el JSON
+    Then ambos coinciden en el estado
+    And ningun puerto se muestra ni se emite sin haberlo confirmado
+
 # ---------------------------------------------------------------------------
 # SLICE 3 — Desambiguacion multi-puerto (R1 / R2 / R3)
 # ---------------------------------------------------------------------------

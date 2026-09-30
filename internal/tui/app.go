@@ -540,6 +540,7 @@ func refreshCmd(store *state.Store, manager process.Manager, projects []scanner.
 					ProcessPattern: meta.ProcessPattern,
 					PortPending:    meta.State == state.StatePortPending,
 					PortUnresolved: meta.State == state.StatePortUnresolved,
+					NoPort:         meta.State == state.StateNoPort,
 				})
 			}
 			results[p.Path] = r

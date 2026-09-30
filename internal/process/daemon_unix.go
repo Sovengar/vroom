@@ -194,6 +194,12 @@ func (u *unixManager) Evaluate(spec EvalSpec) Status {
 			}
 			return StatusUnknown
 		}
+		if spec.NoPort && spec.Port <= 0 {
+			// Vive y no expone puerto TCP: un hecho, no una ausencia de
+			// información. Se nombra para que la UI y el JSON no lo
+			// confundan con un servicio sano.
+			return StatusNoPort
+		}
 		if spec.PortUnresolved && spec.Port <= 0 {
 			// Vive y el puerto nunca se decidió: no es "sano" y no es
 			// "no tiene puerto". Se nombra para que la UI lo diga.
