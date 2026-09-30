@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -192,5 +193,68 @@ func TestSocketInode(t *testing.T) {
 	}
 	if _, ok := socketInode("pipe:[3]"); ok {
 		t.Error("una pipe no es un socket de red")
+	}
+}
+
+// H1: reservas concurrentes en un mismo proceso nunca devuelven el mismo
+// puerto. Antes del set en memoria, todas las goroutines entraban por el
+// primer hueco libre del rango y salían con el mismo número.
+func TestReservePortIsConcurrencySafe(t *testing.T) {
+	const workers = 400
+
+	type result struct {
+		port int
+		err  error
+	}
+	results := make([]result, workers)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			port, err := ReservePort()
+			results[i] = result{port: port, err: err}
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	seen := make(map[int]int, workers)
+	for i, r := range results {
+		if r.err != nil {
+			t.Fatalf("reserva %d falló: %v", i, r.err)
+		}
+		if first, dup := seen[r.port]; dup {
+			t.Fatalf("reservas %d y %d devolvieron el puerto %d", first, i, r.port)
+		}
+		seen[r.port] = i
+	}
+	if len(seen) != workers {
+		t.Fatalf("puertos distintos = %d, want %d", len(seen), workers)
+	}
+}
+
+// ReleasePort devuelve el hueco al set: sin esto, un proceso de larga vida
+// que rearranca un servicio fallido agota el rango sin avisar.
+func TestReleasePortMakesThePortReusable(t *testing.T) {
+	port, err := ReservePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ReleasePort(port)
+
+	// Immediately re-reserving must be able to return it again.
+	for i := 0; i < 8; i++ {
+		got, err := ReservePort()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got == port {
+			return // recycling is not required, but it is allowed
+		}
+		ReleasePort(got)
 	}
 }

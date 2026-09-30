@@ -76,6 +76,7 @@ func Start(req Request) (Result, error) {
 		Env:        env,
 	})
 	if err != nil {
+		process.ReleasePort(reserved) // el hijo nunca llegó a existir
 		return Result{}, err
 	}
 
@@ -112,6 +113,7 @@ func resolveDynamicPort(req Request, attempt state.Meta, reserved int) (Result, 
 	attempt.Port = reserved
 	attempt.State = state.StatePortPending
 	if err := req.Store.SaveMeta(req.Path, attempt); err != nil {
+		process.ReleasePort(reserved)
 		return Result{}, err
 	}
 	_ = req.Store.RegisterPid(req.Path, attempt.Pid, attempt.Pgid)
@@ -122,6 +124,9 @@ func resolveDynamicPort(req Request, attempt state.Meta, reserved int) (Result, 
 	}
 	d := process.DiscoverPort(attempt.Pid, reserved, req.Manifest.HealthURLPath(), timeout)
 	if d.LineageDead {
+		// El proceso ya no existe: el puerto reservado es un hueco
+		// desperdiciado y hay que devolverlo al set.
+		process.ReleasePort(reserved)
 		return Result{}, fmt.Errorf("service exited during startup (no port to resolve)")
 	}
 

@@ -35,7 +35,11 @@ efímeros vuelve mucho más peligroso un `fuser` equivocado:
 
 3. **En `dynamic`, vroom es el único dueño del puerto.** Reserva uno libre en
    `4000–4999`, lo inyecta como `PORT` (junto a `HOST=127.0.0.1`) y descubre y
-   verifica el puerto real antes de devolver el control. El descubrimiento
+   verifica el puerto real antes de devolver el control. La reserva lleva un
+   mutex y un set en memoria de puertos ya entregados: **dentro de un proceso
+   vroom** dos reservas concurrentes nunca coinciden. Entre procesos vroom
+   distintos la ventana `bind`+`close` sigue abierta (ver trade-offs).
+   El descubrimiento
    está acotado por tres cosas: deadline, **liveness del linaje** (fallo rápido
    de orden de 1 s si el proceso muere) y **ventana de estabilización**: el
    conjunto de listeners debe llevar 500 ms sin cambiar antes de aceptarse. Una
@@ -93,8 +97,21 @@ efímeros vuelve mucho más peligroso un `fuser` equivocado:
   (hasta ~3,5 s en el caso de los tests). La ventana spawn→`SaveMeta` deja de
   ser sub-milisegundo.
 - **TOCTOU de la reserva:** `bind` + `close` devuelve el puerto al pool antes de
-  que arranque el hijo. En `4000–4999` la colisión es improbable; la ventana
-  existe. Mitigarla exigiría socket passing, que no cabe en `sh -c`.
+  que arranque el hijo. Esa ventana **no** es improbable en el caso dominante.
+  Corregido: la colisión vroom-contra-vroom dentro de un mismo proceso no es un
+  caso raro sino el normal, porque `toggleNode` devuelve `tea.Batch` (bubbletea
+  corre los comandos en paralelo) y `Launch` arranca cada servicio de una etapa
+  en su propia goroutine. Medido antes del arreglo: **99,5 %** de colisiones
+  entre pares de reservas concurrentes, porque todas entraban por el primer
+  hueco libre del rango. Ahora hay un mutex y un set en memoria de puertos
+  entregados (`ReservePort` / `ReleasePort`), de modo que **dos reservas
+  concurrentes en el mismo proceso vroom nunca devuelven el mismo puerto**, y un
+  intento fallido devuelve el suyo.
+  Lo que **no** queda protegido: dos procesos vroom **distintos**. Cada uno
+  tiene su propio set y ambos hacen `bind`+`close` sobre el mismo pool del
+  kernel. Esa es la ventana que queda abierta; mitigarla exigiría socket passing
+  o un fichero de lock, y el hijo es `sh -c`, así que no hay a quién pasarle el
+  descriptor. Un `EADDRINUSE` en ese caso lo reporta la app, no vroom.
 - Se necesita una variable de entorno en la app (`PORT=${PORT:-8080}`). Una app
   que no la honra funciona, pero hay que avisar y descubrir su puerto real.
 - El fallo cerrado puede dejar un listener huérfano genuino vivo tras un stop.

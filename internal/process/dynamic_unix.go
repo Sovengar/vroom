@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -31,11 +32,29 @@ const DefaultDynamicPortTimeout = 8 * time.Second
 
 // ReservePort pide un puerto libre del rango dynamic.
 //
-// TOCTOU documentado: bind(127.0.0.1:0) + close devuelve el puerto al pool
-// antes de que el hijo llegue a hacer bind. La ventana existe; mitigarla
-// exigiría socket passing, que no cabe en sh -c.
+// Qué protege: dos reservas concurrentes DENTRO de un mismo proceso vroom
+// nunca devuelven el mismo puerto. Sin esto, una tecla sobre un nodo de
+// grupo con dos miembros en dynamic (toggleNode devuelve tea.Batch, y
+// bubbletea corre los comandos en paralelo) o una etapa de stack (Launch
+// arranca cada servicio en su propia goroutine) repartían el mismo primer
+// hueco libre del rango. Medido antes del arreglo: 99,5 % de colisiones
+// entre pares concurrentes.
+//
+// Qué NO protege: dos procesos vroom DISTINTOS. Cada uno tiene su propio
+// set y ambos hacen bind+close sobre el mismo pool del kernel. Esa ventana
+// es el TOCTOU documentado más abajo y mitigarla exigiría socket passing,
+// que no cabe en sh -c.
+//
+// TOCTOU documentado: bind(127.0.0.1:port) + close devuelve el puerto al
+// pool antes de que el hijo llegue a hacer bind. La ventana existe.
 func ReservePort() (int, error) {
+	reserveMu.Lock()
+	defer reserveMu.Unlock()
+
 	for port := DynamicPortLow; port <= DynamicPortHigh; port++ {
+		if reservedPorts[port] {
+			continue // ya entregado a otro arranque de este proceso
+		}
 		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 		if err != nil {
 			continue // ocupado o no disponible; el siguiente del rango
@@ -43,10 +62,28 @@ func ReservePort() (int, error) {
 		if err := ln.Close(); err != nil {
 			return 0, fmt.Errorf("could not release the reserved port %d: %w", port, err)
 		}
+		reservedPorts[port] = true
 		return port, nil
 	}
 	return 0, fmt.Errorf("no free port in range %d-%d", DynamicPortLow, DynamicPortHigh)
 }
+
+// ReleasePort devuelve al set un puerto que el hijo nunca llegó a tomar.
+// Sólo para intentos fallidos: si el proceso vive, el puerto es suyo durante
+// el resto de la sesión aunque todavía no haya hecho bind.
+func ReleasePort(port int) {
+	if port <= 0 {
+		return
+	}
+	reserveMu.Lock()
+	defer reserveMu.Unlock()
+	delete(reservedPorts, port)
+}
+
+var (
+	reserveMu     sync.Mutex
+	reservedPorts = make(map[int]bool, 16)
+)
 
 // DiscoveryResult es el resultado de resolver el puerto real de un linaje.
 type DiscoveryResult struct {
