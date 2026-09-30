@@ -221,6 +221,28 @@ func (f *fixture) start(t *testing.T, timeout time.Duration) (Result, error) {
 	})
 }
 
+// startWithRoutes arranca con el seam de portless inyectado. nil = sin seam,
+// que es exactamente lo que pasa con route_mode = "off".
+func (f *fixture) startWithRoutes(t *testing.T, timeout time.Duration, routes RouteRegistrar) (Result, error) {
+	t.Helper()
+	return f.startWithRoutesBranch(t, timeout, routes, "")
+}
+
+func (f *fixture) startWithRoutesBranch(t *testing.T, timeout time.Duration, routes RouteRegistrar, branch string) (Result, error) {
+	t.Helper()
+	return Start(Request{
+		Manifest:         f.manifest,
+		Path:             f.dir,
+		Store:            f.store,
+		Manager:          process.NewManager(),
+		StdoutPath:       f.store.StdoutLog(f.dir),
+		StderrPath:       f.store.StderrLog(f.dir),
+		DiscoveryTimeout: timeout,
+		Routes:           routes,
+		Branch:           branch,
+	})
+}
+
 // cleanup mata el proceso vivo de un arranque.
 func (f *fixture) cleanup(t *testing.T, out Result) {
 	t.Helper()
