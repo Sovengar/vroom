@@ -528,6 +528,8 @@ func cmdStop(name, path string) {
 		for _, w := range warns {
 			_ = appendLine(store.StderrLog(p.Path), "── vroom ▶ stop: "+w)
 		}
+		// El servicio ya está parado: su reserva vuelve al pool.
+		process.ReleasePort(meta.ReservedPort)
 	}
 
 	if err := store.ClearPid(p.Path); err != nil {
@@ -538,6 +540,7 @@ func cmdStop(name, path string) {
 		meta.State = state.StateStopped
 		meta.Pid = 0
 		meta.Pgid = 0
+		meta.ReservedPort = 0
 		_ = store.SaveMeta(p.Path, meta)
 	}
 

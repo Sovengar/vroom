@@ -123,6 +123,9 @@ Feature: Puertos dinamicos por worktree con el puerto real como unica verdad
     Then vroom devuelve dos puertos distintos
     And ninguno de los dos arranca en el puerto del otro
     And un arranque que falla devuelve su puerto al pool
+    And al DETENER un servicio su puerto vuelve al pool
+    And un servicio que se arranca y se para repetidamente no encoge el rango
+    And un reinicio de la TUI empieza con el rango entero disponible
 
   Scenario: Un servicio solo-UDP no cuelga el arranque
     Given un servicio en modo dinamico que nunca abre un puerto TCP

@@ -44,9 +44,15 @@ const (
 
 // Meta es el schema de meta.json.
 type Meta struct {
-	Name           string `json:"name"`
-	ProjectPath    string `json:"project_path"`
-	Port           int    `json:"port"`
+	Name        string `json:"name"`
+	ProjectPath string `json:"project_path"`
+	Port        int    `json:"port"`
+	// ReservedPort es el puerto que vroom reservó y ofreció al hijo en
+	// dynamic, DISTINTO de Port (el puerto real que acabó escuchando). Se
+	// persiste aparte porque el ciclo de vida de los dos es distinto:
+	// ReservedPort se devuelve al pool en el stop, y sin él no hay forma de
+	// saber qué reserva hay que liberar.
+	ReservedPort   int    `json:"reserved_port,omitempty"`
 	ProcessPattern string `json:"process_pattern"`
 	Command        string `json:"command"`
 	Pid            int    `json:"pid"`

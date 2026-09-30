@@ -206,8 +206,14 @@ func TestSocketInode(t *testing.T) {
 // H1: reservas concurrentes en un mismo proceso nunca devuelven el mismo
 // puerto. Antes del set en memoria, todas las goroutines entraban por el
 // primer hueco libre del rango y salían con el mismo número.
+//
+// Aserta sobre len(reservedPorts), no sobre que "una reserva posterior tenga
+// éxito": eso no distingue "no hubo colisión" de "se agotó el rango", que es
+// justo el fallo que un test honesto tiene que cazar.
 func TestReservePortIsConcurrencySafe(t *testing.T) {
 	const workers = 400
+
+	baseline := ReservedPortCount()
 
 	type result struct {
 		port int
@@ -239,29 +245,56 @@ func TestReservePortIsConcurrencySafe(t *testing.T) {
 		}
 		seen[r.port] = i
 	}
-	if len(seen) != workers {
-		t.Fatalf("puertos distintos = %d, want %d", len(seen), workers)
+	if got := ReservedPortCount() - baseline; got != workers {
+		t.Fatalf("el set creció en %d, want %d: una reserva o liberada o duplicada",
+			got, workers)
+	}
+
+	// Devolverlas todas deja el set como estaba. Este es el assert que
+	// importa de verdad: el set tiene que ser devuelto, no solo escrito.
+	ports := make([]int, 0, workers)
+	for port := range seen {
+		ports = append(ports, port)
+	}
+	for _, port := range ports {
+		ReleasePort(port)
+	}
+	if got := ReservedPortCount(); got != baseline {
+		t.Errorf("tras devolver %d puertos el set mide %d, want %d", len(ports), got, baseline)
 	}
 }
 
-// ReleasePort devuelve el hueco al set: sin esto, un proceso de larga vida
-// que rearranca un servicio fallido agota el rango sin avisar.
-func TestReleasePortMakesThePortReusable(t *testing.T) {
+// M-B: el set tiene que devolver lo que se le entrega. La versión anterior
+// de este test no tenía aserto en el cuerpo del bucle y pasaba aunque
+// ReleasePort fuese un no-op.
+func TestReleasePortShrinksTheSet(t *testing.T) {
+	baseline := ReservedPortCount()
+
 	port, err := ReservePort()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ReservePort: %v", err)
 	}
+	if got := ReservedPortCount(); got != baseline+1 {
+		t.Fatalf("tras reservar el set mide %d, want %d", got, baseline+1)
+	}
+
 	ReleasePort(port)
 
-	// Immediately re-reserving must be able to return it again.
-	for i := 0; i < 8; i++ {
-		got, err := ReservePort()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got == port {
-			return // recycling is not required, but it is allowed
-		}
-		ReleasePort(got)
+	if got := ReservedPortCount(); got != baseline {
+		t.Errorf("tras liberar el set mide %d, want %d: la reserva no volvió",
+			got, baseline)
+	}
+}
+
+// Liberar un puerto que nunca se reservó no debe tocar el set.
+func TestReleasePortIgnoresUnreservedAndNonPositive(t *testing.T) {
+	baseline := ReservedPortCount()
+
+	ReleasePort(0)
+	ReleasePort(-1)
+	ReleasePort(DynamicPortHigh + 1)
+
+	if got := ReservedPortCount(); got != baseline {
+		t.Errorf("liberar puertos sin reservar cambió el set: %d != %d", got, baseline)
 	}
 }

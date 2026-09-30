@@ -445,6 +445,7 @@ func (e *Engine) stopService(p scanner.Project) {
 		meta.State = state.StateStopped
 		meta.Pid = 0
 		meta.Pgid = 0
+		meta.ReservedPort = 0
 		_ = e.store.SaveMeta(p.Path, meta)
 	}
 }
@@ -461,6 +462,7 @@ func (e *Engine) abortAndCleanup(paths []string) {
 			meta.State = state.StateStopped
 			meta.Pid = 0
 			meta.Pgid = 0
+			meta.ReservedPort = 0
 			_ = e.store.SaveMeta(path, meta)
 		}
 	}
@@ -469,6 +471,9 @@ func (e *Engine) abortAndCleanup(paths []string) {
 // stopProcess detiene el proceso y deja rastro de los avisos: el guard de
 // propiedad del puerto falla cerrado, y un aviso silencioso se lee como que
 // el puerto quedó libre cuando no lo está.
+//
+// Cubre stopService y abortAndCleanup, que es justo lo que hace falta: el
+// rollback de un arranque fallido también consume reservas.
 func (e *Engine) stopProcess(path string, meta state.Meta) {
 	var warns []string
 	_ = e.manager.Stop(process.StopSpec{
@@ -476,6 +481,8 @@ func (e *Engine) stopProcess(path string, meta state.Meta) {
 		Timeout: process.DefaultStopTimeout,
 		Warn:    func(f string, a ...any) { warns = append(warns, fmt.Sprintf(f, a...)) },
 	})
+	// El servicio ya está parado: su reserva vuelve al pool.
+	process.ReleasePort(meta.ReservedPort)
 	for _, w := range warns {
 		_ = appendLine(e.store.StderrLog(path), "── vroom ▶ stop: "+w)
 	}

@@ -596,6 +596,10 @@ func stopCmd(store *state.Store, manager process.Manager, path, stopCommand stri
 				Timeout: process.DefaultStopTimeout,
 				Warn:    func(f string, a ...any) { warns = append(warns, fmt.Sprintf(f, a...)) },
 			})
+			// El servicio ya está parado: su reserva vuelve al pool. Sin
+			// esto el set crece con cada arranque y un proceso de larga
+			// vida acaba sin puertos que ofrecer.
+			process.ReleasePort(meta.ReservedPort)
 			for _, w := range warns {
 				_ = appendLine(store.StderrLog(path), "── vroom ▶ stop: "+w)
 			}
@@ -607,6 +611,7 @@ func stopCmd(store *state.Store, manager process.Manager, path, stopCommand stri
 			meta.State = state.StateStopped
 			meta.Pid = 0
 			meta.Pgid = 0
+			meta.ReservedPort = 0
 			_ = store.SaveMeta(path, meta)
 		}
 		_ = appendLine(store.StderrLog(path), "── vroom ▶ stop: service stopped ──")
