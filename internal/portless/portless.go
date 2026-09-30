@@ -107,6 +107,17 @@ const (
 // degradan sin publicar url.
 var ErrProxyNotRunning = errors.New("portless: no proxy running (proxy.port absent)")
 
+// ProbeOnce hace una sonda real y acotada contra un puerto, con el Host (y el
+// SNI TLS) puesto al hostname. Es la sonda que usa el seam, expuesta para poder
+// probarla contra un listener de verdad: es lo que demuestra que un 404 y un
+// 502 no son la misma cosa, y que un puerto cerrado no devuelve ningún status
+// sino un error.
+func ProbeOnce(scheme, hostname string, proxyPort int, path string, timeout time.Duration) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return httpProbe(ctx, scheme, hostname, proxyPort, path)
+}
+
 // ExecFunc ejecuta el binario con los argumentos dados y devuelve stdout y el
 // código de salida. Es el seam de hermeticidad: los tests nunca necesitan un
 // portless real.

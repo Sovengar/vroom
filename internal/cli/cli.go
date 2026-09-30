@@ -67,7 +67,7 @@ type ProjectInfo struct {
 	//   false   → hay contrato de puerto y vroom NO confirmó ninguno. Esto
 	//            es lo que un `bool` con omitempty hacía imposible de emitir.
 	//   true    → el puerto publicado está confirmado contra un listener real.
-	PortVerified   *bool  `json:"port_verified,omitempty"`
+	PortVerified *bool `json:"port_verified,omitempty"`
 	// RouteMode es la INTENCIÓN, tal como PortMode: lo que dice el manifiesto,
 	// no lo que<vroom> consiguió. Se publica aunque la ruta se degradara, para
 	// que un agente pueda distinguir "no se pidió ruta" de "se pidió y falló".
@@ -78,24 +78,24 @@ type ProjectInfo struct {
 	// estado: un manifiesto sin contrato de ruta no afirma ni niega nada. Misma
 	// lección que PortVerified, y por eso *RouteInfo y no un valor con
 	// omitempty.
-	Route    *RouteInfo `json:"route,omitempty"`
-	Command  string     `json:"command,omitempty"`
-	CommandStop    string `json:"command_stop,omitempty"`
-	CommandBuild   string `json:"command_build,omitempty"`
-	CommandInstall string `json:"command_install,omitempty"`
-	ProcessPattern string `json:"process_pattern,omitempty"`
-	GitBranch      string `json:"git_branch,omitempty"`
-	PrimaryGroup   string `json:"primary_group,omitempty"`
-	SecondaryGroup string `json:"secondary_group,omitempty"`
-	RepoRoot       string `json:"repo_root,omitempty"`
-	IsWorktree     bool   `json:"is_worktree,omitempty"`
-	BareContainer  bool   `json:"bare_container,omitempty"`
-	WorktreeErr    string `json:"worktree_error,omitempty"`
-	Collapsed      bool   `json:"collapsed"`
-	Pid            int    `json:"pid,omitempty"`
-	Pgid           int    `json:"pgid,omitempty"`
-	StartedAt      string `json:"started_at,omitempty"`
-	ManifestError  string `json:"manifest_error,omitempty"`
+	Route          *RouteInfo `json:"route,omitempty"`
+	Command        string     `json:"command,omitempty"`
+	CommandStop    string     `json:"command_stop,omitempty"`
+	CommandBuild   string     `json:"command_build,omitempty"`
+	CommandInstall string     `json:"command_install,omitempty"`
+	ProcessPattern string     `json:"process_pattern,omitempty"`
+	GitBranch      string     `json:"git_branch,omitempty"`
+	PrimaryGroup   string     `json:"primary_group,omitempty"`
+	SecondaryGroup string     `json:"secondary_group,omitempty"`
+	RepoRoot       string     `json:"repo_root,omitempty"`
+	IsWorktree     bool       `json:"is_worktree,omitempty"`
+	BareContainer  bool       `json:"bare_container,omitempty"`
+	WorktreeErr    string     `json:"worktree_error,omitempty"`
+	Collapsed      bool       `json:"collapsed"`
+	Pid            int        `json:"pid,omitempty"`
+	Pgid           int        `json:"pgid,omitempty"`
+	StartedAt      string     `json:"started_at,omitempty"`
+	ManifestError  string     `json:"manifest_error,omitempty"`
 }
 
 // RouteInfo es el resultado de la ruta, tal como lo lee un agente.
