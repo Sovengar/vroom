@@ -567,3 +567,126 @@ func TestRemoveOnlyTouchesItsOwn(t *testing.T) {
 		t.Error("las rutas de los servicios hermanos no se tocan")
 	}
 }
+
+// ---- el ciclo de vida completo ----
+
+// El ciclo entero contra el comportamiento MEDIDO de portless: registrar, ver
+// que el proxy la sirve, retirarla al parar, y parar OTRA VEZ sin que eso sea un
+// error.
+//
+// Es el test que más se parece a lo que vive el usuario, y el que falla si
+// alguien vuelve a tratar el exit 1 de `--remove` como un fallo de parada.
+func TestFullRouteLifecycle(t *testing.T) {
+	f := newFake()
+	c := f.client(t)
+	f.routes[Hostname("sibling")] = 5555 // un servicio hermano, con su ruta
+
+	// Arranque: se registra y el proxy la sirve.
+	res := c.Apply("app", 4321)
+	if !res.Succeeded() {
+		t.Fatalf("el registro debe verificarse contra el proxy vivo: %+v", res)
+	}
+	if _, found, _ := c.Lookup("app"); !found {
+		t.Fatal("la ruta debe existir tras registrarla")
+	}
+
+	// Parada: la ruta desaparece y el hermano no se ve afectado.
+	if err := c.Remove("app"); err != nil {
+		t.Fatalf("parar debe retirar la ruta: %v", err)
+	}
+	if _, still := f.routes[Hostname("app")]; still {
+		t.Error("la ruta debe desaparecer al parar")
+	}
+	if _, sib := f.routes[Hostname("sibling")]; !sib {
+		t.Error("las rutas de los servicios hermanos no se tocan")
+	}
+
+	// Parar de NUEVO: no hay ruta que quitar, y eso no es un error.
+	if err := c.Remove("app"); err != nil {
+		t.Fatalf("un stop repetido no puede fallar: %v", err)
+	}
+	if _, sib := f.routes[Hostname("sibling")]; !sib {
+		t.Error("el hermano sigue intacto tras un stop repetido")
+	}
+}
+
+// La app reinicia y hace bind en otro puerto: la MISMA ruta pasa a apuntar al
+// puerto nuevo, sin dejar la vieja apuntando a un puerto muerto.
+func TestReRegisterMovesTheRouteToTheNewPort(t *testing.T) {
+	f := newFake()
+	c := f.client(t)
+
+	if res := c.Apply("app", 4000); !res.Succeeded() {
+		t.Fatalf("primer arranque: %+v", res)
+	}
+	// La app reinicia en otro puerto.
+	if res := c.Apply("app", 4321); !res.Succeeded() {
+		t.Fatalf("segundo arranque: %+v", res)
+	}
+
+	port, found, err := c.Lookup("app")
+	if err != nil || !found {
+		t.Fatalf("la ruta debe seguir existiendo: %v", err)
+	}
+	if port != 4321 {
+		t.Errorf("la misma ruta debe pasar a apuntar al puerto nuevo, got %d", port)
+	}
+	if len(f.routes) != 1 {
+		t.Errorf("no puede quedar más de una ruta para el mismo servicio: %v", f.routes)
+	}
+}
+
+// Una ruta registrada con el proxy PARADO se sigue sirviendo cuando el proxy
+// vuelve: el registro es persistente y vroom no tiene que registrarla otra vez
+// (medido, M3). Por eso la verificación decide qué se PUBLICA, no si se
+// REGISTRA.
+func TestRouteRegisteredWhileProxyDownIsServedWhenItReturns(t *testing.T) {
+	f := newFake()
+	c := f.client(t)
+	f.noProxy = true // el proxy está parado al arrancar
+
+	res := c.Apply("app", 4321)
+	if res.Succeeded() {
+		t.Fatal("con el proxy parado no se puede reportar disponible")
+	}
+	// Pero la ruta SÍ queda escrita, y persiste.
+	if _, found, _ := c.Lookup("app"); !found {
+		t.Fatal("la ruta debe quedar registrada aunque el proxy esté parado")
+	}
+
+	// El proxy vuelve.
+	f.noProxy = false
+	if port, found, _ := c.Lookup("app"); !found || port != 4321 {
+		t.Fatalf("al volver el proxy la ruta debe seguir ahí, got %d found=%v", port, found)
+	}
+	if res := c.verify("app", 4321); !res.Succeeded() {
+		t.Errorf("con el proxy de vuelta la ruta debe verificarse: %+v", res)
+	}
+}
+
+// Escribir la ruta de vroom NO daña las rutas que gestiona portless (medido,
+// M4): una ruta con pid propio sobrevive intacta mientras vroom da de alta la
+// suya. Es lo que permite compartir proxy.
+func TestVroomRouteDoesNotEvictLivePortlessRoutes(t *testing.T) {
+	f := newFake()
+	c := f.client(t)
+	// Una app viva de `portless run`, con su pid y su puerto.
+	f.routes[Hostname("live-app")] = 4628
+
+	if res := c.Apply("vroom-app", 4321); !res.Succeeded() {
+		t.Fatalf("la ruta de vroom debe registrarse: %+v", res)
+	}
+
+	livePort, liveStill := f.routes[Hostname("live-app")]
+	if !liveStill || livePort != 4628 {
+		t.Errorf("la ruta de la app viva debe quedar intacta: %d %v", livePort, liveStill)
+	}
+	if _, vroom := f.routes[Hostname("vroom-app")]; !vroom {
+		t.Error("la ruta de vroom debe existir")
+	}
+	// Y parar lo nuestro no toca la suya.
+	_ = c.Remove("vroom-app")
+	if _, still := f.routes[Hostname("live-app")]; !still {
+		t.Error("parar lo nuestro no puede expulsar la ruta de otro dueño")
+	}
+}

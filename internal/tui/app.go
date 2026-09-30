@@ -561,6 +561,8 @@ func startCmd(store *state.Store, manager process.Manager, p scanner.Project) te
 			Manager:    manager,
 			StdoutPath: store.StdoutLog(p.Path),
 			StderrPath: store.StderrLog(p.Path),
+			Routes:     routeClient(p.Manifest),
+			Branch:     gitinfo.Branch(p.Path),
 		})
 		if err != nil {
 			return startedMsg{path: p.Path, err: err}
@@ -604,6 +606,9 @@ func stopCmd(store *state.Store, manager process.Manager, path, stopCommand stri
 			// esto el set crece con cada arranque y un proceso de larga
 			// vida acaba sin puertos que ofrecer.
 			process.ReleasePort(meta.ReservedPort)
+			// Su ruta deja de existir: una dirección que apunta a un puerto
+			// muerto es peor que ninguna. El fallo es benigno.
+			releaseRoute(meta)
 			for _, w := range warns {
 				_ = appendLine(store.StderrLog(path), "── vroom ▶ stop: "+w)
 			}

@@ -26,7 +26,9 @@ import (
 
 	"vroom/internal/config"
 	"vroom/internal/gitinfo"
+	"vroom/internal/manifest"
 	"vroom/internal/orchestrate"
+	"vroom/internal/portless"
 	"vroom/internal/process"
 	"vroom/internal/scanner"
 	"vroom/internal/startsvc"
@@ -66,7 +68,18 @@ type ProjectInfo struct {
 	//            es lo que un `bool` con omitempty hacía imposible de emitir.
 	//   true    → el puerto publicado está confirmado contra un listener real.
 	PortVerified   *bool  `json:"port_verified,omitempty"`
-	Command        string `json:"command,omitempty"`
+	// RouteMode es la INTENCIÓN, tal como PortMode: lo que dice el manifiesto,
+	// no lo que<vroom> consiguió. Se publica aunque la ruta se degradara, para
+	// que un agente pueda distinguir "no se pidió ruta" de "se pidió y falló".
+	// Y se OMITE cuando no hay contrato de ruta, para que un manifiesto legacy
+	// produzca exactamente el mismo JSON que antes de este campo.
+	RouteMode string `json:"route_mode,omitempty"`
+	// Route es el RESULTADO, y es un puntero porque el AUSENTE también es un
+	// estado: un manifiesto sin contrato de ruta no afirma ni niega nada. Misma
+	// lección que PortVerified, y por eso *RouteInfo y no un valor con
+	// omitempty.
+	Route    *RouteInfo `json:"route,omitempty"`
+	Command  string     `json:"command,omitempty"`
 	CommandStop    string `json:"command_stop,omitempty"`
 	CommandBuild   string `json:"command_build,omitempty"`
 	CommandInstall string `json:"command_install,omitempty"`
@@ -83,6 +96,23 @@ type ProjectInfo struct {
 	Pgid           int    `json:"pgid,omitempty"`
 	StartedAt      string `json:"started_at,omitempty"`
 	ManifestError  string `json:"manifest_error,omitempty"`
+}
+
+// RouteInfo es el resultado de la ruta, tal como lo lee un agente.
+//
+// Tri-estado y por construcción: Name siempre (es el nombre PRETENDIDO, haya
+// éxito o no — nunca una url, que es lo que un agente intentaría abrir),
+// Status siempre, Url SÓLO si se ha visto funcionar, Reason sólo al degradar.
+//
+// Una URL que nadie verificó no se publica. Es la lección de port_verified
+// aplicada entera: un campo que afirma una dirección falsa es peor que un
+// campo ausente, porque el agente que lo lea se conecta a otra cosa.
+type RouteInfo struct {
+	Name   string `json:"name"`
+	Status string `json:"status"` // registered | degraded
+	Url    string `json:"url,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	Port   int    `json:"port,omitempty"`
 }
 
 // ActionResult es la respuesta de start/stop/build/install.
@@ -321,6 +351,13 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 	info.PrimaryGroup = m.PrimaryGroup
 	info.SecondaryGroup = m.SecondaryGroup
 	info.PortMode = m.EffectivePortMode()
+	// route_mode se publica como INTENCIÓN, incluso degradada: es lo que dice
+	// el manifiesto. El resultado va aparte, en Route. Con route_mode = "off"
+	// no se publica nada: un manifiesto que no declaró ruta no afirma ni niega
+	// que tenga una, y eso es distinto de afirmar que no la tiene.
+	if m.EffectiveRouteMode() != manifest.RouteModeOff {
+		info.RouteMode = m.EffectiveRouteMode()
+	}
 
 	// Colapso: clave = primary o primary/secondary
 	if m.PrimaryGroup != "" {
@@ -354,10 +391,62 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 		info.Port = m.Port
 	}
 
+	// El objeto de ruta sólo existe si hay CONTRATO de ruta. Un manifiesto sin
+	// route_mode no afirma ni niega nada sobre rutas, que es distinto de
+	// afirmar que no hay.
+	//
+	// Y sale del Meta persistido, no de una comprobación en vivo: el JSON no
+	// shellea a portless en cada `vroom list`. Por eso lo que se afirma es
+	// "último estado conocido", y por eso una ruta degradada no trae url.
+	if info.RouteMode != "" {
+		r := RouteInfo{Name: meta.RouteName, Port: meta.RoutePort}
+		switch meta.RouteStatus {
+		case portless.StatusRegistered:
+			r.Status = portless.StatusRegistered
+			r.Url = meta.RouteURL
+		case portless.StatusDegraded:
+			r.Status = portless.StatusDegraded
+			r.Reason = meta.RouteReason
+		}
+		// RouteStatus vacío = nunca se intentó (o el servicio nunca arrancó):
+		// no hay resultado que afirmar, y un objeto con status vacío sería un
+		// contrato que el JSON no cumple.
+		if r.Status != "" {
+			info.Route = &r
+		}
+	}
+
 	return info
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+// routeClient devuelve el seam de portless para un manifiesto, o nil si no
+// hay contrato de ruta.
+//
+// Con route_mode = "off" devuelve nil ANTES de resolver nada: vroom ni siquiera
+// busca el binario. Es la puerta de compatibilidad hacia atrás, y por eso la
+// comprobación va antes que portless.Default().
+func routeClient(m *manifest.Manifest) *portless.Client {
+	if m == nil || !portless.RouteModeEnabled(m.EffectiveRouteMode()) {
+		return nil
+	}
+	return portless.Default()
+}
+
+// releaseRoute retira la ruta de un servicio parado. El fallo es BENIGNO por
+// diseño: `alias --remove` de un nombre inexistente sale con 1 (medido, M10) y
+// un stop repetido no es un error. Por eso nunca devuelve error: un stop no
+// puede fallar por una dirección.
+//
+// No necesita el manifiesto porque RouteName sólo se persiste cuando hubo un
+// contrato de ruta: su presencia ya prueba que hay algo que retirar.
+func releaseRoute(meta state.Meta) {
+	if meta.RouteName == "" {
+		return
+	}
+	portless.Default().Remove(meta.RouteName)
+}
 
 // ---- Commands ----
 
@@ -502,6 +591,8 @@ func cmdStart(name, path string) {
 		Manager:    manager,
 		StdoutPath: store.StdoutLog(p.Path),
 		StderrPath: store.StderrLog(p.Path),
+		Routes:     routeClient(p.Manifest),
+		Branch:     gitinfo.Branch(p.Path),
 	})
 	if err != nil {
 		outputError("start failed: " + err.Error())
@@ -560,6 +651,9 @@ func cmdStop(name, path string) {
 		}
 		// El servicio ya está parado: su reserva vuelve al pool.
 		process.ReleasePort(meta.ReservedPort)
+		// Y su ruta deja de existir: una dirección que apunta a un puerto
+		// muerto es peor que ninguna. El fallo es benigno.
+		releaseRoute(meta)
 	}
 
 	if err := store.ClearPid(p.Path); err != nil {

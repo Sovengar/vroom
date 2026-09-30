@@ -2481,7 +2481,11 @@ func TestDiscoveryIsNotInTheTUIRefreshPath(t *testing.T) {
 	if err != nil {
 		t.Skipf("no se puede leer app.go: %v", err)
 	}
-	for _, forbidden := range []string{"DiscoverPort", "lineageListenersAt", "ReservePort"} {
+	// portless entra en la misma lista que el discovery: el seam hace exec al
+	// binario, y si se colara en el tick de 2 s cada refresh se convertiría en
+	// un spawn por servicio. El arranque y el stop sí lo usan, y por eso lo
+	// hacen a través de route.go, nunca desde app.go.
+	for _, forbidden := range []string{"DiscoverPort", "lineageListenersAt", "ReservePort", "portless."} {
 		if strings.Contains(string(data), forbidden) {
 			t.Errorf("el tick de la TUI no puede llamar a %s: el coste por refresh debe quedar acotado", forbidden)
 		}
