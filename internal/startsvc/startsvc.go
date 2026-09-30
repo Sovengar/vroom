@@ -54,8 +54,7 @@ type Result struct {
 // idéntico al de antes de este paquete, incluido el meta con el puerto
 // declarado y SaveMeta inmediatamente después del spawn.
 func Start(req Request) (Result, error) {
-	m := req.Manifest
-	mode := m.EffectivePortMode()
+	mode := req.Manifest.EffectivePortMode()
 
 	reserved, env := 0, []string(nil)
 	if mode == manifest.PortModeDynamic {
@@ -70,7 +69,7 @@ func Start(req Request) (Result, error) {
 	}
 
 	res, err := req.Manager.Start(process.StartSpec{
-		Command:    m.Command,
+		Command:    req.Manifest.Command,
 		WorkDir:    req.Path,
 		StdoutPath: req.StdoutPath,
 		StderrPath: req.StderrPath,
@@ -81,11 +80,11 @@ func Start(req Request) (Result, error) {
 	}
 
 	base := state.Meta{
-		Name:           m.Name,
+		Name:           req.Manifest.Name,
 		ProjectPath:    req.Path,
-		Port:           m.Port,
-		ProcessPattern: m.ProcessPattern,
-		Command:        m.Command,
+		Port:           req.Manifest.Port,
+		ProcessPattern: req.Manifest.ProcessPattern,
+		Command:        req.Manifest.Command,
 		Pid:            res.Pid,
 		Pgid:           res.Pgid,
 		CreationTimeMs: res.CreationTimeMs,
@@ -98,44 +97,49 @@ func Start(req Request) (Result, error) {
 			return Result{}, err
 		}
 		_ = req.Store.RegisterPid(req.Path, res.Pid, res.Pgid)
-		return Result{Meta: base, Pid: res.Pid, Port: m.Port}, nil
+		return Result{Meta: base, Pid: res.Pid, Port: req.Manifest.Port}, nil
 	}
+	return resolveDynamicPort(req, base, reserved)
+}
 
-	// Dynamic. The attempt lands on disk first, carrying the reserved port
-	// and the pending state: a concurrent tick reads this, never the meta of
-	// the previous run whose CreationTimeMs no longer describes anything.
-	attempt := base
+// resolveDynamicPort es el tramo dynamic: el intento ya está en disco con el
+// puerto reservado y el estado pendiente, y ahora toca descubrir el real.
+func resolveDynamicPort(req Request, attempt state.Meta, reserved int) (Result, error) {
+	// The attempt lands on disk BEFORE the discovery, carrying the reserved
+	// port and the pending state: a concurrent tick reads this, never the
+	// meta of the previous run whose CreationTimeMs no longer describes
+	// anything.
 	attempt.Port = reserved
 	attempt.State = state.StatePortPending
 	if err := req.Store.SaveMeta(req.Path, attempt); err != nil {
 		return Result{}, err
 	}
-	_ = req.Store.RegisterPid(req.Path, res.Pid, res.Pgid)
+	_ = req.Store.RegisterPid(req.Path, attempt.Pid, attempt.Pgid)
 
 	timeout := req.DiscoveryTimeout
 	if timeout <= 0 {
 		timeout = process.DefaultDynamicPortTimeout
 	}
-	d := process.DiscoverPort(res.Pid, reserved, m.HealthURLPath(), timeout)
+	d := process.DiscoverPort(attempt.Pid, reserved, req.Manifest.HealthURLPath(), timeout)
+	if d.LineageDead {
+		return Result{}, fmt.Errorf("service exited during startup (no port to resolve)")
+	}
 
 	final := attempt
-	out := Result{Pid: res.Pid}
+	final.Port = d.Port
+	out := Result{Pid: attempt.Pid, Port: d.Port}
 
 	switch {
-	case d.LineageDead:
-		return Result{}, fmt.Errorf("service exited during startup (no port to resolve)")
 	case d.Port == 0 && len(d.All) == 0:
-		// No hay puerto TCP y el linaje sigue vivo: solo-UDP, worker, o
-		// simplemente una app sin servidor. Es un estado, no un fallo.
-		final.Port = 0
+		// Sin puerto TCP con el linaje vivo: solo-UDP, worker, o una app
+		// sin servidor. Es un estado, no un fallo de arranque.
 		final.State = state.StateNoPort
 		out.Warnings = append(out.Warnings,
-			fmt.Sprintf("service has no TCP port (mode %q); health checks on port are disabled", mode))
+			fmt.Sprintf("service has no TCP port (mode %q); port health checks are disabled",
+				req.Manifest.EffectivePortMode()))
 	default:
-		final.Port = d.Port
 		final.State = state.StateRunning
 		final.PortVerified = d.Verified
-
 		if !d.HonoredReserved && reserved != d.Port {
 			out.Warnings = append(out.Warnings,
 				fmt.Sprintf("service ignored the offered port %d and bound %d instead", reserved, d.Port))
@@ -149,7 +153,6 @@ func Start(req Request) (Result, error) {
 		}
 	}
 
-	out.Port = final.Port
 	out.Meta = final
 	if err := req.Store.SaveMeta(req.Path, final); err != nil {
 		return Result{}, err
