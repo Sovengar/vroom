@@ -98,7 +98,6 @@ func TestLaunchNoPortServiceDoesNotAbortStack(t *testing.T) {
 
 	store := state.NewStoreAt(t.TempDir())
 	engine := NewEngine(process.NewManager(), store)
-	t.Cleanup(func() { _ = engine.StopStack(&Stack{Name: "s"}, projects) })
 
 	stack := &Stack{
 		Name: "s",
@@ -108,6 +107,9 @@ func TestLaunchNoPortServiceDoesNotAbortStack(t *testing.T) {
 			Timeout:  6 * time.Second,
 		}},
 	}
+	// El cleanup usa el MISMO stack: StopStack sólo recorre los servicios que
+	// aparecen en alguna etapa, y uno sin etapas no para nada.
+	t.Cleanup(func() { _ = engine.StopStack(stack, projects) })
 
 	result, err := engine.Launch(stack, projects)
 	if err != nil {
@@ -189,12 +191,13 @@ func TestLaunchAlreadyRunningNoPortServiceDoesNotAbort(t *testing.T) {
 	projects := []scanner.Project{sibling, worker}
 	store := state.NewStoreAt(t.TempDir())
 	engine := NewEngine(process.NewManager(), store)
-	t.Cleanup(func() { _ = engine.StopStack(&Stack{Name: "s"}, projects) })
 
-	// Primera launch: deja ambos vivos.
 	stack := &Stack{Name: "s", Stages: []Stage{{
 		Name: "stage1", Services: []string{"api", "worker"}, Timeout: 6 * time.Second,
 	}}}
+	// StopStack sólo recorre los servicios de las etapas: un stack vacío no
+	// para nada, y eso dejaba helpers vivos detrás (ver el guard de higiene).
+	t.Cleanup(func() { _ = engine.StopStack(stack, projects) })
 	if res, err := engine.Launch(stack, projects); err != nil || !res.OK {
 		t.Fatalf("primera launch: %v %s", err, res.Error)
 	}
@@ -323,8 +326,12 @@ func TestLaunchPortUnresolvedDoesNotAbortStack(t *testing.T) {
 
 	store := state.NewStoreAt(t.TempDir())
 	engine := NewEngine(process.NewManager(), store)
+	stack := &Stack{
+		Name:   "s",
+		Stages: []Stage{{Name: "stage1", Services: []string{"api", "slow"}, Timeout: 2 * time.Second}},
+	}
 	t.Cleanup(func() {
-		_ = engine.StopStack(&Stack{Name: "s"}, projects)
+		_ = engine.StopStack(stack, projects)
 		_ = syscall.Kill(-live.Pgid, syscall.SIGKILL)
 	})
 
@@ -337,11 +344,6 @@ func TestLaunchPortUnresolvedDoesNotAbortStack(t *testing.T) {
 		State: state.StatePortUnresolved,
 	}); err != nil {
 		t.Fatal(err)
-	}
-
-	stack := &Stack{
-		Name:   "s",
-		Stages: []Stage{{Name: "stage1", Services: []string{"api", "slow"}, Timeout: 2 * time.Second}},
 	}
 
 	result, err := engine.Launch(stack, projects)
