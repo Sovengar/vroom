@@ -178,8 +178,15 @@ func TestDiscoverPortNoPortIsBounded(t *testing.T) {
 	if d.LineageDead {
 		t.Error("el linaje está vivo: no es un fallo de arranque")
 	}
-	if elapsed > 4*time.Second {
-		t.Errorf("el discovery debe respetar su presupuesto: tardó %s", elapsed)
+	if d.Unresolved {
+		t.Error("sin un solo listener en toda la ventana no es 'sin resolver', es 'sin puerto'")
+	}
+	// El presupuesto es plazo + gracia: la gracia existe porque el
+	// vencimiento del plazo no prueba ausencia. Acotado sigue siendo
+	// acotado, que es lo que importa.
+	budget := 1*time.Second + DefaultDynamicUnresolvedGrace
+	if elapsed > budget+3*time.Second {
+		t.Errorf("el discovery debe respetar plazo+gracia (%s): tardó %s", budget, elapsed)
 	}
 }
 

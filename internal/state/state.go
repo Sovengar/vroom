@@ -34,6 +34,12 @@ const (
 	// StateNoPort indica que el proceso está vivo y NO tiene puerto TCP, y
 	// que eso es su estado, no una espera pendiente.
 	StateNoPort = "no_port"
+	// StatePortUnresolved indica que se agotó el plazo de discovery sin
+	// poder decidir el puerto principal. El proceso vive y puede que aún
+	// no haya hecho bind. NO es StateNoPort: ese dice "no tiene", este
+	// dice "no lo sabemos todavía", y la UI los muestra distinto para no
+	// presentar como puerto real uno que nunca se confirmó.
+	StatePortUnresolved = "port_unresolved"
 )
 
 // Meta es el schema de meta.json.

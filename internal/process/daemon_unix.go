@@ -194,6 +194,11 @@ func (u *unixManager) Evaluate(spec EvalSpec) Status {
 			}
 			return StatusUnknown
 		}
+		if spec.PortUnresolved && spec.Port <= 0 {
+			// Vive y el puerto nunca se decidió: no es "sano" y no es
+			// "no tiene puerto". Se nombra para que la UI lo diga.
+			return StatusPortUnresolved
+		}
 		return StatusRunning
 	}
 

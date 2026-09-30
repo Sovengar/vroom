@@ -25,10 +25,15 @@ const (
 	DynamicPortHigh = 4999
 )
 
-// DefaultDynamicPortTimeout acota la ventana de arranque→bind. Un servicio
-// lento (compilando, migrando) lo agota y se reporta "sin puerto", nunca un
-// arranque colgado.
+// DefaultDynamicPortTimeout acota la ventana de arranque→bind.
 const DefaultDynamicPortTimeout = 8 * time.Second
+
+// DefaultDynamicUnresolvedGrace es la segunda ventana que se concede cuando
+// el plazo se agota. Existe porque el vencimiento del plazo no prueba
+// ausencia: un Next.js que compila 12 s y un servicio solo-UDP lucen igual
+// durante 12 s. Es la vía de recuperación acotada: si el puerto aparece aquí,
+// se resuelve como siempre y no queda sin resolver.
+const DefaultDynamicUnresolvedGrace = 8 * time.Second
 
 // ReservePort pide un puerto libre del rango dynamic.
 //
@@ -102,6 +107,12 @@ type DiscoveryResult struct {
 	// LineageDead significa que el linaje ya no corría: se abandona el
 	// discovery en vez de agotar el timeout.
 	LineageDead bool
+	// Unresolved significa que se agotó el plazo ANTES de poder decidir un
+	// puerto principal. No es lo mismo que no tener puerto: el proceso vive,
+	// puede que aún no haya hecho bind, y puede que sí lo haga más tarde.
+	// Confundir ambos deja un servicio lento etiquetado "sin puerto" para
+	// siempre, porque nadie vuelve a descubrir.
+	Unresolved bool
 }
 
 // DiscoverPort resuelve el puerto real de un linaje acotando a los listeners
@@ -117,11 +128,17 @@ type DiscoveryResult struct {
 //	R3  empate o protocolo no-HTTP → gana el de menor número, determinista,
 //	    y Verified queda false: el servicio se marca "puerto no verificado".
 //
-// La respuesta vacía sólo es válida si el linaje está muerto: una app que
-// aún no ha hecho bind y una app sin puerto TCP no se pueden distinguir por
-// ausencia, y esperar al deadline cubre ambos casos sin inventarse ninguno.
+// "Sin puertos" y "aún no ha hecho bind" NO se pueden distinguir por
+// ausencia: un servicio que tarda 12 s en levantar y uno solo-UDP lucen
+// igual durante 12 s. Por eso el vencimiento del plazo NO se toma como
+// prueba de ausencia: se concede una segunda ventana acotada
+// (DefaultDynamicUnresolvedGrace) y sólo si tampoco aparece nada ahí se
+// afirma "no tiene puerto TCP". Si hay listeners pero no se puede decidir
+// cuál es el principal, el resultado es Unresolved y el llamador lo nombra
+// como tal en vez de inventar un número.
 func DiscoverPort(rootPid int, reserved int, healthPath string, timeout time.Duration) DiscoveryResult {
 	deadline := time.Now().Add(timeout)
+	graceDeadline := deadline.Add(DefaultDynamicUnresolvedGrace)
 	var prev []int
 	changedAt := time.Now()
 
@@ -148,15 +165,24 @@ func DiscoverPort(rootPid int, reserved int, healthPath string, timeout time.Dur
 			changedAt = time.Now()
 		}
 
-		// Sin puertos aún puede significar "todavía no ha hecho bind": sólo
-		// es conclusión al agotar la ventana, no antes.
-		if len(listeners) > 0 && time.Since(changedAt) >= discoverSettle {
-			return decidePort(listeners, reserved, healthPath)
-		}
-
-		if time.Now().After(deadline) {
+		now := time.Now()
+		if len(listeners) > 0 {
+			if time.Since(changedAt) >= discoverSettle {
+				return decidePort(listeners, reserved, healthPath)
+			}
+			if now.After(deadline) {
+				// Hay listeners pero el conjunto no se estabiliza y no se
+				// puede decidir cuál es el principal. Se declara sin
+				// decidir; el llamador lo nombra en vez de inventar un número.
+				return DiscoveryResult{Unresolved: true}
+			}
+		} else if now.After(graceDeadline) {
+			// Ni el plazo ni la gracia aportaron un solo listener. Ahora sí
+			// se puede afirmar que no expone puerto TCP.
 			return DiscoveryResult{}
 		}
+		// Sin puertos y sin agotar la ventana aún puede significar "todavía
+		// no ha hecho bind": la gracia es la vía de recuperación.
 		time.Sleep(discoverInterval)
 	}
 }

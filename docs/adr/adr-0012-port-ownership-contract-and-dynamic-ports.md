@@ -74,10 +74,25 @@ efímeros vuelve mucho más peligroso un `fuser` equivocado:
    cuesta 54–62 ms medidos en esta máquina, y el descubrimiento **no vive en
    el tick de la TUI**.
 
-10. **"Puerto pendiente" y "sin puerto" son estados con nombre**
-    (`port_pending`, `no_port`), declarados a la vez en `state` y en `process`.
-    El pendiente no se disfraza de sano con el spinner genérico, y ambos siguen
-    siendo detenibles.
+10. **"Puerto pendiente", "sin puerto" y "puerto sin resolver" son tres
+    estados con nombre** (`port_pending`, `no_port`, `port_unresolved`),
+    declarados a la vez en `state` y en `process`. El pendiente no se disfraza
+    de sano con el spinner genérico, y los tres siguen siendo detenibles.
+
+11. **El vencimiento del plazo de discovery no prueba que no haya puerto.**
+    Un servicio que tarda 12 s en levantar y uno solo-UDP lucen igual durante
+    12 s. Por eso hay una segunda ventana acotada
+    (`DefaultDynamicUnresolvedGrace`): si el puerto aparece ahí, se resuelve
+    como siempre y no queda sin resolver. Sólo si tampoco aparece un solo
+    listener en plazo + gracia se afirma `no_port`. Y cuando hay listeners
+    pero ninguno se puede declarar principal, el resultado es
+    `port_unresolved`, que no es lo mismo que "no tiene puerto".
+
+12. **Un puerto que vroom no ha verificado no es objetivo de sonda.** Con el
+    puerto sin resolver, `displayPort` devuelve 0 en vez de caer al puerto
+    declarado, y la tab Health no emite probe. Sondear el declarado puede
+    alcanzar el puerto del twin de otro worktree, y presentarlo como propio
+    es peor que no mostrar nada.
 
 ## Consecuencias
 
@@ -132,7 +147,11 @@ efímeros vuelve mucho más peligroso un `fuser` equivocado:
    elegido como el listener secundario, y no hay forma de distinguirlo sin una
    señal adicional.
 3. **Servicio sólo-UDP:** sin puerto TCP descubrible. Se registra "sin puerto"
-   (`no_port`), nunca un cuelgue.
+   (`no_port`), nunca un cuelgue. La afirmación descansa en la ausencia de
+   listeners durante plazo + gracia (16 s por defecto), no en una prueba
+   positiva: un servicio que tarde más que eso en abrir su puerto acaba en
+   `port_unresolved` y se le dice al usuario, en vez de etiquetarlo como
+   "sin puerto".
 4. **Bind duro duplicado** (la app ignora `PORT` y hace bind literal): sigue
    siendo un fallo de arranque de la app. vroom lo reporta más rápido y mejor;
    no lo evita.
