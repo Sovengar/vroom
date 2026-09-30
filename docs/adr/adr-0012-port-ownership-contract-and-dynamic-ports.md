@@ -214,8 +214,13 @@ efímeros vuelve mucho más peligroso un `fuser` equivocado:
    y `meta.Port` se lee de disco en cada tick. Aceptado. El sub-guard sí es
    firme: una sonda y el estado se refieren al mismo proceso; nunca se informa
    "vivo y sano" con un puerto de otra generación.
-6. **`portless` ausente o incompatible** es condición normal y no fatal. Es un
-   slice aparte (S4) y su ausencia no bloquea nada de lo anterior.
+6. ~~**`portless` ausente o incompatible** es condición normal y no fatal.~~
+   **CERRADA por `adr-0013-vroom-registers-portless-routes.md`.** Sigue siendo
+  no fatal, y ahora además es el comportamiento *implementado* y no una
+  intención: vroom registra la ruta con `portless alias`, la verifica contra el
+   proxy vivo, y sin portless —o sin su proxy, o con un binario roto o
+  colgado— el servicio arranca igual, queda sano y el usuario recibe un aviso.
+   La salud de un servicio nunca depende de que exista su ruta.
 
 ## Alternativas consideradas
 
