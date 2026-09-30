@@ -88,7 +88,21 @@ efímeros vuelve mucho más peligroso un `fuser` equivocado:
     pero ninguno se puede declarar principal, el resultado es
     `port_unresolved`, que no es lo mismo que "no tiene puerto".
 
-12. **Un puerto que vroom no ha verificado no es objetivo de sonda.** Con el
+12. **"Pendiente" y "sin resolver" no comparten veredicto.** El discovery en
+    vuelo sigue siendo un gate real (`ErrPortPending`): una etapa no puede
+    darse por buena con el puerto sin decidir. Pero `port_unresolved` es
+    terminal —el discovery ya terminó— y es un **tercer resultado no fatal**
+    (`PortUnresolved`), distinto de `PortNone`. Tratarlo como error encadenaba
+    hasta `abortAndCleanup`, que apagaba a los hermanos sanos; y su mensaje
+    decía "pending", mandando al usuario a esperar algo que ya había acabado.
+
+    Los estados de puerto también cuentan como "el proceso está en pie": un
+    servicio vivo con el puerto pendiente, sin puerto o sin resolver NO se
+    reinicia en cada launch. Solo `running` era "vivo" antes de que existieran
+    estos estados, y reiniciar un servicio sano por no tener el puerto cerrado
+    es un fallo por sí mismo.
+
+13. **Un puerto que vroom no ha verificado no es objetivo de sonda.** Con el
     puerto sin resolver, `displayPort` devuelve 0 en vez de caer al puerto
     declarado, y la tab Health no emite probe. Sondear el declarado puede
     alcanzar el puerto del twin de otro worktree, y presentarlo como propio
@@ -142,10 +156,12 @@ efímeros vuelve mucho más peligroso un `fuser` equivocado:
    determinista, y el servicio se marca **"puerto no verificado"** con
    `port_verified: false` y un aviso explícito.
 2. **Listeners que se abren más de 500 ms escalonados:** la ventana de
-   estabilización cubre la apertura típica en dos goroutines. Una app que
-   abre un listener principal segundos después de otro puede tener su puerto
-   elegido como el listener secundario, y no hay forma de distinguirlo sin una
-   señal adicional.
+   estabilización cubre la apertura típica en dos goroutines. Si el conjunto
+   no se estabiliza dentro del plazo, el resultado no es un puerto inventado
+   sino `port_unresolved`: hay listeners, no se sabe cuál es el principal, y
+   se dice. Es un resultado no fatal. Una app que abre un listener principal
+   segundos después de otro acaba con listeners que nunca se estabilizan y
+   por tanto sin puerto declarado, no con el equivocado.
 3. **Servicio sólo-UDP:** sin puerto TCP descubrible. Se registra "sin puerto"
    (`no_port`), nunca un cuelgue. La afirmación descansa en la ausencia de
    listeners durante plazo + gracia (16 s por defecto), no en una prueba

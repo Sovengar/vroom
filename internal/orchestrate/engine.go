@@ -43,8 +43,11 @@ type ServiceResult struct {
 	// NoPort marca un servicio VIVO que no expone puerto TCP. No es un
 	// error: no falla la etapa, no aborta el stack y no toca a sus
 	// hermanos. Es el caso "solo UDP / worker / sin servidor".
-	NoPort bool   `json:"no_port,omitempty"`
-	Error  string `json:"error,omitempty"`
+	NoPort bool `json:"no_port,omitempty"`
+	// PortUnresolved marca un servicio VIVO cuyo puerto no se pudo
+	// decidir y cuyo discovery ya terminó. Tampoco es un error.
+	PortUnresolved bool   `json:"port_unresolved,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 
 // DryRunResult muestra el plan de ejecución sin ejecutar nada.
@@ -293,6 +296,19 @@ func (e *Engine) validateServices(stack *Stack, projects []scanner.Project) ([]R
 	return e.ResolveServices(names, projects)
 }
 
+// processAlive dice si el estado implica un proceso en pie. Deliberadamente
+// NO usa uiStatus.alive() del TUI: son paquetes distintos y este valor
+// decide si se reinicia el servicio, así que se define una sola vez aquí.
+func processAlive(s process.Status) bool {
+	switch s {
+	case process.StatusRunning, process.StatusPortPending,
+		process.StatusNoPort, process.StatusPortUnresolved:
+		return true
+	default:
+		return false
+	}
+}
+
 // startService arranca un servicio: si ya está running, solo verifica health.
 func (e *Engine) startService(svc ResolvedService, timeout time.Duration) ServiceResult {
 	p := svc.Project
@@ -308,13 +324,17 @@ func (e *Engine) startService(svc ResolvedService, timeout time.Duration) Servic
 			PortPending:    meta.State == state.StatePortPending,
 			PortUnresolved: meta.State == state.StatePortUnresolved,
 		})
-		if status == process.StatusRunning {
-			// Ya corriendo: verificar health y continuar
-			noPort, err := e.awaitPortOutcome(p, meta, timeout)
+		if processAlive(status) {
+			// Ya corriendo: verificar salud y continuar. Los estados de
+			// puerto (pending / no_port / port_unresolved) también cuentan
+			// como "vive": todos significan proceso en pie con el puerto sin
+			// cerrar. Descartarlos reiniciaba un servicio sano y gastaba una
+			// ventana completa de discovery en cada launch.
+			outcome, err := e.awaitPortOutcome(p, meta, timeout)
 			if err != nil {
 				return ServiceResult{Name: svc.Name, Error: fmt.Sprintf("health check failed: %v", err)}
 			}
-			return ServiceResult{Name: svc.Name, Action: "already_running", NoPort: noPort}
+			return portServiceResult(svc.Name, "already_running", 0, outcome)
 		}
 	}
 
@@ -338,34 +358,75 @@ func (e *Engine) startService(svc ResolvedService, timeout time.Duration) Servic
 	}
 
 	// Health check sobre el puerto REAL, con el modo que lo gobierna.
-	noPort, err := e.awaitPortOutcome(p, out.Meta, timeout)
+	outcome, err := e.awaitPortOutcome(p, out.Meta, timeout)
 	if err != nil {
 		return ServiceResult{Name: svc.Name, Error: fmt.Sprintf("health check failed: %v", err)}
 	}
 
-	return ServiceResult{Name: svc.Name, Action: "started", Pid: out.Pid, NoPort: noPort}
+	return portServiceResult(svc.Name, "started", out.Pid, outcome)
 }
+
+// portServiceResult proyecta el veredicto no-fatal sobre el resultado del
+// servicio. Los dos casos sin puerto son marcas, no errores: son la razón por
+// la que un servicio vivo no puede pasar por sano, y la razón por la que
+// tampoco debe tumbar la etapa.
+func portServiceResult(name, action string, pid int, outcome PortOutcome) ServiceResult {
+	return ServiceResult{
+		Name:           name,
+		Action:         action,
+		Pid:            pid,
+		NoPort:         outcome == PortNone,
+		PortUnresolved: outcome == PortUnresolved,
+	}
+}
+
+// PortOutcome es el veredicto no-fatal del gate de salud de un servicio.
+// Hay tres, no dos: un servicio vivo puede estar sano, no exponer puerto TCP,
+// o tener un puerto que nadie ha podido decidir. Los dos últimos NO son
+// fallos y no pueden tumbar la etapa.
+type PortOutcome int
+
+const (
+	// PortResolved: el puerto está decidido y escuchando.
+	PortResolved PortOutcome = iota
+	// PortNone: el servicio vive y no expone puerto TCP.
+	PortNone
+	// PortUnresolved: el servicio vive y su puerto no se pudo decidir; el
+	// discovery ya terminó.
+	PortUnresolved
+)
 
 // awaitPortOutcome gatea la salud de una etapa y traduce el veredicto a un
 // resultado. El puerto viene del meta (el real), no del manifiesto (el
 // default de la app).
 //
-// ErrNoPort NO es un fallo: el servicio está vivo y no expone puerto TCP, y
-// eso hay que reportarlo sin tumbar la etapa. Tratarlo como error encadenaba
-// hasta abortAndCleanup, que paraba a los hermanos ya arrancados en la misma
-// launch. ErrPortPending sí es un fallo de verdad: la etapa no puede darse
-// por buena con un puerto sin decidir.
-func (e *Engine) awaitPortOutcome(p scanner.Project, meta state.Meta, timeout time.Duration) (bool, error) {
+// Los tres estados persistidos se mapean uno a uno, y dos de ellos son
+// resultados, no errores:
+//
+//	no_port         → PortNone,       no fatal (vivo y sin puerto TCP)
+//	port_unresolved → PortUnresolved, no fatal (vivo, puerto sin decidir)
+//	port_pending    → ErrPortPending, SÍ fatal: discovery en vuelo
+//
+// Tratarlos como fallo encadenaba hasta abortAndCleanup, que paraba a los
+// hermanos ya arrancados en la misma launch. ErrPortPending sigue siendo
+// fallo de verdad: una etapa no puede darse por buena con el discovery en
+// curso. Lo terminal no.
+func (e *Engine) awaitPortOutcome(p scanner.Project, meta state.Meta, timeout time.Duration) (PortOutcome, error) {
 	err := AwaitPort(PortWait{
 		Port:        meta.Port,
 		Mode:        p.Manifest.EffectivePortMode(),
 		PortPending: meta.State == state.StatePortPending,
 		NoPort:      meta.State == state.StateNoPort,
+		Unresolved:  meta.State == state.StatePortUnresolved,
 	}, timeout)
-	if errors.Is(err, ErrNoPort) {
-		return true, nil
+	switch {
+	case errors.Is(err, ErrNoPort):
+		return PortNone, nil
+	case errors.Is(err, ErrPortUnresolved):
+		return PortUnresolved, nil
+	default:
+		return PortResolved, err
 	}
-	return false, err
 }
 
 // stopService para un servicio individual.
