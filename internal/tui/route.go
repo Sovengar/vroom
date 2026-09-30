@@ -6,40 +6,27 @@ import (
 	"vroom/internal/state"
 )
 
-// routeClient devuelve el seam de portless para un manifiesto, o nil si no hay
-// contrato de ruta.
+// portlessClient y releaseRoute son las ÚNICAS dos doorway desde app.go hacia
+// el seam de portless, y existen sólo para que app.go no mencione "portless.".
 //
-// Vive en su propio fichero, y no en app.go, por el guard estructural
-// TestDiscoveryIsNotInTheTUIRefreshPath: la TUI no puede shelling out a
-// portless desde su camino de refresco, o un tick de 2 s se convertiría en un
-// spawn por servicio y por refresh. La función es la misma en la CLI y en el
-// motor de stacks; lo que cambia es quién la llama, y sólo desde el arranque y
-// el stop, que no son el tick.
+// No es una cuestión de estilo: lo prohíbe el guard estructural
+// TestDiscoveryIsNotInTheTUIRefreshPath. El seam hace exec al binario, y si se
+// colara en app.go acabaría shelling out desde el tick de refresco de 2 s, o
+// sea un spawn por servicio y por refresh. Estas dos funciones se llaman
+// únicamente desde el arranque y desde el stop, que no son el tick.
 //
-// Con route_mode = "off" devuelve nil ANTES de resolver nada: vroom ni siquiera
-// busca el binario.
-func routeClient(m *manifest.Manifest) *portless.Client {
-	if m == nil || !portless.RouteModeEnabled(m.EffectiveRouteMode()) {
-		return nil
-	}
-	return portless.Default()
+// La lógica vive en internal/portless (ClientFor y Release) y no aquí, porque es
+// la misma en la CLI y en el motor de stacks: tres copias de la comprobación
+// "off no busca el binario" son tres sitios donde un día se abre la puerta de
+// compatibilidad hacia atrás sin que nada falle.
+
+// portlessClient devuelve el seam ya resuelto, o nil si no hay contrato de ruta.
+func portlessClient(m *manifest.Manifest) *portless.Client {
+	return portless.ClientFor(m)
 }
 
-// releaseRoute retira la ruta de un servicio parado. El fallo es BENIGNO por
-// diseño: quitar una ruta inexistente sale con 1 (medido) y un stop repetido no
-// es un error. Una ruta viva que no es nuestra tampoco se toca: el fallo
-// cerrado que gobierna la limpieza es el mismo que gobierna el alta.
-//
-// No hace falta el manifiesto: RouteName sólo se persiste cuando hubo un
-// contrato de ruta, así que su presencia YA es la prueba de que hay algo que
-// retirar. Así el stop no depende de releer el manifiesto, que podría haber
-// cambiado desde el arranque.
+// releaseRoute retira la ruta de un servicio parado. El fallo es benigno: quitar
+// una ruta que no existe sale con 1 (medido) y un stop repetido no es un error.
 func releaseRoute(meta state.Meta) {
-	if meta.RouteName == "" {
-		return
-	}
-	// El error se descarta a propósito: quitar una ruta que no existe sale con
-	// 1 (medido) y un stop repetido no es un error. El servicio ya está parado,
-	// y parar no puede fallar por una dirección.
-	_ = portless.Default().Remove(meta.RouteName)
+	portless.Release(meta.RouteName)
 }

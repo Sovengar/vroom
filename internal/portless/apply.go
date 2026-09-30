@@ -7,6 +7,8 @@ import (
 	"net"
 	"os/exec"
 	"strconv"
+
+	"vroom/internal/manifest"
 )
 
 // RouteMode son los tres estados del contrato de ruta. El default es off, de
@@ -24,6 +26,37 @@ const (
 // RouteModeEnabled dice si un modo implica trabajo de ruta. Con off no se
 // resuelve ni el binario: es la puerta de compatibilidad hacia atrás.
 func RouteModeEnabled(mode string) bool { return mode != "" && mode != RouteModeOff }
+
+// ClientFor devuelve el seam ya resuelto para un manifiesto, o nil si no hay
+// contrato de ruta.
+//
+// Existe en este paquete, y no duplicado en cada llamador, por una razón que no
+// es de estilo: con route_mode = "off" hay que devolver nil ANTES de resolver
+// nada, y ese "antes" es la puerta de compatibilidad hacia atrás. Tres copias
+// de esa comprobación son tres sitios donde un día alguien la mueve y la puerta
+// se abre sin que nada falle.
+func ClientFor(m *manifest.Manifest) *Client {
+	if m == nil || !RouteModeEnabled(m.EffectiveRouteMode()) {
+		return nil
+	}
+	return Default()
+}
+
+// Release retira la ruta de un servicio parado. El fallo es BENIGNO por diseño:
+// quitar una ruta que no existe sale con 1 (medido, M10) y un stop repetido no
+// es un error, porque el servicio ya está parado y parar no puede fallar por una
+// dirección.
+//
+// Recibe el NOMBRE, no el Meta: este paquete es un seam y no debe depender del
+// tipo de persistencia. Y no relee el manifiesto, que pudo cambiar desde el
+// arranque; se retira lo que se registró, que es lo único que se puede demostrar
+// como propio.
+func Release(name string) {
+	if name == "" {
+		return
+	}
+	_ = Default().Remove(name)
+}
 
 // Result es el resultado de aplicar una ruta. Tri-estado y honesto por
 // construcción: Name está siempre (es el nombre PRETENDIDO, haya éxito o no),

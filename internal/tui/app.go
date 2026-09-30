@@ -561,7 +561,7 @@ func startCmd(store *state.Store, manager process.Manager, p scanner.Project) te
 			Manager:    manager,
 			StdoutPath: store.StdoutLog(p.Path),
 			StderrPath: store.StderrLog(p.Path),
-			Routes:     routeClient(p.Manifest),
+			Routes:     portlessClient(p.Manifest),
 			Branch:     gitinfo.Branch(p.Path),
 		})
 		if err != nil {
