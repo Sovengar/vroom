@@ -154,19 +154,36 @@ portless api-a python3 server.py
 Además **auto-detecta el worktree git y prefija la rama como subdominio**
 (`https://fix-ui.myapp.localhost`) sin configuración. Requiere **Node 24+**.
 
-### 4.6 `PORTLESS_APP_PORT`: vroom puede ser dueño del puerto
+### 4.6 Cómo se registra la ruta: `portless alias` (corregido)
+
+**MECANISMO CORREGIDO.** Esta sección decía `PORTLESS_APP_PORT`; **es el
+mecanismo equivocado**, y la diferencia no es de estilo:
+
+`PORTLESS_APP_PORT` la consume `portless run <cmd>`, donde **portless arranca el
+hijo y es dueño del proceso** — el modelo que el usuario rechazó, y que además
+rompe el Stop-por-linaje del slice 1. El mecanismo correcto, medido contra
+portless 0.15.6, es registrar el alias:
 
 ```
-PORTLESS_APP_PORT=39677 portless api-d python3 server.py
-  → el backend escucha EXACTAMENTE en 39677
-  → ruta: http://api-d.localhost:1355 -> localhost:39677
+portless alias <name> <puerto real>     # alta / upsert
+portless alias --remove <name>          # retirada (exit 1 si no existe: benigno)
+portless list                           # lectura de vuelta
 ```
 
-Es decir: **portless puede usarse como proxy puro**, sin decidir el puerto. Esto
-elimina la superposición entre "vroom reserva el puerto" y "portless lo asigna".
+```
+portless alias fix-ui.api 39677
+  → ruta: fix-ui.api.localhost -> localhost:39677
+```
 
-**Pero la topología de procesos NO cambia**: el backend sigue yendo en su propio
-process group. El fix de `Stop` por linaje sigue siendo obligatorio.
+Es decir: **portless se usa como proxy puro**, sin decidir el puerto ni arrancar
+nada. La superposición entre "vroom reserva el puerto" y "portless lo asigna"
+desaparece porque portless ya no tiene nada que asignar.
+
+**La topología de procesos NO cambia**: el backend lo arranca vroom y sigue yendo
+en su propio process group. El fix de `Stop` por linaje sigue siendo
+obligatorio, y es justo lo que este mecanismo preserva.
+
+Ver `adr-0013-vroom-registers-portless-routes.md`.
 
 ### 4.7 Race de la reserva
 
@@ -225,8 +242,10 @@ sin regresión.
 
 - `StartSpec` gana un campo `Env map[string]string` (hoy no existe).
 - Al arrancar en modo dinámico: reservar un puerto libre en el rango 4000–4999,
-  inyectar `PORT` (y `HOST=127.0.0.1`) en el entorno del hijo, y poner
-  `PORTLESS_APP_PORT` si el proyecto usa `portless`.
+  inyectar `PORT` (y `HOST=127.0.0.1`) en el entorno del hijo, y registrar la
+  ruta con `portless alias <name> <puerto real>` si el manifiesto declara
+  `route_mode` (§6.3). **No** se pasa `PORTLESS_APP_PORT`: esa variable la
+  consume `portless run <cmd>`, donde portless es dueño del proceso.
 - **Descubrir y verificar** el puerto real tras el arranque, y persistirlo en
   `state.Meta.Port` (el campo que los 4 usos de §3.2 ya consumen).
 - El bucle de descubrimiento **debe** estar acotado por: (a) deadline, (b)
@@ -272,24 +291,41 @@ port_mode = "dynamic"       # "fixed" (default, actual) | "dynamic" | "none"
 puede conservar como alias silencioso o avisar por log; decisión de
 implementación.
 
-### 6.3 Pieza 3 — `portless` como proxy puro (decidido)
+### 6.3 Pieza 3 — `portless` como proxy puro (decidido, ENTREGADO)
+
+**Entregado** en `adr-0013-vroom-registers-portless-routes.md`.
 
 **Qué:** integrar `portless` como capa de nombres y TLS **delante**, sin dejar que
-asigne puertos. vroom arranca el proxy una vez y, en cada `start`, registra la ruta
-`<proyecto>.<worktree>.localhost → 127.0.0.1:<puerto que vroom ya sabe>` (vía
-`PORTLESS_APP_PORT`).
+asigne puertos ni arranque nada. En cada `start`, vroom registra la ruta
+`<rama>.<proyecto>.localhost → 127.0.0.1:<puerto REAL que vroom ya sabe>` con
+`portless alias`, la **lee de vuelta** para confirmar que es suya, y la
+**verifica contra el proxy vivo** antes de publicarla.
 
 **Por qué:** aporta URL estable, HTTPS con CA local y resolución de nombres por
 subdominio — que es lo que rompe CORS/OAuth/HMR si el usuario accede por
-`localhost:<puerto>`.
+`localhost:<puerto>`. Con `route_mode = "named"` la URL es estable de verdad, que
+es lo que exigen un callback OAuth o una regla CORS.
 
-**Dependencias y riesgos:** Node 24+; el proxy quiere 80/443 (sudo) — se puede usar
-un puerto custom tipo 1355 para evitar root; las rutas quedan *stale* si se mata
-el proceso a la fuerza (hay reconciliación en `portless list`/prune).
+**Lo que la medición cambió respecto a este texto:**
+- vroom **no** arranca el proxy. Se rechaza explícitamente: arrancarlo, o
+  gestionarlo como servicio visible, reintroduce el huérfano de `setsid` del
+  §3.4. Si no hay proxy alcanzable, vroom avisa **una vez** y el servicio sigue
+  vivo en su puerto.
+- **No** se asume el puerto del proxy (1355): se lee de `proxy.port`, que sólo
+  existe mientras corre. Su ausencia **es** la señal de que no hay proxy.
+- **No** hay `prune` que limpie las rutas de vroom: `prune` no toca las rutas de
+  alias (`pid: 0`, contadas como activas). Por eso la **reconciliación en cada
+  arranque es obligatoria**: vroom es lo único que puede limpiarlas.
+- El alta es un **upsert incondicional**: dos vrooms con el mismo nombre se pisan
+  en silencio. Por eso la lectura de vuelta es obligatoria, no pulido.
+- La ausencia de portless **nunca** es un fallo de arranque.
 
-**No-goal:** que `portless` gestione el ciclo de vida del proceso de la app. Su
-`setsid` es justo lo que rompe `Stop` de vroom (§3.4). vroom lo lanza, vroom lo
-mata; portless solo enruta.
+**Dependencias y riesgos:** Node 24+ (un Node viejo degrada a aviso, y vroom no
+toca la configuración de node del usuario).
+
+**No-goal:** que `portless` gestione el ciclo de vida del proceso de la app, ni el
+del proxy. Su `setsid` es justo lo que rompe `Stop` de vroom (§3.4). vroom lo
+arranca y lo mata a él; portless solo enruta.
 
 ### 6.4 Pieza 4 — Desambiguación multi-puerto (decidido, con evidencia)
 

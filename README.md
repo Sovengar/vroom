@@ -108,6 +108,8 @@ command_install = "npm install"  # one-shot con la tecla i (opcional)
 command_build = "mise run build" # one-shot con la tecla b (opcional)
 command_stop = "docker stop x"   # parada graciosa con la tecla s (opcional)
 health_path = "/healthz"         # ruta del probe de la tab Health (default "/")
+route_mode = "off"               # "off" | "auto" | "named" (default "off")
+route_name = ""                  # nombre estable de la ruta (sólo con "named")
 ```
 
 La agrupación es jerárquica: con `primary_group` + `secondary_group` la TUI
@@ -162,6 +164,63 @@ vroom sin forma de saber cuál de sus listeners es el principal. En ese caso se
 elige el de menor número (determinista) y el servicio se marca como **"puerto
 no verificado"** (`port_verified: false` en el JSON, con aviso visible). Ver `docs/adr/adr-0012-port-ownership-contract-and-dynamic-ports.md`
 para el contrato completo de propiedad del puerto.
+
+### `route_mode`: una URL estable para el puerto que cambia
+
+Con puertos dinámicos, cualquier referencia externa —un callback OAuth, una regla
+CORS, un README, un bookmark— queda atada a un número que cambia en cada
+arranque. `route_mode` le da a cada servicio un **nombre estable** en portless.
+
+```toml
+route_mode = "auto"                # "off" (default) | "auto" | "named"
+route_name = "mi-api"              # sólo con route_mode = "named"
+```
+
+| Modo | Qué hace vroom |
+|---|---|
+| `off` (default) | No registra ninguna ruta. **Ni siquiera busca el binario.** |
+| `auto` | Nombre derivado del worktree: `<rama>.<proyecto>`, sin escribir nada. |
+| `named` | El nombre estable de `route_name`. Es lo que exigen OAuth y CORS. |
+
+Con `auto` cada worktree del mismo repo tiene su propia dirección, sin
+configuración. Usa `named` cuando la URL **no puede depender de una rama** —
+porque la vas a meter en un `redirect_uri` o en una lista de orígenes.
+
+**vroom sólo registra la ruta. No arranca, no gestiona, no supervisa ni muestra el
+proxy.** Si no hay `portless`, o no está en el `PATH` del servicio, o su proxy no
+está en marcha, o su Node es demasiado antiguo: vroom avisa **una vez** y el
+servicio **arranca igual, queda sano, y vive en su puerto**. La salud de un
+servicio nunca depende de que exista su ruta — una ruta es una dirección, no una
+dependencia.
+
+Al parar el servicio, su ruta desaparece. Y las rutas que dejó un vroom que
+murió sin pararlo las limpia **la reconciliación del arranque siguiente**, porque
+`portless prune` **no** toca las rutas de alias. Si renembras una rama en modo
+`auto`, la ruta vieja se retira y se registra la nueva.
+
+En el JSON, `route_mode` es la **intención** (lo que pide el manifiesto) y `route`
+es el **resultado**:
+
+```json
+"route_mode": "named",
+"route": { "name": "mi-api", "status": "registered", "url": "https://mi-api.localhost", "port": 4321 }
+```
+
+Una ruta degradada **nunca** publica `url`, y siempre dice por qué:
+
+```json
+"route": { "name": "mi-api", "status": "degraded", "reason": "proxy_not_running" }
+```
+
+vroom no publica una URL que no haya visto funcionar. `portless alias` escribe la
+ruta aunque el proxy esté apagado y sale con éxito igual, así que **escribir la
+ruta no prueba que la URL resuelva**: por eso, tras registrarla, vroom la lee de
+vuelta para confirmar que es suya y la comprueba contra el proxy vivo. Un `502`
+cuenta como "el proxy enruta la ruta y tu servicio no responde"; sólo una
+conexión rechazada o un timeout significan que no hay proxy. Un manifiesto sin
+`route_mode` no publica nada de esto.
+
+Ver `docs/adr/adr-0013-vroom-registers-portless-routes.md`.
 
 ## Keybindings
 
