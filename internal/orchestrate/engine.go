@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"vroom/internal/gitinfo"
+	"vroom/internal/portless"
 	"vroom/internal/process"
 	"vroom/internal/scanner"
 	"vroom/internal/startsvc"
@@ -351,6 +353,8 @@ func (e *Engine) startService(svc ResolvedService, timeout time.Duration) Servic
 		Manager:    e.manager,
 		StdoutPath: e.store.StdoutLog(p.Path),
 		StderrPath: e.store.StderrLog(p.Path),
+		Routes:     routeClient(p.Manifest),
+		Branch:     gitinfo.Branch(p.Path),
 	})
 	if err != nil {
 		return ServiceResult{Name: svc.Name, Error: err.Error()}
@@ -485,6 +489,12 @@ func (e *Engine) stopProcess(path string, meta state.Meta) {
 	})
 	// El servicio ya está parado: su reserva vuelve al pool.
 	process.ReleasePort(meta.ReservedPort)
+	// Y su ruta deja de existir. El fallo es benigno (quitar lo que no está
+	// sale con 1 y un stop repetido no es un error), y esto cubre tanto
+	// stopService como abortAndCleanup.
+	if meta.RouteName != "" {
+		portless.Default().Remove(meta.RouteName)
+	}
 	for _, w := range warns {
 		_ = appendLine(e.store.StderrLog(path), "── vroom ▶ stop: "+w)
 	}

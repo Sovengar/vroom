@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"vroom/internal/orchestrate"
+	"vroom/internal/portless"
 	"vroom/internal/scanner"
 )
 
@@ -84,6 +85,12 @@ func (m Model) metaColumn(p scanner.Project, sv *ServiceState, w int) []string {
 	if n := displayPort(p, sv); n > 0 {
 		row("port:", fmt.Sprintf("%d", n))
 	}
+	// La URL va junto al puerto, y sólo si se ha VERIFICADO: una url sin
+	// comprobar es una dirección que puede no llevar a nada, y el usuario
+	// copiándola acabaría en un error sin explicación.
+	if u := displayRouteURL(p, sv); u != "" {
+		row("url:", u)
+	}
 	if p.Manifest != nil && p.Manifest.ProcessPattern != "" {
 		row("pattern:", p.Manifest.ProcessPattern)
 	}
@@ -95,6 +102,19 @@ func (m Model) metaColumn(p scanner.Project, sv *ServiceState, w int) []string {
 	}
 	row("logs:", m.store.ServiceDir(p.Path))
 	return lines
+}
+
+// displayRouteURL es la URL de la ruta, o "" si no hay ninguna verificada.
+//
+// Se lee del Meta persistido y NO se comprueba en vivo: la TUI refresca cada
+// 2 s, y sondear el proxy en ese camino convertiría el refresco en un spawn
+// por servicio. Lo que se muestra es el último estado conocido, y por eso no
+// se muestra una URL degradada: no hay ninguna.
+func displayRouteURL(p scanner.Project, sv *ServiceState) string {
+	if sv == nil || sv.Meta.RouteStatus != portless.StatusRegistered {
+		return ""
+	}
+	return sv.Meta.RouteURL
 }
 
 // commandsColumn compone la columna derecha del panel de detalles: los
