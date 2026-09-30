@@ -703,6 +703,12 @@ func TestReRegisterMovesTheRouteToTheNewPort(t *testing.T) {
 // vuelve: el registro es persistente y vroom no tiene que registrarla otra vez
 // (medido, M3). Por eso la verificación decide qué se PUBLICA, no si se
 // REGISTRA.
+//
+// ALCANCE: el "el proxy vuelve" de aquí es poner `noProxy=false` en el MISMO
+// doble, así que este test afirma la persistencia EN EL FICHERO, que es la
+// parte que el seam controla, y no una supervivencia real a un reinicio de
+// proceso. Esa es la afirmación de TestRouteSurvivesAProxyRestart, que sí la
+// verifica con un binario de verdad. M3 está MEDIDO (plan.md, R13).
 func TestRouteRegisteredWhileProxyDownIsServedWhenItReturns(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
@@ -727,10 +733,22 @@ func TestRouteRegisteredWhileProxyDownIsServedWhenItReturns(t *testing.T) {
 	}
 }
 
-// Escribir la ruta de vroom NO daña las rutas que gestiona portless (medido,
-// M4): una ruta con pid propio sobrevive intacta mientras vroom da de alta la
-// suya. Es lo que permite compartir proxy.
-func TestVroomRouteDoesNotEvictLivePortlessRoutes(t *testing.T) {
+// ALCANCE DE ESTE TEST, que se ha reducido a propósito.
+//
+// Antes afirmaba "escribir la ruta de vroom NO daña las rutas que gestiona
+// portless (M4)", pero lo que hacía era comprobar un `map[string]int` al que
+// `Apply` sólo añade una clave. Pasarían igual si el `portless alias` real
+// expulsara una ruta de `portless run`. Un test que no puede fallar es peor que
+// no tener test: se lee como cobertura de M4 y no cubre nada.
+//
+// Ahora sólo afirma lo que SÍ puede observar —el seam no toca las rutas que no
+// son suyas, y Remove sólo toca la suya— y la afirmación real vive en
+// TestIntegrationDoesNotEvictLivePortlessRoutes, contra un binario de verdad y
+// con una app viva.
+//
+// El hecho M4 está MEDIDO, no eliminado (plan.md, R10), y eso es lo que este
+// fichero tiene que decir.
+func TestSeamTouchesOnlyItsOwnRoute(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
 	// Una app viva de `portless run`, con su pid y su puerto.

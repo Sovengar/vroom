@@ -3,6 +3,7 @@ package portless_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"vroom/internal/portless"
 )
@@ -79,7 +80,15 @@ func TestReleaseWithNilSeamAndEmptyNameIsInert(t *testing.T) {
 func TestReleaseIntegrationRemovesForReal(t *testing.T) {
 	iso := integrationStateDir(t)
 
-	c := portless.New(portless.WithBinary(integrationBin(t)), portless.WithStateDir(iso), portless.WithTimeout(10))
+	// 10 SEGUNDOS: WithTimeout toma un time.Duration, y un 10 a secas serían 10
+	// nanosegundos. Un deadline de 10ns expira antes de que el binario arranque, y
+	// el test se salta diciendo que portless "no responde" — que es un falso
+	// negativo silencioso.
+	c := portless.New(
+		portless.WithBinary(integrationBin(t)),
+		portless.WithStateDir(iso),
+		portless.WithTimeout(10*time.Second),
+	)
 	if c.Apply("vroom.release", 4321, 0).Succeeded() {
 		t.Log("hay un proxy en marcha: la ruta se registró y va a comprobarse")
 	}
