@@ -116,7 +116,7 @@ func Start(req Request) (Result, error) {
 	if timeout <= 0 {
 		timeout = process.DefaultDynamicPortTimeout
 	}
-	d := process.DiscoverPort(res.Pid, reserved, timeout)
+	d := process.DiscoverPort(res.Pid, reserved, m.HealthURLPath(), timeout)
 
 	final := attempt
 	out := Result{Pid: res.Pid}
@@ -131,17 +131,22 @@ func Start(req Request) (Result, error) {
 		final.State = state.StateNoPort
 		out.Warnings = append(out.Warnings,
 			fmt.Sprintf("service has no TCP port (mode %q); health checks on port are disabled", mode))
-	case d.Port > 0 && !d.HonoredReserved && reserved != d.Port:
-		// La app ignoró PORT. Aviso, no error: el servicio opera igual.
-		final.Port = d.Port
-		final.State = state.StateRunning
-		final.PortVerified = true
-		out.Warnings = append(out.Warnings,
-			fmt.Sprintf("service ignored the offered port %d and bound %d instead", reserved, d.Port))
 	default:
 		final.Port = d.Port
 		final.State = state.StateRunning
-		final.PortVerified = true
+		final.PortVerified = d.Verified
+
+		if !d.HonoredReserved && reserved != d.Port {
+			out.Warnings = append(out.Warnings,
+				fmt.Sprintf("service ignored the offered port %d and bound %d instead", reserved, d.Port))
+		}
+		if !d.Verified {
+			// R3: gana el menor, pero no hay forma de saber cuál es el
+			// principal. Se declara, no se disimula.
+			out.Warnings = append(out.Warnings, fmt.Sprintf(
+				"service opened several ports %v and none answers health_path; picked %d as best guess (unverified port)",
+				d.All, d.Port))
+		}
 	}
 
 	out.Port = final.Port

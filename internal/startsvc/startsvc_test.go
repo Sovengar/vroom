@@ -357,3 +357,88 @@ func TestDynamicRequiresDefaultPort(t *testing.T) {
 		t.Error("dynamic sin puerto por defecto debe rechazarse en validación")
 	}
 }
+
+// ---- Slice 3: desambiguación multi-puerto (R2 / R3) ----
+
+// R2 en el arranque completo: la app ignora PORT, abre dos listeners y sólo
+// uno responde bien en health_path. Gana ese, y el puerto queda verificado.
+func TestR2HealthPathDecidesMainPort(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integración: spawn real")
+	}
+	f := newFixture(t)
+	f.manifest.HealthPath = "/health"
+	f.command(t, "two-http-ports",
+		"VROOM_HELPER_PORT_A="+strconv.Itoa(freePort(t)),
+		"VROOM_HELPER_GOOD="+strconv.Itoa(freePort(t)))
+
+	out, err := f.start(t, 10*time.Second)
+	if err != nil {
+		t.Fatalf("arranque dynamic: %v", err)
+	}
+	f.cleanup(t, out)
+
+	env := f.helperEnv(t)
+	good := mustAtoiT(t, env["GOOD_PORT"])
+	if out.Port != good {
+		t.Errorf("R2 debe elegir el listener que responde en health_path (%d), eligió %d", good, out.Port)
+	}
+	if !out.Meta.PortVerified {
+		t.Error("R2 verifica el puerto: alguien respondió")
+	}
+}
+
+// R3 en el arranque completo: dos listeners que no son HTTP. Gana el menor,
+// de forma determinista, y el servicio se marca como puerto NO verificado con
+// un aviso que lo dice.
+func TestR3NonHTTPPicksLowestAndMarksUnverified(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integración: spawn real")
+	}
+	f := newFixture(t)
+	f.manifest.HealthPath = "/health"
+	f.command(t, "two-raw-ports",
+		"VROOM_HELPER_PORT_A="+strconv.Itoa(freePort(t)),
+		"VROOM_HELPER_PORT_B="+strconv.Itoa(freePort(t)))
+
+	out, err := f.start(t, 10*time.Second)
+	if err != nil {
+		t.Fatalf("arranque dynamic: %v", err)
+	}
+	f.cleanup(t, out)
+
+	env := f.helperEnv(t)
+	low := minPort(mustAtoiT(t, env["PORT_A"]), mustAtoiT(t, env["PORT_B"]))
+	if out.Port != low {
+		t.Errorf("R3 debe elegir el menor puerto %d, eligió %d", low, out.Port)
+	}
+	if out.Meta.PortVerified {
+		t.Error("sin respuesta HTTP el puerto no está verificado")
+	}
+	found := false
+	for _, w := range out.Warnings {
+		if strings.Contains(w, "unverified") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("debe declararse que no se puede saber cuál es el principal: %v", out.Warnings)
+	}
+
+	// Determinista entre corridas con el mismo conjunto de listeners.
+	again := newFixture(t)
+	again.manifest.HealthPath = "/health"
+	again.command(t, "two-raw-ports",
+		"VROOM_HELPER_PORT_A="+strconv.Itoa(freePort(t)),
+		"VROOM_HELPER_PORT_B="+strconv.Itoa(freePort(t)))
+	out2, err := again.start(t, 10*time.Second)
+	if err != nil {
+		t.Fatalf("segundo arranque: %v", err)
+	}
+	again.cleanup(t, out2)
+	env2 := again.helperEnv(t)
+	low2 := minPort(mustAtoiT(t, env2["PORT_A"]), mustAtoiT(t, env2["PORT_B"]))
+	if out2.Port != low2 {
+		t.Errorf("R3 debe ser determinista: %d vs %d", out2.Port, low2)
+	}
+}

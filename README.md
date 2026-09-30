@@ -153,10 +153,14 @@ servicio que muere al arrancar se reporta en ~1 s, no tras agotar el timeout.
 Un servicio que tarda 3,5 s en hacer bind conserva su puerto y no se reporta
 como "sin puerto".
 
+Si la app abre **varios** listeners, vroom sólo tiene que adivinar: gana el
+puerto reservado si la app lo tomó; si no, gana el que mejor responde en
+`health_path` (200 > 2xx/3xx > 5xx > 404).
+
 **No es una garantía:** una app que además de no ser HTTP ignora `PORT` deja a
 vroom sin forma de saber cuál de sus listeners es el principal. En ese caso se
 elige el de menor número (determinista) y el servicio se marca como **"puerto
-no verificado"**. Ver `docs/adr/adr-0012-port-ownership-contract-and-dynamic-ports.md`
+no verificado"** (`port_verified: false` en el JSON, con aviso visible). Ver `docs/adr/adr-0012-port-ownership-contract-and-dynamic-ports.md`
 para el contrato completo de propiedad del puerto.
 
 ## Keybindings

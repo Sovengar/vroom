@@ -2470,3 +2470,56 @@ func TestFilterBarConsumesTreeLine(t *testing.T) {
 		t.Errorf("las filas del árbol deben empezar en la línea 1: got %q, want %q", lines[1], full[0])
 	}
 }
+
+// El descubrimiento completo NO se ejecuta en el tick de la interfaz.
+// refreshCmd ya llama a Evaluate → PortOpen por proyecto cada 2 s; sumarle
+// enumerar listeners convertiría el refresco en trabajo por segundo con N
+// proyectos. Es un guard estructural: si algún día alguien mete el
+// discovery en el camino del tick, este test lo delata.
+func TestDiscoveryIsNotInTheTUIRefreshPath(t *testing.T) {
+	data, err := os.ReadFile("app.go")
+	if err != nil {
+		t.Skipf("no se puede leer app.go: %v", err)
+	}
+	for _, forbidden := range []string{"DiscoverPort", "lineageListenersAt", "ReservePort"} {
+		if strings.Contains(string(data), forbidden) {
+			t.Errorf("el tick de la TUI no puede llamar a %s: el coste por refresh debe quedar acotado", forbidden)
+		}
+	}
+}
+
+// Un puerto ya resuelto se evalúa sin volver a mirar /proc: el tick lleva
+// PortPending=false y el puerto real, no el reservado.
+func TestRefreshEvaluatesResolvedPortWithoutPending(t *testing.T) {
+	var got []process.EvalSpec
+	manager := &stubManager{eval: func(spec process.EvalSpec) process.Status {
+		got = append(got, spec)
+		return process.StatusRunning
+	}}
+	store := state.NewStoreAt(t.TempDir())
+	dir := t.TempDir()
+	p := scanner.Project{
+		Path: dir, Name: "a", Configured: true,
+		Manifest: &manifest.Manifest{Name: "a", Command: "run", Port: 8080, PortMode: manifest.PortModeDynamic},
+	}
+	if err := store.SaveMeta(dir, state.Meta{
+		Port: 41501, Pid: 1, CreationTimeMs: 2, State: state.StateRunning,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	msg := refreshCmd(store, manager, []scanner.Project{p})()
+	res, ok := msg.(refreshedMsg)
+	if !ok {
+		t.Fatalf("refreshCmd devolvió %T", msg)
+	}
+	if got[0].Port != 41501 {
+		t.Errorf("el tick debe evaluar el puerto real, no el declarado: %+v", got[0])
+	}
+	if got[0].PortPending {
+		t.Error("un puerto resuelto no está pendiente")
+	}
+	if res.results[dir].status != process.StatusRunning {
+		t.Errorf("status = %s, want running", res.results[dir].status)
+	}
+}
