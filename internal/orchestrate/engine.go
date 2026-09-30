@@ -445,6 +445,10 @@ func (e *Engine) stopService(p scanner.Project) {
 	meta, err := e.store.LoadMeta(p.Path)
 	if err == nil && (meta.Pid > 0 || meta.Pgid > 0 || meta.Port > 0) {
 		e.stopProcess(p.Path, meta)
+	} else if err == nil {
+		// Un servicio que ya estaba muerto (Pid 0) no pasa por stopProcess, pero
+		// también deja una ruta detrás: se retira igualmente, fuera del guard.
+		portless.Release(engineRouteReleaser(), meta.RouteName)
 	}
 	_ = e.store.ClearPid(p.Path)
 	if err == nil {
@@ -462,6 +466,10 @@ func (e *Engine) abortAndCleanup(paths []string) {
 		meta, err := e.store.LoadMeta(path)
 		if err == nil && (meta.Pid > 0 || meta.Pgid > 0 || meta.Port > 0) {
 			e.stopProcess(path, meta)
+		} else if err == nil {
+			// Ídem stopService: la ruta se retira aunque el servicio ya estuviese
+			// muerto y por tanto no pasara por stopProcess.
+			portless.Release(nil, meta.RouteName)
 		}
 		_ = e.store.ClearPid(path)
 		if err == nil {
@@ -480,6 +488,24 @@ func (e *Engine) abortAndCleanup(paths []string) {
 //
 // Cubre stopService y abortAndCleanup, que es justo lo que hace falta: el
 // rollback de un arranque fallido también consume reservas.
+// El seam de retirada del engine.
+//
+// Existe porque sin él la retirada no la observaba nadie: el reviewer comprobó
+// que borrando los tres call sites de Release la suite seguía en verde, así que
+// la decisión 13 del ADR —"se retira en los tres caminos"— no la verificaba
+// nada. En producción ambas están a cero y sale el cliente real.
+var (
+	engineReleaseStub          portless.ReleaserFunc
+	engineReleaseStubInstalled bool
+)
+
+func engineRouteReleaser() portless.Releaser {
+	if engineReleaseStubInstalled && engineReleaseStub != nil {
+		return engineReleaseStub
+	}
+	return nil
+}
+
 func (e *Engine) stopProcess(path string, meta state.Meta) {
 	var warns []string
 	_ = e.manager.Stop(process.StopSpec{
@@ -492,7 +518,7 @@ func (e *Engine) stopProcess(path string, meta state.Meta) {
 	// Y su ruta deja de existir. El fallo es benigno (quitar lo que no está
 	// sale con 1 y un stop repetido no es un error), y esto cubre tanto
 	// stopService como abortAndCleanup.
-	portless.Release(meta.RouteName)
+	portless.Release(engineRouteReleaser(), meta.RouteName)
 	for _, w := range warns {
 		_ = appendLine(e.store.StderrLog(path), "── vroom ▶ stop: "+w)
 	}
