@@ -197,6 +197,14 @@ eliminado por diseño.
     motor de stacks). Por **M10**, `--remove` de un nombre inexistente es `exit 1`
     y es **benigno**: un stop repetido no es un error.
 
+    > **CORRECCIÓN (review).** Esta decisión estaba **sin verificar**: `Release`
+    > construía su cliente internamente sin punto de inyección, y neutralizar
+    > los tres call sites dejaba la suite en verde. Ahora la retirada tiene
+    > seam, y cada camino tiene su test. Se descubrió además un bug real: la
+    > retirada estaba DENTRO del guard de proceso (`Pid > 0 || Pgid > 0 ||
+    > Port > 0`), así que un servicio ya muerto al pararse —`Pid 0` con su meta
+    > y su ruta— no retiraba nada. Va fuera del guard en los tres caminos.
+
 14. **"No responde" en la reconciliación significa "no hay nadie detrás", no
     sólo "el proxy no responde".** Una ruta de un vroom muerto **sigue enruta**:
     el proxy devuelve `502` porque el puerto ya no lo escucha nadie, y leer ese
