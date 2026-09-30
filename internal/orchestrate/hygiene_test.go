@@ -57,11 +57,7 @@ func leakedTestBinaries() []int {
 		if isAncestor(pid, me) {
 			continue
 		}
-		exe, err := os.Readlink(filepath.Join("/proc", e.Name(), "exe"))
-		if err != nil {
-			continue
-		}
-		if resolved, err := filepath.EvalSymlinks(exe); err == nil && resolved == self {
+		if isTestBinary("/proc", self, pid) {
 			leaked = append(leaked, pid)
 		}
 	}
@@ -104,4 +100,67 @@ func TestMain(m *testing.M) {
 			"Revisa los cleanups: StopStack con un stack sin etapas no para nada.\n",
 		len(leaked), leaked)
 	os.Exit(1)
+}
+
+// isTestBinary dice si el proceso pid ejecuta el binario `self`. Es la única
+// pieza de lógica del guard, y está aparte para poder probarla contra un
+// proceso que el test posee y controla, sin spawn ni shell de por medio.
+func isTestBinary(root, self string, pid int) bool {
+	exe, err := os.Readlink(filepath.Join(root, strconv.Itoa(pid), "exe"))
+	if err != nil {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(exe)
+	if err != nil {
+		return false
+	}
+	return resolved == self
+}
+
+// testBinaryPath resuelve el ejecutable de este binario. Falla en lugar de
+// devolver cadena vacía: si no se puede resolver, un guard que no encuentra
+// NADA parece un guard que pasa, y eso es peor que no tenerlo.
+func testBinaryPath(t *testing.T) string {
+	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+	resolved, err := filepath.EvalSymlinks(self)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%s): %v", self, err)
+	}
+	return resolved
+}
+
+// El guard tiene que poder fallar. Se comprueba contra el propio proceso del
+// test, que poseemos y controlamos: determinista, sin spawn, sin shell y sin
+// depender de qué /bin/sh sea en la máquina.
+//
+// El control negativo (pid 1) es lo que impide que un isTestBinary que
+// devolviera true siempre pasara el aserto positivo.
+func TestHygieneGuardMatchesOwnBinary(t *testing.T) {
+	self := testBinaryPath(t)
+
+	if !isTestBinary("/proc", self, os.Getpid()) {
+		t.Errorf("el guard tiene que reconocer su propio binario (pid %d)", os.Getpid())
+	}
+	if isTestBinary("/proc", self, 1) {
+		t.Error("pid 1 no ejecuta este binario: el emparejamiento no discrimina")
+	}
+	if isTestBinary("/proc", self, 999999999) {
+		t.Error("un pid inexistente no puede ser este binario")
+	}
+	if containsInt(leakedTestBinaries(), os.Getpid()) {
+		t.Error("el guard no puede listarse a sí mismo: se mataría al terminar")
+	}
+}
+
+func containsInt(xs []int, x int) bool {
+	for _, v := range xs {
+		if v == x {
+			return true
+		}
+	}
+	return false
 }

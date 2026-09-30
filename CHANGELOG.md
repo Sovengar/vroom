@@ -8,6 +8,20 @@ y este proyecto sigue [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- Puertos dinámicos por worktree con `port_mode = "fixed" | "dynamic" | "none"`
+  en `.vroom.toml`. En `dynamic` vroom reserva un puerto del rango 4000-4999,
+  inyecta `PORT` y `HOST` en el entorno del proceso, descubre el puerto real
+  listening y lo usa como única verdad en la TUI, en la salida JSON y en el
+  gate de salud del stack. Un manifiesto sin `port_mode` se comporta
+  exactamente como hasta ahora.
+- Elección determinista del puerto principal cuando un servicio abre varios
+  listeners: primero el puerto reservado, después el que responde al
+  `health_path` de la sonda, y como último recurso el menor, marcado como no
+  verificado.
+- `port_verified` en la salida JSON de `vroom list`, para distinguir un puerto
+  confirmado por vroom de uno todavía pendiente de resolver.
+- ADR-0012 documentando el contrato de propiedad de puertos y el diseño de
+  puertos dinámicos.
 - Panel `Output` con cinco pestañas nuevas además de Console y Threads:
   `Metrics` (CPU%, RSS, FDs e hilos), `Git` (rama, estado y últimos commits),
   `Env` (entorno del proceso), `Timeline` (eventos de la sesión con duración)
@@ -35,6 +49,20 @@ y este proyecto sigue [Semantic Versioning](https://semver.org/lang/es/).
   badge de estado del workflow.
 
 ### Fixed
+- Detener un servicio ya no deja procesos huérfanos: los hijos que cambian de
+  SID al arrancar (`nohup`, `setsid`, `pm2`, `docker run -d`) se detienen
+  siguiendo el linaje, y el puerto solo se libera cuando la propiedad es
+  demostrable, nunca a ciegas.
+- `Stop` con un PID válido y sin PGID ya no es una operación nula: el PID es un
+  objetivo de muerte por sí mismo y su linaje se señala proceso a proceso.
+- La reserva de puertos es segura ante arranques concurrentes, y el puerto
+  vuelve al pool al detener el servicio.
+- Un servicio sin puerto ya no aborta el stack entero ni derriba a sus
+  hermanos sanos.
+- Un puerto que vroom no pudo confirmar se distingue de un servicio sin puerto,
+  tanto en el badge de la TUI como en la salida JSON.
+- El entorno del proceso hijo ya no se trunca al inyectar `PORT` y `HOST`: se
+  fusiona con el entorno existente.
 - Consultar los bare repos para descubrir sus worktrees (antes se omitían).
 - Mostrar el error de topología de la fila de repo aunque el repo tenga hijos.
 - No contar ni plegar los worktrees anidados al agregar el estado de un grupo.
