@@ -30,7 +30,7 @@ flowchart TD
     F -->|off| Z
     F -->|auto / named| G[Derivar nombre de la ruta]
 
-    G --> H{State dir<br/>PORTLESS_HOME → XDG → HOME}
+    G --> H{State dir<br/>PORTLESS_STATE_DIR → XDG → HOME<br/>(medido M16)}
     H -->|ilegible| D1[degraded: portless_missing]
     H -->|ok| I{proxy.port existe?}
 

@@ -80,8 +80,12 @@ inyectado, con la misma forma que el `procRoot` que ya usan las lecturas de
 Y dos rutas que **no se pueden hardcodear**, porque vroom corre bajo un gestor de
 servicios cuyo entorno no es el shell de login del usuario:
 
-- **State dir**: `$PORTLESS_HOME` → `$XDG_STATE_HOME/portless` → `$HOME/.portless`.
-  Nunca `/home/buble/.portless`.
+- **State dir**: `$PORTLESS_STATE_DIR` → `$XDG_STATE_HOME/portless` →
+  `$HOME/.portless`. Nunca `/home/buble/.portless`.
+  > **CORRECCIÓN MEDIDA (M16):** este plan decía `$PORTLESS_HOME` como primer
+  > paso. Es incorrecto —el CLI honra `$PORTLESS_STATE_DIR` e ignora
+  > `$PORTLESS_HOME`— e implementarlo así hacía las rutas imposibles de quitar.
+  > Ver `context.md` y `portless.ResolveStateDir()`.
 - **Binario**: `$PORTLESS_BIN` → `exec.LookPath("portless")` → directorios de shim
   de mise conocidos. Medido: `env -i PATH=/usr/bin:/bin` **no** lo resuelve.
 
@@ -176,7 +180,7 @@ Cada fila está **medida** o **eliminada**. No hay filas "aceptadas" ni
 | R3 | Ruta registrada contra puerto cerrado → `502` | **eliminado** | M9 + orden: se registra sólo después de que el discovery confirme el puerto. La ventana es despreciable y la verificación en vivo distingue "el proxy enruta" de "el servicio responde" |
 | R4 | Ruta apunta al **reservado** y no al **real** | **eliminado** | La fuente es `d.Port` del discovery, nunca `reserved` ni `meta.ReservedPort`. Escenario propio, porque es el fallo silencioso plausible de este slice |
 | R5 | Binario colgado cuelga el arranque | **eliminado** | Timeout en toda llamada, incluido el propio arranque |
-| R6 | Path hardcodeado de estado o `PATH` desnudo | **eliminado** | State dir por `$PORTLESS_HOME` → `$XDG_STATE_HOME/portless` → `$HOME/.portless`; binario por `$PORTLESS_BIN` → `LookPath` → shims. Nada de `/home/buble/...` |
+| R6 | Path hardcodeado de estado o `PATH` desnudo | **eliminado** | State dir por `$PORTLESS_STATE_DIR` → `$XDG_STATE_HOME/portless` → `$HOME/.portless` (orden corregido por M16); binario por `$PORTLESS_BIN` → `LookPath` → shims. Nada de `/home/buble/...` |
 | R7 | URL con esquema TLS o puerto distinto de 1355 | **eliminado** | **No se supone nada: se prueba.** Se intenta `https` y luego `http`, y se publica el que responde. El caso TLS no está medido y **no hace falta medirlo**, porque el diseño no tiene un supuesto que el TLS pueda refutar |
 | R8 | La ruta está escrita pero el proxy no la sirve, y se reporta como disponible | **medido** + **eliminado** | M1: `alias` no contacta con el proxy, así que `exit 0` con el proxy caído escribe la ruta y miente por omisión. Eliminado por la verificación obligatoria contra el proxy vivo, y por M11 como espejo del comportamiento correcto |
 | R9 | `proxy.port` no existe porque el proxy está parado | **medido** + **eliminado** | M6: el fichero sólo existe mientras corre. Su ausencia **es** el mecanismo de detección: degrada con `proxy_not_running`. Nunca se cae a un puerto supuesto |

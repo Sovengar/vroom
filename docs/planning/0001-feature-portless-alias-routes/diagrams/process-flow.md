@@ -36,7 +36,7 @@ flowchart TD
 
     subgraph DEC["Decisiones fijadas, no a relitigar"]
       D1["vroom SÓLO registra alias<br/>nunca arranca ni gestiona el proxy"]
-      D2["state dir: PORTLESS_HOME → XDG → HOME<br/>binario: PORTLESS_BIN → LookPath → shims<br/>nada de /home/buble hardcodeado"]
+      D2["state dir: PORTLESS_STATE_DIR → XDG → HOME (medido M16)<br/>binario: PORTLESS_BIN → LookPath → shims<br/>nada de /home/buble hardcodeado"]
       D3["Suite hermética por seam inyectado<br/>CI no tiene portless ni node 24 ni proxy"]
     end
 
