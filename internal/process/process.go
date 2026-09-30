@@ -24,6 +24,11 @@ const (
 	// StatusNoPort: el proceso está vivo y no tiene puerto TCP, y eso es su
 	// estado, no una espera pendiente.
 	StatusNoPort Status = "no_port"
+	// StatusPortUnresolved: el proceso está vivo y el discovery se agotó
+	// sin decidir el puerto principal. Distinto de StatusNoPort a propósito:
+	// "no tiene puerto" y "no lo sabemos todavía" no admiten el mismo
+	// tratamiento en la UI.
+	StatusPortUnresolved Status = "port_unresolved"
 )
 
 // DefaultStopTimeout es el timeout de SIGTERM antes de SIGKILL.
@@ -78,6 +83,10 @@ type EvalSpec struct {
 	// vuelo: si el proceso vive y el puerto aún no abre, el estado es
 	// "pending", no "unknown". Sólo lo fija el arranque en modo dynamic.
 	PortPending bool
+	// PortUnresolved marca que el discovery se agotó sin decidir puerto.
+	// El proceso vive y puede que aún no haya hecho bind; no es "no tiene
+	// puerto" ni "todo bien".
+	PortUnresolved bool
 }
 
 // Manager es la abstracción de gestión de procesos portable a Windows.

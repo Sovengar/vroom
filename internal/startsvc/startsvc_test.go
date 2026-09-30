@@ -196,7 +196,8 @@ func TestNoTCPPortIsRecordedNotHung(t *testing.T) {
 	f.command(t, "udp-only")
 
 	start := time.Now()
-	out, err := f.start(t, 2*time.Second)
+	// 700ms de plazo + la ventana de gracia acotada.
+	out, err := f.start(t, 700*time.Millisecond)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -204,7 +205,7 @@ func TestNoTCPPortIsRecordedNotHung(t *testing.T) {
 	}
 	f.cleanup(t, out)
 
-	if elapsed > 8*time.Second {
+	if elapsed > 20*time.Second {
 		t.Errorf("el arranque no debe colgarse: tardó %s", elapsed)
 	}
 	if out.Meta.State != state.StateNoPort {
@@ -517,5 +518,98 @@ func TestR3NonHTTPPicksLowestAndMarksUnverified(t *testing.T) {
 	low2 := minPort(mustAtoiT(t, env2["PORT_A"]), mustAtoiT(t, env2["PORT_B"]))
 	if out2.Port != low2 {
 		t.Errorf("R3 debe ser determinista: %d vs %d", out2.Port, low2)
+	}
+}
+
+// M2, en el limite: un servicio que hace bind DESPUES del plazo de
+// discovery no puede acabar etiquetado "sin puerto". El vencimiento del
+// plazo no prueba ausencia —un Next.js de 12s y un worker solo-UDP lucen
+// igual durante 12s—, asi que hay una segunda ventana acotada que es la
+// via de recuperacion. TestSlowBindKeepsItsPort usa 3s contra 8s de
+// presupuesto y solo probaba el camino feliz dentro de un margen comodo.
+func TestBindsAfterDeadlineIsRecoveredNotNoPort(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integración: spawn real")
+	}
+	f := newFixture(t)
+	// El bind llega 3s después; el discovery se rinde a los 700ms.
+	f.command(t, "honors-port", "VROOM_HELPER_DELAY=3s")
+
+	out, err := f.start(t, 700*time.Millisecond)
+	if err != nil {
+		t.Fatalf("vencido el plazo no es un fallo de arranque: %v", err)
+	}
+	f.cleanup(t, out)
+
+	if out.Meta.State == state.StateNoPort {
+		t.Fatal("un servicio que hace bind pasado el plazo no es un servicio sin puerto")
+	}
+	if out.Meta.State != state.StateRunning {
+		t.Fatalf("State = %q, want running (la ventana de gracia debe recuperar el puerto)", out.Meta.State)
+	}
+	if out.Port == 0 {
+		t.Fatal("la ventana de gracia debía haber resuelto el puerto")
+	}
+	if !process.PortOpen(out.Port) {
+		t.Errorf("el puerto recuperado %d debería estar escuchando", out.Port)
+	}
+	if !out.Meta.PortVerified {
+		t.Error("el puerto recuperado está verificado contra un listener real")
+	}
+}
+
+// El caso genuinamente sin puerto TCP conserva su propio estado: los dos
+// hechos no pueden acabar en el mismo cubo.
+func TestGenuinelyNoPortIsStillNoPort(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integración: spawn real")
+	}
+	f := newFixture(t)
+	f.command(t, "udp-only") // vive y nunca abre un puerto TCP
+
+	out, err := f.start(t, 700*time.Millisecond)
+	if err != nil {
+		t.Fatalf("un servicio sin puerto TCP no es un fallo: %v", err)
+	}
+	f.cleanup(t, out)
+
+	if out.Meta.State != state.StateNoPort {
+		t.Errorf("State = %q, want no_port (vivo y sin listener TCP en toda la ventana)", out.Meta.State)
+	}
+	if out.Meta.Port != 0 {
+		t.Errorf("meta.Port = %d, want 0", out.Meta.Port)
+	}
+}
+
+// El tercer hecho: hay listeners pero ninguno se puede declarar principal.
+// No es "sin puerto" y no es "todo bien": se nombra sin decidir y el puerto
+// NO se inventa.
+func TestChurningListenersEndUnresolved(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integración: spawn real")
+	}
+	f := newFixture(t)
+	f.command(t, "churn") // listeners nuevos cada 100ms, conjunto inestable
+
+	out, err := f.start(t, 700*time.Millisecond)
+	if err != nil {
+		t.Fatalf("puerto sin decidir no es un fallo de arranque: %v", err)
+	}
+	f.cleanup(t, out)
+
+	if out.Meta.State == state.StateNoPort {
+		t.Fatal("un servicio con listeners no es un servicio sin puerto")
+	}
+	if out.Meta.State != state.StatePortUnresolved {
+		t.Fatalf("State = %q, want port_unresolved", out.Meta.State)
+	}
+	if out.Meta.Port != 0 {
+		t.Errorf("no se decidió puerto, meta.Port debe seguir en 0, es %d", out.Meta.Port)
+	}
+	if out.Meta.PortVerified {
+		t.Error("un puerto sin decidir no puede marcarse verificado")
+	}
+	if len(out.Warnings) == 0 {
+		t.Error("el usuario tiene que enterarse de que el puerto no se resolvió")
 	}
 }

@@ -2523,3 +2523,72 @@ func TestRefreshEvaluatesResolvedPortWithoutPending(t *testing.T) {
 		t.Errorf("status = %s, want running", res.results[dir].status)
 	}
 }
+
+// M2: con el puerto sin resolver NO se muestra ni se sondea el puerto
+// declarado. El declarado nunca se confirmó como de este servicio, y puede
+// ser el de otro worktree: la tab Health,有 que quedarse quieta.
+func TestHealthTabDoesNotProbeUnresolvedDeclaredPort(t *testing.T) {
+	p := scanner.Project{
+		Path: "/tmp/x", Name: "x", Configured: true,
+		Manifest: &manifest.Manifest{
+			Name: "x", Command: "run", Port: 8080, PortMode: manifest.PortModeDynamic,
+		},
+	}
+	sv := &ServiceState{
+		Status: statusPortUnresolved,
+		Meta:   state.Meta{Pid: 4242, State: state.StatePortUnresolved},
+	}
+
+	if got := displayPort(p, sv); got != 0 {
+		t.Errorf("displayPort = %d, want 0: un puerto sin resolver no se cae al declarado", got)
+	}
+
+	badge := statusBadge(p, sv, "SPIN", "START")
+	if strings.Contains(badge, "8080") {
+		t.Errorf("el badge no debe mostrar el puerto declarado sin confirmar: %q", badge)
+	}
+	if !strings.Contains(badge, "port unresolved") {
+		t.Errorf("el estado debe nombrarse: %q", badge)
+	}
+	if !sv.Status.alive() {
+		t.Error("un servicio con el puerto sin resolver sigue siendo detenible")
+	}
+
+	m := Model{
+		projects: []scanner.Project{p},
+		services: map[string]*ServiceState{p.Path: sv},
+		tree:     []treeItem{{kind: itemProject, project: p}},
+	}
+	if cmd := m.healthCmd(); cmd != nil {
+		t.Error("la tab Health no debe lanzar un probe contra un puerto sin confirmar")
+	}
+	lines := m.healthLines(80)
+	joined := strings.Join(lines, " ")
+	if strings.Contains(joined, "8080") || strings.Contains(joined, "127.0.0.1") {
+		t.Errorf("la vista de Health no debe emitir una URL contra el puerto declarado: %q", joined)
+	}
+	if !strings.Contains(joined, "unresolved") {
+		t.Errorf("la vista de Health debe explicar por qué no sondea: %q", joined)
+	}
+}
+
+// Un puerto resuelto sigue mostrando y sondeando el puerto real: el guard
+// anterior no puede rotten la ruta que sí debe funcionar.
+func TestHealthTabStillProbesResolvedPort(t *testing.T) {
+	p := scanner.Project{
+		Path: "/tmp/x", Name: "x", Configured: true,
+		Manifest: &manifest.Manifest{
+			Name: "x", Command: "run", Port: 8080, PortMode: manifest.PortModeDynamic,
+		},
+	}
+	sv := &ServiceState{
+		Status: statusRunning,
+		Meta:   state.Meta{Pid: 4242, Port: 41501, State: state.StateRunning, PortVerified: true},
+	}
+	if got := displayPort(p, sv); got != 41501 {
+		t.Fatalf("displayPort = %d, want el puerto real 41501", got)
+	}
+	if url := healthURL(&p, sv); url != "http://127.0.0.1:41501/" {
+		t.Errorf("healthURL = %q, want el puerto real", url)
+	}
+}

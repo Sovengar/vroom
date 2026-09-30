@@ -54,6 +54,8 @@ func TestHelperService(t *testing.T) {
 		startTwoHTTPListeners()
 	case "two-raw-ports": // sockets crudos: ningún health_path responde
 		startTwoRawListeners()
+	case "churn": // abre listeners sin parar: el conjunto nunca se estabiliza
+		startChurningListeners()
 	case "die": // muere antes de hacer bind
 		os.Exit(1)
 	default: // honra PORT
@@ -62,6 +64,27 @@ func TestHelperService(t *testing.T) {
 			os.Exit(2)
 		}
 		hold(port)
+	}
+}
+
+// startChurningListeners abre un listener nuevo cada 100ms y cierra el
+// anterior. El conjunto de listeners del linaje no para de cambiar, así que
+// nunca se estabiliza y el discovery no puede decidir cuál es el principal:
+// es el caso "unresolved" de verdad, distinto de "no tiene puertos".
+func startChurningListeners() {
+	var prev net.Listener
+	defer func() {
+		if prev != nil {
+			_ = prev.Close()
+		}
+	}()
+	for range 200 {
+		ln := mustListen(0)
+		if prev != nil {
+			_ = prev.Close()
+		}
+		prev = ln
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 

@@ -125,13 +125,17 @@ const (
 	statusPortPending uiStatus = "starting, port pending"
 	// statusNoPort: vivo y sin puerto TCP por diseño.
 	statusNoPort uiStatus = "running, no port"
+	// statusPortUnresolved: vivo, y el discovery se agotó sin decidir su
+	// puerto. No es "no port": aquí no lo sabemos todavía.
+	statusPortUnresolved uiStatus = "running, port unresolved"
 )
 
 // aliveStatuses son los estados en los que hay un proceso vivo detrás. Un
-// puerto pendiente o ausente NO lo deja de ser: sigue siendo detenible.
+// puerto pendiente, ausente o sin decidir NO lo deja de ser: sigue siendo
+// detenible.
 func (s uiStatus) alive() bool {
 	switch s {
-	case statusRunning, statusUnknown, statusPortPending, statusNoPort:
+	case statusRunning, statusUnknown, statusPortPending, statusNoPort, statusPortUnresolved:
 		return true
 	default:
 		return false
@@ -535,6 +539,7 @@ func refreshCmd(store *state.Store, manager process.Manager, projects []scanner.
 					Port:           meta.Port,
 					ProcessPattern: meta.ProcessPattern,
 					PortPending:    meta.State == state.StatePortPending,
+					PortUnresolved: meta.State == state.StatePortUnresolved,
 				})
 			}
 			results[p.Path] = r
@@ -1049,6 +1054,10 @@ func mapUIStatus(s process.Status) uiStatus {
 		return statusUnknown
 	case process.StatusPortPending:
 		return statusPortPending
+	case process.StatusPortUnresolved:
+		return statusPortUnresolved
+	case process.StatusNoPort:
+		return statusNoPort
 	case process.StatusStopped:
 		return statusStopped
 	default:
@@ -2178,9 +2187,20 @@ func (m Model) projectByPath(path string) *scanner.Project {
 // POR DEFECTO de la app; en dynamic no es el puerto real, así que la única
 // fuente de verdad para lo vivo es meta.Port. Sólo cuando no hay servicio
 // en marcha se cae al declarado, que es lo que el usuario espera ver parado.
+//
+// Excepción deliberada: con el puerto sin resolver no se cae al declarado.
+// Mostrar 8080 como si fuera el puerto de este servicio, y sobre todo
+// sondearlo, es peor que no mostrar nada: puede ser el puerto del twin de
+// otro worktree. Un puerto nunca confirmado no es un objetivo de sonda
+// legítimo.
 func displayPort(p scanner.Project, sv *ServiceState) int {
-	if sv != nil && sv.Meta.Port > 0 {
-		return sv.Meta.Port
+	if sv != nil {
+		if sv.Meta.State == state.StatePortUnresolved {
+			return 0
+		}
+		if sv.Meta.Port > 0 {
+			return sv.Meta.Port
+		}
 	}
 	if p.Manifest != nil && p.Manifest.Port > 0 {
 		return p.Manifest.Port
@@ -2203,6 +2223,8 @@ func statusBadge(p scanner.Project, sv *ServiceState, spinnerView, startSpinnerV
 			return styleStopping.Render("○ stopping")
 		case statusPortPending:
 			return startSpinnerView + styleStarting.Render(" starting, port pending")
+		case statusPortUnresolved:
+			return styleRunning.Render("● running") + " " + styleWarn.Render(" port unresolved")
 		case statusNoPort:
 			return styleRunning.Render("● running") + " " + styleDim.Render("(no port)")
 		case statusUnknown:

@@ -135,6 +135,16 @@ func resolveDynamicPort(req Request, attempt state.Meta, reserved int) (Result, 
 	out := Result{Pid: attempt.Pid, Port: d.Port}
 
 	switch {
+	case d.Unresolved:
+		// El plazo se agotó sin decidir. El proceso vive y puede que aún no
+		// haya hecho bind: un Next.js que tarda 12s cae aquí. NO es
+		// StateNoPort, porque ese afirma que no hay puerto y este afirma
+		// que no lo sabemos. Presentarlo como "sin puerto" hacía que
+		// displayPort cayera al puerto declarado y la tab Health sondeara
+		// un puerto que nunca se confirmó — posiblemente el de otro worktree.
+		final.State = state.StatePortUnresolved
+		out.Warnings = append(out.Warnings,
+			fmt.Sprintf("service did not bind within %s; its port is unresolved, not absent — restart the service to retry discovery", timeout))
 	case d.Port == 0 && len(d.All) == 0:
 		// Sin puerto TCP con el linaje vivo: solo-UDP, worker, o una app
 		// sin servidor. Es un estado, no un fallo de arranque.

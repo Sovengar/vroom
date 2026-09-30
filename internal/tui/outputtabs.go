@@ -14,6 +14,7 @@ import (
 	"vroom/internal/orchestrate"
 	"vroom/internal/process"
 	"vroom/internal/scanner"
+	"vroom/internal/state"
 )
 
 // ---- Tab 3: Metrics ----
@@ -376,6 +377,12 @@ func (m Model) healthLines(w int) []string {
 	}
 	if !p.Configured {
 		return []string{styleDim.Render(trunc("no manifest — create a .vroom.toml to enable", w))}
+	}
+	if sv := m.services[p.Path]; sv != nil && sv.Meta.State == state.StatePortUnresolved {
+		// El puerto existe pero nadie lo ha confirmado. Mostrar el declarado
+		// y sondearlo apuntaría a un puerto que puede ser el de otro
+		// worktree; no se hace.
+		return []string{styleWarn.Render(trunc("port unresolved — the service did not bind in time", w))}
 	}
 	if p.Manifest == nil || displayPort(*p, m.services[p.Path]) == 0 {
 		return []string{styleDim.Render("no port configured — set port = N in .vroom.toml")}

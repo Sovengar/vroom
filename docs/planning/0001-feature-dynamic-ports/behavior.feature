@@ -137,6 +137,25 @@ Feature: Puertos dinamicos por worktree con el puerto real como unica verdad
     Then el puerto se resuelve correctamente
     And el servicio NO se reporta como "sin puerto"
 
+  Scenario: Vencido el plazo, vroom reintenta antes de rendirse
+    Given un servicio en modo dinamico que hace bind despues del plazo de
+      discovery pero dentro de una segunda ventana acotada
+    When el usuario arranca el servicio
+    Then el puerto se resuelve igualmente y queda verificado
+    And NO queda en estado "puerto sin resolver"
+
+  Scenario: Un puerto sin resolver no es lo mismo que no tener puerto
+    Given un servicio en modo dinamico al que NO se le puede decidir el puerto:
+      o el plazo se agota antes de que aparezca, o hay varios listeners y
+      ninguno se puede declarar principal
+    When el usuario mira el estado y la tab de salud
+    Then vroom NO lo etiqueta como "sin puerto"
+    And vroom dice explicitamente que el puerto esta sin resolver
+    And NO muestra el puerto declarado como si fuera el suyo
+    And la sonda de salud NO se ejecuta contra el puerto declarado
+    And el servicio sigue siendo detenible
+    And un reinicio del servicio vuelve a intentar descubrir el puerto
+
   Scenario: El puerto mostrado y el de la sonda de salud son el mismo
     Given un servicio en modo dinamico ya arrancado con un puerto real
     When el usuario abre la vista de servicio, el dashboard, la tab de health
