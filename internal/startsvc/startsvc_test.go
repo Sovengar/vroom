@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -326,9 +327,67 @@ func TestStartWindowNeverReportsDeadProcessAsStopped(t *testing.T) {
 	}
 }
 
-// Dos servicios dynamic del mismo manifiesto base reciben puertos distintos:
-// es la premisa del feature (dos worktrees a la vez).
+// H1: dos arranques CONCURRENTES en el mismo proceso nunca comparten
+// puerto. El test secuencial de abajo no lo podía cazar por construcción:
+// arrancaba A, esperaba su resolución completa y sólo entonces pedía B, con
+// el puerto de A ya ocupado por un listener real.
+//
+// Este es el camino real de producción: toggleNode devuelve tea.Batch y
+// bubbletea corre los comandos en paralelo, y Launch arranca cada servicio
+// de una etapa en su propia goroutine.
+func TestConcurrentDynamicStartsGetDistinctPorts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integración: spawn real")
+	}
+
+	const n = 6 // > el número de helpers concurrentes que caben sin flakiness
+	fixtures := make([]*fixture, n)
+	for i := range fixtures {
+		fixtures[i] = newFixture(t)
+		fixtures[i].command(t, "honors-port")
+	}
+
+	results := make([]Result, n)
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := range fixtures {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start // todos a la vez: es la carrera, no la secuencia
+			results[i], errs[i] = fixtures[i].start(t, 8*time.Second)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	for i := range fixtures {
+		if errs[i] != nil {
+			t.Fatalf("arranque %d: %v", i, errs[i])
+		}
+		fixtures[i].cleanup(t, results[i])
+	}
+
+	seen := map[int]int{}
+	for i, r := range results {
+		if r.Port == 0 {
+			t.Errorf("arranque %d no resolvió puerto: %+v", i, r)
+		}
+		if first, dup := seen[r.Port]; dup {
+			t.Fatalf("arranques %d y %d comparten el puerto %d", first, i, r.Port)
+		}
+		seen[r.Port] = i
+	}
+}
+
+// Dos arranques SECUENCIALES reciben puertos distintos: es la premisa del
+// feature (dos worktrees a la vez) y la sigue cubriendo el set, porque el
+// puerto de A no se devuelve al set mientras su proceso viva.
 func TestTwoDynamicStartsGetDistinctPorts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integración: spawn real")
+	}
 	a, b := newFixture(t), newFixture(t)
 	a.command(t, "honors-port")
 	b.command(t, "honors-port")
@@ -346,6 +405,24 @@ func TestTwoDynamicStartsGetDistinctPorts(t *testing.T) {
 
 	if outA.Port == outB.Port {
 		t.Errorf("dos servicios simultaneouss comparten el puerto %d", outA.Port)
+	}
+}
+
+// Un intento fallido devuelve su puerto: el set no debe，依照累加器leakear
+// huecos en un proceso de larga vida.
+func TestFailedAttemptReleasesItsReservedPort(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integración: spawn real")
+	}
+	f := newFixture(t)
+	f.command(t, "die") // muere antes de hacer bind
+
+	// El puerto que el intento fallido liberó tiene que volver a estar
+	// disponible: se reserva muchísimas veces y nunca se agota el rango.
+	for i := 0; i < 40; i++ {
+		if _, err := f.start(t, 5*time.Second); err == nil {
+			t.Fatal("un servicio que muere debe fallar el arranque")
+		}
 	}
 }
 

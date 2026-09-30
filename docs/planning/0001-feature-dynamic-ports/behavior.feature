@@ -115,6 +115,15 @@ Feature: Puertos dinamicos por worktree con el puerto real como unica verdad
     And el tiempo hasta el reporte es acotado, del orden de 1 segundo
     And vroom NO espera a agotar el timeout del discovery
 
+  Scenario: Dos arranques concurrentes no comparten puerto
+    Given un manifiesto en modo dinamico
+    And dos servicios que se arrancan A LA VEZ (una etapa de stack, o un
+      nodo de grupo al que se pulsa una vez)
+    When ambos reservan su puerto al mismo tiempo
+    Then vroom devuelve dos puertos distintos
+    And ninguno de los dos arranca en el puerto del otro
+    And un arranque que falla devuelve su puerto al pool
+
   Scenario: Un servicio solo-UDP no cuelga el arranque
     Given un servicio en modo dinamico que nunca abre un puerto TCP
     When el usuario arranca el servicio
