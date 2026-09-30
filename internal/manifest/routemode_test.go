@@ -38,7 +38,7 @@ func TestValidateRejectsUnknownRouteMode(t *testing.T) {
 // que vroom no puede cumplir.
 func TestValidateRouteModeRequiresAPort(t *testing.T) {
 	rejected := []Manifest{
-		{Name: "x", Command: "run", RouteMode: RouteModeAuto},                 // sin puerto
+		{Name: "x", Command: "run", RouteMode: RouteModeAuto}, // sin puerto
 		{Name: "x", Command: "run", PortMode: PortModeNone, RouteMode: RouteModeAuto},
 		{Name: "x", Command: "run", PortMode: PortModeDynamic, RouteMode: RouteModeAuto}, // sin default
 	}
