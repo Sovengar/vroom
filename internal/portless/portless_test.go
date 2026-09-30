@@ -540,6 +540,34 @@ func TestHangingBinaryIsBounded(t *testing.T) {
 	}
 }
 
+// Un binario AUSENTE y uno ROTO son dos arreglos distintos: el primero se
+// instala, el segundo se depura. Con la ruta mal puesta, exec devuelve el error
+// de fork/exec y no ErrNotFound, así que sin mirar el texto los dos acababan
+// con el mismo aviso — y el usuario iba a depurar un Node viejo que no era la
+// causa.
+func TestMissingBinaryIsDistinguishedFromFailingBinary(t *testing.T) {
+	t.Run("binario inexistente", func(t *testing.T) {
+		c := New(
+			WithBinary(filepath.Join(t.TempDir(), "no-existe")),
+			WithStateDir(t.TempDir()),
+			WithTimeout(2*time.Second),
+		)
+		res := c.Apply("nada.vroom", 4321)
+		if res.Reason != ReasonPortlessMissing {
+			t.Errorf("un binario que no está debe ser portless_not_found, got %q", res.Reason)
+		}
+	})
+
+	t.Run("binario que falla", func(t *testing.T) {
+		f := newFake()
+		f.binErr = errors.New("Error: requires Node >= 24")
+		res := f.client(t).Apply("roto.vroom", 4321)
+		if res.Reason != ReasonPortlessFailed {
+			t.Errorf("un binario que sale con error debe ser portless_failed, got %q", res.Reason)
+		}
+	})
+}
+
 // Remove de un nombre inexistente es BENIGNO (M10): un stop repetido no es un
 // error, y exigir el nombre convertiría el segundo stop en un fallo.
 func TestRemoveMissingIsBenign(t *testing.T) {

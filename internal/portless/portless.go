@@ -200,13 +200,23 @@ func (c *Client) Binary() string { return c.bin }
 // StateDir devuelve el directorio de estado resuelto.
 func (c *Client) StateDir() string { return c.stateDir }
 
-// ResolveStateDir resuelve el directorio de estado de portless, en orden:
-// $PORTLESS_HOME → $XDG_STATE_HOME/portless → $HOME/.portless.
+// ResolveStateDir resuelve el directorio de estado de portless.
+//
+// MEDIDO contra portless 0.15.6, y corregido sobre lo que decía el plan: la
+// variable que el CLI honra es $PORTLESS_STATE_DIR, y $PORTLESS_HOME **no la
+// honra en absoluto**. Implementar el orden del plan producía dos vistas
+// distintas del mismo estado —vroom leía proxy.port de un directorio y el
+// binario escribía routes.json en otro— y el síntoma era una ruta que se
+// registraba y luego no se podía quitar. Un seam que resuelve una ruta que la
+// herramienta no resuelve no es una ventaja: es un modo de fallo silencioso.
+//
+// El orden es entonces: $PORTLESS_STATE_DIR → $XDG_STATE_HOME/portless →
+// $HOME/.portless. Los dos últimos son el default del propio CLI.
 //
 // Nunca devuelve un path de un usuario concreto: vroom corre bajo un gestor de
 // servicios cuyo entorno no es el shell de login.
 func ResolveStateDir() string {
-	if v := os.Getenv("PORTLESS_HOME"); v != "" {
+	if v := os.Getenv("PORTLESS_STATE_DIR"); v != "" {
 		return v
 	}
 	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
