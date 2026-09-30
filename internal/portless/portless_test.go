@@ -208,7 +208,7 @@ func TestRouteWrittenWithProxyDownIsNotReportedAvailable(t *testing.T) {
 	c := f.client(t)
 	f.noProxy = true // el proxy no sirve
 
-	res := c.Apply("down.vroom", 4321)
+	res := c.Apply("down.vroom", 4321, 0)
 
 	if res.Status != StatusDegraded {
 		t.Fatalf("una ruta escrita con el proxy parado NO puede reportarse disponible, got %q", res.Status)
@@ -245,7 +245,7 @@ func TestRoutesFileAloneIsNotVerification(t *testing.T) {
 			return 404, nil // el proxy responde, pero no conoce el host
 		}),
 	)
-	res := c2.Apply("written-but-not-served.vroom", 4321)
+	res := c2.Apply("written-but-not-served.vroom", 4321, 0)
 	if res.Succeeded() {
 		t.Error("un 404 significa que el proxy no enruta: no puede reportarse registered")
 	}
@@ -268,7 +268,7 @@ func TestMissingProxyPortDegradesWithoutAssuming1355(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := c.Apply("noproxy.vroom", 4321)
+	res := c.Apply("noproxy.vroom", 4321, 0)
 	if res.Reason != ReasonProxyNotRunning {
 		t.Fatalf("sin proxy.port el motivo debe ser proxy_not_running, got %q", res.Reason)
 	}
@@ -291,7 +291,7 @@ func TestCorruptProxyPortDegrades(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(c.stateDir, "proxy.port"), []byte("no-es-un-puerto"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res := c.Apply("corrupt.vroom", 4321)
+	res := c.Apply("corrupt.vroom", 4321, 0)
 	if res.Reason != ReasonProxyNotRunning {
 		t.Errorf("un proxy.port ilegible debe degradar como proxy parado, got %q", res.Reason)
 	}
@@ -426,7 +426,7 @@ func TestReadBackDetectsNameTakenByAnotherPort(t *testing.T) {
 	}
 	c.exec = readBack
 
-	res := c.Apply("taken", 4321)
+	res := c.Apply("taken", 4321, 0)
 	if res.Succeeded() {
 		t.Fatal("una ruta cuyo nombre tiene otro puerto NO puede reportarse registrada")
 	}
@@ -442,7 +442,7 @@ func TestReadBackDetectsNameTakenByAnotherPort(t *testing.T) {
 func TestReadBackConfirmsOurs(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
-	res := c.Apply("mine.vroom", 4321)
+	res := c.Apply("mine.vroom", 4321, 0)
 	if !res.Succeeded() {
 		t.Fatalf("la lectura de vuelta debía confirmar la ruta: %+v", res)
 	}
@@ -464,7 +464,7 @@ func TestBackendErrorStillCountsAsRouted(t *testing.T) {
 	f.probeStatus = 502
 	c := f.client(t)
 
-	res := c.Apply("502.vroom", 4321)
+	res := c.Apply("502.vroom", 4321, 0)
 	if !res.Succeeded() {
 		t.Fatalf("un 502 prueba que el proxy enruta la ruta: %+v", res)
 	}
@@ -481,7 +481,7 @@ func TestSchemeIsProbedNotAssumed(t *testing.T) {
 	t.Run("http responde primero", func(t *testing.T) {
 		f := newFake()
 		c := f.client(t)
-		res := c.Apply("plain.vroom", 4321)
+		res := c.Apply("plain.vroom", 4321, 0)
 		if !strings.HasPrefix(res.Url, "http://") {
 			t.Errorf("un proxy sin TLS debe publicar http, got %q", res.Url)
 		}
@@ -502,7 +502,7 @@ func TestSchemeIsProbedNotAssumed(t *testing.T) {
 				return 0, errors.New("connection refused")
 			}),
 		)
-		res := only.Apply("tls.vroom", 4321)
+		res := only.Apply("tls.vroom", 4321, 0)
 		if !strings.HasPrefix(res.Url, "https://") {
 			t.Errorf("si https responde se publica https, got %q", res.Url)
 		}
@@ -519,7 +519,7 @@ func TestMissingBinaryDegradesWithoutInvokingPortless(t *testing.T) {
 		return "", 0, nil
 	}), WithStateDir(t.TempDir()))
 
-	res := c.Apply("nobin.vroom", 4321)
+	res := c.Apply("nobin.vroom", 4321, 0)
 	if res.Reason != ReasonPortlessMissing {
 		t.Errorf("sin binario el motivo debe ser portless_not_found, got %q", res.Reason)
 	}
@@ -534,7 +534,7 @@ func TestFailingBinaryDegrades(t *testing.T) {
 	f.binErr = errors.New("Error: requires Node >= 24")
 	c := f.client(t)
 
-	res := c.Apply("nodeold.vroom", 4321)
+	res := c.Apply("nodeold.vroom", 4321, 0)
 	if res.Reason != ReasonPortlessFailed {
 		t.Errorf("un binario que falla debe degradar, got %q", res.Reason)
 	}
@@ -560,7 +560,7 @@ func TestHangingBinaryIsBounded(t *testing.T) {
 	)
 
 	done := make(chan Result, 1)
-	go func() { done <- c.Apply("hang.vroom", 4321) }()
+	go func() { done <- c.Apply("hang.vroom", 4321, 0) }()
 
 	select {
 	case res := <-done:
@@ -587,7 +587,7 @@ func TestMissingBinaryIsDistinguishedFromFailingBinary(t *testing.T) {
 			WithStateDir(t.TempDir()),
 			WithTimeout(2*time.Second),
 		)
-		res := c.Apply("nada.vroom", 4321)
+		res := c.Apply("nada.vroom", 4321, 0)
 		if res.Reason != ReasonPortlessMissing {
 			t.Errorf("un binario que no está debe ser portless_not_found, got %q", res.Reason)
 		}
@@ -596,7 +596,7 @@ func TestMissingBinaryIsDistinguishedFromFailingBinary(t *testing.T) {
 	t.Run("binario que falla", func(t *testing.T) {
 		f := newFake()
 		f.binErr = errors.New("Error: requires Node >= 24")
-		res := f.client(t).Apply("roto.vroom", 4321)
+		res := f.client(t).Apply("roto.vroom", 4321, 0)
 		if res.Reason != ReasonPortlessFailed {
 			t.Errorf("un binario que sale con error debe ser portless_failed, got %q", res.Reason)
 		}
@@ -645,7 +645,7 @@ func TestFullRouteLifecycle(t *testing.T) {
 	f.routes[Hostname("sibling")] = 5555 // un servicio hermano, con su ruta
 
 	// Arranque: se registra y el proxy la sirve.
-	res := c.Apply("app", 4321)
+	res := c.Apply("app", 4321, 0)
 	if !res.Succeeded() {
 		t.Fatalf("el registro debe verificarse contra el proxy vivo: %+v", res)
 	}
@@ -679,11 +679,11 @@ func TestReRegisterMovesTheRouteToTheNewPort(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
 
-	if res := c.Apply("app", 4000); !res.Succeeded() {
+	if res := c.Apply("app", 4000, 0); !res.Succeeded() {
 		t.Fatalf("primer arranque: %+v", res)
 	}
 	// La app reinicia en otro puerto.
-	if res := c.Apply("app", 4321); !res.Succeeded() {
+	if res := c.Apply("app", 4321, 4000); !res.Succeeded() {
 		t.Fatalf("segundo arranque: %+v", res)
 	}
 
@@ -708,7 +708,7 @@ func TestRouteRegisteredWhileProxyDownIsServedWhenItReturns(t *testing.T) {
 	c := f.client(t)
 	f.noProxy = true // el proxy está parado al arrancar
 
-	res := c.Apply("app", 4321)
+	res := c.Apply("app", 4321, 0)
 	if res.Succeeded() {
 		t.Fatal("con el proxy parado no se puede reportar disponible")
 	}
@@ -736,7 +736,7 @@ func TestVroomRouteDoesNotEvictLivePortlessRoutes(t *testing.T) {
 	// Una app viva de `portless run`, con su pid y su puerto.
 	f.routes[Hostname("live-app")] = 4628
 
-	if res := c.Apply("vroom-app", 4321); !res.Succeeded() {
+	if res := c.Apply("vroom-app", 4321, 0); !res.Succeeded() {
 		t.Fatalf("la ruta de vroom debe registrarse: %+v", res)
 	}
 

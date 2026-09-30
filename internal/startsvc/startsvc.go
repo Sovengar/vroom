@@ -70,7 +70,12 @@ type RouteRegistrar interface {
 	// Apply registra la ruta del servicio en el puerto dado y devuelve lo que
 	// se ha podido PROBAR. Nunca devuelve error: la ausencia de portless es
 	// una degradación con aviso, no un fallo de arranque.
-	Apply(name string, port int) portless.Result
+	//
+	// prevPort es el puerto al que este servicio apuntaba su ruta en el
+	// arranque anterior, o 0 si no tenía ninguna. Sin él no se puede distinguir
+	// "el nombre lo tiene otro dueño" de "es mi ruta y la app reinició en otro
+	// puerto", y el alta destruiría la segunda.
+	Apply(name string, port, prevPort int) portless.Result
 	// Reconcile limpia las rutas que este servicio se dejó en un arranque
 	// anterior. Devuelve avisos, nunca errores.
 	Reconcile(prev string, prevPort int, current string) []string
@@ -265,7 +270,7 @@ func applyRoute(req Request, meta *state.Meta, port int, out *Result) {
 	// `portless prune` no toca las rutas de alias (medido).
 	out.Warnings = append(out.Warnings, req.Routes.Reconcile(meta.RouteName, meta.RoutePort, name)...)
 
-	res := req.Routes.Apply(name, port)
+	res := req.Routes.Apply(name, port, meta.RoutePort)
 	meta.RouteName = res.Name
 	meta.RoutePort = port
 	meta.RouteStatus = res.Status

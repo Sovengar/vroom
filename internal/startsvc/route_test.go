@@ -16,15 +16,17 @@ import (
 // portless, ni Node 24, ni proxy, así que la suite ejercita el ciclo completo
 // contra un doble con el comportamiento MEDIDO.
 type fakeRoutes struct {
-	applied []string        // "name:port" en orden de registro
-	warns   []string        // lo que devuelve Reconcile
-	result  portless.Result // lo que devuelve Apply
+	applied   []string        // "name:port" en orden de registro
+	prevPorts []int           // el puerto persistido que recibió cada Apply
+	warns     []string        // lo que devuelve Reconcile
+	result    portless.Result // lo que devuelve Apply
 }
 
 // Apply devuelve SIEMPRE el nombre que recibió, que es lo que el cliente real
 // hace: el nombre pretendido es un dato de entrada, no del resultado.
-func (f *fakeRoutes) Apply(name string, port int) portless.Result {
+func (f *fakeRoutes) Apply(name string, port, prevPort int) portless.Result {
 	f.applied = append(f.applied, name+":"+itoaTest(port))
+	f.prevPorts = append(f.prevPorts, prevPort)
 	r := f.result
 	r.Name = name
 	r.Host = portless.Hostname(name)
