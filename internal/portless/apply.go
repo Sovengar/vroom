@@ -86,6 +86,20 @@ func Degraded(name, reason string) Result {
 // Apply registra la ruta de un servicio y devuelve lo que se ha podido
 // PROBAR de ella, no lo que se ha pedido.
 //
+// prevPort es el puerto al que apuntaba la ruta de ESTE servicio en el arranque
+// anterior, o 0 si no tenía ninguna. Es lo que permite distinguir dos casos que
+// a primera vista son el mismo —el nombre ya existe con otro puerto— y que
+// tienen后果 opuestos:
+//
+//   - es la ruta de otro dueño → no se toca y se degrada con conflicto. El
+//     fallo cerrado que gobierna la limpieza, aplicado al alta: no se puede
+//     demostrar que sea una ruta huérfana, y destruirla sería el daño que todo
+//     este diseño existe para evitar.
+//   - es la ruta de este servicio y la app reinició en otro puerto → se
+//     actualiza, porque si no la ruta quedaría apuntando a un puerto muerto.
+//   - es la ruta de este servicio en el puerto persistido → es el alta
+//     idempotente de un reinicio, y se permite.
+//
 // El orden de los pasos es el contrato, y cada uno responde a un hecho medido:
 //
 //  1. ¿Hay binario? No → degrada. No es error: la ausencia de portless es la
@@ -93,21 +107,24 @@ func Degraded(name, reason string) Result {
 //  2. ¿El puerto real está resuelto? No → degrada. Registrar contra un puerto
 //     sin resolver sólo compra una ventana de error (M9), y publicar una
 //     dirección a un puerto que nadie escucha es una mentira.
-//  3. Se REGISTRA contra el puerto real. Por M9 el puerto destino no necesita
+//  3. Se CONSULTA el estado previo del nombre y se decide. Por M8 el alta es un
+//     upsert incondicional sin detección de conflictos, así que escribir a
+//     ciegas DESTRUYE la ruta que hubiera. Esta comprobación va ANTES del alta
+//     por eso: después de escribir, la única diferencia entre "mi ruta" y "la
+//     ruta de otro" es la que acabamos de producir nosotros, y compararlas
+//     sería una tautología.
+//  4. Se REGISTRA contra el puerto real. Por M9 el puerto destino no necesita
 //     estar escuchando, y por M3 la ruta sobrevive a un reinicio del proxy: el
 //     registro es persistente y correcto aunque el proxy esté parado, así que
 //     la verificación decide qué se PUBLICA, no si se REGISTRA.
-//  4. Se LEE DE VUELTA y se compara el puerto. Por M8 el alta es un upsert
-//     incondicional sin detección de conflictos: sin esta comparación, dos
-//     vrooms con el mismo nombre se pisan en silencio y ambos reportan éxito.
-//     Esta verificación contesta "¿la ruta es MÍA?".
-//  5. Se SONDA EL PROXY VIVO. Por M1 el binario nunca contacta con el proxy,
-//     así que exit 0 no prueba nada sobre ahora mismo. Ésta contesta
-//     "¿responde AHORA?".
+//  5. Se LEE DE VUELTA y se compara el puerto, para cubrir la ventana entre la
+//     consulta y el alta: otro actor puede tomar el nombre en medio.
+//  6. Se SONDA EL PROXY VIVO. Por M1 el binario nunca contacta con el proxy,
+//     así que exit 0 no prueba nada sobre ahora mismo.
 //
 // Ningún paso puede hacer fallar el arranque: todos devuelven un Result
 // degradado. La salud del servicio no depende de su ruta.
-func (c *Client) Apply(name string, port int) Result {
+func (c *Client) Apply(name string, port, prevPort int) Result {
 	if !c.HasBinary() {
 		return Degraded(name, ReasonPortlessMissing)
 	}
@@ -117,11 +134,30 @@ func (c *Client) Apply(name string, port int) Result {
 		return Degraded(name, ReasonPortUnresolved)
 	}
 
+	// El estado PREVIO es lo que decide si el alta es legítima. Consultar
+	// después de escribir sería una tautología: la tabla compararía lo escrito
+	// contra lo escrito, y no podría distinguir nuestra ruta de la de otro
+	// dueño.
+	existing, found, err := c.Lookup(name)
+	switch {
+	case err != nil:
+		// No se puede ni leer el estado previo: no se escribe nada, porque
+		// escribir sin saber contra qué es exactamente el daño que M8 permite.
+		return Degraded(name, classify(err))
+	case found && existing != port && existing != prevPort:
+		// El nombre lo tiene un puerto que no es el nuestro ni el que
+		// persistimos: es de otro dueño. No se puede demostrar que sea una
+		// ruta huérfana —podría ser la de otra app, o la de otro vroom en
+		// marcha—, y por eso no se toca.
+		return Degraded(name, ReasonRouteConflict)
+	}
+
 	if err := c.Register(name, port); err != nil {
 		return Degraded(name, classify(err))
 	}
 
-	// Lectura de vuelta: propiedad de la ruta, no disponibilidad.
+	// Lectura de vuelta: confirma la escritura y cubre la ventana entre la
+	// consulta y el alta.
 	published, found, err := c.Lookup(name)
 	switch {
 	case err != nil:
@@ -130,8 +166,7 @@ func (c *Client) Apply(name string, port int) Result {
 	case !found:
 		return Degraded(name, ReasonRouteNotServed)
 	case published != port:
-		// M8 en vivo: el nombre lo tiene otro puerto. vroom no reporta éxito
-		// sobre una dirección que no controla.
+		// El nombre cambió de dueño entre la consulta y el alta. M8 en vivo.
 		return Degraded(name, ReasonRouteConflict)
 	}
 

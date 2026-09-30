@@ -51,7 +51,7 @@ func TestIntegrationRealPortless(t *testing.T) {
 	// Sin proxy, el resultado es degradado y NO publica url: la ruta queda
 	// escrita pero no se afirma que responda. Esto es el caso que la suite
 	// hermética no puede demostrar, porque allí el proxy es un doble.
-	res := c.Apply("vroom.integration", 4321)
+	res := c.Apply("vroom.integration", 4321, 0)
 	if res.Succeeded() {
 		t.Fatalf("sin un proxy propio no debe publicarse url, got %+v", res)
 	}
