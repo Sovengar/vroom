@@ -421,38 +421,6 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 
 func boolPtr(b bool) *bool { return &b }
 
-// routeClient devuelve el seam de portless para un manifiesto, o nil si no
-// hay contrato de ruta.
-//
-// Con route_mode = "off" devuelve nil ANTES de resolver nada: vroom ni siquiera
-// busca el binario. Es la puerta de compatibilidad hacia atrás, y por eso la
-// comprobación va antes que portless.Default().
-func routeClient(m *manifest.Manifest) *portless.Client {
-	if m == nil || !portless.RouteModeEnabled(m.EffectiveRouteMode()) {
-		return nil
-	}
-	return portless.Default()
-}
-
-// releaseRoute retira la ruta de un servicio parado. El fallo es BENIGNO por
-// diseño: `alias --remove` de un nombre inexistente sale con 1 (medido, M10) y
-// un stop repetido no es un error. Por eso nunca devuelve error: un stop no
-// puede fallar por una dirección.
-//
-// No necesita el manifiesto porque RouteName sólo se persiste cuando hubo un
-// contrato de ruta: su presencia ya prueba que hay algo que retirar.
-func releaseRoute(meta state.Meta) {
-	if meta.RouteName == "" {
-		return
-	}
-	// El error se descarta a propósito y de forma explícita: quitar una ruta
-	// que no existe sale con 1 (medido) y un stop repetido no es un error. Un
-	// stop no puede fallar por una dirección —el servicio ya está parado— y
-	// dejarlo en silencio sería la misma mentira que publicar una ruta sin
-	// verificar, sólo que al revés.
-	_ = portless.Default().Remove(meta.RouteName)
-}
-
 // ---- Commands ----
 
 // Run es el punto de entrada del CLI. Devuelve true si manejó un
@@ -596,7 +564,7 @@ func cmdStart(name, path string) {
 		Manager:    manager,
 		StdoutPath: store.StdoutLog(p.Path),
 		StderrPath: store.StderrLog(p.Path),
-		Routes:     routeClient(p.Manifest),
+		Routes:     portless.ClientFor(p.Manifest),
 		Branch:     gitinfo.Branch(p.Path),
 	})
 	if err != nil {
@@ -658,7 +626,7 @@ func cmdStop(name, path string) {
 		process.ReleasePort(meta.ReservedPort)
 		// Y su ruta deja de existir: una dirección que apunta a un puerto
 		// muerto es peor que ninguna. El fallo es benigno.
-		releaseRoute(meta)
+		portless.Release(meta.RouteName)
 	}
 
 	if err := store.ClearPid(p.Path); err != nil {

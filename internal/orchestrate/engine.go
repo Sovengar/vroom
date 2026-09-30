@@ -353,7 +353,7 @@ func (e *Engine) startService(svc ResolvedService, timeout time.Duration) Servic
 		Manager:    e.manager,
 		StdoutPath: e.store.StdoutLog(p.Path),
 		StderrPath: e.store.StderrLog(p.Path),
-		Routes:     routeClient(p.Manifest),
+		Routes:     portless.ClientFor(p.Manifest),
 		Branch:     gitinfo.Branch(p.Path),
 	})
 	if err != nil {
@@ -492,12 +492,7 @@ func (e *Engine) stopProcess(path string, meta state.Meta) {
 	// Y su ruta deja de existir. El fallo es benigno (quitar lo que no está
 	// sale con 1 y un stop repetido no es un error), y esto cubre tanto
 	// stopService como abortAndCleanup.
-	if meta.RouteName != "" {
-		// Benigno por diseño: quitar una ruta inexistente sale con 1 y un stop
-		// repetido no es un error. El servicio ya está parado, y parar no
-		// puede fallar por una dirección.
-		_ = portless.Default().Remove(meta.RouteName)
-	}
+	portless.Release(meta.RouteName)
 	for _, w := range warns {
 		_ = appendLine(e.store.StderrLog(path), "── vroom ▶ stop: "+w)
 	}
