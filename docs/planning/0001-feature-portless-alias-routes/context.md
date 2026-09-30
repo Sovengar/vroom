@@ -97,8 +97,17 @@ Rutas de tests nuevos: `/home/buble/dev/projects/vroom/.worktrees/vroom.feat-por
 
 ## 6. Resolución de rutas (decidido por el orquestador, no hardcodear)
 
-**State dir**, en orden: `$PORTLESS_HOME` → `$XDG_STATE_HOME/portless` →
+**State dir**, en orden: `$PORTLESS_STATE_DIR` → `$XDG_STATE_HOME/portless` →
 `$HOME/.portless`. Dentro, `proxy.port`.
+
+> **CORRECCIÓN MEDIDA (M16) — este texto decía `$PORTLESS_HOME` como primer
+> paso, y era incorrecto.** Contra portless 0.15.6 el CLI **ignora**
+> `$PORTLESS_HOME` y honra `$PORTLESS_STATE_DIR`. Implementar el orden que decía
+> aquí produce dos vistas distintas del mismo estado —vroom lee `proxy.port` de un
+> directorio y el binario escribe `routes.json` en otro— y el síntoma es una ruta
+> que se registra y luego **no se puede quitar**. La autoridad es el código:
+> `portless.ResolveStateDir()`, y hay un test que falla si `PORTLESS_HOME` vuelve
+> a decidir (`TestResolveStateDir/PORTLESS_HOME_NO_decide`).
 **Binario**, en orden: `$PORTLESS_BIN` → `exec.LookPath("portless")` →
 directorios de shim de mise conocidos.
 

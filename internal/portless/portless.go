@@ -34,8 +34,10 @@
 //
 // vroom corre bajo un gestor de servicios cuyo entorno no es el shell de login
 // del usuario: un path que funciona en la terminal y falla en el daemon es un
-// bug, no una configuración. State dir: $PORTLESS_HOME → $XDG_STATE_HOME/
-// portless → $HOME/.portless. Binario: $PORTLESS_BIN → exec.LookPath →
+// bug, no una configuración. State dir: $PORTLESS_STATE_DIR → $XDG_STATE_HOME/
+// portless → $HOME/.portless (medido: el CLI honra $PORTLESS_STATE_DIR y
+// $PORTLESS_HOME no existe para él; ver ResolveStateDir). Binario:
+// $PORTLESS_BIN → exec.LookPath →
 // directorios de shim de mise (medido: `env -i PATH=/usr/bin:/bin` NO resuelve
 // portless, M14). Y el puerto del proxy se lee SIEMPRE de `proxy.port`, que
 // sólo existe mientras el proxy corre (M6): su ausencia ES la señal de que no
