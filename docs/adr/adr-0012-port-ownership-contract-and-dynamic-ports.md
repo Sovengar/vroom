@@ -37,8 +37,10 @@ efímeros vuelve mucho más peligroso un `fuser` equivocado:
    `4000–4999`, lo inyecta como `PORT` (junto a `HOST=127.0.0.1`) y descubre y
    verifica el puerto real antes de devolver el control. El descubrimiento
    está acotado por tres cosas: deadline, **liveness del linaje** (fallo rápido
-   de orden de 1 s si el proceso muere) y ventana de estabilización antes de
-   aceptar un puerto.
+   de orden de 1 s si el proceso muere) y **ventana de estabilización**: el
+   conjunto de listeners debe llevar 500 ms sin cambiar antes de aceptarse. Una
+   app que abre metrics en una goroutine y el principal en otra produce dos
+   muestras distintas, y aceptar la primera elige el listener equivocado.
 
 4. **El puerto real es la única verdad.** `meta.Port` pasa a ser el puerto
    efectivamente escuchado y todo el display — badge, vista de servicio,
@@ -105,17 +107,23 @@ efímeros vuelve mucho más peligroso un `fuser` equivocado:
 
 1. **App no-HTTP que además ignora `PORT`:** vroom no tiene forma de saber
    cuál listener es el principal. Se elige el de menor número, de forma
-   determinista, y el servicio se marca **"puerto no verificado"**.
-2. **Servicio sólo-UDP:** sin puerto TCP descubrible. Se registra "sin puerto",
-   nunca un cuelgue.
-3. **Bind duro duplicado** (la app ignora `PORT` y hace bind literal): sigue
+   determinista, y el servicio se marca **"puerto no verificado"** con
+   `port_verified: false` y un aviso explícito.
+2. **Listeners que se abren más de 500 ms escalonados:** la ventana de
+   estabilización cubre la apertura típica en dos goroutines. Una app que
+   abre un listener principal segundos después de otro puede tener su puerto
+   elegido como el listener secundario, y no hay forma de distinguirlo sin una
+   señal adicional.
+3. **Servicio sólo-UDP:** sin puerto TCP descubrible. Se registra "sin puerto"
+   (`no_port`), nunca un cuelgue.
+4. **Bind duro duplicado** (la app ignora `PORT` y hace bind literal): sigue
    siendo un fallo de arranque de la app. vroom lo reporta más rápido y mejor;
    no lo evita.
-4. **El puerto puede cambiar entre ticks.** `p.Manifest` es un snapshot de scan
+5. **El puerto puede cambiar entre ticks.** `p.Manifest` es un snapshot de scan
    y `meta.Port` se lee de disco en cada tick. Aceptado. El sub-guard sí es
    firme: una sonda y el estado se refieren al mismo proceso; nunca se informa
    "vivo y sano" con un puerto de otra generación.
-5. **`portless` ausente o incompatible** es condición normal y no fatal. Es un
+6. **`portless` ausente o incompatible** es condición normal y no fatal. Es un
    slice aparte (S4) y su ausencia no bloquea nada de lo anterior.
 
 ## Alternativas consideradas

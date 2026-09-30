@@ -114,7 +114,7 @@ func TestDiscoverPortFindsListenerInLineage(t *testing.T) {
 
 	waitPortOpen(t, port, 5*time.Second)
 
-	d := DiscoverPort(res.Pid, port, 3*time.Second)
+	d := DiscoverPort(res.Pid, port, "/health", 3*time.Second)
 	if d.Port != port {
 		t.Errorf("DiscoverPort = %+v, want el puerto %d del listener", d, port)
 	}
@@ -138,7 +138,7 @@ func TestDiscoverPortFailsFastOnDeadLineage(t *testing.T) {
 	})
 
 	start := time.Now()
-	d := DiscoverPort(res.Pid, 0, 30*time.Second)
+	d := DiscoverPort(res.Pid, 0, "/health", 30*time.Second)
 	elapsed := time.Since(start)
 
 	if !d.LineageDead {
@@ -168,7 +168,7 @@ func TestDiscoverPortNoPortIsBounded(t *testing.T) {
 	t.Cleanup(func() { _ = m.Stop(StopSpec{Pid: res.Pid, Pgid: res.Pgid, Timeout: time.Second}) })
 
 	start := time.Now()
-	d := DiscoverPort(res.Pid, 0, 1*time.Second)
+	d := DiscoverPort(res.Pid, 0, "/health", 1*time.Second)
 	elapsed := time.Since(start)
 
 	if d.Port != 0 || len(d.All) != 0 {

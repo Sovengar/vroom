@@ -5,7 +5,9 @@ package process
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -57,6 +59,9 @@ type DiscoveryResult struct {
 	// HonoredReserved es true cuando había puerto reservado (R1) y la app
 	// lo tomó: descubrimiento determinista, sin heurística.
 	HonoredReserved bool
+	// Verified dice si el puerto elegido está CONFIRMADO. R1, un único
+	// listener y R2 lo verifican; R3 no puede, y por eso se declara.
+	Verified bool
 	// LineageDead significa que el linaje ya no corría: se abandona el
 	// discovery en vez de agotar el timeout.
 	LineageDead bool
@@ -65,40 +70,142 @@ type DiscoveryResult struct {
 // DiscoverPort resuelve el puerto real de un linaje acotando a los listeners
 // que pertenecen a sus procesos.
 //
-// Reglas, en orden: R1 el puerto reservado está entre los listeners → ese
-// es, determinista y sin heurística. Con un solo listener, ese es. Con varios
-// y ninguno reservado, la elección la hace el llamador (R2/R3 en el slice 3).
+// La ambigüedad sólo existe cuando vroom ADIVINA, y aquí está el orden:
+//
+//	R1  el puerto reservado está entre los listeners → ese es. Determinista,
+//	    sin heurística, y es el caso normal: si la app honra PORT, no hay
+//	    ambigüedad que desambiguar.
+//	R2  hay varios y el reservado no está → gana el que mejor responde en
+//	    health_path (200 > 2xx/3xx > 5xx > 404).
+//	R3  empate o protocolo no-HTTP → gana el de menor número, determinista,
+//	    y Verified queda false: el servicio se marca "puerto no verificado".
 //
 // La respuesta vacía sólo es válida si el linaje está muerto: una app que
 // aún no ha hecho bind y una app sin puerto TCP no se pueden distinguir por
 // ausencia, y esperar al deadline cubre ambos casos sin inventarse ninguno.
-func DiscoverPort(rootPid int, reserved int, timeout time.Duration) DiscoveryResult {
+func DiscoverPort(rootPid int, reserved int, healthPath string, timeout time.Duration) DiscoveryResult {
 	deadline := time.Now().Add(timeout)
+	var prev []int
+	changedAt := time.Now()
+
 	for {
 		if rootPid <= 0 || !lineageRunning([]int{rootPid}) {
 			return DiscoveryResult{LineageDead: true}
 		}
 
 		listeners := lineageListenersAt(procRoot, rootPid)
-		switch {
-		case len(listeners) == 0:
-			// Puede que aún no haya hecho bind. "No hay puertos" sólo es
-			// una conclusión al agotar la ventana, no en la primera muestra.
-		case reserved > 0 && containsPid(listeners, reserved):
-			return DiscoveryResult{Port: reserved, All: listeners, HonoredReserved: true}
-		case len(listeners) == 1:
-			return DiscoveryResult{Port: listeners[0], All: listeners}
-		default:
-			// Varios sin el reservado: ambiguo hasta que el llamador
-			// aplique R2/R3. Se entrega ya, no se espera al deadline.
-			return DiscoveryResult{All: listeners}
+
+		// R1 no espera a la ventana de estabilización: si el puerto
+		// reservado está escuchando, la app lo tomó y no hay nada que
+		// adivinar, por mucho que abra después otro listener.
+		if reserved > 0 && containsPid(listeners, reserved) {
+			return DiscoveryResult{Port: reserved, All: listeners, HonoredReserved: true, Verified: true}
+		}
+
+		// Una app puede abrir listeners por etapas (metrics primero, main
+		// después). Aceptar la primera muestra elegiría el equivocado: se
+		// espera a que el conjunto deje de crecer durante la ventana de
+		// estabilización.
+		if !samePorts(listeners, prev) {
+			prev = append([]int(nil), listeners...)
+			changedAt = time.Now()
+		}
+
+		// Sin puertos aún puede significar "todavía no ha hecho bind": sólo
+		// es conclusión al agotar la ventana, no antes.
+		if len(listeners) > 0 && time.Since(changedAt) >= discoverSettle {
+			return decidePort(listeners, reserved, healthPath)
 		}
 
 		if time.Now().After(deadline) {
 			return DiscoveryResult{}
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(discoverInterval)
 	}
+}
+
+// discoverInterval separa dos muestras consecutivas del linaje.
+const discoverInterval = 100 * time.Millisecond
+
+// discoverSettle es cuánto debe llevar el conjunto de listeners sin cambiar
+// antes de aceptarlo. Cubre la apertura escalonada típica (metrics en una
+// goroutine, main en otra). Más listeners escalonados que esto ya caen en la
+// limitación documentada: ver adr-0012.
+const discoverSettle = 500 * time.Millisecond
+
+func samePorts(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// decidePort es la decisión sobre un conjunto de listeners ya observado y
+// estable. Separado del bucle para poder ejercitar R1/R2/R3 sin /proc.
+func decidePort(listeners []int, reserved int, healthPath string) DiscoveryResult {
+	if reserved > 0 && containsPid(listeners, reserved) {
+		return DiscoveryResult{Port: reserved, All: listeners, HonoredReserved: true, Verified: true}
+	}
+	if len(listeners) == 1 {
+		return DiscoveryResult{Port: listeners[0], All: listeners, Verified: true}
+	}
+	return pickMainPort(listeners, healthPath)
+}
+
+// pickMainPort desambigua varios listeners sin poder usar el reservado.
+func pickMainPort(listeners []int, healthPath string) DiscoveryResult {
+	best, bestRank := 0, -1
+	for _, port := range listeners { // ya viene ascendente: empate gana el menor
+		if rank := healthRank(probeStatus(port, healthPath)); rank > bestRank {
+			best, bestRank = port, rank
+		}
+	}
+	if best > 0 && bestRank > 0 {
+		return DiscoveryResult{Port: best, All: listeners, Verified: true}
+	}
+	// Ninguno respondió como HTTP: protocolo desconocido o sockets crudos.
+	// No hay forma de saber cuál es el principal, y se dice.
+	return DiscoveryResult{Port: listeners[0], All: listeners, Verified: false}
+}
+
+// healthRank ordena las respuestas: 200 > resto de 2xx/3xx > 5xx > 404.
+// 0 significa "no respondió como HTTP", que no gana nunca.
+func healthRank(status int) int {
+	switch {
+	case status == 200:
+		return 4
+	case status >= 200 && status < 400:
+		return 3
+	case status >= 500:
+		return 2
+	case status == 404:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// probeTimeout es corto a propósito: la desambiguación ocurre dentro del
+// presupuesto de arranque, y un puerto que no contesta HTTP no debe comerlo.
+const probeTimeout = 1500 * time.Millisecond
+
+func probeStatus(port int, healthPath string) int {
+	if healthPath == "" {
+		healthPath = "/"
+	}
+	client := &http.Client{Timeout: probeTimeout}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d%s", port, healthPath))
+	if err != nil {
+		return 0
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
+	return resp.StatusCode
 }
 
 // lineageListenersAt devuelve los puertos TCP en LISTEN cuyos sockets

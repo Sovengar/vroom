@@ -95,10 +95,15 @@ func waitPortOpen(t *testing.T, port int, timeout time.Duration) {
 // descendiente re-sid para probar el Stop por linaje. Se invoca con
 // VROOM_TEST_HELPER=listener y VROOM_TEST_PORT=<puerto>.
 func TestHelperListener(t *testing.T) {
-	if os.Getenv("VROOM_TEST_HELPER") != "listener" {
+	mode := os.Getenv("VROOM_TEST_HELPER")
+	if mode != "listener" && mode != "two-ports" {
 		t.Skip("proceso helper, no un test")
 	}
 	port := os.Getenv("VROOM_TEST_PORT")
+	if mode == "two-ports" {
+		twoPortsListener(port)
+		return
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:"+port)
 	if err != nil {
 		os.Exit(3)
@@ -114,6 +119,36 @@ func TestHelperListener(t *testing.T) {
 		}
 	}()
 	time.Sleep(120 * time.Second)
+}
+
+// twoPortsListener abre un listener de metrics ANTES que el principal, con
+// una pausa en medio. Reproduce la app que expone métricas primero y el
+// puerto de servicio después.
+func twoPortsListener(mainPort string) {
+	metrics, err := net.Listen("tcp", "127.0.0.1:"+os.Getenv("VROOM_TEST_PORT2"))
+	if err != nil {
+		os.Exit(3)
+	}
+	go acceptLoop(metrics)
+	time.Sleep(200 * time.Millisecond)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:"+mainPort)
+	if err != nil {
+		os.Exit(3)
+	}
+	defer func() { _ = ln.Close() }()
+	go acceptLoop(ln)
+	time.Sleep(120 * time.Second)
+}
+
+func acceptLoop(ln net.Listener) {
+	for {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		_ = c.Close()
+	}
 }
 
 // ---- Escenario: Stop mata a un descendiente que se ha re-sid ----
