@@ -103,17 +103,33 @@ func TestRouteModeEnabled(t *testing.T) {
 // El state dir se deriva del entorno, nunca de un path de usuario escrito a
 // mano: vroom corre bajo un gestor de servicios cuyo entorno no es el shell de
 // login. Un path que funciona en la terminal y falla en el daemon es un bug.
+//
+// Y el orden NO es el que decía el plan: MEDIDO, el CLI honra
+// PORTLESS_STATE_DIR e IGNORA PORTLESS_HOME. Con el orden del plan, vroom leía
+// proxy.port de un directorio y el binario escribía routes.json en otro, así que
+// una ruta se registraba y luego no se podía quitar — un fallo silencioso que
+// este test es lo que vuelve imposible reintroducir.
 func TestResolveStateDirOrder(t *testing.T) {
-	t.Run("PORTLESS_HOME gana", func(t *testing.T) {
-		t.Setenv("PORTLESS_HOME", "/iso/state")
+	t.Run("PORTLESS_STATE_DIR gana", func(t *testing.T) {
+		t.Setenv("PORTLESS_STATE_DIR", "/iso/state")
 		t.Setenv("XDG_STATE_HOME", "/xdg")
 		if got := ResolveStateDir(); got != "/iso/state" {
-			t.Errorf("PORTLESS_HOME debe ganar, got %q", got)
+			t.Errorf("PORTLESS_STATE_DIR debe ganar, got %q", got)
 		}
 	})
 
-	t.Run("XDG_STATE_HOME si no hay PORTLESS_HOME", func(t *testing.T) {
-		t.Setenv("PORTLESS_HOME", "")
+	t.Run("PORTLESS_HOME NO decide", func(t *testing.T) {
+		// Es el override que el CLI NO honra. Que vroom lo consultara es
+		// exactamente el bug anterior.
+		t.Setenv("PORTLESS_STATE_DIR", "/iso/state")
+		t.Setenv("PORTLESS_HOME", "/otra/cosa")
+		if got := ResolveStateDir(); got != "/iso/state" {
+			t.Errorf("PORTLESS_HOME no debe decidir el estado, got %q", got)
+		}
+	})
+
+	t.Run("XDG_STATE_HOME si no hay PORTLESS_STATE_DIR", func(t *testing.T) {
+		t.Setenv("PORTLESS_STATE_DIR", "")
 		t.Setenv("XDG_STATE_HOME", "/xdg")
 		if got := ResolveStateDir(); got != filepath.Join("/xdg", "portless") {
 			t.Errorf("XDG_STATE_HOME debe ser el segundo, got %q", got)
@@ -121,7 +137,7 @@ func TestResolveStateDirOrder(t *testing.T) {
 	})
 
 	t.Run("HOME/.portless como último recurso", func(t *testing.T) {
-		t.Setenv("PORTLESS_HOME", "")
+		t.Setenv("PORTLESS_STATE_DIR", "")
 		t.Setenv("XDG_STATE_HOME", "")
 		t.Setenv("HOME", "/home/alguien")
 		if got := ResolveStateDir(); got != filepath.Join("/home/alguien", ".portless") {

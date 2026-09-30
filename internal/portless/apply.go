@@ -7,6 +7,7 @@ import (
 	"net"
 	"os/exec"
 	"strconv"
+	"strings"
 
 	"vroom/internal/manifest"
 )
@@ -224,11 +225,26 @@ func classify(err error) string {
 		return ReasonPortlessTimeout
 	case errors.Is(err, ErrProxyNotRunning):
 		return ReasonProxyNotRunning
-	case errors.Is(err, exec.ErrNotFound):
+	case isMissingBinary(err):
 		return ReasonPortlessMissing
 	default:
 		return ReasonPortlessFailed
 	}
+}
+
+// isMissingBinary distingue "no hay binario" de "el binario falló".
+//
+// No basta con errors.Is(err, exec.ErrNotFound): con una RUTA que no existe,
+// exec.Command no devuelve ErrNotFound sino el error de fork/exec ("no such file
+// or directory"), así que un binario ausente y uno roto darían el mismo aviso —
+// y el usuario acabaría depurando un portless roto que no existe, o un Node
+// viejo que no es la causa. Los dos motivos se distinguen por el texto porque
+// no hay más señal disponible.
+func isMissingBinary(err error) bool {
+	if errors.Is(err, exec.ErrNotFound) {
+		return true
+	}
+	return err != nil && strings.Contains(err.Error(), "no such file or directory")
 }
 
 // Warn devuelve el aviso que el usuario ve para un resultado dado, o "" si no

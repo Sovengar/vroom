@@ -55,6 +55,9 @@ eliminado por diseño.
 | M13 | portless deriva su prefijo de worktree de la **rama**, no del directorio | La convención nativa es inestable ante `git branch -m` |
 | M14 | `env -i PATH=/usr/bin:/bin` **no** resuelve `portless` (vía shims de mise) | Un `portless` desnudo no se puede asumir |
 | M15 | No hay API HTTP de administración (`/`, `/health`, `/api/routes`, `/routes`, `/status` → `404`) | El puerto del proxy se lee de `proxy.port` |
+| M16 | **`$PORTLESS_HOME` no existe**: el CLI honra `$PORTLESS_STATE_DIR` y no `$PORTLESS_HOME` | El seam debe resolver el mismo directorio que el binario, o vroom lee `proxy.port` de un sitio y el binario escribe `routes.json` en otro |
+| M17 | Un hostname con guion bajo, espacio, dos puntos o acentos se **rechaza** (exit 1), y uno con barra se **trunca en silencio** (`Feat/My_Branch.proj` → `feat.localhost`) | vroom tiene que sanear el nombre derivado: una rama de git está llena de guiones bajos y barras |
+| M18 | El proxy responde **404 a un host que no conoce** y **502 a uno que enruta con el backend caído** | 404 y 502 no son la misma categoría; 404 contradice el enrutado, 502 lo prueba |
 
 ## Decisión
 
@@ -131,12 +134,21 @@ eliminado por diseño.
    Esto es lo que hace que «un vroom que muere deja rutas apuntando a puertos
    muertos» no sea una limitación sino un mecanismo con recuperación.
 
-9. **Ni el state dir ni el `PATH` se hardcodean.** State dir: `$PORTLESS_HOME` →
-   `$XDG_STATE_HOME/portless` → `$HOME/.portless`. Binario: `$PORTLESS_BIN` →
+9. **Ni el state dir ni el `PATH` se hardcodean.** State dir: `$PORTLESS_STATE_DIR`
+   → `$XDG_STATE_HOME/portless` → `$HOME/.portless`. Binario: `$PORTLESS_BIN` →
    `exec.LookPath` → directorios de shim conocidos. Por **M14** un `portless`
    desnudo no se puede asumir; y vroom corre bajo un gestor de servicios cuyo
    entorno no es el shell de login del usuario, de modo que un path que funciona
    en el shell del usuario y falla en el daemon es un bug, no una configuración.
+
+   > **CORRECCIÓN MEDIDA (M16).** Este texto decía `$PORTLESS_HOME` como primer
+   > paso. Es incorrecto: contra portless 0.15.6, el CLI **ignora**
+   > `$PORTLESS_HOME` y honra `$PORTLESS_STATE_DIR`. Implementar el orden aquí
+   > documentado produce dos vistas distintas del mismo estado — vroom lee
+   > `proxy.port` de un directorio y el binario escribe `routes.json` en otro— y
+   > el síntoma es una ruta que se registra y luego **no se puede quitar**. Un
+   > seam que resuelve una ruta que la herramienta no resuelve no es una
+   > ventaja: es un modo de fallo silencioso. El orden correcto es el de arriba.
 
 10. **Toda llamada está acotada por timeout.** Un `exec` sin cota contra un binario
     colgado cuelga el arranque, y eso sí sería una pérdida de disponibilidad — la
