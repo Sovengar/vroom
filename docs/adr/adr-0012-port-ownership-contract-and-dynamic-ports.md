@@ -61,9 +61,21 @@ efímeros vuelve mucho más peligroso un `fuser` equivocado:
    muestras distintas, y aceptar la primera elige el listener equivocado.
 
 4. **El puerto real es la única verdad.** `meta.Port` pasa a ser el puerto
-   efectivamente escuchado y todo el display — badge, vista de servicio,
-   dashboard, tab Health, JSON de la CLI y el gate de salud de los stacks —
-   pasa a leerlo. Sólo cuando no hay servicio en marcha se cae al declarado.
+   efectivamente escuchado y las seis superficies nombradas lo leen. Qué hace
+   cada una con un puerto **no confirmado**:
+
+   | Superficie | Puerto no confirmado |
+   |---|---|
+   | badge, vista de servicio, dashboard | `port_unresolved` no cae al declarado; muestra "port unresolved" sin número |
+   | tab Health | no sondea nada y explica por qué |
+   | gate de salud de stacks | `port_unresolved` es un resultado no fatal; `port_pending` sí falla la etapa |
+   | **JSON de la CLI** | `port` vale `0`; el declarado se publica aparte en `declared_port` |
+   | `meta.Port` en disco | `0`, con `State` explícito |
+
+   Sólo cuando **no hay servicio en marcha** se usa el declarado: parado, es
+   la única información que existe. El declarado vive además en
+   `declared_port`, así que un agente puede consultar la intención del
+   manifiesto sin que se confunda con el puerto real.
 
 5. **El entorno del hijo se fusiona explícitamente** con `os.Environ()` antes
    de inyectar. En Go, `cmd.Env == nil` hereda y cualquier slice no-nil
@@ -167,8 +179,12 @@ efímeros vuelve mucho más peligroso un `fuser` equivocado:
 
 1. **App no-HTTP que además ignora `PORT`:** vroom no tiene forma de saber
    cuál listener es el principal. Se elige el de menor número, de forma
-   determinista, y el servicio se marca **"puerto no verificado"** con
-   `port_verified: false` y un aviso explícito.
+   determinista, y el servicio se marca como no verificado: en la TUI el
+   puerto aparece sin confirmar, y en el JSON `port` trae el número elegido
+   con `port_verified: false`. Ese `false` **es emisible** porque el campo es
+   un `*bool` tri-estado, no un `bool` con `omitempty` — que era
+   precisamente lo que hacía la marca invisible en la superficie que leen
+   los agentes.
 2. **Listeners que se abren más de 500 ms escalonados:** la ventana de
    estabilización cubre la apertura típica en dos goroutines. Si el conjunto
    no se estabiliza dentro del plazo, el resultado no es un puerto inventado

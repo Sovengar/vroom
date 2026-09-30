@@ -87,6 +87,10 @@ type EvalSpec struct {
 	// El proceso vive y puede que aún no haya hecho bind; no es "no tiene
 	// puerto" ni "todo bien".
 	PortUnresolved bool
+	// NoPort marca que el proceso vive y no expone puerto TCP, y que eso es
+	// su estado. Sin él un worker solo-UDP se reportaría como "running", que
+	// no lo distingue de un servicio sano.
+	NoPort bool
 }
 
 // Manager es la abstracción de gestión de procesos portable a Windows.
