@@ -68,6 +68,19 @@ fd se usa para buscar `.vroom.toml` de forma rápida y eficiente. Sin fd, vroom 
 
 Otros requisitos: Linux (v1), shell POSIX.
 
+### Dependencia opcional: portless
+
+Sólo hace falta si usas `route_mode = "auto"` o `"named"` (ver [`route_mode`](#route_mode-una-url-estable-para-el-puerto-que-cambia)).
+Con `route_mode = "off"` —el default— vroom **ni siquiera busca el binario**.
+
+portless es un CLI de Node y **requiere Node >= 24**. Se resuelve en este orden:
+`$PORTLESS_BIN` → `exec.LookPath` → directorios de shim de mise conocidos (vroom corre
+bajo un gestor de servicios cuyo entorno no es tu shell de login, así que un `portless`
+"nudo" en el PATH no está garantizado).
+
+Sin portless, sin proxy en marcha, o con el Node demasiado viejo: vroom avisa **una vez**
+y el servicio **arranca igual**. La salud de un servicio nunca depende de que exista su ruta.
+
 ## Uso rápido — playground
 
 El repo incluye `playground/` con 8 proyectos ficticios listos para probar todo el ciclo:
@@ -195,7 +208,9 @@ obligatorio cuando la URL **no puede depender de una rama**, porque la vas a
 meter en un `redirect_uri` o en una lista de orígenes.
 
 **vroom sólo registra la ruta. No arranca, no gestiona, no supervisa ni muestra el
-proxy.** Si no hay `portless`, o no está en el `PATH` del servicio, o su proxy no
+proxy.** portless es una dependencia *opcional* (ver
+[Instalación](#dependencia-opcional-portless)): si no hay `portless`, o no está en el
+`PATH` del servicio, o su proxy no
 está en marcha, o su Node es demasiado antiguo: vroom avisa **una vez** y el
 servicio **arranca igual, queda sano, y vive en su puerto**. La salud de un
 servicio nunca depende de que exista su ruta — una ruta es una dirección, no una

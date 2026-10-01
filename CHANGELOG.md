@@ -38,6 +38,8 @@ y este proyecto sigue [Semantic Versioning](https://semver.org/lang/es/).
 - ADR-0013 documentando el modelo de propiedad de rutas, los once hechos medidos
   de portless 0.15.6 que forzaron el diseño, y por qué la verificación cuesta dos
   pasos en vez de una.
+- README: portless queda documentado como **dependencia opcional** (con su Node >= 24
+  y cómo lo resuelve vroom), separada de `fd`, que sí es obligatoria.
 - Puertos dinámicos por worktree con `port_mode = "fixed" | "dynamic" | "none"`
   en `.vroom.toml`. En `dynamic` vroom reserva un puerto del rango 4000-4999,
   inyecta `PORT` y `HOST` en el entorno del proceso, descubre el puerto real
