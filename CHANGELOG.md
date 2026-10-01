@@ -8,6 +8,36 @@ y este proyecto sigue [Semantic Versioning](https://semver.org/lang/es/).
 ## [Unreleased]
 
 ### Added
+- URL estable para el puerto que cambia con `route_mode = "off" | "auto" | "named"`
+  y `route_name` en `.vroom.toml`. vroom registra una ruta de alias en portless por
+  servicio y la retira al pararlo; `off` es el default, no busca el binario, y
+  ningún manifiesto existente cambia de comportamiento. `auto` deriva el nombre de
+  la rama (`<rama>.<proyecto>`), así que dos ramas del mismo repo no comparten
+  dirección; dos worktrees en la misma rama reciben aviso de conflicto en vez de
+  pisarse. `named` es el nombre estable de `route_name`, y es lo que exige un
+  `redirect_uri` o una lista de orígenes CORS.
+- **vroom sólo registra la ruta: no arranca, gestiona, supervisa ni muestra el
+  proxy.** Si no hay `portless`, no está en el `PATH`, su proxy no corre o su Node
+  es demasiado antiguo, vroom avisa una vez y el servicio arranca igual, sano y en
+  su puerto. La salud de un servicio nunca depende de que exista su ruta: una ruta
+  es una dirección, no una dependencia.
+- Verificación en dos pasos al registrar una ruta, porque `portless alias` sólo
+  escribe el fichero de estado y sale con éxito aunque el proxy esté apagado: una
+  lectura de vuelta confirma que la ruta es de ese servicio, y una sonda contra el
+  proxy vivo confirma que la URL responde. Una ruta degradada nunca publica `url` y
+  siempre dice por qué; un `502` cuenta como "el proxy enruta la ruta y tu servicio
+  no responde", y sólo un rechazo o un timeout significan que no hay proxy.
+- Reconciliación de rutas en el arranque, y retirada de la ruta al parar el
+  servicio desde la CLI o la TUI. `portless prune` no toca las rutas de alias, así
+  que vroom es lo único que puede limpiarlas: las rutas que dejó un vroom que
+  murió sin pararlo, y la ruta vieja de una rama renombrada, se retiran solas.
+- `route_mode` (intención) y `route` (resultado) en el JSON de `vroom list`, para
+  que un agente distinga lo que pide el manifiesto de lo que consiguió, y la
+  propiedad de una ruta persistida en el estado del servicio para poder
+  reconciliarla sin tocar rutas ajenas.
+- ADR-0013 documentando el modelo de propiedad de rutas, los once hechos medidos
+  de portless 0.15.6 que forzaron el diseño, y por qué la verificación cuesta dos
+  pasos en vez de una.
 - Puertos dinámicos por worktree con `port_mode = "fixed" | "dynamic" | "none"`
   en `.vroom.toml`. En `dynamic` vroom reserva un puerto del rango 4000-4999,
   inyecta `PORT` y `HOST` en el entorno del proceso, descubre el puerto real
