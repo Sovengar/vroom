@@ -48,7 +48,7 @@ func TestStopRemovesTheServiceRoute(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	if err := store.SaveMeta(dir, state.Meta{
 		Name: "p", Pid: 0, Pgid: 0, Port: 0,
-		State: state.StateRunning, RouteName: "p-route",
+		State: state.StateRunning, RouteName: "p-route", RoutePort: 4321, RouteOwned: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -63,6 +63,20 @@ func TestStopRemovesTheServiceRoute(t *testing.T) {
 	}
 	if m, ok := msg.(stoppedMsg); !ok || m.err != nil {
 		t.Errorf("parar no puede fallar por la retirada de una ruta: %#v", msg)
+	}
+
+	// Y revoca la propiedad: sin esto el Meta seguiría declarando nuestra una
+	// ruta ya retirada, que es lo que permite que el arranque siguiente pise la
+	// ruta de otro que haya tomado el nombre.
+	meta, err := store.LoadMeta(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.RouteOwned {
+		t.Error("tras retirar la ruta la propiedad debe quedar revocada en el Meta")
+	}
+	if meta.RouteName == "" {
+		t.Error("el handle de reconciliación debe conservarse aunque la propiedad se revoque")
 	}
 }
 
