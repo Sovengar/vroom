@@ -438,18 +438,43 @@ func cliRouteReleaser() portless.Releaser {
 	if cliReleaseStubInstalled && cliReleaseStub != nil {
 		return cliReleaseStub
 	}
+	if isUnderTest() {
+		// LOW-3: sin stub, en un binario de test, `nil` construiría el cliente
+		// real y resolvería el portless y el state dir del desarrollador. Un test
+		// que se olvide de instalar el seam no debe poder mutar su routes.json
+		// real —ni el de quien lo corra—. Aquí no se toca nada.
+		return portless.ReleaserFunc(func(string) error { return nil })
+	}
 	return nil
 }
 
-// releaseRouteOnStop retira la ruta de un servicio parado.
+// isUnderTest detecta un binario de test de forma que no dependa de una
+// variable que un test pueda no poner.
+func isUnderTest() bool {
+	return strings.HasSuffix(os.Args[0], ".test")
+}
+
+// releaseRouteOnStop retira la ruta de un servicio parado y REVOCA la
+// propiedad si la retirada surtió efecto. Muta el Meta; quien lo persiste es el
+// SaveMeta del stop, que va justo después.
 //
 // Va FUERA del guard de proceso a propósito, y por eso es una función con
 // nombre: un servicio que ya estaba muerto cuando se paró (Pid 0) también deja
 // una ruta detrás, y dentro del guard esa ruta se quedaba para siempre. Que sea
 // una función aparte, y no una línea en cmdStop, es lo que permite que los tests
-// la exertan de verdad en vez de reimplementarla.
-func releaseRouteOnStop(meta state.Meta) {
-	portless.Release(cliRouteReleaser(), meta.RouteName)
+// la exerten de verdad en vez de reimplementarla.
+//
+// Revocar es la mitad que faltaba: sin ella el Meta seguía declarando nuestra
+// una ruta ya retirada, y el arranque siguiente podía pisar la de otro que
+// hubiera tomado el nombre. El handle (RouteName/RoutePort) NO se limpia a
+// propósito: si la retirada falla, la ruta puede seguir ahí, y sin handle nadie
+// podría limpiarla salvo la reconciliación. Handle y propiedad no se contradicen
+// —el handle dice DÓNDE mirar, la propiedad SI se puede pisar—.
+func releaseRouteOnStop(meta *state.Meta) {
+	if !portless.Release(cliRouteReleaser(), meta.RouteName) {
+		return // la retirada no surtió efecto: no se revoca nada
+	}
+	meta.RouteOwned = false
 }
 
 // ---- Commands ----
@@ -680,7 +705,7 @@ func stopCleanup(store *state.Store, manager process.Manager, path string) {
 		// muerto es peor que ninguna. Va FUERA del guard de proceso a
 		// propósito: un servicio que ya estaba muerto cuando se paró (Pid 0)
 		// también deja una ruta detrás.
-		releaseRouteOnStop(meta)
+		releaseRouteOnStop(&meta)
 	}
 
 	if err := store.ClearPid(path); err != nil {

@@ -613,9 +613,9 @@ func stopCmd(store *state.Store, manager process.Manager, path, stopCommand stri
 		// Su ruta deja de existir: una dirección que apunta a un puerto muerto es
 		// peor que ninguna. Va FUERA del guard de arriba a propósito: un
 		// servicio que ya estaba muerto cuando se paró (Pid 0) también deja
-		// una ruta detrás, y la única que queda para limpiarla es la
-		// reconciliación del arranque siguiente. El fallo es benigno.
-		releaseRoute(meta)
+		// una ruta detrás. El fallo es benigno, y releaseRoute revoca además la
+		// propiedad; el SaveMeta de abajo es quien la persiste.
+		releaseRoute(&meta)
 		if err := store.ClearPid(path); err != nil {
 			return stoppedMsg{path: path, err: err}
 		}

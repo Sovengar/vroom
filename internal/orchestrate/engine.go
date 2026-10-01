@@ -443,12 +443,15 @@ func (e *Engine) stopService(p scanner.Project) {
 	// Parada graciosa no implementada en el engine: p.Manifest.Stop se
 	// ignora intencionadamente (simplified stop; aquí no hay runLogged).
 	meta, err := e.store.LoadMeta(p.Path)
-	if err == nil && (meta.Pid > 0 || meta.Pgid > 0 || meta.Port > 0) {
-		e.stopProcess(p.Path, meta)
-	} else if err == nil {
-		// Un servicio que ya estaba muerto (Pid 0) no pasa por stopProcess, pero
-		// también deja una ruta detrás: se retira igualmente, fuera del guard.
-		portless.Release(engineRouteReleaser(), meta.RouteName)
+	if err == nil {
+		if meta.Pid > 0 || meta.Pgid > 0 || meta.Port > 0 {
+			e.stopProcess(p.Path, &meta)
+		} else {
+			// Un servicio que ya estaba muerto (Pid 0) no pasa por stopProcess,
+			// pero también deja una ruta detrás: se retira igualmente, fuera del
+			// guard.
+			e.releaseRouteOnStop(&meta)
+		}
 	}
 	_ = e.store.ClearPid(p.Path)
 	if err == nil {
@@ -464,12 +467,14 @@ func (e *Engine) stopService(p scanner.Project) {
 func (e *Engine) abortAndCleanup(paths []string) {
 	for _, path := range paths {
 		meta, err := e.store.LoadMeta(path)
-		if err == nil && (meta.Pid > 0 || meta.Pgid > 0 || meta.Port > 0) {
-			e.stopProcess(path, meta)
-		} else if err == nil {
-			// Ídem stopService: la ruta se retira aunque el servicio ya estuviese
-			// muerto y por tanto no pasara por stopProcess.
-			portless.Release(nil, meta.RouteName)
+		if err == nil {
+			if meta.Pid > 0 || meta.Pgid > 0 || meta.Port > 0 {
+				e.stopProcess(path, &meta)
+			} else {
+				// Ídem stopService: la ruta se retira aunque el servicio ya
+				// estuviese muerto y por tanto no pasa por stopProcess.
+				e.releaseRouteOnStop(&meta)
+			}
 		}
 		_ = e.store.ClearPid(path)
 		if err == nil {
@@ -503,10 +508,15 @@ func engineRouteReleaser() portless.Releaser {
 	if engineReleaseStubInstalled && engineReleaseStub != nil {
 		return engineReleaseStub
 	}
+	if strings.HasSuffix(os.Args[0], ".test") {
+		// LOW-3: sin stub, en un binario de test, esto construiría el cliente real
+		// y tocaría el state dir del desarrollador. Aquí no se toca nada.
+		return portless.ReleaserFunc(func(string) error { return nil })
+	}
 	return nil
 }
 
-func (e *Engine) stopProcess(path string, meta state.Meta) {
+func (e *Engine) stopProcess(path string, meta *state.Meta) {
 	var warns []string
 	_ = e.manager.Stop(process.StopSpec{
 		Pid: meta.Pid, Pgid: meta.Pgid, Port: meta.Port,
@@ -518,10 +528,29 @@ func (e *Engine) stopProcess(path string, meta state.Meta) {
 	// Y su ruta deja de existir. El fallo es benigno (quitar lo que no está
 	// sale con 1 y un stop repetido no es un error), y esto cubre tanto
 	// stopService como abortAndCleanup.
-	portless.Release(engineRouteReleaser(), meta.RouteName)
+	e.releaseRouteOnStop(meta)
 	for _, w := range warns {
 		_ = appendLine(e.store.StderrLog(path), "── vroom ▶ stop: "+w)
 	}
+}
+
+// releaseRouteOnStop retira la ruta y REVOCA la propiedad si la retirada
+// surtió efecto. Muta el Meta; quien lo persiste es el SaveMeta del llamador.
+//
+// Existe como función única porque los tres caminos de parada del engine
+// necesitan exactamente lo mismo, y porque una de las ramas —el servicio ya
+// muerto en abortAndCleanup— estaba llamando a `portless.Release(nil, ...)`
+// con el cliente real hardcodeado, que ningún test podía observar. Una ruta que
+// ese camino dejaba era, precisamente, la que este HIGH hacía posible pisar.
+//
+// El handle (RouteName/RoutePort) NO se limpia a propósito: si la retirada
+// falla, la ruta puede seguir ahí y sin handle nadie podría limpiarla salvo la
+// reconciliación.
+func (e *Engine) releaseRouteOnStop(meta *state.Meta) {
+	if !portless.Release(engineRouteReleaser(), meta.RouteName) {
+		return // la retirada no surtió efecto: no se revoca nada
+	}
+	meta.RouteOwned = false
 }
 
 // appendLine añade una línea al log de un servicio.
