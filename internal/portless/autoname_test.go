@@ -39,7 +39,7 @@ func TestAutoCannotSeparateSameBranchWorktrees(t *testing.T) {
 	// Dos worktrees distintos del mismo repo, ambos en `main`. DeriveName no
 	// ve la ruta del worktree, así que no puede separarlos. Se fija aquí para
 	// que la limitación sea explícita y para que un cambio futuro que la
-	// resuelva tenha que actualizar este test a propósito.
+	// resuelva hay que actualizar este test a propósito.
 	a, err := DeriveName(RouteModeAuto, "", "main", "miapp")
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestSameBranchCollisionDegradesWithoutEvicting(t *testing.T) {
 	f.routes[Hostname("main.miapp")] = 4000
 
 	// El segundo worktree deriva el MISMO nombre y pide otro puerto.
-	res := c.Apply("main.miapp", 5000, 0)
+	res := c.Apply("main.miapp", 5000, Ownership{})
 
 	if res.Succeeded() {
 		t.Fatal("una colisión por nombre debe degradar, no publicar una url ajena")

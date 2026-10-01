@@ -23,7 +23,7 @@ import (
 // se instalan y se limpian.
 type recordingReleaser struct{ removed []string }
 
-func (r *recordingReleaser) remove(name string) error {
+func (r *recordingReleaser) RemoveAbsent(name string) error {
 	r.removed = append(r.removed, name)
 	return nil
 }
@@ -35,7 +35,7 @@ func installRouteStub(t *testing.T, rec *recordingReleaser) {
 		tuiReleaseStub = nil
 		routeStubInstalled = false
 	})
-	tuiReleaseStub = rec.remove
+	tuiReleaseStub = rec.RemoveAbsent
 	routeStubInstalled = true
 }
 

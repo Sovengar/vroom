@@ -30,7 +30,7 @@ func TestSequentialConflictDoesNotEvictForeignRoute(t *testing.T) {
 	// Una ruta ajena ya establecida, que vroom no ha creado.
 	f.routes[Hostname("main.proj")] = 4000
 
-	res := c.Apply("main.proj", 5000, 0) // prevPort 0: nunca registramos este nombre
+	res := c.Apply("main.proj", 5000, Ownership{}) // prevPort 0: nunca registramos este nombre
 
 	if res.Succeeded() {
 		t.Fatal("no se puede reportar registrada una ruta cuyo nombre tiene otro puerto")
@@ -58,7 +58,7 @@ func TestReRegisteringOurOwnRouteSucceeds(t *testing.T) {
 	c := f.client(t)
 	f.routes[Hostname("mine.proj")] = 4321 // la nuestra, del arranque anterior
 
-	res := c.Apply("mine.proj", 4321, 4321) // persistida en ese mismo puerto
+	res := c.Apply("mine.proj", 4321, Ownership{Owned: true, Port: 4321}) // persistida en ese mismo puerto
 
 	if !res.Succeeded() {
 		t.Fatalf("re-registrar la ruta propia debe funcionar: %+v", res)
@@ -83,7 +83,7 @@ func TestReregisterMovesOurRouteToTheNewPort(t *testing.T) {
 	// El servicio se reinició y hace bind en otro puerto. La ruta es nuestra,
 	// así que actualizarla es lo correcto y lo que hace que no queden rutas
 	// apuntando a puertos muertos.
-	res := c.Apply("app", 4321, 4000) // persistida en 4000, ahora en 4321
+	res := c.Apply("app", 4321, Ownership{Owned: true, Port: 4000}) // persistida en 4000, ahora en 4321
 	if !res.Succeeded() {
 		t.Fatalf("actualizar la ruta propia debe funcionar: %+v", res)
 	}
@@ -113,7 +113,7 @@ func TestInterleavedConflictIsStillDetected(t *testing.T) {
 		return realExec(ctx, bin, args...)
 	}
 
-	res := c.Apply("taken", 4321, 0)
+	res := c.Apply("taken", 4321, Ownership{})
 	if res.Reason != ReasonRouteConflict {
 		t.Errorf("el conflicto intercalado también debe detectarse, got %q", res.Reason)
 	}

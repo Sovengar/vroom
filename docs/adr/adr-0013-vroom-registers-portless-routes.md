@@ -113,9 +113,35 @@ eliminado por diseño.
    > la lectura de vuelta.
 
    La distinción entre "de otro dueño" y "la nuestra, y la app reinició en otro
-   puerto" la da `prevPort`, el puerto que este servicio persistió. Sin él los
-   dos casos son idénticos, y legítimamente uno debe actualizarse y el otro
-   rechazarse.
+   puerto" la da `portless.Ownership`: no un puerto, sino el hecho de que la ruta
+   siga siendo NUESTRA.
+
+   > **CORRECCIÓN (review): `prevPort` era una capacidad sin caducidad.**
+   > La primera versión pasaba el puerto persistido y lo comparaba así:
+   > `found && existing != port && existing != prevPort`. Un número persistido no
+   > caduca —el stop no limpiaba `RouteName`/`RoutePort`—, así que la concesión
+   > sobrevivía a la ruta que la había autorizado. La secuencia:
+   >
+   > ```
+   > Apply("main.proj", 4321, 0)       -> registered, persistido 4321
+   > Remove("main.proj")               -> la ruta desaparece
+   > otro dueño registra main.proj     -> 4321
+   > Apply("main.proj", 5000, 4321)    -> registered, y la ruta del otro pasa a 5000
+   > ```
+   >
+   > es decir: la ruta de otro destruida y ningún conflicto. Lo que faltaba no era
+   > el puerto sino **si seguimos siendo el dueño**. Ahora el Meta persiste
+   > `RouteOwned`, que se concede al registrar y **se revoca al retirar**, y el
+   > predicado es `!prev.Authorises(existing)`.
+   >
+   > **Residual nombrado, porque un residual sin nombrar es como nació este
+   > HIGH:** el handle (`RouteName`/`RoutePort`) se conserva a propósito aunque la
+   > propiedad quede revocada. Así, si una retirada falla, la reconciliación sigue
+   > teniendo dónde mirar; y si más tarde el nombre lo ocupa otro, la propiedad ya
+   > está revocada y no le autoriza nada. Handle y propiedad no se contradicen:
+   > el handle dice DÓNDE mirar, la propiedad SI se puede pisar. Lo que NO se
+   > haría es limpiar el handle al retirar: convertiría una ruta huérfana en algo
+   > que sólo la reconciliación del arranque podría recuperar.
 
 6. **Y además, se verifica contra el proxy vivo.** Ésta es la decisión que M1 y
    M2 obligan a escribir y de la que este slice no podría prescindir:
@@ -183,8 +209,16 @@ eliminado por diseño.
 
 11. **El seam es inyectado y la suite es hermética.** El runner de CI no tiene
     portless, ni Node 24, ni proxy. La integración vive detrás de un seam, con la
-    misma forma que el `procRoot` que ya usan las lecturas de `/proc`. A lo sumo
-    un test de integración, marcado y skipped sin portless real.
+    misma forma que el `procRoot` que ya usan las lecturas de `/proc`. Hay
+    **tres** tests de integración, marcados con `VROOM_PORTLESS_INTEGRATION=1` y
+    skipped sin portless real: alta/baja contra el CLI real, M3 (la ruta sobrevive
+    a un reinicio real del proxy, parado por PID) y M4 (escribir un alias no
+    expulsa una app viva de `portless run`).
+
+    > **CORRECCIÓN (review).** Este texto decía "a lo sumo un test de
+    > integración". El crecimiento está bien —los tres casos que no se pueden
+    > observar con un doble son los que más merecían un test—; lo que estaba
+    > mal era el documento, que describía un techo que ya no existe.
 
 12. **El contrato JSON tiene tres estados, y el ausente también es uno.**
     `route_mode` es la **intención**. `route` (`*RouteInfo`) es el **resultado**:
@@ -197,13 +231,27 @@ eliminado por diseño.
     motor de stacks). Por **M10**, `--remove` de un nombre inexistente es `exit 1`
     y es **benigno**: un stop repetido no es un error.
 
-    > **CORRECCIÓN (review).** Esta decisión estaba **sin verificar**: `Release`
-    > construía su cliente internamente sin punto de inyección, y neutralizar
-    > los tres call sites dejaba la suite en verde. Ahora la retirada tiene
-    > seam, y cada camino tiene su test. Se descubrió además un bug real: la
-    > retirada estaba DENTRO del guard de proceso (`Pid > 0 || Pgid > 0 ||
-    > Port > 0`), así que un servicio ya muerto al pararse —`Pid 0` con su meta
-    > y su ruta— no retiraba nada. Va fuera del guard en los tres caminos.
+    > **CORRECCIÓN (review, dos rondas).** La primera redacción de esta nota
+    > decía "cada camino tiene su test" y "un servicio ya muerto al pararse no
+    > retiraba nada". Ambas eran inexactas y el commit `fa7f3e8` las repitió:
+    >
+    > - Hay **6 call sites** de retirada en 3 paquetes (cli 1, tui 1, engine 3
+    >   + 1 compartido). La primera ronda verificó **4**; los dos call sites del
+    >   engine para servicio YA MUERTO seguían sin cubrir — y uno de ellos
+    >   llamaba a `portless.Release(nil, …)` con el cliente real hardcodeado,
+    >   inobservable para cualquier test. Ahora los **6** están cubiertos: el
+    >   engine tiene un `releaseRouteOnStop` único por el que pasan los tres,
+    >   y cada rama tiene su test (neutralizar cualquiera de las tres pone la
+    >   suite en rojo).
+    > - "Un servicio ya muerto no retiraba nada" sólo era cierto si además
+    >   `Port == 0`. Un servicio simplemente parado tiene `Port != 0`, así que
+    >   el guard ya se cumplía y `stopProcess` ya corría. El hueco real era el
+    >   meta `Pid=0, Pgid=0, Port=0` con `RouteName != ""`, alcanzable porque
+    >   `resolveDynamicPort` sólo registra ruta con `State==running && Port>0`
+    >   pero los campos heredados siguen persistidos.
+    >
+    > Y el bug que la inyección destapó sigue siendo real: la retirada estaba
+    > DENTRO del guard de proceso.
 
 14. **"No responde" en la reconciliación significa "no hay nadie detrás", no
     sólo "el proxy no responde".** Una ruta de un vroom muerto **sigue enruta**:
