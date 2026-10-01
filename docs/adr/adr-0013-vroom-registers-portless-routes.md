@@ -325,6 +325,33 @@ eliminado por diseño.
     etiquetado como cierre. Ahora todo exit que no sea el de "no existe" propaga
     como error, y quien revoca decide. `Remove` conserva su contrato benigno.
 
+18. **En `routeUnknown` la autoridad es `held.Owned`, no `Authorises`.** Cuando
+    no se puede leer el puerto en vivo, `liveRoute` devuelve `published == 0`
+    siempre, así que comparar puertos no puede decidir nada: `Authorises(0)`
+    exige `Port > 0` y es siempre falso. La única evidencia que queda es la
+    concesión sin revocar sobre ese nombre.
+
+    > **CORRECCIÓN (review, BLOQUEANTE).** La guarda anterior era
+    > `!held.Authorises(published) && published != 0`: **código muerto**, porque
+    > las dos condiciones son insatisfacibles en esa rama. `Remove` corría sin
+    > comprobar propiedad. Reproducido contra portless real en sus dos estados
+    > de disparo —proxy parado, y proxy en marcha que responde `404`—: la ruta
+    > ajena se borraba y no había aviso. Y `alias --remove` es una escritura
+    > pura (M1), así que el borrado tenía éxito con el proxy caído.
+    >
+    > Conceder con `!held.Owned` NO desactiva la limpieza de huérfanas: es
+    > justamente lo que la permite, porque el caso "nuestra huérfana con el
+    > proxy parado" tiene `Owned=true` y `published` ilegible.
+
+    > **CAMBIO DE COMPORTAMIENTO, ESCRITO A PROPÓSITO.** Un `meta.json`
+    > escrito por una versión anterior a `route_owned` no tiene ese campo, así
+    > que `Owned=false`. Consecuencia: **las huérfanas de vroom anteriores a la
+    > actualización dejan de auto-limpiarse en el arranque.** Es un cambio real
+    > y falla cerrado: la ruta se conserva, se avisa, y el handle se mantiene, de
+    > modo que sigue siendo recuperable. Se documenta aquí y no se descubre en
+    > producción. Quien actualice y vea un aviso de "no longer owns it" está
+    > viendo esto.
+
 ## Consecuencias
 
 - Positivas: la salud de un servicio **nunca** depende de que exista su ruta; el

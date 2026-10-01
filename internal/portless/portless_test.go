@@ -37,10 +37,27 @@ type fakePortless struct {
 	noProxy bool
 
 	calls []string
+	// serve404 son hosts que EXISTEN en el fichero de estado pero que el proxy
+	// no enruta: el segundo camino de routeUnknown con proxy en marcha —la ruta
+	// está escrita pero nadie la sirve y el proxy responde 404.
+	//
+	// Hace falta porque el doble sirve por defecto todo lo que conoce; sin este
+	// campo, "proxy en marcha que no sirve el host" sería indistinguible de
+	// "proxy sano".
+	serve404 map[string]bool
+	// removedNames registra lo que se ha retirado: los tests de reconciliación
+	// necesitan observar la RETIRADA, que con un proxy parado ocurre sin que
+	// ninguna sonda pase por el doble.
+	removedNames []string
 }
 
 func newFake() *fakePortless {
-	return &fakePortless{routes: map[string]int{}, binCode: 0, probeStatus: 200}
+	return &fakePortless{
+		routes:      map[string]int{},
+		binCode:     0,
+		probeStatus: 200,
+		serve404:    map[string]bool{},
+	}
 }
 
 func (f *fakePortless) exec(ctx context.Context, bin string, args ...string) (string, int, error) {
@@ -66,6 +83,7 @@ func (f *fakePortless) exec(ctx context.Context, bin string, args ...string) (st
 				return "", 1, errors.New("Error: No alias found for \"" + name + "\".")
 			}
 			delete(f.routes, name)
+			f.removedNames = append(f.removedNames, name)
 			return "Removed alias: " + name, 0, nil
 		}
 		// Upsert incondicional, sin detección de conflictos (M8).
@@ -103,9 +121,10 @@ func (f *fakePortless) probe(ctx context.Context, scheme, host string, proxyPort
 	if f.noProxy {
 		return 0, errors.New("connection refused")
 	}
-	if _, ok := f.routes[host]; !ok {
+	if _, ok := f.routes[host]; !ok || f.serve404[host] {
 		// MEDIDO: el proxy responde 404 a un host que NO conoce. Eso NO es
-		// prueba de enrutado, es su contrario.
+		// prueba de enrutado, es su contrario. serve404 modela un host que
+		// además está escrito en el fichero: una ruta abandonada.
 		return 404, nil
 	}
 	if f.probeStatus == 502 {

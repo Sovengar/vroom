@@ -260,9 +260,12 @@ func (c *Client) Apply(name string, port int, prev Ownership) Result {
 		return registered.withReason(ReasonRouteConflict)
 	}
 
-	verified := c.verify(name, port)
-	verified.Registered = true
-	return verified
+	// verify se llama solo después de que Register tuviera éxito, y pone
+	// Registered en su propio literal de éxito (ver su comentario). Aquí ya no
+	// hay que forzar nada: si verify degrada, la ruta sigue registrada y su
+	// Result conserva el hecho, porque lo compuso `registered` antes de
+	// verificar y verify no puede perderlo.
+	return c.verify(name, port)
 }
 
 // withReason devuelve el resultado degradado conservando que la escritura
@@ -286,9 +289,14 @@ func (c *Client) verify(name string, port int) Result {
 
 	// M6: la ausencia de proxy.port ES la señal de que no hay proxy. Se
 	// degrada aquí y no se cae a un puerto supuesto como 1355.
+	// Estas degradaciones ocurren DESPUÉS de que Register tuviera éxito, así que
+	// la ruta sigue siendo nuestra: se construyen sobre `registered` para no
+	// perder el hecho al degradar el estado.
 	proxyPort, err := c.ProxyPort()
 	if err != nil {
-		return Degraded(name, ReasonProxyNotRunning)
+		r := Degraded(name, ReasonProxyNotRunning)
+		r.Registered = true
+		return r
 	}
 
 	for _, scheme := range []string{"https", "http"} {
@@ -307,21 +315,33 @@ func (c *Client) verify(name string, port int) Result {
 		// Cualquier otra respuesta —incluido 502— prueba que el proxy ENRUTA
 		// esta ruta. Un 502 dice "enruta y el servicio de detrás no responde",
 		// que es información distinta de "no la sirve".
+		//
+		// Registered va aquí, en el literal, y no se fuerza desde Apply: verify
+		// sólo se llama DESPUÉS de que Register tuviera éxito, así que su
+		// resultado es siempre una ruta registrada. Ponerlo aquí hace que la
+		// función no pueda equivocarse por su cuenta: si mañana se llama desde
+		// otro sitio, el campo viaja con el resultado que ella construye en vez
+		// de depender de que alguien se acuerde de rellenarlo después.
 		return Result{
-			Name:   name,
-			Host:   host,
-			Status: StatusRegistered,
-			Url:    scheme + "://" + host,
-			Port:   port,
+			Name:       name,
+			Host:       host,
+			Status:     StatusRegistered,
+			Url:        scheme + "://" + host,
+			Port:       port,
+			Registered: true,
 		}
 	}
 
 	// Ningún esquema respondió. No hay proxy sirviendo, o el puerto declarado no
 	// atiende: en ambos casos no se publica url.
 	if !c.acceptsConnections(proxyPort) {
-		return Degraded(name, ReasonProxyUnreachable)
+		r := Degraded(name, ReasonProxyUnreachable)
+		r.Registered = true
+		return r
 	}
-	return Degraded(name, ReasonRouteNotServed)
+	r := Degraded(name, ReasonRouteNotServed)
+	r.Registered = true
+	return r
 }
 
 // probePath es la ruta que se pide al proxy. "/" basta: la verificación es
@@ -482,17 +502,25 @@ func (c *Client) Reconcile(prev string, held Ownership, current string) []string
 	published, st := c.liveRoute(prev)
 	switch {
 	case st == routeUnknown:
-		// No responde: es una ruta huérfana de este servicio —rama renombrada,
-		// o un vroom que murió sin pararla—. Retirarla es lo único que
-		// corresponde, y lo único que `portless prune` no va a hacer.
+		// No se puede saber si hay alguien detrás. published es 0 SIEMPRE en
+		// esta rama —liveRoute devuelve (0, routeUnknown) en sus dos caminos de
+		// "no sé"—, así que no hay puerto con el que comparar.
 		//
-		// Y aquí SÍ hace falta la propiedad: "no responde" no distingue "mi
-		// huérfana" de "la ruta de otro que se quedó sin backend". Sin ella,
-		// un nombre que otra cosa ocupan se borraría en el siguiente arranque
-		// de cualquiera.
-		if !held.Authorises(published) && published != 0 {
+		// Con el puerto no se puede, y la única evidencia disponible es la
+		// PROPIEDAD: si seguimos teniendo una concesión sin revocar sobre este
+		// nombre, la ruta es nuestra y retirarla es lo que toca. Si la
+		//laihad revocar —porque alguien ya la retiró o porque el Meta es de antes
+		// de route_owned— NO se toca nada, porque no se puede probar que sea
+		// nuestra y borrar lo ajeno es el daño que todo esto evita.
+		//
+		// La versión anterior de esta guarda era
+		// `!held.Authorises(published) && published != 0`, y era CÓDIGO MUERTO:
+		// published != 0 no se cumple nunca en esta rama y Authorises(0)
+		// exige Port > 0. Remove corría sin comprobar propiedad alguna.
+		// Reproducido contra portless real en los dos estados que la disparan.
+		if !held.Owned {
 			return []string{fmt.Sprintf(
-				"a portless route named %q is no longer served but vroom no longer owns it; it was left untouched",
+				"a portless route named %q is no longer served and vroom no longer owns it; it was left untouched",
 				Hostname(prev))}
 		}
 		_ = c.Remove(prev)
