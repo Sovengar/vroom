@@ -6,12 +6,19 @@
 instalado; el usuario ejecuta el bin de `~/.local/bin`, no el repo):
 
 ```bash
-go build -o ~/.local/bin/vroom ./cmd/vroom
+make install
 ```
+
+`make install` **verifica** que el binario desplegado lleve el sello de la
+revisión que se acaba de compilar, y **aborta si no**. No uses
+`go build -o ~/.local/bin/vroom` a mano: sin esa comprobación nada distingue el
+binario viejo del nuevo, y ya se desplegó una revisión equivocada sin que nadie
+lo notara. Motivo en el `Makefile` (`install`), junto a la medición que lo
+sustenta.
 
 Sin este paso, cualquier verificación que haga el usuario sobre la TUI usa la
 versión vieja. Ejecutarlo SIEMPRE al terminar una tarea de código, después de
-la verificación (`go build ./... && go vet ./... && go test ./...`).
+la verificación (`make check`).
 
 ## CI y protección de `main`
 
