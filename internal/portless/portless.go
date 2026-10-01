@@ -359,6 +359,15 @@ func (c *Client) Remove(name string) error {
 
 // RemoveAbsent hace lo mismo que Remove y además distingue el caso benigno de
 // M10, que es el único que revoca la propiedad sin haber escrito nada.
+//
+// MEDIUM-C: antes, cualquier exit 1 que no fuera el mensaje de "no existe"
+// caía en `default → nil → revoca`. Y hay varios que son exit 1 y SÍ son fallo:
+// `requires Node >= 24`, `EACCES`, JSON corrupto. Revocar la propiedad con uno
+// de ellos deja la ruta posiblemente huérfana sin nadie que pueda reclamarla, que es peor
+// que no revocar: un fallo abierto disfrazado de cierre.
+//
+// Sólo revocan el caso de éxito y el benigno de "no existía". Todo lo demás
+// propaga, y quien revoca decide.
 func (c *Client) RemoveAbsent(name string) error {
 	if name == "" {
 		return nil
@@ -368,12 +377,17 @@ func (c *Client) RemoveAbsent(name string) error {
 	}
 	_, code, err := c.run("alias", "--remove", name)
 	switch {
+	case err == nil && code == 0:
+		return nil // retirada efectiva
 	case code == 1 && isRouteAbsent(err):
-		return ErrRouteAbsent
-	case err != nil && code == 0:
-		return err
+		return ErrRouteAbsent // no estaba: estaba retirada
 	default:
-		return nil
+		// Cualquier otro exit es un FALLO: puede que la ruta siga ahí, así que
+		// la propiedad no se revoca y el handle se conserva para reconciliar.
+		if err == nil {
+			err = fmt.Errorf("portless alias --remove %s: exited %d", name, code)
+		}
+		return err
 	}
 }
 

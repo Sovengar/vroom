@@ -130,3 +130,24 @@ func (*noKillManager) Evaluate(process.EvalSpec) process.Status { return process
 // El seam de portless debe satisfacer Releaser: es lo que permite observar la
 // retirada sin un binario real.
 var _ portless.Releaser = (*recordingReleaser)(nil)
+
+// Un alta que CHOCÓ con una ruta ajena deja el handle puesto pero la propiedad
+// revocada. El stop no puede usar ese handle como autoridad de borrado: la ruta
+// que hay en el nombre es de otro, y borrarla es el daño que todo este diseño
+// existe para evitar.
+//
+// Reproducido contra portless real antes de escribir este test: con una ruta
+// ajena en el nombre, el stop la eliminaba.
+func TestCLIStopDoesNotRemoveAForeignRoute(t *testing.T) {
+	rec := &recordingReleaser{}
+	installCLIReleaser(t, rec)
+
+	_, _ = stopWithMeta(t, state.Meta{
+		Name: "p", Pid: 424242, Port: 4321, State: state.StateRunning,
+		RouteName: "ajena", RoutePort: 4000, RouteOwned: false, // chocó: no es nuestra
+	})
+
+	if len(rec.removed) != 0 {
+		t.Errorf("el stop no puede retirar una ruta que nunca fue nuestra, got %v", rec.removed)
+	}
+}

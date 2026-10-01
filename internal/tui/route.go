@@ -1,9 +1,6 @@
 package tui
 
 import (
-	"os"
-	"strings"
-
 	"vroom/internal/manifest"
 	"vroom/internal/portless"
 	"vroom/internal/state"
@@ -54,6 +51,9 @@ func portlessClient(m *manifest.Manifest) *portless.Client {
 // reventaría con SIGSEGV. Es el mismo error en los tres sitios, y por eso se
 // escriben igual.
 func releaseRoute(meta *state.Meta) {
+	if !meta.RouteOwned {
+		return // nunca fue nuestra: no se toca nada
+	}
 	if !portless.Release(tuiRouteReleaser(), meta.RouteName) {
 		return // la retirada no surtió efecto: no se revoca nada
 	}
@@ -65,10 +65,8 @@ func tuiRouteReleaser() portless.Releaser {
 	if routeStubInstalled && tuiReleaseStub != nil {
 		return tuiReleaseStub
 	}
-	if strings.HasSuffix(os.Args[0], ".test") {
-		// LOW-3: sin stub, en un binario de test, esto construiría el cliente real
-		// y tocaría el state dir del desarrollador. Aquí no se toca nada.
-		return portless.ReleaserFunc(func(string) error { return nil })
+	if portless.IsTestBinary() {
+		return portless.InertReleaser()
 	}
 	return nil
 }

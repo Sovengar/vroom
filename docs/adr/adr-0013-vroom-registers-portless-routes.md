@@ -258,13 +258,72 @@ eliminado por diseño.
     el proxy devuelve `502` porque el puerto ya no lo escucha nadie, y leer ese
     `502` como "viva" la deja para siempre — que es justo lo que §8 existe para
     evitar. `liveRoute` distingue por eso tres estados: no servida (`404` o sin
-    proxy), enruta-sin-backend (`502`/`504`) y viva. Y sólo se retira cuando se
-    puede **probar** la propiedad —el nombre y el puerto que este servicio
-    persistió—, para que el fallo cerrado siga aplicando a la limpieza.
+    proxy), enruta-sin-backend (`502`/`504`) y viva. Y sólo se retira cuando
+    `held.Authorises(published)` — la propiedad persistida, no el puerto— para
+    que el fallo cerrado siga aplicando a la limpieza.
+
+    > **CORRECCIÓN (review).** Este texto decía que se retiraba cuando se podía
+    > probar la propiedad "por el nombre y el puerto que este servicio
+    > persistió". Eso fue exactamente lo que **no** hacía: `Reconcile` seguía
+    > recibiendo un puerto crudo. Y como la revocación conserva el handle a
+    > propósito —para que la reconciliación tenga dónde mirar—, ese puerto crudo
+    > era una **autoridad de borrado real** sobre un nombre que vroom había
+    > descartado ya. Secuencia: `Apply(x,4321)` → stop y Release (revoca, handle
+    > vivo) → otro dueño toma `x` en 4321 con el backend caído (`502`) → rama
+    > renombrada → `Reconcile` ve `prev != current` y **borra la ruta ajena**.
+    >
+    > La misma concesión de §5, reutilizada tal cual: `Reconcile` ahora recibe
+    > `Ownership` y exige `Authorises` antes de borrar. Conservar el handle sigue
+    > siendo lo correcto; lo que estaba mal era el predicado.
 
     El mismo `502` cambia de signo según la pregunta: en el alta **prueba** el
     enrutado y por eso la ruta se publica; en la limpieza significa que no hay
     nadie detrás. Tratarlo igual en los dos sitios es un error en uno de los dos.
+
+15. **`Result.Registered` es la señal de concesión, y concede mirando el
+    resultado.** Registrar ES conceder la propiedad, pero sólo si la escritura
+    ocurrió: `Apply` marca `Registered` justo después de que `Register` tuvo
+    éxito, y `applyRoute` concede con `res.Registered`.
+
+    > **CORRECCIÓN (review, HIGH-A).** `applyRoute` hacía
+    > `meta.RouteOwned = true` **incondicionalmente**, sin mirar `res`. Un alta
+    > que nunca ocurrió —por conflicto, o sin binario— acuñaba igual una
+    > capacidad concedente, con el puerto pedido. Era el único punto de concesión
+    > del árbol, así que el defecto se propagaba a todo lo demás.
+    >
+    > Y el arreglo NO es conceder con `Succeeded()`: eso significa registrada **y**
+    > verificada, así que *sub-concedería*. Una ruta escrita con el proxy parado
+    > es genuinamente nuestra y debe conservar su handle; sin él, un reinicio con
+    > el puerto movido chocaría contra su propia ruta, que es un conflicto
+    > inventado. Degradar el estado no deshace el hecho.
+
+16. **Contabilidad de los sitios de propiedad.** Los tres hallazgos de la ronda 4
+    eran la misma forma: un dato escrito en un sitio y leído en otro sin que
+    nadie comprobara que los dos coincidieran. La lista completa, con su papel:
+
+    | Sitio | Papel | Antes | Ahora |
+    |---|---|---|---|
+    | `startsvc.applyRoute` | **grant** | incondicional, sin mirar `res` | `res.Registered` |
+    | `cli.releaseRouteOnStop` | **revoke** | correcto | correcto |
+    | `tui.releaseRoute` | **revoke** | correcto | correcto |
+    | `engine.releaseRouteOnStop` | **revoke** | correcto (3 call sites) | correcto |
+    | `startsvc.Start` (herencia) | **read** (traslado) | copiaba nombre y puerto, **no** la propiedad | copia los tres o ninguno |
+    | `startsvc.applyRoute` → `Apply` | **read** (decisión) | leía los tres | los tres |
+    | `startsvc.applyRoute` → `Reconcile` | **read** (decisión) | **leía nombre y puerto, no la propiedad** | recibe `Ownership` |
+    | `cli.buildProjectInfo` | **read** (JSON) | leía nombre y puerto | sin cambio: superficie, no decisión |
+    | — | **clear** | ningún sitio borra nombre+puerto | ninguno, a propósito |
+
+    El sitio de la herencia no estaba en la lista del review y era el mismo
+    patrón: copiar dos de tres hechos deja la concesión perdida en silencio en
+    cada arranque.
+
+17. **`RemoveAbsent` sólo revoca con exit 0 o con el benigno de M10.**
+    `requires Node >= 24`, `EACCES` y un `routes.json` corrupto salen **todos**
+    con exit 1, y un `default → nil` los revocaba a todos: una retirada fallida
+    declaraba la ruta como *no nuestra* mientras la ruta podía
+    seguir ahí, y sin propiedad ya nadie podía reclamarla. Es un fallo abierto
+    etiquetado como cierre. Ahora todo exit que no sea el de "no existe" propaga
+    como error, y quien revoca decide. `Remove` conserva su contrato benigno.
 
 ## Consecuencias
 

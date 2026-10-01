@@ -508,10 +508,8 @@ func engineRouteReleaser() portless.Releaser {
 	if engineReleaseStubInstalled && engineReleaseStub != nil {
 		return engineReleaseStub
 	}
-	if strings.HasSuffix(os.Args[0], ".test") {
-		// LOW-3: sin stub, en un binario de test, esto construiría el cliente real
-		// y tocaría el state dir del desarrollador. Aquí no se toca nada.
-		return portless.ReleaserFunc(func(string) error { return nil })
+	if portless.IsTestBinary() {
+		return portless.InertReleaser()
 	}
 	return nil
 }
@@ -543,10 +541,13 @@ func (e *Engine) stopProcess(path string, meta *state.Meta) {
 // con el cliente real hardcodeado, que ningún test podía observar. Una ruta que
 // ese camino dejaba era, precisamente, la que este HIGH hacía posible pisar.
 //
-// El handle (RouteName/RoutePort) NO se limpia a propósito: si la retirada
-// falla, la ruta puede seguir ahí y sin handle nadie podría limpiarla salvo la
-// reconciliación.
+// SOLO retira si la propiedad está CONCEDIDA: el handle sobrevive a la
+// revocación para que la reconciliación tenga dónde mirar, así que usarlo como
+// autoridad de borrado borraría rutas ajenas.
 func (e *Engine) releaseRouteOnStop(meta *state.Meta) {
+	if !meta.RouteOwned {
+		return // nunca fue nuestra: no se toca nada
+	}
 	if !portless.Release(engineRouteReleaser(), meta.RouteName) {
 		return // la retirada no surtió efecto: no se revoca nada
 	}

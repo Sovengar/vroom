@@ -60,7 +60,7 @@ func TestEngineStopProcessRemovesTheServiceRoute(t *testing.T) {
 	e := newTestEngine(t)
 	e.stopProcess("/tmp/proyecto", &state.Meta{
 		Name: "p", Pid: 0, Pgid: 0, Port: 0,
-		RouteName: "p-route",
+		RouteName: "p-route", RoutePort: 4321, RouteOwned: true,
 	})
 
 	if len(rec.removed) != 1 || rec.removed[0] != "p-route" {
@@ -79,7 +79,7 @@ func TestEngineAbortCleanupRemovesRoutes(t *testing.T) {
 	dir := t.TempDir()
 	if err := e.store.SaveMeta(dir, state.Meta{
 		Name: "p", Pid: 1, Port: 4321, State: state.StateRunning,
-		RouteName: "ruta-de-la-sesion",
+		RouteName: "ruta-de-la-sesion", RoutePort: 4321, RouteOwned: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -183,3 +183,20 @@ func TestAbortCleanupDeadServiceRemovesRoute(t *testing.T) {
 }
 
 var _ portless.Releaser = (*recordingReleaser)(nil)
+
+// El mismo caso en el motor de stacks: handle vivo sin propiedad NO es
+// autoridad para borrar.
+func TestEngineDoesNotRemoveAForeignRoute(t *testing.T) {
+	rec := &recordingReleaser{}
+	installEngineReleaser(t, rec)
+
+	e := newTestEngine(t)
+	e.stopProcess("/tmp/proyecto", &state.Meta{
+		Name: "p", Pid: 0, Port: 0,
+		RouteName: "ajena", RoutePort: 4000, RouteOwned: false,
+	})
+
+	if len(rec.removed) != 0 {
+		t.Errorf("el stop no puede retirar una ruta que nunca fue nuestra, got %v", rec.removed)
+	}
+}

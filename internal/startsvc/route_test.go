@@ -39,7 +39,9 @@ func (f *fakeRoutes) Apply(name string, port int, prev portless.Ownership) portl
 	return r
 }
 
-func (f *fakeRoutes) Reconcile(prev string, prevPort int, current string) []string { return f.warns }
+func (f *fakeRoutes) Reconcile(_ string, _ portless.Ownership, _ string) []string {
+	return f.warns
+}
 
 func itoaTest(n int) string {
 	if n == 0 {
