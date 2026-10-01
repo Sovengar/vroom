@@ -38,7 +38,7 @@ func TestIntegrationRealPortless(t *testing.T) {
 	// Sin proxy, el resultado es degradado y NO publica url: la ruta queda
 	// escrita pero no se afirma que responda. Esto es el caso que la suite
 	// hermética no puede demostrar, porque allí el proxy es un doble.
-	res := c.Apply("vroom.integration", 4321, 0)
+	res := c.Apply("vroom.integration", 4321, portless.Ownership{})
 	if res.Succeeded() {
 		t.Fatalf("sin un proxy propio no debe publicarse url, got %+v", res)
 	}
@@ -206,7 +206,7 @@ func TestRouteSurvivesAProxyRestart(t *testing.T) {
 		portless.WithStateDir(iso),
 		portless.WithTimeout(15*time.Second),
 	)
-	if res := c.Apply("vroom.restart", backend, 0); !res.Succeeded() {
+	if res := c.Apply("vroom.restart", backend, portless.Ownership{}); !res.Succeeded() {
 		t.Skipf("sin proxy propio no hay nada que verificar: %+v", res)
 	}
 
@@ -273,7 +273,7 @@ func TestIntegrationDoesNotEvictLivePortlessRoutes(t *testing.T) {
 		t.Fatalf("la app viva debe tener ruta registrada: found=%v err=%v", found, err)
 	}
 
-	if res := c.Apply("vroom-other", 4321, 0); !res.Succeeded() {
+	if res := c.Apply("vroom-other", 4321, portless.Ownership{}); !res.Succeeded() {
 		t.Fatalf("la ruta de vroom debe registrarse: %+v", res)
 	}
 

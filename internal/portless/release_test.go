@@ -23,7 +23,7 @@ type recordingReleaser struct {
 	err     error
 }
 
-func (r *recordingReleaser) Remove(name string) error {
+func (r *recordingReleaser) RemoveAbsent(name string) error {
 	r.removed = append(r.removed, name)
 	return r.err
 }
@@ -72,6 +72,10 @@ func TestReleaseSwallowsErrors(t *testing.T) {
 // prueba aqui a proposito: exigiria el portless del usuario. Vive en el test de
 // integracion, que es aislado y opt-in.
 func TestReleaseWithNilSeamAndEmptyNameIsInert(t *testing.T) {
+	// Nil significa "construye el cliente real", que resolvería el portless y el
+	// state dir del DESARROLLADOR. Con el nombre vacío no debe llegar a
+	// construirlos, y este test es lo que lo fija: un test futuro que se olvide
+	// de inyectar el seam no debe poder mutar el routes.json de otra persona.
 	portless.Release(nil, "")
 }
 
@@ -89,7 +93,7 @@ func TestReleaseIntegrationRemovesForReal(t *testing.T) {
 		portless.WithStateDir(iso),
 		portless.WithTimeout(10*time.Second),
 	)
-	if c.Apply("vroom.release", 4321, 0).Succeeded() {
+	if c.Apply("vroom.release", 4321, portless.Ownership{}).Succeeded() {
 		t.Log("hay un proxy en marcha: la ruta se registró y va a comprobarse")
 	}
 	if _, found, err := c.Lookup("vroom.release"); err != nil || !found {

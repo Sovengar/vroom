@@ -23,7 +23,7 @@ import (
 // recordingReleaser registra lo que se le pide retirar.
 type recordingReleaser struct{ removed []string }
 
-func (r *recordingReleaser) Remove(name string) error {
+func (r *recordingReleaser) RemoveAbsent(name string) error {
 	r.removed = append(r.removed, name)
 	return nil
 }
@@ -32,7 +32,7 @@ func (r *recordingReleaser) Remove(name string) error {
 func installCLIReleaser(t *testing.T, rec *recordingReleaser) {
 	t.Helper()
 	t.Cleanup(func() { cliReleaseStub, cliReleaseStubInstalled = nil, false })
-	cliReleaseStub = rec.Remove
+	cliReleaseStub = rec.RemoveAbsent
 	cliReleaseStubInstalled = true
 }
 

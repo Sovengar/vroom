@@ -3,6 +3,9 @@ package orchestrate
 import (
 	"testing"
 
+	"vroom/internal/manifest"
+	"vroom/internal/scanner"
+
 	"vroom/internal/portless"
 	"vroom/internal/process"
 	"vroom/internal/state"
@@ -20,7 +23,7 @@ import (
 // recordingReleaser registra lo que se le pide retirar.
 type recordingReleaser struct{ removed []string }
 
-func (r *recordingReleaser) Remove(name string) error {
+func (r *recordingReleaser) RemoveAbsent(name string) error {
 	r.removed = append(r.removed, name)
 	return nil
 }
@@ -29,7 +32,7 @@ func (r *recordingReleaser) Remove(name string) error {
 func installEngineReleaser(t *testing.T, rec *recordingReleaser) {
 	t.Helper()
 	t.Cleanup(func() { engineReleaseStub, engineReleaseStubInstalled = nil, false })
-	engineReleaseStub = rec.Remove
+	engineReleaseStub = rec.RemoveAbsent
 	engineReleaseStubInstalled = true
 }
 
@@ -55,7 +58,7 @@ func TestEngineStopProcessRemovesTheServiceRoute(t *testing.T) {
 	installEngineReleaser(t, rec)
 
 	e := newTestEngine(t)
-	e.stopProcess("/tmp/proyecto", state.Meta{
+	e.stopProcess("/tmp/proyecto", &state.Meta{
 		Name: "p", Pid: 0, Pgid: 0, Port: 0,
 		RouteName: "p-route",
 	})
@@ -94,10 +97,88 @@ func TestEngineStopWithoutRouteDoesNotCallRelease(t *testing.T) {
 	installEngineReleaser(t, rec)
 
 	e := newTestEngine(t)
-	e.stopProcess("/tmp/proyecto", state.Meta{Name: "p", Pid: 1, Port: 4321})
+	e.stopProcess("/tmp/proyecto", &state.Meta{Name: "p", Pid: 1, Port: 4321})
 
 	if len(rec.removed) != 0 {
 		t.Errorf("sin ruta registrada no debe retirarse nada, got %v", rec.removed)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Las dos ramas del servicio YA MUERTO.
+//
+// stopProcess sólo corre cuando hay algo que matar. Un servicio que ya estaba
+// muerto al pararse (Pid 0, Pgid 0, Port 0) con una ruta heredada en el Meta
+// no pasa por ahí, y sus dos ramas propias se saltaban sin que ningún test las
+// mirara: neutralizarlas dejaba la suite VERDE.
+//
+// El estado es alcanzable: resolveDynamicPort sólo registra ruta cuando
+// State==running && Port>0, pero RouteName/RoutePort heredados siguen
+// persistidos, así que un servicio que tuvo ruta y luego no abre ningún puerto
+// TCP acaba con Pid=0, Pgid=0, Port=0 y RouteName != "".
+// ---------------------------------------------------------------------------
+
+// stopService con el servicio ya muerto retira su ruta.
+func TestStopServiceDeadServiceRemovesRoute(t *testing.T) {
+	rec := &recordingReleaser{}
+	installEngineReleaser(t, rec)
+
+	e := newTestEngine(t)
+	dir := t.TempDir()
+	if _, err := e.store.EnsureServiceDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.store.SaveMeta(dir, state.Meta{
+		Name: "p", Pid: 0, Pgid: 0, Port: 0, State: state.StateRunning,
+		RouteName: "ruta-heredada", RoutePort: 4321, RouteOwned: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	e.stopService(scanner.Project{Path: dir, Configured: true, Manifest: &manifest.Manifest{Name: "p"}})
+
+	if len(rec.removed) != 1 || rec.removed[0] != "ruta-heredada" {
+		t.Errorf("stopService debe retirar la ruta del servicio ya muerto, got %v", rec.removed)
+	}
+	meta, err := e.store.LoadMeta(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.RouteOwned {
+		t.Error("tras retirar la ruta la propiedad debe quedar revocada")
+	}
+}
+
+// abortAndCleanup con el servicio ya muerto también: esta rama era la que
+// llamaba a portless.Release(nil, ...) con el cliente real hardcodeado, así que
+// ningún test podía observarla.
+func TestAbortCleanupDeadServiceRemovesRoute(t *testing.T) {
+	rec := &recordingReleaser{}
+	installEngineReleaser(t, rec)
+
+	e := newTestEngine(t)
+	dir := t.TempDir()
+	if _, err := e.store.EnsureServiceDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.store.SaveMeta(dir, state.Meta{
+		Name: "p", Pid: 0, Pgid: 0, Port: 0, State: state.StateRunning,
+		RouteName: "ruta-de-sesion", RoutePort: 4321, RouteOwned: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	e.abortAndCleanup([]string{dir})
+
+	if len(rec.removed) != 1 || rec.removed[0] != "ruta-de-sesion" {
+		t.Errorf("abortAndCleanup debe retirar la ruta del servicio ya muerto, got %v", rec.removed)
+	}
+	meta, err := e.store.LoadMeta(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.RouteOwned {
+		t.Error("tras retirar la ruta la propiedad debe quedar revocada")
 	}
 }
 

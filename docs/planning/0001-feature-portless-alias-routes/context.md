@@ -218,9 +218,12 @@ resolución de nombres de `.localhost`:
 
 - **Herméticas por defecto.** Fixtures vía seam inyectado. Ninguna prueba llama a
   un `portless` real salvo el test de integración marcado.
-- **Como máximo un test de integración**, con build tag o skip explícito si no hay
-  portless real. Debe cubrir el ciclo completo: registro → `list` muestra el
-  puerto → verificación contra el proxy vivo → `remove` → desaparece.
+- **Tests de integración marcados**, con skip explícito si no hay portless real
+  (gated por `VROOM_PORTLESS_INTEGRATION=1`, estado aislado en un temporal).
+  actual hay TRES: ciclo completo (registro → `list` → verificación → `remove` →
+  desaparece), M3 (sobrevive a un reinicio real del proxy, parado por PID) y M4
+  (escribir un alias no expulsa una app viva de `portless run`).
+  *(Corrección posterior: este archivo decía "como máximo uno".)*
 - **Regresión obligatoria: `prune` no destruye la ruta** (§7.3 M5). Es el hallazgo
   más fácil de reintroducir y el que justifica la reconciliación.
 - **Regresión obligatoria: una ruta escrita con el proxy parado NO se reporta

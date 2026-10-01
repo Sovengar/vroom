@@ -24,9 +24,9 @@ type fakeRoutes struct {
 
 // Apply devuelve SIEMPRE el nombre que recibió, que es lo que el cliente real
 // hace: el nombre pretendido es un dato de entrada, no del resultado.
-func (f *fakeRoutes) Apply(name string, port, prevPort int) portless.Result {
+func (f *fakeRoutes) Apply(name string, port int, prev portless.Ownership) portless.Result {
 	f.applied = append(f.applied, name+":"+itoaTest(port))
-	f.prevPorts = append(f.prevPorts, prevPort)
+	f.prevPorts = append(f.prevPorts, prev.Port)
 	r := f.result
 	r.Name = name
 	r.Host = portless.Hostname(name)
