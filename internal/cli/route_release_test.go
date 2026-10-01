@@ -41,13 +41,26 @@ func TestCLIStopRemovesTheServiceRoute(t *testing.T) {
 	rec := &recordingReleaser{}
 	installCLIReleaser(t, rec)
 
-	stopWithMeta(t, state.Meta{
+	dir, store := stopWithMeta(t, state.Meta{
 		Name: "p", Pid: 424242, Port: 4321, State: state.StateRunning,
-		RouteName: "p-route",
+		RouteName: "p-route", RoutePort: 4321, RouteOwned: true,
 	})
 
 	if len(rec.removed) != 1 || rec.removed[0] != "p-route" {
 		t.Errorf("el stop debe retirar la ruta del servicio, got %v", rec.removed)
+	}
+
+	// Y revoca la propiedad: sin esto el Meta seguiría declarando nuestra una
+	// ruta ya retirada, que es exactamente lo que permitía pisar la de otro.
+	meta, err := store.LoadMeta(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.RouteOwned {
+		t.Error("tras retirar la ruta la propiedad debe quedar revocada en el Meta")
+	}
+	if meta.RouteName == "" {
+		t.Error("el handle de reconciliación debe conservarse aunque la propiedad se revoque")
 	}
 }
 
@@ -60,9 +73,9 @@ func TestCLIStopRemovesRouteEvenWhenAlreadyDead(t *testing.T) {
 	rec := &recordingReleaser{}
 	installCLIReleaser(t, rec)
 
-	stopWithMeta(t, state.Meta{
+	_, _ = stopWithMeta(t, state.Meta{
 		Name: "p", Pid: 0, Pgid: 0, Port: 0, State: state.StateRunning,
-		RouteName: "ruta-huerfana",
+		RouteName: "ruta-huerfana", RoutePort: 4321, RouteOwned: true,
 	})
 
 	if len(rec.removed) != 1 || rec.removed[0] != "ruta-huerfana" {
@@ -76,7 +89,7 @@ func TestCLIStopWithoutRouteDoesNotCallRelease(t *testing.T) {
 	rec := &recordingReleaser{}
 	installCLIReleaser(t, rec)
 
-	stopWithMeta(t, state.Meta{Name: "p", Pid: 7, Port: 4321})
+	_, _ = stopWithMeta(t, state.Meta{Name: "p", Pid: 7, Port: 4321})
 
 	if len(rec.removed) != 0 {
 		t.Errorf("sin ruta registrada no debe retirarse nada, got %v", rec.removed)
@@ -90,7 +103,7 @@ func TestCLIStopWithoutRouteDoesNotCallRelease(t *testing.T) {
 // Se llama a esa funcion y no a una reimplementacion: un test que replica la
 // logica pasa aunque la logica se borre, y eso es justo el hueco que dejo la
 // primera version.
-func stopWithMeta(t *testing.T, meta state.Meta) {
+func stopWithMeta(t *testing.T, meta state.Meta) (string, *state.Store) {
 	t.Helper()
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
@@ -101,6 +114,7 @@ func stopWithMeta(t *testing.T, meta state.Meta) {
 		t.Fatal(err)
 	}
 	stopCleanup(store, &noKillManager{}, dir)
+	return dir, store
 }
 
 // noKillManager acepta cualquier Stop sin tocar nada: lo que se prueba es la
