@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"os"
+	"strings"
+
 	"vroom/internal/manifest"
 	"vroom/internal/portless"
 	"vroom/internal/state"
@@ -41,12 +44,31 @@ func portlessClient(m *manifest.Manifest) *portless.Client {
 	return portless.ClientFor(m)
 }
 
-// releaseRoute retira la ruta de un servicio parado. El fallo es benigno: quitar
-// una ruta que no existe sale con 1 (medido) y un stop repetido no es un error.
-func releaseRoute(meta state.Meta) {
-	if routeStubInstalled {
-		portless.Release(tuiReleaseStub, meta.RouteName)
-		return
+// releaseRoute retira la ruta de un servicio parado y REVOCA la propiedad si la
+// retirada surtió efecto. Muta el Meta; quien lo persiste es el SaveMeta del
+// stop.
+//
+// La comprobación del stub mira las DOS cosas (flag Y puntero), igual que la
+// CLI y el engine. Con sólo el flag, un test que lo(active) sin instalar doble
+// dejaría un Releaser no nulo envuelto en una func nil, y el primer Remove
+// reventaría con SIGSEGV. Es el mismo error en los tres sitios, y por eso se
+// escriben igual.
+func releaseRoute(meta *state.Meta) {
+	if !portless.Release(tuiRouteReleaser(), meta.RouteName) {
+		return // la retirada no surtió efecto: no se revoca nada
 	}
-	portless.Release(nil, meta.RouteName)
+	meta.RouteOwned = false
+}
+
+// tuiRouteReleaser devuelve el seam de retirada, o nil para el cliente real.
+func tuiRouteReleaser() portless.Releaser {
+	if routeStubInstalled && tuiReleaseStub != nil {
+		return tuiReleaseStub
+	}
+	if strings.HasSuffix(os.Args[0], ".test") {
+		// LOW-3: sin stub, en un binario de test, esto construiría el cliente real
+		// y tocaría el state dir del desarrollador. Aquí no se toca nada.
+		return portless.ReleaserFunc(func(string) error { return nil })
+	}
+	return nil
 }

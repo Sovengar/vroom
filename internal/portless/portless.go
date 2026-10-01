@@ -322,12 +322,24 @@ func (c *Client) Register(name string, port int) error {
 	return nil
 }
 
+// ErrRouteAbsent es el caso BENIGNO de `--remove`: el nombre no existe.
+//
+// MEDIDO (M10): sale con exit 1 y el mensaje "No alias found for ...". No es un
+// fallo —la ruta no está, que es justo lo que se quería— pero conviene
+// distinguirlo de un fallo real, porque los dos significan cosas opuestas para
+// la propiedad: si la ruta NO está, ya no es nuestra y se revoca; si el binario
+// falló o tardó, la ruta puede seguir ahí y hay que conservar el handle.
+var ErrRouteAbsent = errors.New("portless: no route with that name")
+
 // Remove retira la ruta name.
 //
 // `alias --remove` de un nombre inexistente sale con 1 (M10) y eso es BENIGNO:
-// un stop repetido no es un error, y exigir que el nombre exista convertiría un
-// segundo stop en un fallo. Sólo un nombre VACÍO se considera error, porque
-// significaría que no hay nada que retirar y sí una ruta huérfana.
+// un stop repetido no es un error. Remove lo refleja devolviendo nil, porque su
+// contrato es "no Romper el stop".
+//
+// Quien necesita distinguir "no estaba" de "falló de verdad" es Release, que
+// revoca la propiedad, y para eso está RemoveAbsent. Esa distinción NO puede
+// vivir aquí sin romper el contrato benigno de Remove.
 func (c *Client) Remove(name string) error {
 	if name == "" {
 		return nil
@@ -336,10 +348,43 @@ func (c *Client) Remove(name string) error {
 		return nil // sin portless no hay ruta que retirar
 	}
 	_, code, err := c.run("alias", "--remove", name)
+	if code == 1 && isRouteAbsent(err) {
+		return nil // estaba y ya no está: para Remove, bien
+	}
 	if err != nil && code == 0 {
-		return err // timeout o fallo real, no el "no existe" benigno
+		return err // timeout o fallo real
 	}
 	return nil
+}
+
+// RemoveAbsent hace lo mismo que Remove y además distingue el caso benigno de
+// M10, que es el único que revoca la propiedad sin haber escrito nada.
+func (c *Client) RemoveAbsent(name string) error {
+	if name == "" {
+		return nil
+	}
+	if c.bin == "" {
+		return nil
+	}
+	_, code, err := c.run("alias", "--remove", name)
+	switch {
+	case code == 1 && isRouteAbsent(err):
+		return ErrRouteAbsent
+	case err != nil && code == 0:
+		return err
+	default:
+		return nil
+	}
+}
+
+// isRouteAbsent reconoce el mensaje benigno de M10 frente a un fallo real, que
+// dejaría la ruta en su sitio.
+func isRouteAbsent(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no alias found")
 }
 
 // routeLineRE extrae (hostname, puerto destino) de cada línea de la tabla de

@@ -40,15 +40,17 @@ func RouteModeEnabled(mode string) bool { return mode != "" && mode != RouteMode
 // o sea, que la decisión 13 del ADR ("se retira en los tres caminos") no la
 // verificaba nada. Un seam que nadie puede injectar no es un seam.
 type Releaser interface {
-	// Remove retira la ruta name. El fallo es benigno.
-	Remove(name string) error
+	// RemoveAbsent retira la ruta name y devuelve ErrRouteAbsent si ya no
+	// estaba. No es Remove a propósito: Remove es benigno por contrato, y quien
+	// revoca propiedad necesita distinguir "no estaba" de "falló de verdad".
+	RemoveAbsent(name string) error
 }
 
 // ReleaserFunc adapta una función a Releaser.
 type ReleaserFunc func(name string) error
 
-// Remove implementa Releaser.
-func (f ReleaserFunc) Remove(name string) error { return f(name) }
+// RemoveAbsent implementa Releaser.
+func (f ReleaserFunc) RemoveAbsent(name string) error { return f(name) }
 
 // ClientFor devuelve el seam ya resuelto para un manifiesto, o nil si no hay
 // contrato de ruta.
@@ -65,11 +67,12 @@ func ClientFor(m *manifest.Manifest) *Client {
 	return Default()
 }
 
-// Release retira la ruta de un servicio parado.
+// Release retira la ruta de un servicio parado y dice SI LA RETIRÓ.
 //
-// El fallo es BENIGNO por diseño: quitar una ruta que no existe sale con 1
-// (medido, M10) y un stop repetido no es un error, porque el servicio ya está
-// parado y parar no puede fallar por una dirección.
+// El bool no es el error: es si la propiedad se REVOCA. Quitar una ruta que no
+// existe sale con 1 (medido, M10) y eso es benigno —un stop repetido no es un
+// error— pero la ruta, para efectos de propiedad, ya no es nuestra de todos
+// modos, así que Ownership debe quedar revocada igualmente.
 //
 // Recibe el NOMBRE, no el Meta: este paquete es un seam y no debe depender del
 // tipo de persistencia. Y no relee el manifiesto, que pudo cambiar desde el
@@ -77,16 +80,19 @@ func ClientFor(m *manifest.Manifest) *Client {
 // como propio.
 //
 // r es el punto de inyección. nil significa "construye el cliente real", que es
-// lo que usan los tres caminos de stop en producción; los tests pasan un doble.
-func Release(r Releaser, name string) {
+// lo que usan los caminos de stop en producción; los tests pasan un doble.
+func Release(r Releaser, name string) bool {
 	if name == "" {
-		return
+		return true // no había nada nuestro que retirar
 	}
 	if r == nil {
 		r = Default()
 	}
-	// El error se descarta a propósito: ver el doc de Remove.
-	_ = r.Remove(name)
+	// ErrRouteAbsent SÍ revoca: la ruta no está, que es exactamente lo que se
+	// quería. Un fallo real NO revoca, porque entonces la ruta puede seguir ahí
+	// y perder el handle la dejaría sin nadie que la limpie.
+	err := r.RemoveAbsent(name)
+	return err == nil || errors.Is(err, ErrRouteAbsent)
 }
 
 // Result es el resultado de aplicar una ruta. Tri-estado y honesto por
@@ -112,22 +118,42 @@ func Degraded(name, reason string) Result {
 	return Result{Name: name, Host: Hostname(name), Status: StatusDegraded, Reason: reason}
 }
 
+// Ownership es lo que vroom PUEDE PROBAR de una ruta que ya registró, y es lo
+// que autoriza a pisarla.
+//
+// No es un puerto. Un puerto persistido es un número, y un número no caduca: si
+// queda en el Meta para siempre, entonces cualquier actor que coja el nombre y
+// lo deje en ESE número se convierte de hecho en un dueño cuya ruta podemos
+// pisar. La secuencia —registrar, retirar, otro toma el nombre con nuestro
+// puerto anterior, arrancar— destruía la ruta de otro sin que nada fallara.
+//
+// Lo que caduca es la PROPIEDAD. Se concede al registrar y se revoca al
+// retirar, así que sólo autoriza mientras la ruta sigue siendo nuestra.
+type Ownership struct {
+	// Owned dice que vroom registró esta ruta y no la ha retirado.
+	Owned bool
+	// Port es el puerto al que apuntaba cuando la registramos.
+	Port int
+}
+
+// Authorises dice si esta propiedad permite escribir sobre un nombre que ya
+// apunta a existing.
+//
+// La coincidencia de puerto NO es prueba de propiedad: sólo lo es junto con
+// Owned, y sólo mientras nadie la haya revocado. Por eso el método existe en
+// vez de comparar números en el predicado: la comparación sola es el bug.
+func (o Ownership) Authorises(existing int) bool {
+	return o.Owned && o.Port > 0 && o.Port == existing
+}
+
 // Apply registra la ruta de un servicio y devuelve lo que se ha podido
 // PROBAR de ella, no lo que se ha pedido.
 //
-// prevPort es el puerto al que apuntaba la ruta de ESTE servicio en el arranque
-// anterior, o 0 si no tenía ninguna. Es lo que permite distinguir dos casos que
-// a primera vista son el mismo —el nombre ya existe con otro puerto— y que
-// tienen consecuencias opuestas:
-//
-//   - es la ruta de otro dueño → no se toca y se degrada con conflicto. El
-//     fallo cerrado que gobierna la limpieza, aplicado al alta: no se puede
-//     demostrar que sea una ruta huérfana, y destruirla sería el daño que todo
-//     este diseño existe para evitar.
-//   - es la ruta de este servicio y la app reinició en otro puerto → se
-//     actualiza, porque si no la ruta quedaría apuntando a un puerto muerto.
-//   - es la ruta de este servicio en el puerto persistido → es el alta
-//     idempotente de un reinicio, y se permite.
+// prev es lo que se sabe de la ruta anterior de ESTE servicio: si la tenemos y
+// sigue siendo nuestra, y el nombre aparece en otro puerto, es que la app
+// reinició y hay que mover la ruta —si no, quedaría apuntando a un puerto
+// muerto—. Sin esa prueba, cualquier nombre ajeno es conflicto y no se toca:
+// el fallo cerrado que gobierna la limpieza, aplicado al alta.
 //
 // El orden de los pasos es el contrato, y cada uno responde a un hecho medido:
 //
@@ -141,7 +167,8 @@ func Degraded(name, reason string) Result {
 //     ciegas DESTRUYE la ruta que hubiera. Esta comprobación va ANTES del alta
 //     por eso: después de escribir, la única diferencia entre "mi ruta" y "la
 //     ruta de otro" es la que acabamos de producir nosotros, y compararlas
-//     sería una tautología.
+//     sería una tautología. La prueba que autoriza a escribir sobre un nombre
+//     ajeno es Ownership, no un puerto: ver su doc.
 //  4. Se REGISTRA contra el puerto real. Por M9 el puerto destino no necesita
 //     estar escuchando, y por M3 la ruta sobrevive a un reinicio del proxy: el
 //     registro es persistente y correcto aunque el proxy esté parado, así que
@@ -153,7 +180,7 @@ func Degraded(name, reason string) Result {
 //
 // Ningún paso puede hacer fallar el arranque: todos devuelven un Result
 // degradado. La salud del servicio no depende de su ruta.
-func (c *Client) Apply(name string, port, prevPort int) Result {
+func (c *Client) Apply(name string, port int, prev Ownership) Result {
 	if !c.HasBinary() {
 		return Degraded(name, ReasonPortlessMissing)
 	}
@@ -173,9 +200,9 @@ func (c *Client) Apply(name string, port, prevPort int) Result {
 		// No se puede ni leer el estado previo: no se escribe nada, porque
 		// escribir sin saber contra qué es exactamente el daño que M8 permite.
 		return Degraded(name, classify(err))
-	case found && existing != port && existing != prevPort:
-		// El nombre lo tiene un puerto que no es el nuestro ni el que
-		// persistimos: es de otro dueño. No se puede demostrar que sea una
+	case found && existing != port && !prev.Authorises(existing):
+		// El nombre lo tiene un puerto que no es el nuestro, y no tenemos
+		// prueba de que siga siendo nuestra. No se puede demostrar que sea una
 		// ruta huérfana —podría ser la de otra app, o la de otro vroom en
 		// marcha—, y por eso no se toca.
 		return Degraded(name, ReasonRouteConflict)

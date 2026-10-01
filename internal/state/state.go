@@ -73,6 +73,19 @@ type Meta struct {
 	RouteName   string `json:"route_name,omitempty"`
 	RoutePort   int    `json:"route_port,omitempty"`
 	RouteStatus string `json:"route_status,omitempty"` // registered | degraded
+	// RouteOwned dice que la ruta anterior sigue siendo NUESTRA: se pone al
+	// registrar y se quita al retirarla.
+	//
+	// Existe porque RouteName y RoutePort solos NO autorizan a escribir sobre
+	// el nombre: son un nombre y un número, y ninguno caduca. Con sólo ellos, un
+	// actor que tomara el nombre y lo dejara en nuestro puerto anterior pasaba
+	// a ser, de hecho, un dueño cuya ruta podíamos pisar. Es la diferencia entre
+	// "sé qué puerto tenía" y "sé que sigue siendo mía".
+	//
+	// Se limpia DESPUÉS de que la retirada tenga efecto, no antes: si el
+	// `Remove` falla, la ruta puede seguir ahí, y perder el handle convertiría
+	// esa ruta en algo que nadie puede limpiar salvo la reconciliación.
+	RouteOwned bool `json:"route_owned,omitempty"`
 	// RouteReason explica una degradación. Vacío cuando la ruta funciona. El
 	// estado de la RUTA nunca afecta al State del servicio: la salud no
 	// depende de la dirección.
