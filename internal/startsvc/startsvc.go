@@ -77,7 +77,11 @@ type RouteRegistrar interface {
 	Apply(name string, port int, prev portless.Ownership) portless.Result
 	// Reconcile limpia las rutas que este servicio se dejó en un arranque
 	// anterior. Devuelve avisos, nunca errores.
-	Reconcile(prev string, prevPort int, current string) []string
+	//
+	// held es Ownership y NO un puerto: el handle se conserva aunque la
+	// propiedad esté revocada, así que(handle vivo) no es (somos dueños), y un
+	// puerto crudo aquí sería autoridad para borrar un nombre ajeno.
+	Reconcile(prev string, held portless.Ownership, current string) []string
 }
 
 // Result es el arranque resuelto.
@@ -135,11 +139,16 @@ func Start(req Request) (Result, error) {
 
 	// La ruta que este servicio se dejó en el arranque anterior se lee ANTES de
 	// sobrescribir el Meta, porque es lo que la reconciliación necesita para
-	// distinguir "mi ruta huérfana" de "una ruta viva de otro servicio". Se
-	// conserva en la base para que el tramo dynamic pueda usarla.
+	// distinguir "mi ruta huérfana" de "una ruta viva de otro servicio".
+	//
+	// Se heredan los TRES hechos o ninguno. Copiar el nombre y el puerto pero no
+	// la propiedad deja la concesión perdida en silencio en cada arranque, que es
+	// exactamente el patrón que reopen el HIGH-B: un handle vivo que no concede
+	// nada y una propiedad que nadie miró.
 	if prev, err := req.Store.LoadMeta(req.Path); err == nil {
 		base.RouteName = prev.RouteName
 		base.RoutePort = prev.RoutePort
+		base.RouteOwned = prev.RouteOwned
 	}
 
 	if mode != manifest.PortModeDynamic {
@@ -267,17 +276,24 @@ func applyRoute(req Request, meta *state.Meta, port int, out *Result) {
 	// La reconciliación va ANTES del alta: sin ella, una rama renombrada
 	// dejaría la ruta vieja apuntando a un puerto muerto para siempre, porque
 	// `portless prune` no toca las rutas de alias (medido).
-	out.Warnings = append(out.Warnings, req.Routes.Reconcile(meta.RouteName, meta.RoutePort, name)...)
+	out.Warnings = append(out.Warnings, req.Routes.Reconcile(meta.RouteName, portless.Ownership{Owned: meta.RouteOwned, Port: meta.RoutePort}, name)...)
 
 	res := req.Routes.Apply(name, port, portless.Ownership{Owned: meta.RouteOwned, Port: meta.RoutePort})
 	meta.RouteName = res.Name
 	meta.RoutePort = port
 	meta.RouteStatus = res.Status
 	meta.RouteReason = res.Reason
-	// Registrar ES conceder la propiedad: es lo que autoriza a mover la ruta en
-	// el arranque siguiente. Y es revocable, que es justo lo que un puerto solo
-	// no era.
-	meta.RouteOwned = true
+	// Conceder la propiedad SÍ depende del resultado, y de qué resultado: se
+	// concede con res.Registered —la escritura ocurrió—, no con
+	// res.Succeeded(), que además exige verificación.
+	//
+	// HIGH-A: esto era `meta.RouteOwned = true` sin mirar `res`, de modo que un
+	// alta que nunca ocurrió —por conflicto, o sin binario— acuñaba igual una
+	// capacidad concedente, con el puerto pedido. Conceder con Succeeded()
+	// habría sido el error opuesto: una ruta escrita con el proxy parado es
+	// nuestra de verdad, y perder su handle haría que un reinicio con el puerto
+	// movido chocara contra su propia ruta.
+	meta.RouteOwned = res.Registered
 	// La Url sólo se persiste si se ha VISTO responder. Un Meta en disco que
 	// afirmara una URL sin verificar publicaría una dirección falsa a quien lo
 	// leyera después.

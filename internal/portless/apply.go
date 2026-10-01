@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -51,6 +52,24 @@ type ReleaserFunc func(name string) error
 
 // RemoveAbsent implementa Releaser.
 func (f ReleaserFunc) RemoveAbsent(name string) error { return f(name) }
+
+// inertReleaser es lo que se usa en un binario de test cuando nadie ha inyectado
+// un seam. Existe porque `nil` significa "construye el cliente real", que
+// resolvería el portless y el state dir del DESARROLLADOR: un test que se
+// olvide de instalar el seam no debe poder mutar su routes.json real.
+//
+// Vive aquí y no en los tres sitios que lo necesitan porque son tres copias de
+// la misma comprobación, que es exactamente el hazard por el que se subió
+// ClientFor a este paquete.
+var inertReleaser = ReleaserFunc(func(string) error { return nil })
+
+// InertReleaser devuelve un Releaser que no hace nada, para los caminos que en
+// un binario de test no deben tocar nada.
+func InertReleaser() Releaser { return inertReleaser }
+
+// IsTestBinary reporta si el proceso actual es un binario de test. No depende
+// de una variable que un test pueda no poner.
+func IsTestBinary() bool { return strings.HasSuffix(os.Args[0], ".test") }
 
 // ClientFor devuelve el seam ya resuelto para un manifiesto, o nil si no hay
 // contrato de ruta.
@@ -107,6 +126,15 @@ type Result struct {
 	Url    string // sólo si registered, y con el esquema que se comprobó
 	Reason string // sólo si degraded
 	Port   int    // puerto real al que apunta la ruta, si se registró
+	// Registered dice que la escritura OCURRIÓ, con independencia de que la
+	// ruta se haya podido verificar.
+	//
+	// Es distinto de Succeeded() a propósito, y esa distinción es el punto: una
+	// ruta escrita con el proxy parado no se ha verificado, pero ES NUESTRA y
+	// debe conservar el handle. Conceder propiedad con Succeeded() la
+	// perdería, y un reinicio con el puerto movido chocaría entonces con
+	// nuestra propia ruta, que es un conflicto inventado.
+	Registered bool
 }
 
 // Succeeded dice si la ruta quedó registrada y verificada en el proxy vivo.
@@ -212,21 +240,39 @@ func (c *Client) Apply(name string, port int, prev Ownership) Result {
 		return Degraded(name, classify(err))
 	}
 
+	// Desde aquí la escritura OCURRIÓ, la haya servido el proxy o no. Todo lo que
+	// viene después degrada o verifica, pero no deshace el alta: por eso
+	// Registered se pone aquí y no en el return final.
+	registered := Result{Name: name, Host: Hostname(name), Port: port, Registered: true}
+
 	// Lectura de vuelta: confirma la escritura y cubre la ventana entre la
 	// consulta y el alta.
 	published, found, err := c.Lookup(name)
 	switch {
 	case err != nil:
 		// Se registró pero no se puede ni leer de vuelta: no se afirma nada.
-		return Degraded(name, classify(err))
+		// La propiedad se conserva: la escritura ocurrió.
+		return registered.withReason(classify(err))
 	case !found:
-		return Degraded(name, ReasonRouteNotServed)
+		return registered.withReason(ReasonRouteNotServed)
 	case published != port:
 		// El nombre cambió de dueño entre la consulta y el alta. M8 en vivo.
-		return Degraded(name, ReasonRouteConflict)
+		return registered.withReason(ReasonRouteConflict)
 	}
 
-	return c.verify(name, port)
+	verified := c.verify(name, port)
+	verified.Registered = true
+	return verified
+}
+
+// withReason devuelve el resultado degradado conservando que la escritura
+// ocurrió. Degradar el ESTADO no deshace el HECHO: una ruta escrita con el proxy
+// parado es nuestra aunque no se pueda afirmar que responda.
+func (r Result) withReason(reason string) Result {
+	r.Status = StatusDegraded
+	r.Reason = reason
+	r.Url = ""
+	return r
 }
 
 // verify sondea el proxy vivo para la ruta y decide si se publica su URL.
@@ -414,8 +460,21 @@ const (
 //
 // prev es el nombre que este servicio persistió en su Meta anterior ("" si no
 // registró ninguno) y prevPort el puerto al que apuntaba, que es lo que permite
-// distinguir "la mía" de "de otro dueño".
-func (c *Client) Reconcile(prev string, prevPort int, current string) []string {
+// Reconcile limpia las rutas que este servicio se dejó a sí mismo en un
+// arranque anterior. Es OBLIGATORIA en cada arranque, no una mejora pendiente.
+//
+// held es lo que se sabe de la ruta anterior: NO un puerto. Un puerto crudo
+// sobre un handle vivo es una autoridad de borrado REAL sobre un nombre que
+// vroom puede haber descartado ya —la revocación conserva el handle a propósito,
+// para que la reconciliación tenga dónde mirar, así que(handle vivo) ≠ (somos
+// dueños)—. La autoridad para borrar la aporta held.Authorises.
+//
+// Por qué no puede delegarse: `portless prune` NO toca las rutas de alias
+// (`pid: 0`, contadas como activas, M5) — medido, no supuesto. Luego vroom es
+// lo ÚNICO que puede limpiarlas, y una ruta que dejó un vroom que murió sin
+// parar su servicio sería permanente sin esto.
+
+func (c *Client) Reconcile(prev string, held Ownership, current string) []string {
 	if !c.HasBinary() || prev == "" || prev == current {
 		return nil // nada que reconciliar, o ya es la misma ruta
 	}
@@ -426,18 +485,33 @@ func (c *Client) Reconcile(prev string, prevPort int, current string) []string {
 		// No responde: es una ruta huérfana de este servicio —rama renombrada,
 		// o un vroom que murió sin pararla—. Retirarla es lo único que
 		// corresponde, y lo único que `portless prune` no va a hacer.
+		//
+		// Y aquí SÍ hace falta la propiedad: "no responde" no distingue "mi
+		// huérfana" de "la ruta de otro que se quedó sin backend". Sin ella,
+		// un nombre que otra cosa ocupan se borraría en el siguiente arranque
+		// de cualquiera.
+		if !held.Authorises(published) && published != 0 {
+			return []string{fmt.Sprintf(
+				"a portless route named %q is no longer served but vroom no longer owns it; it was left untouched",
+				Hostname(prev))}
+		}
 		_ = c.Remove(prev)
 		return nil
-	case published != prevPort:
+	case published != held.Port:
 		// Responde, pero en un puerto que no es el que persistimos: no es
 		// nuestra. Se avisa y NO se toca. Nadie puede probar lo contrario.
 		return []string{fmt.Sprintf(
 			"a portless route named %q is already serving another port (%d); it was left untouched",
 			Hostname(prev), published)}
 	case st == routeRoutedDead:
-		// El nombre y el puerto son los que persistimos —o sea, es nuestra— y
-		// el backend no responde: nadie la está sirviendo. Es la huella de un
-		// vroom que murió sin parar, y es lo único que prune no limpia.
+		// El nombre y el puerto son los que persistimos y la propiedad está
+		// viva: es nuestra, y no hay nadie detrás. Es la huella de un vroom que
+		// murió sin parar, y es lo único que prune no limpia.
+		if !held.Authorises(published) {
+			return []string{fmt.Sprintf(
+				"a portless route named %q is no longer served and vroom no longer owns it; it was left untouched",
+				Hostname(prev))}
+		}
 		_ = c.Remove(prev)
 		return nil
 	default:

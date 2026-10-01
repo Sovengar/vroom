@@ -185,7 +185,7 @@ func TestPruneDoesNotDestroyAliasRoutes(t *testing.T) {
 	// Y con el proxy sano la reconciliación NO la toca: responde, y no es
 	// nuestra. Fallar cerrado en la limpieza es tan importante como acertar en
 	// el alta.
-	warns := c.Reconcile("foreign.vroom", 4321, "mine.vroom")
+	warns := c.Reconcile("foreign.vroom", Ownership{Owned: true, Port: 4321}, "mine.vroom")
 	if len(warns) == 0 {
 		t.Error("una ruta viva en otro puerto debe avisar, no retirarse en silencio")
 	}
@@ -325,7 +325,7 @@ func TestReconcileRemovesRenamedOrphanAndKeepsForeignLiveRoute(t *testing.T) {
 			return 200, nil
 		}
 
-		warns := c.Reconcile("old-name", 39999, "new-name")
+		warns := c.Reconcile("old-name", Ownership{Owned: true, Port: 39999}, "new-name")
 		if len(warns) != 0 {
 			t.Errorf("retirar una huérfana propia no avisa: %v", warns)
 		}
@@ -340,7 +340,7 @@ func TestReconcileRemovesRenamedOrphanAndKeepsForeignLiveRoute(t *testing.T) {
 		f.routes[Hostname("other-app")] = 5555 // responde, en OTRO puerto
 		f.routes[Hostname("mine")] = 4321
 
-		warns := c.Reconcile("other-app", 4321, "mine") // persistimos 4321
+		warns := c.Reconcile("other-app", Ownership{Owned: true, Port: 4321}, "mine") // persistimos 4321
 		if len(warns) == 0 {
 			t.Error("una ruta viva en otro puerto debe avisar del conflicto")
 		}
@@ -360,7 +360,7 @@ func TestReconcileRemovesRenamedOrphanAndKeepsForeignLiveRoute(t *testing.T) {
 		f.routes[Hostname("orphan")] = 39997 // puerto muerto
 		f.probeStatus = 502                  // enruta, backend caído
 
-		if warns := c.Reconcile("orphan", 39997, "current"); len(warns) != 0 {
+		if warns := c.Reconcile("orphan", Ownership{Owned: true, Port: 39997}, "current"); len(warns) != 0 {
 			t.Errorf("retirar una huérfana propia no avisa: %v", warns)
 		}
 		if _, still := f.routes[Hostname("orphan")]; still {
@@ -376,7 +376,7 @@ func TestReconcileRemovesRenamedOrphanAndKeepsForeignLiveRoute(t *testing.T) {
 		f.routes[Hostname("mine")] = 4321
 		f.probeStatus = 200
 
-		if warns := c.Reconcile("mine", 4321, "other"); len(warns) != 0 {
+		if warns := c.Reconcile("mine", Ownership{Owned: true, Port: 4321}, "other"); len(warns) != 0 {
 			t.Errorf("una ruta viva y propia no genera avisos: %v", warns)
 		}
 		if _, still := f.routes[Hostname("mine")]; !still {
@@ -391,7 +391,7 @@ func TestReconcileRemovesRenamedOrphanAndKeepsForeignLiveRoute(t *testing.T) {
 		// Mismo nombre persistido y derivado: no hay nada que reconciliar, ni
 		// siquiera se toca. Reconciliar N veces no acumula rutas.
 		for range 3 {
-			if warns := c.Reconcile("same", 4321, "same"); len(warns) != 0 {
+			if warns := c.Reconcile("same", Ownership{Owned: true, Port: 4321}, "same"); len(warns) != 0 {
 				t.Errorf("la reconciliación debe ser silenciosa e idempotente: %v", warns)
 			}
 		}

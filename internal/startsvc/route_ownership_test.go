@@ -123,10 +123,11 @@ func (o *ownershipSpy) Apply(name string, port int, prev portless.Ownership) por
 	return portless.Result{
 		Name: name, Host: portless.Hostname(name),
 		Status: portless.StatusRegistered, Url: "http://x.localhost", Port: port,
+		Registered: true,
 	}
 }
 
-func (o *ownershipSpy) Reconcile(prev string, prevPort int, current string) []string {
+func (o *ownershipSpy) Reconcile(_ string, _ portless.Ownership, _ string) []string {
 	return nil
 }
 

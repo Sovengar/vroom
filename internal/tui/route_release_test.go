@@ -103,3 +103,28 @@ func TestStopWithoutRouteDoesNotCallRelease(t *testing.T) {
 		t.Errorf("sin ruta registrada no debe retirarse nada, got %v", rec.removed)
 	}
 }
+
+// El mismo caso en la TUI: un handle vivo sin propiedad NO es autoridad para
+// borrar. Con una ruta ajena ocupando el nombre, el stop la eliminaba.
+func TestStopDoesNotRemoveAForeignRoute(t *testing.T) {
+	rec := &recordingReleaser{}
+	installRouteStub(t, rec)
+
+	dir := t.TempDir()
+	store := state.NewStoreAt(t.TempDir())
+	if _, err := store.EnsureServiceDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveMeta(dir, state.Meta{
+		Name: "p", Pid: 0, State: state.StateRunning,
+		RouteName: "ajena", RoutePort: 4000, RouteOwned: false,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	stopCmd(store, &stubManager{}, dir, "")()
+
+	if len(rec.removed) != 0 {
+		t.Errorf("el stop no puede retirar una ruta que nunca fue nuestra, got %v", rec.removed)
+	}
+}
