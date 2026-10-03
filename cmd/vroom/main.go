@@ -27,7 +27,12 @@ import (
 )
 
 func main() {
-	// CLI mode: subcomandos para consumo por IA
+	// CLI mode: subcomandos para consumo por IA.
+	//
+	// El código de salida lo aplica main, no el paquete cli: así el paquete
+	// informa del fallo en vez de matar el proceso, y main conserva el control
+	// del único os.Exit que existe en el arranque. `Run` devuelve false cuando
+	// no hubo subcomando, y entonces sigue hacia la TUI.
 	if cli.Run(os.Args[1:]) {
 		return
 	}

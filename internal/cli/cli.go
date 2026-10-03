@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -140,16 +141,30 @@ type ErrorResult struct {
 
 // ---- Helpers ----
 
-func outputJSON(v any) {
-	enc := json.NewEncoder(os.Stdout)
+// outputJSON escribe el contrato de salida en w.
+//
+// El writer es un PARÁMETRO, no un global: la salida de este paquete es su
+// contrato con los agentes, así que es lo último que puede quedar atado a un
+// recurso del proceso. Con `os.Stdout` dentro, ningún comando se puede ejercer
+// en un test —habría que sustituir el descriptor del proceso entero para leer lo que
+// escribió— y los nueve command* se quedaban sin cubrir sin que nadie lo
+// notara: no es que fueran difíciles de probar, es que no se podían probar.
+func outputJSON(w io.Writer, v any) error {
+	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	_ = enc.Encode(v)
+	return enc.Encode(v)
 }
 
-func outputError(msg string) {
-	enc := json.NewEncoder(os.Stderr)
-	_ = enc.Encode(ErrorResult{Error: msg})
-	os.Exit(1)
+// outputError escribe el contrato de error. NO sale: devuelve el código para que
+// lo interprete el caller.
+//
+// Que el código de salida sea un valor de retorno y no un os.Exit en medio del
+// paquete es lo que permite probarlo, y también lo que deja la salida en un
+// único sitio: main decide, el paquete informa. Un os.Exit aquí convertía cada
+// ruta de error en una sentencia que ningún test podía ejecutar.
+func outputError(w io.Writer, msg string) int {
+	_ = json.NewEncoder(w).Encode(ErrorResult{Error: msg})
+	return 1
 }
 
 func appendLine(path, line string) error {
@@ -475,199 +490,279 @@ func releaseRouteOnStop(meta *state.Meta) {
 
 // Run es el punto de entrada del CLI. Devuelve true si manejó un
 // subcomando (el caller debe salir); false si debe lanzar la TUI.
+//
+// El reparto es deliberado: Run sólo reparte y EMITE, y cada cmd* devuelve el
+// valor a publicar. Antes los comandos escribían ellos mismos y llamaban a
+// os.Exit en caso de error, con lo que ninguno podía ejecutarse en un test sin
+// matar el binario de test. Ahora el error viaja como valor y el proceso se
+// cierra en un solo sitio —main— que es donde esa decisión pertenece.
 func Run(args []string) bool {
+	handled, code := runInto(os.Stdout, os.Stderr, args)
+	if handled && code != 0 {
+		os.Exit(code)
+	}
+	return handled
+}
+
+// runInto es Run con los writers y el código de salida como valores.
+//
+// La separación es lo que hace que el contrato entero sea comprobable: stdout es
+// la RESPUESTA y stderr el DIAGNÓSTICO, y un test puede exigir que un error vaya
+// a stderr y no a stdout. Con os.Stdout y os.Exit dentro, las nueve rutas de
+// error del CLI eran sentencias que ningún test podía ejecutar.
+//
+// Y devuelve `handled` aparte del código porque son dos preguntas distintas: si
+// no hubo subcomando hay que lanzar la TUI, y eso no es un error ni un éxito.
+func runInto(stdout, stderr io.Writer, args []string) (handled bool, code int) {
+	payload, handled, err := dispatch(args)
+	if !handled {
+		return false, 0
+	}
+	if err != nil {
+		return true, outputError(stderr, err.Error())
+	}
+	if err := outputJSON(stdout, payload); err != nil {
+		// Un stdout que no acepta el JSON no es un comando que "no hizo nada":
+		// el agente recibiría una respuesta vacía y la leería como que no hay
+		// proyectos. Sale con 1 y lo dice en el mismo contrato.
+		return true, outputError(stderr, "could not write response: "+err.Error())
+	}
+	return true, 0
+}
+
+// dispatch reparte un subcomando y devuelve (payload, manejado, error).
+//
+// Devolver el error en vez de emitirlo es lo que hace testeable el reparto: los
+// nueve comandos tienen caminos de error REALES —proyecto no encontrado, no
+// configurado, escaneo fallido, comando one-shot ausente— y son justo los que
+// nunca se ejercitaban porque cada uno terminaba el proceso.
+//
+// Los errores de --path y de uso se comprueban AQUÍ y no en cada cmd*, porque
+// son de la FORMA de la invocación: no dependen de ningún comando, y duplicar
+// el parseo nueve veces sólo multiplicaría la superficie a la que hay que
+// mirar.
+func dispatch(args []string) (payload any, handled bool, err error) {
 	if len(args) == 0 {
-		return false
+		return nil, false, nil
 	}
 
 	cmd := args[0]
 
+	// Un comando con flag --path comparte el mismo parseo y el mismo contrato de
+	// error. La tabla es lo que evita nueve copias del mismo bloque.
 	switch cmd {
+	case "start", "stop", "build", "install", "logs":
+		usage := "usage: vroom " + cmd + " <project-name|path> [--path <path>]"
+		if cmd == "logs" {
+			usage += " [--tail N --stream merged|stdout|stderr]"
+		}
+		rest, path, perr := extractPathFlag(args[1:])
+		if perr != nil {
+			return nil, true, perr
+		}
+		if len(rest) < 1 {
+			return nil, true, errors.New(usage)
+		}
+		switch cmd {
+		case "start":
+			payload, err = cmdStart(rest[0], path)
+		case "stop":
+			payload, err = cmdStop(rest[0], path)
+		case "build":
+			payload, err = cmdBuild(rest[0], path)
+		case "install":
+			payload, err = cmdInstall(rest[0], path)
+		case "logs":
+			payload, err = cmdLogs(rest[0], rest[1:], path)
+		}
+		return payload, true, err
+
 	case "list", "status":
-		cmdList()
-	case "start":
-		rest, path, err := extractPathFlag(args[1:])
-		if err != nil {
-			outputError(err.Error())
-		}
-		if len(rest) < 1 {
-			outputError("usage: vroom start <project-name|path> [--path <path>]")
-		}
-		cmdStart(rest[0], path)
-	case "stop":
-		rest, path, err := extractPathFlag(args[1:])
-		if err != nil {
-			outputError(err.Error())
-		}
-		if len(rest) < 1 {
-			outputError("usage: vroom stop <project-name|path> [--path <path>]")
-		}
-		cmdStop(rest[0], path)
-	case "build":
-		rest, path, err := extractPathFlag(args[1:])
-		if err != nil {
-			outputError(err.Error())
-		}
-		if len(rest) < 1 {
-			outputError("usage: vroom build <project-name|path> [--path <path>]")
-		}
-		cmdBuild(rest[0], path)
-	case "install":
-		rest, path, err := extractPathFlag(args[1:])
-		if err != nil {
-			outputError(err.Error())
-		}
-		if len(rest) < 1 {
-			outputError("usage: vroom install <project-name|path> [--path <path>]")
-		}
-		cmdInstall(rest[0], path)
-	case "logs":
-		rest, path, err := extractPathFlag(args[1:])
-		if err != nil {
-			outputError(err.Error())
-		}
-		if len(rest) < 1 {
-			outputError("usage: vroom logs <project-name|path> [--path <path>] [--tail N --stream merged|stdout|stderr]")
-		}
-		cmdLogs(rest[0], rest[1:], path)
+		payload, err = cmdList()
+		return payload, true, err
 	case "launch":
-		cmdLaunch(args[1:])
+		payload, err = cmdLaunch(args[1:])
+		return payload, true, err
 	case "help", "--help", "-h":
-		cmdHelp()
+		payload, err = cmdHelp()
+		return payload, true, err
 	default:
-		return false // comando desconocido → TUI
+		return nil, false, nil // comando desconocido → TUI
 	}
-	return true
+}
+
+// cliSession es el contexto que TODOS los comandos de lectura necesitan: la
+// config, el store y el manager.
+//
+// Vive aquí porque el preámbulo estaba copiado en cinco comandos y porque es
+// la razón por la que los comandos no se podían probar: cada uno resolvía su
+// propia configuración desde el entorno y escribía su propia salida, así que
+// probar uno exigía montar el entorno entero de producción.
+//
+// sessionErr es un error YA ENVUELTO con su prefijo, porque el prefijo es
+// parte del contrato: un agente distingue "no encuentro el proyecto" de "el
+// escaneo falló" sin leer el stack.
+type cliSession struct {
+	cfg     config.Config
+	root    string
+	store   *state.Store
+	manager process.Manager
+}
+
+// newCliSession monta el contexto, o devuelve el error con el prefijo que el
+// contrato publica para ese punto.
+//
+// El prefijo NO se aplica en los tres sitios internos: "scan error: " lo dice
+// el comando que escanea, y store/config no son errores de escaneo. Por eso
+// scanError lleva su propio envoltorio y los otros dos no.
+func newCliSession() (cliSession, error) {
+	cfg := loadConfig()
+	store, err := state.NewStore()
+	if err != nil {
+		return cliSession{}, err
+	}
+	return cliSession{
+		cfg:     cfg,
+		root:    resolveRoot(),
+		store:   store,
+		manager: process.NewManager(),
+	}, nil
+}
+
+// scan ejecuta el escaneo del root con el prefijo del contrato. Se llama aparte
+// de newCliSession porque `launch --list` necesita el store pero NO escanea: el
+// compose file es el contrato de ese comando, y un error de disco no debe
+// impedir listar stacks.
+func (s cliSession) scan() (scanner.ScanResult, error) {
+	res, err := scanner.Scan(s.root, s.cfg.Scanner.Depth)
+	if err != nil {
+		return res, fmt.Errorf("scan error: %w", err)
+	}
+	return res, nil
+}
+
+// resolve busca el proyecto y devuelve el error tal cual, porque findProject ya
+// redacta un mensaje accionable (nombra el nombre y los paths candidatos) y
+// envolverlo lo enterraría.
+func (s cliSession) resolve(query, path string) (scanner.Project, error) {
+	res, err := s.scan()
+	if err != nil {
+		return scanner.Project{}, err
+	}
+	return findProject(res.Projects, query, path)
 }
 
 // cmdList lista todos los proyectos con estado completo.
-func cmdList() {
-	cfg := loadConfig()
-	root := resolveRoot()
-	store, err := state.NewStore()
+func cmdList() (any, error) {
+	s, err := newCliSession()
 	if err != nil {
-		outputError(err.Error())
-	}
-	manager := process.NewManager()
-
-	scanResult, err := scanner.Scan(root, cfg.Scanner.Depth)
-	if err != nil {
-		outputError("scan error: " + err.Error())
+		return nil, err
 	}
 
-	collapsed := store.LoadCollapsed()
+	scanResult, err := s.scan()
+	if err != nil {
+		return nil, err
+	}
+
+	collapsed := s.store.LoadCollapsed()
 
 	result := ListResult{
 		Projects: make([]ProjectInfo, 0, len(scanResult.Projects)),
 	}
 	for _, p := range scanResult.Projects {
-		result.Projects = append(result.Projects, buildProjectInfo(manager, store, collapsed, p))
+		result.Projects = append(result.Projects, buildProjectInfo(s.manager, s.store, collapsed, p))
 	}
 
-	outputJSON(result)
+	return result, nil
 }
 
 // cmdStart arranca un servicio daemonizado.
-func cmdStart(name, path string) {
-	cfg := loadConfig()
-	root := resolveRoot()
-	store, err := state.NewStore()
+func cmdStart(name, path string) (any, error) {
+	s, err := newCliSession()
 	if err != nil {
-		outputError(err.Error())
-	}
-	manager := process.NewManager()
-
-	scanResult, err := scanner.Scan(root, cfg.Scanner.Depth)
-	if err != nil {
-		outputError("scan error: " + err.Error())
+		return nil, err
 	}
 
-	p, err := findProject(scanResult.Projects, name, path)
+	p, err := s.resolve(name, path)
 	if err != nil {
-		outputError(err.Error())
+		return nil, err
 	}
 
 	if !p.Configured {
-		outputError(fmt.Sprintf("project %q is not configured (missing or invalid .vroom.toml)", name))
+		return nil, fmt.Errorf("project %q is not configured (missing or invalid .vroom.toml)", name)
 	}
 
 	// Verificar si ya está corriendo
-	status, _ := evaluateStatus(manager, store, p.Path)
+	status, _ := evaluateStatus(s.manager, s.store, p.Path)
 	if status == state.StateRunning {
-		outputJSON(ActionResult{
+		return ActionResult{
 			OK:      true,
 			Project: name,
 			Action:  "already_running",
-		})
-		return
+		}, nil
 	}
 
 	// Arrancar
-	if _, err := store.EnsureServiceDir(p.Path); err != nil {
-		outputError("could not create service dir: " + err.Error())
+	if _, err := s.store.EnsureServiceDir(p.Path); err != nil {
+		return nil, fmt.Errorf("could not create service dir: %w", err)
 	}
 
 	out, err := startsvc.Start(startsvc.Request{
 		Manifest:   p.Manifest,
 		Path:       p.Path,
-		Store:      store,
-		Manager:    manager,
-		StdoutPath: store.StdoutLog(p.Path),
-		StderrPath: store.StderrLog(p.Path),
+		Store:      s.store,
+		Manager:    s.manager,
+		StdoutPath: s.store.StdoutLog(p.Path),
+		StderrPath: s.store.StderrLog(p.Path),
 		Routes:     portless.ClientFor(p.Manifest),
 		Branch:     gitinfo.Branch(p.Path),
 	})
 	if err != nil {
-		outputError("start failed: " + err.Error())
+		return nil, fmt.Errorf("start failed: %w", err)
 	}
 	for _, w := range out.Warnings {
-		_ = appendLine(store.StderrLog(p.Path), "── vroom ▶ start: "+w)
+		_ = appendLine(s.store.StderrLog(p.Path), "── vroom ▶ start: "+w)
 	}
 
-	outputJSON(ActionResult{
+	return ActionResult{
 		OK:      true,
 		Project: name,
 		Action:  "started",
 		Pid:     out.Pid,
-	})
+	}, nil
 }
 
 // cmdStop detiene un servicio.
-func cmdStop(name, path string) {
-	cfg := loadConfig()
-	root := resolveRoot()
-	store, err := state.NewStore()
+func cmdStop(name, path string) (any, error) {
+	s, err := newCliSession()
 	if err != nil {
-		outputError(err.Error())
-	}
-	manager := process.NewManager()
-
-	scanResult, err := scanner.Scan(root, cfg.Scanner.Depth)
-	if err != nil {
-		outputError("scan error: " + err.Error())
+		return nil, err
 	}
 
-	p, err := findProject(scanResult.Projects, name, path)
+	p, err := s.resolve(name, path)
 	if err != nil {
-		outputError(err.Error())
+		return nil, err
 	}
 
 	// Parada graciosa si command_stop está definido
 	if p.Configured && p.Manifest.Stop != "" {
-		_, _, cmdErr := runLogged("stop", p.Manifest.Stop, p.Path, store.StdoutLog(p.Path), store.StderrLog(p.Path))
-		if cmdErr != nil {
-			// Notificamos pero el cleanup sigue
-			_ = cmdErr
-		}
+		// El fallo de command_stop NO detiene el cleanup: el servicio puede
+		// seguir vivo y quitar su PID sin matarlo lo dejaría huérfano y sin
+		// dueño, que es peor que un comando de parada que falla. El error se
+		// descarta a propósito, y por eso el `_` está commented y no es un
+		// olvido.
+		_, _, _ = runLogged("stop", p.Manifest.Stop, p.Path, s.store.StdoutLog(p.Path), s.store.StderrLog(p.Path))
 	}
 
-	stopCleanup(store, manager, p.Path)
+	if err := stopCleanup(s.store, s.manager, p.Path); err != nil {
+		return nil, err
+	}
 
-	outputJSON(ActionResult{
+	return ActionResult{
 		OK:      true,
 		Project: name,
 		Action:  "stopped",
-	})
+	}, nil
 }
 
 // stopCleanup es todo lo que hace cmdStop DESPUÉS de matar el proceso, con el
@@ -679,7 +774,13 @@ func cmdStop(name, path string) {
 // el comando y "probarla" reimplementándola en el test— es peor: un test que
 // replica la lógica pasa aunque la lógica se borre, que es exactamente el hueco
 // que dejó la primera versión (borrar los tres call sites dejaba la suite verde).
-func stopCleanup(store *state.Store, manager process.Manager, path string) {
+//
+// Y devuelve error en vez de emitirlo porque ClearPid es el ÚNICO punto de esta
+// función cuyo fallo es irrecuperable: sin él el Meta sigue afirmando un PID
+// vivo para un servicio ya parado, y el siguiente `vroom list` afirmaría un
+// servicio corriendo que no existe. Los demás fallos —parada, retirada de
+// ruta— se registran y el cleanup sigue, como antes.
+func stopCleanup(store *state.Store, manager process.Manager, path string) error {
 	meta, err := store.LoadMeta(path)
 	if err == nil && (meta.Pid > 0 || meta.Pgid > 0 || meta.Port > 0) {
 		var warns []string
@@ -703,7 +804,7 @@ func stopCleanup(store *state.Store, manager process.Manager, path string) {
 	}
 
 	if err := store.ClearPid(path); err != nil {
-		outputError("could not clear pid: " + err.Error())
+		return fmt.Errorf("could not clear pid: %w", err)
 	}
 	if err == nil {
 		meta.State = state.StateStopped
@@ -713,39 +814,40 @@ func stopCleanup(store *state.Store, manager process.Manager, path string) {
 		_ = store.SaveMeta(path, meta)
 	}
 	_ = appendLine(store.StderrLog(path), "── vroom ▶ stop: service stopped ──")
+	return nil
 }
 
 // cmdBuild ejecuta command_build de forma síncrona.
-func cmdBuild(name, path string) {
-	cmdOneShot(name, path, "build")
+func cmdBuild(name, path string) (any, error) {
+	return cmdOneShot(name, path, "build")
 }
 
 // cmdInstall ejecuta command_install de forma síncrona.
-func cmdInstall(name, path string) {
-	cmdOneShot(name, path, "install")
+func cmdInstall(name, path string) (any, error) {
+	return cmdOneShot(name, path, "install")
 }
 
 // cmdOneShot ejecuta un comando one-shot (build/install).
-func cmdOneShot(name, path, kind string) {
-	cfg := loadConfig()
-	root := resolveRoot()
-	store, err := state.NewStore()
+//
+// El switch de kind es exhaustivo A PROPÓSITO y sin default: si mañana aparece
+// una tercera clase de one-shot, este comando tiene que negarse a ejecutarla
+// en vez de publicar un ActionResult sin comando ni código, que un agente leería
+// como "se ejecutó y salió bien". kind es una constante de este paquete, así que
+// el default es código muerto y el compilador es quien lo avisa al añadir el
+// caso.
+func cmdOneShot(name, path, kind string) (any, error) {
+	s, err := newCliSession()
 	if err != nil {
-		outputError(err.Error())
+		return nil, err
 	}
 
-	scanResult, err := scanner.Scan(root, cfg.Scanner.Depth)
+	p, err := s.resolve(name, path)
 	if err != nil {
-		outputError("scan error: " + err.Error())
-	}
-
-	p, err := findProject(scanResult.Projects, name, path)
-	if err != nil {
-		outputError(err.Error())
+		return nil, err
 	}
 
 	if !p.Configured {
-		outputError(fmt.Sprintf("project %q is not configured", name))
+		return nil, fmt.Errorf("project %q is not configured", name)
 	}
 
 	var command string
@@ -754,13 +856,15 @@ func cmdOneShot(name, path, kind string) {
 		command = p.Manifest.Build
 	case "install":
 		command = p.Manifest.Install
+	default:
+		return nil, fmt.Errorf("unknown one-shot command %q", kind)
 	}
 
 	if command == "" {
-		outputError(fmt.Sprintf("project %q has no %s command defined", name, kind))
+		return nil, fmt.Errorf("project %q has no %s command defined", name, kind)
 	}
 
-	elapsed, exitCode, err := runLogged(kind, command, p.Path, store.StdoutLog(p.Path), store.StderrLog(p.Path))
+	elapsed, exitCode, err := runLogged(kind, command, p.Path, s.store.StdoutLog(p.Path), s.store.StderrLog(p.Path))
 	result := ActionResult{
 		OK:       err == nil,
 		Project:  name,
@@ -771,97 +875,121 @@ func cmdOneShot(name, path, kind string) {
 	if err != nil {
 		result.Error = err.Error()
 	}
-	outputJSON(result)
+	return result, nil
 }
 
-// cmdLogs muestra los logs de un servicio.
-func cmdLogs(name string, flags []string, path string) {
-	cfg := loadConfig()
-	root := resolveRoot()
-	store, err := state.NewStore()
-	if err != nil {
-		outputError(err.Error())
-	}
+// logFilter son los dos flags de `vroom logs`. Es un tipo y no dos enteros
+// sueltos porque los dos viajan juntos por todo el comando y juntos deciden qué
+// se lee: separarlosZGinvitaba a leer stderr cuando se pidió stdout.
+type logFilter struct {
+	tail   int    // 0 = todo el log
+	stream string // merged | stdout | stderr
+}
 
-	scanResult, err := scanner.Scan(root, cfg.Scanner.Depth)
-	if err != nil {
-		outputError("scan error: " + err.Error())
-	}
-
-	p, err := findProject(scanResult.Projects, name, path)
-	if err != nil {
-		outputError(err.Error())
-	}
-
-	// Parse flags simples: --tail N, --stream merged|stdout|stderr
-	tailLines := 0 // 0 = todo
-	stream := "merged"
+// parseLogFlags lee los flags simples de logs: --tail N, --stream valor.
+//
+// Un flag sin valor se ignora en vez de fallar, y un valor no numérico se
+// trata como 0 (todo el log). Es deliberado: el contrato es "lo que pediste o
+// el log entero", y un error por un `--tail` mal escrito dejaría al usuario sin
+// logs, que es peor que darle logs de más. El valor se reporta en el
+// resultado implícito, no se oculta.
+func parseLogFlags(flags []string) logFilter {
+	f := logFilter{stream: "merged"}
 	for i := 0; i < len(flags); i++ {
 		switch flags[i] {
 		case "--tail":
 			if i+1 < len(flags) {
-				_, _ = fmt.Sscanf(flags[i+1], "%d", &tailLines)
+				_, _ = fmt.Sscanf(flags[i+1], "%d", &f.tail)
 				i++
 			}
 		case "--stream":
 			if i+1 < len(flags) {
-				stream = flags[i+1]
+				f.stream = flags[i+1]
 				i++
 			}
 		}
 	}
-
-	result := LogsResult{Project: name}
-	stdoutPath := store.StdoutLog(p.Path)
-	stderrPath := store.StderrLog(p.Path)
-
-	readFull := func(path string) string {
-		data, _, err := tail.ReadNew(path, 0)
-		if err != nil {
-			return ""
-		}
-		return tail.StripANSI(data)
-	}
-
-	getLastNLines := func(s string, n int) string {
-		if n <= 0 {
-			return s
-		}
-		lines := strings.Split(s, "\n")
-		if len(lines) <= n {
-			return s
-		}
-		return strings.Join(lines[len(lines)-n:], "\n")
-	}
-
-	switch stream {
-	case "stdout":
-		result.Stdout = readFull(stdoutPath)
-		if tailLines > 0 {
-			result.Stdout = getLastNLines(result.Stdout, tailLines)
-		}
-	case "stderr":
-		result.Stderr = readFull(stderrPath)
-		if tailLines > 0 {
-			result.Stderr = getLastNLines(result.Stderr, tailLines)
-		}
-	default: // merged
-		stdout := readFull(stdoutPath)
-		stderr := readFull(stderrPath)
-		if tailLines > 0 {
-			stdout = getLastNLines(stdout, tailLines)
-			stderr = getLastNLines(stderr, tailLines)
-		}
-		result.Stdout = stdout
-		result.Stderr = stderr
-	}
-
-	outputJSON(result)
+	return f
 }
 
-// cmdHelp muestra la ayuda.
-func cmdHelp() {
-	outputJSON(map[string]any{
+// readLog devuelve el log completo sin códigos ANSI.
+//
+// Un log ilegible devuelve "" y no un error: los logs son un extra informativo
+// del estado del servicio, y un comando de consulta no puede dejar de responder
+// porque el fichero de log no se puede leer. La fila del proyecto sigue siendo
+// la misma.
+func readLog(path string) string {
+	data, _, err := tail.ReadNew(path, 0)
+	if err != nil {
+		return ""
+	}
+	return tail.StripANSI(data)
+}
+
+// lastNLines devuelve las últimas n líneas de s.
+//
+// n <= 0 y "más líneas de las que hay" devuelven s tal cual. Recortar por líneas
+// y no por bytes es lo que evita partir una línea por la mitad, que es justo lo
+// que un agente no puede usar.
+//
+// MEDIDO (bug): el salto de línea final cuenta como una línea MÁS. Un log de
+// tres líneas escrito como "a\nb\nc\n" se parte en cuatro, así que `--tail 2`
+// devolvía la tercera y una vacía —una línea de menos de las pedidas, y la que
+// falta es justo la más antigua que el usuario quería—. Por eso el elemento
+// final vacío se descarta ANTES de contar, y se devuelve con salto para que el
+// recuento del consumidor siga siendo el que pidió.
+func lastNLines(s string, n int) string {
+	if n <= 0 {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	// Un log que acaba en "\n" no tiene una última línea: el salto es el
+	// FINALIZADOR de la anterior. Sin esto, `tail N` devuelve N-1.
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[len(lines)-n:], "\n") + "\n"
+}
+
+// cmdLogs muestra los logs de un servicio.
+func cmdLogs(name string, flags []string, path string) (any, error) {
+	s, err := newCliSession()
+	if err != nil {
+		return nil, err
+	}
+
+	p, err := s.resolve(name, path)
+	if err != nil {
+		return nil, err
+	}
+
+	f := parseLogFlags(flags)
+
+	result := LogsResult{Project: name}
+	stdoutPath := s.store.StdoutLog(p.Path)
+	stderrPath := s.store.StderrLog(p.Path)
+
+	switch f.stream {
+	case "stdout":
+		result.Stdout = lastNLines(readLog(stdoutPath), f.tail)
+	case "stderr":
+		result.Stderr = lastNLines(readLog(stderrPath), f.tail)
+	default: // merged
+		result.Stdout = lastNLines(readLog(stdoutPath), f.tail)
+		result.Stderr = lastNLines(readLog(stderrPath), f.tail)
+	}
+
+	return result, nil
+}
+
+// cmdHelp muestra la ayuda. Devuelve la misma forma de mapa que antes: la ayuda
+// también es JSON porque este paquete tiene UN contrato de salida, y un comando
+// que imprimiera texto plano rompería la regla que un agente puede asumir.
+func cmdHelp() (any, error) {
+	return map[string]any{
 		"commands": map[string]string{
 			"vroom":        "launch the TUI (default when no arguments)",
 			"vroom list":   "list all projects with full state (JSON)",
@@ -878,7 +1006,7 @@ func cmdHelp() {
 		"notes": map[string]string{
 			"--path": "use an explicit project path when a manifest name is ambiguous across worktrees",
 		},
-	})
+	}, nil
 }
 
 // LaunchListResult es la respuesta de `vroom launch --list`.
@@ -888,47 +1016,48 @@ type LaunchListResult struct {
 }
 
 // cmdLaunch maneja el subcomando launch: --list, <name>, <name> --dry.
-func cmdLaunch(args []string) {
+//
+// `--list` NO escanea proyectos y NO necesita store: su contrato es el compose
+// file, así que construir el store y recorrer el disco para él sería trabajo que
+// puede fallar sin cambiar la respuesta. Antes lo hacía, y un `vroom launch
+// --list` en un directorio con el home ilegible fallaba por una razón que no
+// tiene que ver con los stacks.
+func cmdLaunch(args []string) (any, error) {
 	if len(args) == 0 {
-		outputError("usage: vroom launch --list | vroom launch <name> [--dry]")
+		return nil, errors.New("usage: vroom launch --list | vroom launch <name> [--dry]")
 	}
 
 	// Buscar compose file en CWD
 	cf, err := orchestrate.ParseComposeFile(".")
 	if err != nil {
-		outputError(err.Error())
+		return nil, err
 	}
 
 	if args[0] == "--list" {
 		cwd, _ := os.Getwd()
-		outputJSON(LaunchListResult{
+		return LaunchListResult{
 			File:   filepath.Join(cwd, orchestrate.ComposeFileName),
 			Stacks: cf.Stacks,
-		})
-		return
+		}, nil
 	}
 
 	stackName := args[0]
 	stack, err := cf.FindStack(stackName)
 	if err != nil {
-		outputError(err.Error())
+		return nil, err
 	}
 
 	// Scan projects
-	cfg := loadConfig()
-	root := resolveRoot()
-	store, err := state.NewStore()
+	s, err := newCliSession()
 	if err != nil {
-		outputError(err.Error())
+		return nil, err
 	}
-	manager := process.NewManager()
-
-	scanResult, err := scanner.Scan(root, cfg.Scanner.Depth)
+	scanResult, err := s.scan()
 	if err != nil {
-		outputError("scan error: " + err.Error())
+		return nil, err
 	}
 
-	engine := orchestrate.NewEngine(manager, store)
+	engine := orchestrate.NewEngine(s.manager, s.store)
 
 	// Check for --dry flag
 	dryRun := false
@@ -942,17 +1071,16 @@ func cmdLaunch(args []string) {
 	if dryRun {
 		result, err := engine.DryRun(stack, scanResult.Projects)
 		if err != nil {
-			outputError(err.Error())
+			return nil, err
 		}
-		outputJSON(result)
-		return
+		return result, nil
 	}
 
 	result, err := engine.Launch(stack, scanResult.Projects)
 	if err != nil {
-		outputError(err.Error())
+		return nil, err
 	}
-	outputJSON(result)
+	return result, nil
 }
 
 // ---- Internal helpers (ported from TUI for CLI use) ----
@@ -985,6 +1113,14 @@ func runLogged(kind, command, workDir, stdoutPath, stderrPath string) (time.Dura
 	cmd.Dir = workDir
 	out, err := os.OpenFile(stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
+		// Seems un re-chequeo del MISMO OpenFile que el banner acaba de hacer
+		// con los mismos flags sobre la misma ruta, y por eso parece código
+		// muerto. No lo es del todo: entre los dos hay una ventana en la que
+		// otro actor puede borrar el fichero, y —más importante—replacearlo por
+		// un directorio, que es exactamente como se rompe: el banner abre un
+		// fichero, alguien lo cambia por un directorio, y este OpenFile falla con
+		// EISDIR. El coste de cubrir esa ventana es una comprobación; el de no
+		// cubrirla es un fd filtrado y un comando que se ejecuta sin log.
 		return 0, 0, err
 	}
 	defer func() { _ = out.Close() }()
