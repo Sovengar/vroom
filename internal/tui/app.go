@@ -1352,12 +1352,22 @@ func (m Model) tailCmd() tea.Cmd {
 // y actualiza el viewport si es visible.
 func (m *Model) applyConsoleDelta(msg consoleDeltaMsg) {
 	cs := m.consoleStateFor(msg.path)
-	cs.off[0], cs.off[1] = msg.offS, msg.offE
+	// MEDIDO (bug): los offsets avanzan POR FLUJO y sólo si ese flujo se pudo
+	// leer. Antes se asignaban los dos juntos al principio, y un fallo de lectura
+	// de stdout dejaba el offset ya avanzado con los bytes sin integrar: el
+	// siguiente tick leería desde más allá y esas líneas NO SE VERÍAN NUNCA MÁS.
+	// Un fallo de lectura momentáneo —un log rotado en el medio, un fichero
+	// bloqueado por un segundo— costaba un trozo entero del log.
+	//
+	// El merged sí lleva ambos flujos, porque es una vista de los dos y un hueco
+	// en uno no lo hace menos cierto.
 	if msg.errS == nil {
 		cs.stdout = tail.CapBuffer(cs.stdout+msg.stdout, maxConsoleBytes)
+		cs.off[0] = msg.offS
 	}
 	if msg.errE == nil {
 		cs.stderr = tail.CapBuffer(cs.stderr+msg.stderr, maxConsoleBytes)
+		cs.off[1] = msg.offE
 	}
 	cs.merged = tail.CapBuffer(cs.merged+msg.stdout+msg.stderr, maxConsoleBytes)
 
