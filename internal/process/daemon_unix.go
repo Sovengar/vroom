@@ -255,7 +255,18 @@ func (u *unixManager) Evaluate(spec EvalSpec) Status {
 			}
 			return StatusRunning
 		}
-		return StatusRunning
+		// No hay `return StatusRunning` para el caso "ok pero el puerto no está
+		// abierto": es inalcanzable, y estaba ahí.
+		//
+		// `ok` se compone como `ok = portOpen` y luego `ok = ok || patternMatch`,
+		// así que `ok && !patternMatch` IMPLICA `portOpen`, y el `if` de arriba
+		// absorbe todos los caminos. Un segundo sitio para el mismo veredicto
+		// invita a mantenerlos sincronizados, y este además era el único `return`
+		// del bloque sin condición: leerlo hacía creer que faltaba un caso.
+		//
+		// MEDIDO: la cobertura lo delató. `258` era la única línea del `Evaluate`
+		// que ningún test alcanzaba, y un test que no se puede escribir para una
+		// línea es una línea que no hace falta.
 	}
 	return StatusStopped
 }

@@ -96,12 +96,16 @@ func waitPortOpen(t *testing.T, port int, timeout time.Duration) {
 // VROOM_TEST_HELPER=listener y VROOM_TEST_PORT=<puerto>.
 func TestHelperListener(t *testing.T) {
 	mode := os.Getenv("VROOM_TEST_HELPER")
-	if mode != "listener" && mode != "two-ports" {
+	if mode != "listener" && mode != "two-ports" && mode != "churn" {
 		t.Skip("proceso helper, no un test")
 	}
 	port := os.Getenv("VROOM_TEST_PORT")
 	if mode == "two-ports" {
 		twoPortsListener(port)
+		return
+	}
+	if mode == "churn" {
+		churnListener()
 		return
 	}
 	ln, err := net.Listen("tcp", "127.0.0.1:"+port)
@@ -139,6 +143,38 @@ func twoPortsListener(mainPort string) {
 	defer func() { _ = ln.Close() }()
 	go acceptLoop(ln)
 	time.Sleep(120 * time.Second)
+}
+
+// churnListener abre y cierra un listener efímero cada 80 ms, de modo que el
+// conjunto que ve el descubrimiento NUNCA lleva la ventana de estabilización quieta.
+//
+// Reproduce el patrón que el discovery tiene que nombrar en vez de decidir: una app
+// que va abriendo puertos según carga el trabajo, sin que ninguno sea claramente el
+// principal. El puerto efímero (0) es lo que hace la prueba robusta: no depende de que
+// haya un rango libre ni de acertar con el número.
+//
+// El ritmo (80 ms) está por debajo de `discoverSettle` (500 ms) a propósito: si fuera
+// más lento, el conjunto llegaría a estar quieto el tiempo suficiente y el discovery
+// lo decidiría, que es el otro desenlace.
+func churnListener() {
+	var previo net.Listener
+	defer func() {
+		if previo != nil {
+			_ = previo.Close()
+		}
+	}()
+	for {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			os.Exit(3)
+		}
+		go acceptLoop(ln)
+		if previo != nil {
+			_ = previo.Close()
+		}
+		previo = ln
+		time.Sleep(80 * time.Millisecond)
+	}
 }
 
 func acceptLoop(ln net.Listener) {
