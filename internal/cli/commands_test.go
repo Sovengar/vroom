@@ -352,7 +352,7 @@ func TestDispatchAyudaSinArgsYConAlias(t *testing.T) {
 // Las tres filas del árbol son los tres casos: configurada, configurada sin
 // comandos, y presente pero sin manifiesto. Que la tercera salga es lo que
 // distingue "list" de "list de lo que se puede arrancar", y un agente que
-// 杰出 un proyecto de la lista no puede volver a encontrarlo por nombre.
+// saca un proyecto de la lista no puede volver a encontrarlo por nombre.
 func TestCmdListPublicaCadaFilaDelEscaneo(t *testing.T) {
 	root := cliEnv(t)
 	_ = chdirTree(t, root)

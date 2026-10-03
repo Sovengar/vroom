@@ -275,7 +275,7 @@ func TestRefreshCmdPropagaLaRamaGitDeCadaProyecto(t *testing.T) {
 
 	// La rama del proyecto que NO es repo viene vacía, no con el nombre del
 	// directorio. Un fallback al nombre inventaría una rama que el usuario
-	//可能在 tiene, y esa rama es la que decide el nombre de la ruta en auto.
+	//un worktree puede no tenerla, y esa rama es la que decide el nombre de la ruta en auto.
 	for _, p := range m.projects {
 		if p.Name == "tienda-api" {
 			continue

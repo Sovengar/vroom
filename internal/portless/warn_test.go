@@ -448,8 +448,8 @@ type failingReleaserWith struct{ err error }
 func (f failingReleaserWith) RemoveAbsent(string) error { return f.err }
 
 // TestReleaserFuncAdaptaUnaFuncion: el adaptador existe para que un test pueda
-// pasar una closure. Sin ejercitarlo, el seam de retirada seria solo理论: la
-// interfazexists pero nadie la implementa fuera de aqui.
+// pasar una closure. Sin ejercitarlo, el seam de retirada sería solo teórico: la
+// interfaz existe pero nadie la implementa fuera de aquí.
 func TestReleaserFuncAdaptaUnaFuncion(t *testing.T) {
 	var got string
 	var r Releaser = ReleaserFunc(func(name string) error { got = name; return ErrRouteAbsent })

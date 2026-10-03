@@ -835,6 +835,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if cl >= m.treeTop+m.treeVis() {
 				m.treeTop = cl - m.treeVis() + 1
 			}
+			// MEDIDO (bug): las dos ramas de arriba sólo miran la fila del cursor, y
+			// ninguna dice qué pasa cuando la ventana CRESCE lo suficiente para que
+			// quepa el árbol entero. Medido con 40 proyectos y `treeTop` al final: al
+			// pasar de 100x30 a 200x400 el desplazamiento se quedaba en 80 y el
+			// render enseñaba una sola fila de árbol pegada al borde superior y 393
+			// líneas en blanco debajo. La columna del árbol se quedaba vacía al
+			// maximizar la ventana, que es justo cuando el usuario espera verlos a
+			// todos. El suelo es `len(árbol) - visible`: más allá no hay nada que
+			// enseñar abajo.
+			if tope := len(m.tree) - m.treeVis(); m.treeTop > tope {
+				m.treeTop = max(0, tope)
+			}
 		}
 		// La terminal embebida sigue las nuevas dimensiones.
 		if s := m.term; s != nil && s.alive() {

@@ -103,7 +103,7 @@ func TestTermEnvHeredaElEntornoYGarantizaTerm(t *testing.T) {
 // TestResizeEWriteIgnoranUnaSesionCerrada: las dos operaciones que el cierre
 // puede hacer llegar tarde.
 //
-// El caso real es el关闭 mientras llega un tea.WindowSizeMsg: el hilo de Update
+// El caso real es el cierre mientras llega un tea.WindowSizeMsg: el hilo de Update
 // redimensiona después de que la sesión se apagó. Sin la guarda, `emu.Resize` sobre
 // un emulador cerrado entra en la librería de C y revienta el proceso entero.
 //

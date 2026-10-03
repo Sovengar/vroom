@@ -388,7 +388,7 @@ func TestCapBufferConUnaLineaMasLargaQueElCapParteLaLinea(t *testing.T) {
 // nada": vacío, sin error, sin ruido en el tick de consola. Cualquier otro fallo
 // es "el log está ahí y no lo puedo leer" —un directorio de logs con permisos
 // cambiados, un fichero propiedad de otro usuario, un montaje que se ha caído— y
-// tragárselo devolvería una consola vacía con la看上去 de que el servicio no
+// tragárselo devolvería una consola vacía con la apariencia de que el servicio no
 // dice nada.
 //
 // MEDIDO: un DIRECTORIO donde debería estar el log NO sirve para esto: en Linux

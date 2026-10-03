@@ -147,7 +147,7 @@ primary_group = "tienda"
 //
 // Lo que se comprueba es el AVISO y el Cmd, no el estado: el arranque ocurre en
 // el Cmd, que devuelve un stackResultMsg, y el estado sólo cambia cuando ese msg
-// vuelve. Fijar el estado aquí sería fijar un中間 estado que no existe.
+// vuelve. Fijar el estado aquí sería fijar un estado intermedio que no existe.
 func TestToggleStackArrancaUnStackParadoYAvisa(t *testing.T) {
 	m := newStackModel(t)
 	stacks := m.stacksForPrimary("tienda")

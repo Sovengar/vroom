@@ -64,7 +64,7 @@ func main() {
 //
 // La razón de separarlo es que main() no se puede probar: os.Exit mata el proceso
 // de test y tea.Program necesita un terminal. Con esta forma, los dos fallos que
-// sí pueden和生产se —el store y el directorio de trabajo— se devuelven como error y
+// sí pueden producirse —el store y el directorio de trabajo— se devuelven como error y
 // se comprueban, y el camino de éxito se arranca con la entrada y la salida
 // redirigidas.
 //

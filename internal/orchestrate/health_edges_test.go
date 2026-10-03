@@ -40,7 +40,7 @@ import (
 // El par con el otro test es lo que importa: el mensaje de timeout dice si el
 // puerto estaba pendiente de un discovery EN VUELO o si ya estaba decidido y no
 // abrió. Sin esa distinción el usuario lee "no abrió" y no sabe que detrás había
-// un discovery que quizá iba a，给他 el puerto.
+// un discovery que quizá iba a darle el puerto.
 func TestAwaitPortDynamicSondeaLentoCuandoElDiscoveryNoEstaEnVuelo(t *testing.T) {
 	port := closedTCPPort(t)
 	start := time.Now()

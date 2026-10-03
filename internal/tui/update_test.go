@@ -415,7 +415,7 @@ func TestUpdateStatusMsgSoloMuestraElMensaje(t *testing.T) {
 //
 // El error es routine: threadsCmd se lanza desde el tick para cualquier servicio
 // que el poll acaba de dar por vivo, y el proceso puede morir entre medias. Si eso
-// fuera un error visible, la TUI parpadearía con avisos de服务的 servicios que se
+// fuera un error visible, la TUI parpadearía con avisos de servicios que se
 // paran solos.
 func TestUpdateThreadsMsgAplicaAlServicioYToleraElError(t *testing.T) {
 	m, _ := newTestModel(t)

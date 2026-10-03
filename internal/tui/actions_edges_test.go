@@ -1105,7 +1105,7 @@ func TestOpenPickerDistingueLosCuatroRechazos(t *testing.T) {
 	})
 }
 
-// TestProjectByPathDevuelveElPunteroAModificar: el找到 por ruta tiene que devolver
+// TestProjectByPathDevuelveElPunteroAModificar: el proyecto por ruta tiene que devolver
 // un PUNTERO, no una copia.
 //
 // Es lo que hace que `m.projectByPath(p).Configured = false` tenga efecto. Con una

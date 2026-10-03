@@ -2530,7 +2530,7 @@ func TestRefreshEvaluatesResolvedPortWithoutPending(t *testing.T) {
 
 // M2: con el puerto sin resolver NO se muestra ni se sondea el puerto
 // declarado. El declarado nunca se confirmó como de este servicio, y puede
-// ser el de otro worktree: la tab Health,有 que quedarse quieta.
+// ser el de otro worktree: la tab Health tiene que quedarse quieta.
 func TestHealthTabDoesNotProbeUnresolvedDeclaredPort(t *testing.T) {
 	p := scanner.Project{
 		Path: "/tmp/x", Name: "x", Configured: true,
