@@ -423,10 +423,14 @@ func (m *Model) updateLayout() {
 		bodyOuter = 3
 	}
 	m.bodyOuterH = bodyOuter
-	m.bodyH = bodyOuter - boxFrame // alto interior de la caja de proyectos
-	if m.bodyH < 1 {
-		m.bodyH = 1
-	}
+	// El suelo a 1 va dentro de la expresión, y no en un `if` aparte, por dos
+	// razones. La primera es el contrato: `bodyH` se multiplica por `strings.Repeat`
+	// al renderizar la caja de proyectos, así que un 0 o un negativo no daría un
+	// cuadro feo, apagaría la TUI. La segunda es que el suelo de `bodyOuter` a 3 ya
+	// hace el clamping (`3 - 2 = 1`), así que la rama era inalcanzable y el `max`
+	// la hace innecesaria sin dejar el invariante en un sitio que no se ejecuta:
+	// si algún día se baja el suelo de `bodyOuter`, aquí sigue estando.
+	m.bodyH = max(bodyOuter-boxFrame, 1)
 
 	// La columna derecha se ajusta al ancho disponible: la fila de cajas no
 	// debe exceder nunca el terminal. Con menos de ~34 celdas el layout queda
@@ -445,10 +449,12 @@ func (m *Model) updateLayout() {
 	if m.detailsShown {
 		consoleOuter = bodyOuter - detailsOuter
 	}
-	m.contentH = consoleOuter - boxFrame - 1 // borde + línea de pestañas
-	if m.contentH < 0 {
-		m.contentH = 0
-	}
+	// Mismo criterio que el suelo de `bodyH`: `contentH` va directo al viewport de
+	// la consola, y por debajo de 0 el emulador recibe un tamaño negativo. Hoy es
+	// inalcanzable (`consoleOuter` es `bodyOuter` ≥ 3, o `bodyOuter - detailsOuter`
+	// con `detailsShown` exigiendo `bodyOuter >= detailsOuter+5`), y el `max` lo deja
+	// dicho en la propia expresión en vez de en una rama que no se ejecuta.
+	m.contentH = max(consoleOuter-boxFrame-1, 0) // borde + línea de pestañas
 
 	m.consoleView.SetWidth(m.rightW)
 	m.consoleView.SetHeight(m.contentH)
@@ -703,17 +709,27 @@ func runLogged(kind, command, workDir, stdoutPath, stderrPath string) (time.Dura
 			return 0, 0, err
 		}
 	}
-	if err := appendLine(stdoutPath, jobBanner(kind, command)); err != nil {
-		return 0, 0, err
-	}
-	start := time.Now()
-	cmd := exec.Command("sh", "-c", command)
-	cmd.Dir = workDir
+	// El stdout se abre UNA vez y de ahí sale también el banner. Antes se abría dos
+	// veces —una con `appendLine` para el banner y otra para el comando—, lo que
+	// hacía que el segundo `OpenFile` no pudiera fallar nunca y dejara un error
+	// muerto. Con un solo descriptor los dos fallos son reales y distinguibles: que
+	// no se pueda crear el log, y que se pueda crear pero no escribir en él —un
+	// disco lleno, un `/dev/full`—.
+	//
+	// Y el orden importa: el banner va al log ANTES de abrir el stderr a propósito.
+	// Si el stderr falla, el banner queda escrito y el log del usuario dice qué
+	// comando no llegó a ejecutarse.
 	out, err := os.OpenFile(stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return 0, 0, err
 	}
 	defer func() { _ = out.Close() }()
+	if _, err := out.WriteString(jobBanner(kind, command) + "\n"); err != nil {
+		return 0, 0, err
+	}
+	start := time.Now()
+	cmd := exec.Command("sh", "-c", command)
+	cmd.Dir = workDir
 	errF, err := os.OpenFile(stderrPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return 0, 0, err
@@ -757,12 +773,22 @@ func jobCmd(path, kind, command, workDir, stdoutPath, stderrPath string) tea.Cmd
 // vim/nvim añade -O (split vertical) con el foco en el stream activo.
 func editLogsCmd(editor, stdoutPath, stderrPath string, stderrFirst bool) tea.Cmd {
 	cmd := buildEditorCmd(editor, stdoutPath, stderrPath, stderrFirst)
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
-		if err != nil {
-			return statusMsg{message: "editor exited with error: " + err.Error()}
-		}
-		return statusMsg{message: "editor closed"}
-	})
+	// El callback va en su propia función y no en una clausura en línea porque
+	// bubbletea NUNCA lo llama en un test: el mensaje que devuelve `ExecProcess` es
+	// de un tipo privado del paquete, así que un test puede pedir el `Cmd` pero no
+	// ejecutarlo. Con la función aparte, el contrato —qué se avisa cuando el editor
+	// falla y cuándo no— se puede comprobar sin pelearse con la librería.
+	return tea.ExecProcess(cmd, editorDoneMsg)
+}
+
+// editorDoneMsg es lo que la TUI recibe cuando el editor suspendido se cierra.
+// El editor es del usuario y su salida no es de vroom: si no falla, lo único que
+// cambia es "ya puedes volver a mirar la lista".
+func editorDoneMsg(err error) tea.Msg {
+	if err != nil {
+		return statusMsg{message: "editor exited with error: " + err.Error()}
+	}
+	return statusMsg{message: "editor closed"}
 }
 
 // buildEditorCmd compone el comando del editor: `-O` (split vertical)
@@ -1607,26 +1633,35 @@ func (m Model) toggleComposers(primary string) (tea.Model, tea.Cmd) {
 		m.notify("no stacks found for " + primary)
 		return m, nil
 	}
-	// Check if all stacks are running
+	// MEDIDO (bug): aquí se validaban los stacks y se decidía si pararlos en la
+	// misma pasada, con un `break` en cuanto uno no estaba completo. El `break`
+	// hacía que los stacks POSTERIORES nunca se miraran, así que un nombre roto en
+	// el segundo stack pasaba desapercibido y el arranque fallaba a mitad, después
+	// de haber lanzado el primero. MEDIDO con dos stacks y un nombre inexistente en
+	// el segundo: la TUI anunciaba "launching stacks in tienda..." y el grupo se
+	// quedaba a medias sin decir por qué.
+	//
+	// Son dos preguntas distintas —"¿están todos completos?" y "¿resuelven todos?"—
+	// y se contestan en dos pasadas, guardando la resolución de la primera para la
+	// segunda: `LaunchResolved` y `StopResolved` no vuelven a buscar los nombres,
+	// así que no tienen error de resolución que devolver.
+	todos := make([][]orchestrate.ResolvedService, len(stacks))
 	allRunning := true
 	for i := range stacks {
-		r, n, err := m.stackStats(&stacks[i])
+		resueltos, r, n, err := m.resolveStack(&stacks[i])
 		if err != nil {
 			m.notify("stack conflict: " + err.Error())
 			return m, nil
 		}
+		todos[i] = resueltos
 		if n == 0 || r < n {
 			allRunning = false
-			break
 		}
 	}
 	if allRunning {
 		// Stop all stacks
 		for i := range stacks {
-			if err := m.engine.StopStack(&stacks[i], m.projects); err != nil {
-				m.notify("stack conflict: " + err.Error())
-				return m, nil
-			}
+			m.engine.StopResolved(todos[i])
 		}
 		m.notify(fmt.Sprintf("stopping all stacks in %s", primary))
 		return m, nil
@@ -1636,11 +1671,7 @@ func (m Model) toggleComposers(primary string) (tea.Model, tea.Cmd) {
 	return m, func() tea.Msg {
 		var results []orchestrate.LaunchResult
 		for i := range stacks {
-			result, err := m.engine.Launch(&stacks[i], m.projects)
-			if err != nil {
-				return stackResultMsg{err: err}
-			}
-			results = append(results, *result)
+			results = append(results, *m.engine.LaunchResolved(&stacks[i], todos[i]))
 		}
 		return composersResultMsg{primary: primary, results: results}
 	}
@@ -1660,7 +1691,7 @@ func (m Model) toggleStack(s *orchestrate.Stack) (tea.Model, tea.Cmd) {
 		m.notify("orchestration engine not available")
 		return m, nil
 	}
-	running, total, err := m.stackStats(s)
+	resueltos, running, total, err := m.resolveStack(s)
 	if err != nil {
 		m.notify("stack conflict: " + err.Error())
 		return m, nil
@@ -1668,10 +1699,7 @@ func (m Model) toggleStack(s *orchestrate.Stack) (tea.Model, tea.Cmd) {
 	if running == total && total > 0 {
 		// Stack running: stop all services (criterio explícito, sin
 		// elegir arbitrariamente el primer match de nombre).
-		if err := m.engine.StopStack(s, m.projects); err != nil {
-			m.notify("stack conflict: " + err.Error())
-			return m, nil
-		}
+		m.engine.StopResolved(resueltos)
 		m.markStackStopping(s)
 		m.notify(fmt.Sprintf("stopping stack %s", s.Name))
 		return m, nil
@@ -1679,11 +1707,7 @@ func (m Model) toggleStack(s *orchestrate.Stack) (tea.Model, tea.Cmd) {
 	// Stack stopped: launch orchestration
 	m.notify(fmt.Sprintf("launching stack %s...", s.Name))
 	return m, func() tea.Msg {
-		result, err := m.engine.Launch(s, m.projects)
-		if err != nil {
-			return stackResultMsg{err: err}
-		}
-		return stackResultMsg{result: *result}
+		return stackResultMsg{result: *m.engine.LaunchResolved(s, resueltos)}
 	}
 }
 
@@ -2127,15 +2151,24 @@ func (m Model) dispatchAsk() (tea.Model, tea.Cmd) {
 		m.notify(warn)
 	}
 	if strategy == launcher.StrategyInline {
-		agent := m.askAgent.Name
-		return m, tea.ExecProcess(m.askLauncher.InlineCmd(req), func(err error) tea.Msg {
-			if err != nil {
-				return statusMsg{message: agent + " exited with error: " + err.Error()}
-			}
-			return statusMsg{message: agent + " closed"}
-		})
+		return m, tea.ExecProcess(m.askLauncher.InlineCmd(req), inlineAgentDoneMsg(m.askAgent.Name))
 	}
 	return m, launchAskCmd(m.askLauncher, strategy, req)
+}
+
+// inlineAgentDoneMsg construye el callback de `ExecProcess` para el agente que se
+// lanza en línea (la TUI se suspende y el agente toma el terminal).
+//
+// Va en una función aparte por el mismo motivo que `editorDoneMsg`: el mensaje de
+// `ExecProcess` es de un tipo privado de bubbletea, así que el callback no se puede
+// ejecutar desde un test y su contenido sólo se puede comprobar si tiene nombre.
+func inlineAgentDoneMsg(agent string) func(error) tea.Msg {
+	return func(err error) tea.Msg {
+		if err != nil {
+			return statusMsg{message: agent + " exited with error: " + err.Error()}
+		}
+		return statusMsg{message: agent + " closed"}
+	}
 }
 
 // launchAskCmd despacha en goroutine (herdr/custom no bloquean la UI).

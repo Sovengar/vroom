@@ -93,14 +93,33 @@ func newTermSession(w, h int, dir string) (*termSession, error) {
 
 // startSession es el constructor inyectable (argv explícito) para tests.
 func startSession(w, h int, dir string, argv []string) (*termSession, error) {
+	return startSessionWith(w, h, dir, argv, openRealPty)
+}
+
+// openRealPty es el PTY de verdad del sistema. Va como parámetro y no como una
+// variable global intercambiable porque el motivo por el que existe es el mismo
+// que el del argv explícito: la creación de un PTY falla de verdad —agotamiento de
+// descriptores de fichero, un `devpts` montado con el límite alcanzado— y la única
+// forma de comprobar que el error se propaga y no se traga es poder provocar el
+// fallo. Un `var` global sería un seam que además contaminaría a los tests que
+// llaman a `startSession` en paralelo.
+func openRealPty(w, h int) (ptyIface, error) {
+	return xpty.NewPty(w, h)
+}
+
+// startSessionWith es el constructor con las dos piezas que dependen del entorno
+// inyectadas: el argv del shell y la apertura del PTY.
+func startSessionWith(w, h int, dir string, argv []string, openPty func(int, int) (ptyIface, error)) (*termSession, error) {
 	if w < 1 {
 		w = 1
 	}
 	if h < 1 {
 		h = 1
 	}
-	p, err := xpty.NewPty(w, h)
+	p, err := openPty(w, h)
 	if err != nil {
+		// Sin PTY no hay terminal: se devuelve el error tal cual para que el
+		// llamador lo diga y no deje una `termSession` a medio construir.
 		return nil, err
 	}
 	emu := vt.NewEmulator(w, h)
@@ -204,10 +223,14 @@ func (s *termSession) screen() string {
 	if pos.Y >= 0 && pos.Y < len(lines) {
 		line := lines[pos.Y]
 		w := lipglossWidth(line)
-		x := pos.X
-		if x > w {
-			x = w
-		}
+		// `x` se acota al ancho de la línea en la propia expresión porque las dos
+		// medidas vienen de sitios distintos y no tienen por qué cuadrar: `x` es
+		// donde dice el emulador que está el cursor, y `w` es lo que mide lo que ha
+		// renderizado. Con ESTE emulador nunca se separan —`Render` rellena cada
+		// línea al ancho de la rejilla—, pero sin el `min` un desacuerdo haría que
+		// `ansi.Truncate` recortara desde más allá del final, se perdiera la línea
+		// entera y el bloque del cursor quedara fuera del modal.
+		x := min(pos.X, w)
 		var rest string
 		if w > x {
 			rest = ansi.TruncateLeft(line, x+1, "")
@@ -312,11 +335,11 @@ func exitCode(err error) int {
 
 // termW es el ancho del grid: el ancho interior del box tipo ask.
 func (m Model) termW() int {
-	w := askInnerW(m.width)
-	if w < termMinW {
-		w = termMinW
-	}
-	return w
+	// El suelo va en la expresión, no en un `if`: es una decisión de este modal, no
+	// una consecuencia del de `ask`. `askInnerW` tiene el suyo (28, por el
+	// textarea), y éste es aparte: si aquél baja, la rejilla del terminal tiene que
+	// seguir siendo usable, y no puede depender de que aquél no cambie.
+	return max(askInnerW(m.width), termMinW)
 }
 
 // termH es el alto del grid: la pantalla menos título/hint/bordes.

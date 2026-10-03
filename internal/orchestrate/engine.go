@@ -136,12 +136,27 @@ func (e *Engine) DryRun(stack *Stack, projects []scanner.Project) (*DryRunResult
 
 // Launch ejecuta la orquestación completa de un stack: etapas secuenciales,
 // servicios paralelos dentro de cada etapa, health check, abort on failure.
+//
+// El error es SÓLO de resolución de nombres: una vez resueltos, un stage que falla
+// no es un error de Go sino un `LaunchResult` con `OK: false` y su `Error` puesto,
+// que es lo que el usuario lee. Quien ya tiene los nombres resueltos usa
+// `LaunchResolved` y se ahorra el segundo `LookupService`.
 func (e *Engine) Launch(stack *Stack, projects []scanner.Project) (*LaunchResult, error) {
 	services, err := e.validateServices(stack, projects)
 	if err != nil {
 		return nil, err
 	}
+	return e.LaunchResolved(stack, services), nil
+}
 
+// LaunchResolved es `Launch` con los servicios ya resueltos, para el llamador que
+// ya hizo la validación (la TUI valida cada stack antes de decidir, y volver a
+// resolverlos allí era una segunda pasada entera por los mismos proyectos).
+//
+// No devuelve error porque no queda nada que pueda fallar: la resolución ya está
+// hecha. Un fallo de arranque o de health check sigue siendo `LaunchResult.OK ==
+// false`, igual que en `Launch`.
+func (e *Engine) LaunchResolved(stack *Stack, services []ResolvedService) *LaunchResult {
 	result := &LaunchResult{OK: true, Stack: stack.Name}
 	var startedThisSession []string // paths de servicios arrancados por esta sesión
 	var mu sync.Mutex
@@ -161,19 +176,26 @@ func (e *Engine) Launch(stack *Stack, projects []scanner.Project) (*LaunchResult
 		}
 
 		// Arrancar en paralelo
+		//
+		// Los resultados van en un slice POSICIONAL y no en un mapa por nombre. Con
+		// un mapa, un servicio nombrado dos veces en la misma etapa escribía dos
+		// veces en la misma clave y el resumen perdía una línea; con el slice cada
+		// arranque tiene su sitio y el `append` final no puede quedarse corto. Y
+		// evita el `else` de "not started", que era inalcanzable: toda goroutine
+		// escribe su posición y `wg.Wait()` no vuelve antes de que lo haga.
 		var wg sync.WaitGroup
 		var stageErr error
 		var stageMu sync.Mutex
-		startResults := make(map[string]ServiceResult)
+		resultados := make([]ServiceResult, len(resolved))
 
-		for _, svc := range resolved {
+		for i, svc := range resolved {
 			wg.Add(1)
-			go func(svc ResolvedService) {
+			go func(i int, svc ResolvedService) {
 				defer wg.Done()
 				sr := e.startService(svc, stage.Timeout)
 
 				mu.Lock()
-				startResults[svc.Name] = sr
+				resultados[i] = sr
 				if sr.Error != "" {
 					stageMu.Lock()
 					if stageErr == nil {
@@ -200,18 +222,12 @@ func (e *Engine) Launch(stack *Stack, projects []scanner.Project) (*LaunchResult
 					startedThisSession = append(startedThisSession, svc.Project.Path)
 				}
 				mu.Unlock()
-			}(svc)
+			}(i, svc)
 		}
 		wg.Wait()
 
 		// Recopilar resultados de la etapa
-		for _, svc := range resolved {
-			if r, ok := startResults[svc.Name]; ok {
-				sr.Services = append(sr.Services, r)
-			} else {
-				sr.Services = append(sr.Services, ServiceResult{Name: svc.Name, Error: "not started"})
-			}
-		}
+		sr.Services = append(sr.Services, resultados...)
 		result.Stages = append(result.Stages, sr)
 
 		// Abort on failure
@@ -219,10 +235,10 @@ func (e *Engine) Launch(stack *Stack, projects []scanner.Project) (*LaunchResult
 			e.abortAndCleanup(startedThisSession)
 			result.OK = false
 			result.Error = stageErr.Error()
-			return result, nil
+			return result
 		}
 	}
-	return result, nil
+	return result
 }
 
 // LaunchAsync es la versión de Launch para la TUI: ejecuta la orquestación
@@ -245,21 +261,23 @@ func (e *Engine) LaunchAsync(stack *Stack, projects []scanner.Project) <-chan La
 // con el mismo criterio explícito que el engine: ante duplicados falla en
 // vez de parar un proyecto arbitrario.
 func (e *Engine) StopStack(stack *Stack, projects []scanner.Project) error {
-	seen := make(map[string]bool)
-	for _, stage := range stack.Stages {
-		for _, name := range stage.Services {
-			if seen[name] {
-				continue
-			}
-			seen[name] = true
-			p, err := LookupService(name, projects)
-			if err != nil {
-				return err
-			}
-			e.stopService(p)
-		}
+	services, err := e.validateServices(stack, projects)
+	if err != nil {
+		return err
 	}
+	e.StopResolved(services)
 	return nil
+}
+
+// StopResolved para unos servicios de stack que ya están resueltos, para el
+// llamador que validó antes. No devuelve error porque no queda nada que pueda
+// fallar: la resolución de nombres es la única fuente de error de una parada, y ya
+// está hecha. También por eso no necesita el `*Stack`: cada servicio se para una
+// vez y el resto del stack ya no importa.
+func (e *Engine) StopResolved(services []ResolvedService) {
+	for _, svc := range services {
+		e.stopService(svc.Project)
+	}
 }
 
 // StackStatus evalúa el estado de todos los servicios de un stack con el

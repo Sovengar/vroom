@@ -466,14 +466,13 @@ func overlay(base, box string, width, height int) string {
 	if bh > height {
 		bh = height
 	}
-	x := (width - bw) / 2
-	if x < 0 {
-		x = 0
-	}
-	y := (height - bh) / 2
-	if y < 0 {
-		y = 0
-	}
+	// Los dos suelos van en la expresión y no en un `if`: `x` e `y` son el sitio
+	// donde se recorta `base`, y un valor negativo indexaría por debajo del inicio
+	// de `lines` —un fallo de índice, no un modal feo—. Además son ALCANZABLES: un
+	// modal más ancho o más alto que la pantalla los pone a negativo de verdad, con
+	// un terminal de 20 columnas y un picker de ancho fijo, por ejemplo.
+	x := max((width-bw)/2, 0)
+	y := max((height-bh)/2, 0)
 	for j := 0; j < bh && y+j < len(lines); j++ {
 		line := lines[y+j]
 		lines[y+j] = ansi.Truncate(line, x, "") + blocks[j] + ansi.TruncateLeft(line, x+bw, "")

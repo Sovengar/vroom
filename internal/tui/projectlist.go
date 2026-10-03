@@ -470,6 +470,17 @@ func (m Model) stackRow(s *orchestrate.Stack) string {
 // declaran): mismo criterio que el engine/CLI, sin elegir el
 // primero arbitrariamente.
 func (m Model) stackStats(s *orchestrate.Stack) (running, total int, err error) {
+	_, running, total, err = m.resolveStack(s)
+	return running, total, err
+}
+
+// resolveStack resuelve los servicios de un stack y cuenta los vivos.
+//
+// Devuelve la lista resuelta además de los números porque quien valida un stack
+// necesita las dos cosas y resolver dos veces es trabajo de más —y una ventana
+// entre las dos en la que los proyectos podrían cambiar—. Quien sólo quiere el
+// recuento usa `stackStats`, que es esta función sin la lista.
+func (m Model) resolveStack(s *orchestrate.Stack) (services []orchestrate.ResolvedService, running, total int, err error) {
 	seen := make(map[string]bool)
 	for _, stage := range s.Stages {
 		for _, name := range stage.Services {
@@ -480,14 +491,15 @@ func (m Model) stackStats(s *orchestrate.Stack) (running, total int, err error) 
 			total++
 			p, lookupErr := orchestrate.LookupService(name, m.projects)
 			if lookupErr != nil {
-				return running, total, lookupErr
+				return nil, running, total, lookupErr
 			}
+			services = append(services, orchestrate.ResolvedService{Name: name, Project: p})
 			if sv := m.services[p.Path]; sv != nil && sv.Status == statusRunning {
 				running++
 			}
 		}
 	}
-	return running, total, nil
+	return services, running, total, nil
 }
 
 // exampleManifest genera un manifiesto de ejemplo para proyectos sin
