@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"vroom/internal/orchestrate"
+	"vroom/internal/state"
 )
 
 // ---------------------------------------------------------------------------
@@ -1572,5 +1573,58 @@ func TestRunAplicaElCodigoDeSalida(t *testing.T) {
 	}
 	if !strings.Contains(errBuf.String(), `{"error":`) {
 		t.Errorf("stderr debe llevar el contrato de error en UNA línea JSON: %q", errBuf.String())
+	}
+}
+
+// TestCmdStartConElDirectorioDeServiciosInservibleNoArrancaNadaYLoDice: el fallo
+// justo antes del spawn.
+//
+// El directorio de servicio tiene que existir antes de arrancar, porque es donde van
+// los logs y el meta. Un servicio arrancado sin él deja al usuario sin nada que leer
+// cuando se rompe, que es justo cuando lo necesita.
+//
+// El provocarlo es más difícil de lo que parece: `state.NewStore()` crea
+// `base/services`, así que un store del todo inservible falla ANTES, al construir la
+// sesión, y no llega a este punto. Lo que hace falta es un store que se pueda crear
+// pero cuyo subdirectorio `services` sea un fichero —lo que pasa cuando alguien lo
+// crea a mano, o cuando un `mkdir -p` de otra cosa lo ocupa—.
+func TestCmdStartConElDirectorioDeServiciosInservibleNoArrancaNadaYLoDice(t *testing.T) {
+	root := cliEnv(t)
+	chdirTree(t, root)
+
+	// MEDIDO, y es la parte que costó encontrar: `state.NewStore()` ya crea
+	// `base/services`, así que ocupar el store entero hace fallar la SESIÓN, no este
+	// punto. Para llegar a `EnsureServiceDir` hay que ocupar el subdirectorio concreto
+	// del servicio —`<services>/<hash del path>`— con un fichero. El hash es
+	// `state.PathKey`, que es exportado justamente para poder calcularlo.
+	base := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(base, "vroom", "services"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_STATE_HOME", base)
+
+	// El directorio del servicio de `api` es un fichero.
+	apiPath := filepath.Join(root, "api")
+	if err := os.WriteFile(
+		filepath.Join(base, "vroom", "services", state.PathKey(apiPath)),
+		[]byte("soy un fichero, no un directorio"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := cmdStart("api", "")
+	if err == nil {
+		t.Fatal("con `services` ocupado por un fichero el arranque tiene que fallar")
+	}
+	// Y el mensaje tiene que ser accionable: el usuario necesita saber qué revisar.
+	if !strings.Contains(err.Error(), "service dir") {
+		t.Errorf("err = %q, want que diga que no se pudo crear el directorio del servicio", err)
+	}
+
+	// Y no se escribió meta: si lo hubiera, el servicio constaría como arrancado y el
+	// siguiente `vroom list` lo mostraría vivo.
+	store := state.NewStoreAt(filepath.Join(base, "vroom"))
+	if _, err := store.LoadMeta(apiPath); err == nil {
+		t.Error("se escribió meta pese a no poder crear el directorio del servicio")
 	}
 }

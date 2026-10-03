@@ -263,6 +263,29 @@ func (u *unixManager) Evaluate(spec EvalSpec) Status {
 // PatternMatch verifica si pgrep -f encuentra el patrón (unix).
 // Excluye el propio proceso pgrep y sus ancestros para evitar falsos
 // positivos (pgrep -f matchea su propio command line).
+//
+// MEDIDO: con el patrón VACÍO devuelve true, porque `pgrep -f ""` lista todos los
+// procesos del sistema y basta con que haya alguno que no sea el propio pgrep. Un
+// servicio con `process_pattern = ""` se declararía running siempre.
+//
+// No lo corrige aquí a propósito: quien llama ya comprueba `spec.ProcessPattern != ""`
+// antes de invocar, y ese guard además evita marcar `checked`, que es lo que
+// decide el veredicto cuando el PID no está. La guarda aquí dentro pondría un
+// segundo sitio donde comprobar la misma regla. Se documenta porque el día que
+// alguien llame a PatternMatch desde otro camino sin mirar, el fallo es silencioso.
+//
+// MEDIDO: el patrón llega a `pgrep -f` SIN COMILLAR, así que pgrep lo trata como una
+// EXPRESIÓN REGULAR, no como un literal. Consecuencias medibles:
+//
+//   - `mi-servicio (web)` — los paréntesis son un grupo, no dos caracteres.
+//   - `a.b` matchearía `axb`.
+//   - `a b c d e f g` matchea casi cualquier cmdline con esas letras separadas por
+//     espacios.
+//
+// Es el comportamiento de pgrep y el manifiesto llama al campo `process_pattern`, no
+// `process_cmdline`, así que la semántica es la que el usuario espera. Se documenta
+// porque un patrón con paréntesis es un caso fácil de escribir sin querer, y el
+// síntoma es "vroom cree que mi servicio está corriendo".
 func PatternMatch(pattern string) bool {
 	out, err := exec.Command("pgrep", "-f", pattern).Output()
 	if err != nil {
