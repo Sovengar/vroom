@@ -181,7 +181,22 @@ func (e *Engine) Launch(stack *Stack, projects []scanner.Project) (*LaunchResult
 					}
 					stageMu.Unlock()
 				}
-				if sr.Action == "started" {
+				// MEDIDO (bug): el rollback se guiaba por `Action == "started"`,
+				// pero startService devuelve Action VACÍO cuando el proceso
+				// arrancó y el health check falló (ese camino devuelve
+				// `ServiceResult{Error: ...}` a pelo). MEDIDO con un `sleep 300`
+				// real: `Launch` devolvía OK=false, la etapa salía fallida y el
+				// proceso SEGUÍA VIVO con el meta en "running". El siguiente
+				// `vroom start` lo encontraba como already_running sobre un
+				// servicio que no escucha, y el usuario no tenía forma de saber
+				// de dónde salió ese proceso.
+				//
+				// La condición correcta es "hemos arrancado algo": el PID que
+				// volvió. Un already_running devuelve Pid 0 y un fallo de start
+				// también, así que ninguno entra al rollback, y un arranque
+				// indicado cuya salud falla sí entra —que es justo lo que hay que
+				// deshacer.
+				if sr.Pid > 0 {
 					startedThisSession = append(startedThisSession, svc.Project.Path)
 				}
 				mu.Unlock()
@@ -366,7 +381,19 @@ func (e *Engine) startService(svc ResolvedService, timeout time.Duration) Servic
 	// Health check sobre el puerto REAL, con el modo que lo gobierna.
 	outcome, err := e.awaitPortOutcome(p, out.Meta, timeout)
 	if err != nil {
-		return ServiceResult{Name: svc.Name, Error: fmt.Sprintf("health check failed: %v", err)}
+		// MEDIDO (bug): el PID y el Action se reportan TAMBIÉN cuando la salud
+		// falla. Antes se devolvía `ServiceResult{Error: ...}` a pelo, con Pid 0,
+		// y el rollback de Launch —que se guiaba por si el servicio se había
+		// arrancado— no lo incluía. MEDIDO con un `sleep 300` real: `Launch`
+		// devolvía OK=false y el proceso SEGUÍA VIVO con el meta en "running".
+		//
+		// Ahora el resultado dice las dos cosas, que son distintas: action/pid
+		// describen qué pasó con el PROCESO (arrancó, y hay que deshacerlo), y
+		// error describe por qué la ETAPA no puede darse por buena. Un consumidor
+		// que sólo mire action sabe que hay un proceso detrás del error.
+		r := portServiceResult(svc.Name, "started", out.Pid, outcome)
+		r.Error = fmt.Sprintf("health check failed: %v", err)
+		return r
 	}
 
 	return portServiceResult(svc.Name, "started", out.Pid, outcome)

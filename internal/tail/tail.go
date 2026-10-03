@@ -23,6 +23,11 @@ func ReadNew(path string, offset int64) (data string, newOffset int64, err error
 	}
 	defer func() { _ = f.Close() }()
 
+	// Los dos errores siguientes (Stat y Seek) son inalcanzables: `f` viene de un
+	// os.Open que acaba de devolver nil, así que es un *os.File válido sobre un
+	// inodo que existe. No son guards, son la forma que tiene la comprobación de
+	// error de ser completa; no hay forma de provocarlos desde fuera y por eso no
+	// tienen test.
 	info, err := f.Stat()
 	if err != nil {
 		return "", offset, err
@@ -97,6 +102,16 @@ func CapBuffer(s string, maxBytes int) string {
 		return s
 	}
 	// Cortar en la primera línea completa dentro de la ventana final.
+	//
+	// El corte va hacia ADELANTE a propósito, y por eso este es el diseño
+	// correcto: cualquier línea que empiece en o después de `cut` cabe en
+	// maxBytes, porque a partir de `cut` quedan exactamente maxBytes. Buscar hacia
+	// ATRÁS en cambio daría un sufijo de maxBytes o más, y con líneas largas que
+	// no cabe ninguna: se acabaría partiendo la línea por la mitad.
+	//
+	// El precio es que se puede descartar contenido reciente: el buffer empieza en
+	// el principio de la línea siguiente a la ventana. Es lo que hace que el
+	// principio no sea texto partido, que es lo que importa al leerlo.
 	cut := len(s) - maxBytes
 	if nl := strings.IndexByte(s[cut:], '\n'); nl >= 0 {
 		cut = cut + nl + 1
