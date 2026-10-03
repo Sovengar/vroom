@@ -250,26 +250,43 @@ func (m *Model) clearMessage() {
 // findComposeFile busca .vroom-compose.toml subiendo por los directorios
 // padre de cada proyecto escaneado, sin salir de root. El compose file
 // vive al mismo nivel que los directorios de proyecto que orquesta.
+//
+// MEDIDO (bug): el recorrido empezaba en `filepath.Dir(p.Path)`, así que si el
+// propio root era un proyecto —`cd ~/workspace && vroom` con un `.vroom.toml`
+// ahí— arrancaba un nivel por ENCIMA de root. La guarda `dir == root` sólo se
+// cumplía al pasar por root, y como el recorrido ya iba por encima, nunca se
+// cumplía: subía hasta `/` y parseaba un compose del home del usuario o de `/tmp`.
+//
+// Y al llegar a `/` el bucle no terminaba: `filepath.Dir("/")` es `"/"`, así que la
+// rama `if seen[dir]` recalculaba el mismo directorio y `continue` para siempre.
+// MEDIDO con un proyecto en el root y sin compose en ninguna parte: cuelgue
+// infinito, verificado con un timeout.
+//
+// Ahora el recorrido arranca en el propio proyecto (un directorio más de examen, y
+// permite el compose que vive exactamente en root), y termina por UNA de las tres
+// condiciones que agotan el espacio: root, el directorio padre de "/", o un
+// directorio ya visto.
 func findComposeFile(root string, projects []scanner.Project) (*orchestrate.ComposeFile, error) {
 	seen := make(map[string]bool)
 	for _, p := range projects {
-		dir := filepath.Dir(p.Path)
-		for {
+		dir := p.Path
+		for dir != "" {
 			if seen[dir] {
-				if dir == root {
-					break
-				}
-				dir = filepath.Dir(dir)
-				continue
+				break
 			}
 			seen[dir] = true
+
 			if cf, err := orchestrate.ParseComposeFile(dir); err == nil {
 				return cf, nil
 			}
 			if dir == root {
-				break
+				break // alcanzado el root: nunca se sube por encima
 			}
-			dir = filepath.Dir(dir)
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break // "/" o la raíz de un volumen: no hay más arriba
+			}
+			dir = parent
 		}
 	}
 	return nil, fmt.Errorf("no %s found in any project directory under %s", orchestrate.ComposeFileName, root)

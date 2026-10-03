@@ -419,6 +419,21 @@ func treeDot(p scanner.Project, sv *ServiceState, spinnerView, startSpinnerView 
 		return styleStopping.Render("○")
 	case statusUnknown:
 		return spinnerView
+	// MEDIDO (bug): estos tres NO caían en el default, así que un servicio VIVO
+	// se pintaba con el punto de parado.
+	//
+	// El primero es el más grave porque se contradice con la propia TUI: el badge de
+	// la fila dice "starting, port pending" mientras el punto dice "parado", y la
+	// acción de `s` trata port_pending como vivo y lo para. El usuario ve parado y
+	// la acción lo encuentra corriendo.
+	//
+	// Los otros dos son vivos y sanos —sólo que sin puerto TCP confirmado— y ya
+	// tienen su propio texto en el badge. Aquí van con el punto de vivo, que es lo
+	// que el servicio es.
+	case statusPortPending:
+		return startSpinnerView
+	case statusPortUnresolved, statusNoPort:
+		return styleRunning.Render("●")
 	default:
 		return styleStopped.Render("·")
 	}

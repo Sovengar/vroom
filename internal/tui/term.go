@@ -59,13 +59,30 @@ func resolveShell() string {
 	return "sh"
 }
 
-// termEnv hereda el entorno y garantiza TERM para el shell del PTY.
+// termEnv hereda el entorno y garantiza UN TERM para el shell del PTY.
+//
+// MEDIDO (bug): el guardia era `os.Getenv("TERM") == ""`, que también es cierto
+// cuando TERM está presente pero VACÍO —un servicio, un runner de CI, un `TERM=`
+// exportado a mano—. En ese caso os.Environ() ya traía `TERM=` y el append
+// añadía un segundo `TERM=xterm-256color`: el hijo recibía dos entradas con la
+// misma clave y cuál gana no está garantizado, porque el orden del entorno no es
+// parte del contrato de exec.
+//
+// Con un TERM no vacío la descartamos antes de añadir el nuestro, que es lo que
+// hace que la variable quede definida una sola vez y con el valor que este programa
+// sabe pintar.
 func termEnv() []string {
-	env := os.Environ()
-	if os.Getenv("TERM") == "" {
-		env = append(env, "TERM=xterm-256color")
+	if os.Getenv("TERM") != "" {
+		return os.Environ()
 	}
-	return env
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, kv := range os.Environ() {
+		if k, _, ok := strings.Cut(kv, "="); ok && k == "TERM" {
+			continue // presente pero vacío: lo sustituimos por el nuestro
+		}
+		env = append(env, kv)
+	}
+	return append(env, "TERM=xterm-256color")
 }
 
 // newTermSession lanza el shell del usuario (interactivo) en un PTY
