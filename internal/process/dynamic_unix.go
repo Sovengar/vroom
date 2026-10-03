@@ -156,6 +156,18 @@ func pickMainPort(listeners []int, healthPath string) DiscoveryResult {
 	if best > 0 && bestRank > 0 {
 		return DiscoveryResult{Port: best, All: listeners, Verified: true}
 	}
+	// MEDIDO (bug): `listeners[0]` reventaba con una lista VACÍA. Hoy es
+	// inalcanzable —el bucle de descubrimiento sólo llama a decidePort cuando
+	// len(listeners) > 0—, pero es un index out of range esperando al primer
+	// llamador nuevo, y se dispararía en medio del arranque de un servicio, que
+	// es lo peor que puede hacer esta función.
+	//
+	// Y un resultado vacío es la respuesta correcta, no unaTolencia: no hay
+	// listener, luego no hay puerto que declarar, que es exactamente lo que
+	// devuelve el bucle cuando la ventana se agota sin puertos.
+	if len(listeners) == 0 {
+		return DiscoveryResult{}
+	}
 	// Ninguno respondió como HTTP: protocolo desconocido o sockets crudos.
 	// No hay forma de saber cuál es el principal, y se dice.
 	return DiscoveryResult{Port: listeners[0], All: listeners, Verified: false}
