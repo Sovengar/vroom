@@ -368,7 +368,7 @@ func (e *Engine) startService(svc ResolvedService, timeout time.Duration) Servic
 		Manager:    e.manager,
 		StdoutPath: e.store.StdoutLog(p.Path),
 		StderrPath: e.store.StderrLog(p.Path),
-		Routes:     portless.ClientFor(p.Manifest),
+		Routes:     startsvc.RegistrarFor(p.Manifest),
 		Branch:     gitinfo.Branch(p.Path),
 	})
 	if err != nil {

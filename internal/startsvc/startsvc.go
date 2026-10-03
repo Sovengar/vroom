@@ -63,6 +63,30 @@ type Request struct {
 	Branch string
 }
 
+// RegistrarFor resuelve el seam de rutas de un manifiesto y lo devuelve YA
+// NORMALIZADO como interfaz.
+//
+// MEDIDO (bug): los tres llamadores pasaban `portless.ClientFor(m)` directamente al
+// campo `Routes`, que es de tipo `RouteRegistrar`. `ClientFor` devuelve un
+// `*portless.Client`, y un puntero nil dentro de una interfaz NO es una interfaz
+// nil: el `if req.Routes == nil` de applyRoute no se cumplía.
+//
+// El síntoma, medido con un servicio real sin `route_mode`: su stderr empezaba con
+// `portless route: unknown route_mode "off"` en cada arranque, y el camino de ruta
+// se ejecutaba entero para un servicio que explícitamente no quiere ruta.
+// `route_mode = "off"` es el DEFAULT, así que era el caso mayoritario: una línea de
+// ruido en el log de casi todos los servicios.
+//
+// Aquí la conversión ocurre una vez y en el paquete que posee el contrato "nil
+// significa sin ruta", que es el único sitio donde puede comprobarse.
+func RegistrarFor(m *manifest.Manifest) RouteRegistrar {
+	c := portless.ClientFor(m)
+	if c == nil {
+		return nil
+	}
+	return c
+}
+
 // RouteRegistrar es el seam de rutas que necesita startsvc. Existe para que el
 // paquete no dependa de cómo se construye el cliente de portless y para que los
 // tests puedan ejercitar el ciclo completo sin un portless real.

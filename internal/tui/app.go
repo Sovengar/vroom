@@ -2058,7 +2058,22 @@ func expandAskPrompt(tmpl, name, dir, logs string) string {
 // enter despacha, esc cancela.
 func (m Model) askKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "q", "ctrl+c":
+	case "ctrl+c":
+		// MEDIDO: `ctrl+c` era condicional al prompt vacío, igual que `q`, y eso lo
+		// convertía en la ÚNICA tecla de salida del programa que dependía del
+		// contenido de un input de texto. Con texto escrito no había ninguna otra
+		// forma de salir: había que borrarlo entero a mano.
+		//
+		// Es además incoherente con los otros tres sitios que aceptan `ctrl+c` —el
+		// global, el del picker y el del filtro del árbol—, que la salen
+		// incondicionalmente. Y con lo que significa: `ctrl+c` es la tecla de
+		// pánico de bubbletea, no una tecla de texto.
+		//
+		// `q` sigue siendo condicional (abajo) porque en un prompt a un agente de
+		// código escribir "q" es normal, y perder lo escrito por una pulsación sería
+		// peor que la tecla de menos.
+		return m, tea.Quit
+	case "q":
 		if m.promptInput.Value() == "" {
 			return m, tea.Quit
 		}

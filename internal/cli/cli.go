@@ -714,7 +714,7 @@ func cmdStart(name, path string) (any, error) {
 		Manager:    s.manager,
 		StdoutPath: s.store.StdoutLog(p.Path),
 		StderrPath: s.store.StderrLog(p.Path),
-		Routes:     portless.ClientFor(p.Manifest),
+		Routes:     startsvc.RegistrarFor(p.Manifest),
 		Branch:     gitinfo.Branch(p.Path),
 	})
 	if err != nil {

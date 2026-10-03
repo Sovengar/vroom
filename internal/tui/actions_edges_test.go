@@ -751,7 +751,7 @@ func TestAskKeySoloSaleConElPromptVacioYEscCancala(t *testing.T) {
 		m := abrir(t, "hola")
 		next, cmd := m.askKey(keyMsg("q"))
 		if cmd != nil {
-			t.Error("q con texto no puede salir del programa: se perdería lo escrito")
+			t.Error("q con texto no puede salir del programa: se perdería lo escrito, y en un prompt a un agente escribir q es normal")
 		}
 		if !next.(Model).askPromptOpen {
 			t.Error("q con texto cerró el modal")
@@ -765,21 +765,16 @@ func TestAskKeySoloSaleConElPromptVacioYEscCancala(t *testing.T) {
 		}
 	})
 
-	t.Run("ctrl+c con texto se escribe en vez de salir", func(t *testing.T) {
-		// MEDIDO: `q` y `ctrl+c` comparten regla — sólo salen con el prompt vacío.
-		// Es deliberado: un prompt a un agente de código puede querer含 "manda
-		// ctrl+c", y una tecla de panic que se traga el texto deja al usuario sin
-		// salida hasta que lo borra a mano.
-		//
-		// Se fija el comportamiento real y no se le cambia la regla a la TUI: es
-		// una decisión de producto, no un defecto de cobertura.
-		m := abrir(t, "manda")
-		next, cmd := m.askKey(keyMsg("ctrl+c"))
-		if cmd != nil {
-			t.Error("con texto no puede salir del programa")
-		}
-		if !next.(Model).askPromptOpen {
-			t.Error("con texto el modal no puede cerrarse: se perdería lo escrito")
+	t.Run("ctrl+c sale SIEMPRE, haya texto o no", func(t *testing.T) {
+		// La tecla de pánico del framework no puede depender del contenido de un
+		// input. Antes sólo salía con el prompt vacío, que dejaba al usuario sin
+		// ninguna forma de salir sin borrar lo escrito entero a mano — y sin
+		// coherencia con el filtro del árbol, que sí la deja salir siempre.
+		for _, prompt := range []string{"", "manda ctrl+c al servicio", "un borrador largo"} {
+			m := abrir(t, prompt)
+			if _, cmd := m.askKey(keyMsg("ctrl+c")); cmd == nil {
+				t.Errorf("ctrl+c con el prompt %q tiene que salir del programa", prompt)
+			}
 		}
 	})
 }
@@ -1215,4 +1210,69 @@ func keyMsg(name string) tea.KeyMsg {
 	}
 	k, _ := km.(tea.KeyMsg)
 	return k
+}
+
+// TestCtrlCSaleDesdeTodosLosModalesSinExcepcion: la invariante de la tecla de
+// pánico.
+//
+// Se fijó después de que el prompt de ask fuera el único sitio donde `ctrl+c` sólo
+// salía con el texto vacío. Es la clase de incoherencia que no la nota nadie hasta
+// que la nota un usuario: el filtro del árbol sí la deja salir, el picker sí, el
+// global sí, y el ask no. Con texto escrito en el prompt no había ninguna otra tecla
+// de salida.
+//
+// Y `q` NO se toca aquí a propósito: la regla es "la tecla de pánico sale siempre,
+// las teclas de texto dependen del texto". Es lo que hace que escribir "q" en un
+// prompt a un agente no te cierre el programa.
+func TestCtrlCSaleDesdeTodosLosModalesSinExcepcion(t *testing.T) {
+	ctrlc := keyMsg("ctrl+c")
+
+	t.Run("prompt de ask con texto", func(t *testing.T) {
+		m, _ := newTestModel(t)
+		m = moveCursorTo(t, m, "tienda-api")
+		m.askPromptOpen = true
+		m.askAgent = agenteFalso()
+		m.promptInput.SetValue("un borrador que no quiero perder")
+		if _, cmd := m.askKey(ctrlc); cmd == nil {
+			t.Error("ctrl+c con texto tiene que salir: es la tecla de pánico del framework")
+		}
+	})
+
+	t.Run("filtro del árbol", func(t *testing.T) {
+		m, _ := newTestModel(t)
+		m.filterOpen = true
+		m.filterInput.SetValue("tienda")
+		if _, cmd := m.filterKey(ctrlc); cmd == nil {
+			t.Error("ctrl+c en el filtro tiene que salir")
+		}
+	})
+
+	t.Run("picker", func(t *testing.T) {
+		m := newStackModel(t)
+		m.pickerItems = []pickerItem{{Name: "build"}}
+		m.pickerOpen = true
+		if _, cmd := m.pickerKey("ctrl+c"); cmd == nil {
+			t.Error("ctrl+c en el picker tiene que salir")
+		}
+	})
+
+	t.Run("vista principal", func(t *testing.T) {
+		m, _ := newTestModel(t)
+		if _, cmd := m.handleKey(ctrlc); cmd == nil {
+			t.Error("ctrl+c en la vista principal tiene que salir")
+		}
+	})
+
+	t.Run("q NO es la tecla de pánico", func(t *testing.T) {
+		// La contraparte: si `q` se cambiara también, escribir "q" en un prompt
+		// cerraría el programa y perdería lo escrito. Es la razón por la que la
+		// corrección de arriba toca sólo ctrl+c.
+		m, _ := newTestModel(t)
+		m = moveCursorTo(t, m, "tienda-api")
+		m.askPromptOpen = true
+		m.promptInput.SetValue("busca este error: q no es un problema")
+		if _, cmd := m.askKey(keyMsg("q")); cmd != nil {
+			t.Error("q con texto escrito no puede salir: perder un prompt por una q sería peor que la tecla de menos")
+		}
+	})
 }

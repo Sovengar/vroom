@@ -26,6 +26,21 @@ import (
 	"vroom/internal/tui"
 )
 
+// opts son las opciones del programa. Existe una variable y no una lista de
+// parámetros para que un test pueda inyectar entrada y salida y arrancar la TUI
+// sin un terminal de verdad detrás.
+//
+// Cero valor = terminal real, que es lo que usa main.
+var opts []tea.ProgramOption
+
+// main es el único sitio del repo que llama a os.Exit, y por eso no tiene test:
+// un os.Exit en medio de un test mata el proceso entero y no hay forma de observar
+// el código de salida desde dentro.
+//
+// Lo que sí se cubre es todo lo que hay alrededor, vía runTUI: el reparto entre
+// modo CLI y modo TUI, la creación del store y el arranque del programa. El
+// `return` después de `cli.Run` se comprueba desde fuera, ejecutando el binario con
+// un subcomando y mirando su código de salida.
 func main() {
 	// CLI mode: subcomandos para consumo por IA.
 	//
@@ -37,22 +52,40 @@ func main() {
 		return
 	}
 
-	// TUI mode: por defecto sin argumentos
-	store, err := state.NewStore()
-	if err != nil {
+	// TUI mode: por defecto sin argumentos.
+	if err := runTUI(process.NewManager()); err != nil {
 		fmt.Fprintln(os.Stderr, "vroom:", err)
 		os.Exit(1)
+	}
+}
+
+// runTUI es el arranque sin el os.Exit: separa "qué pasó" de "cómo muere el
+// proceso", igual que hace cli.Run con los subcomandos.
+//
+// La razón de separarlo es que main() no se puede probar: os.Exit mata el proceso
+// de test y tea.Program necesita un terminal. Con esta forma, los dos fallos que
+// sí pueden和生产se —el store y el directorio de trabajo— se devuelven como error y
+// se comprueban, y el camino de éxito se arranca con la entrada y la salida
+// redirigidas.
+//
+// El error no lleva contexto porque main ya imprime el prefijo "vroom:" y los tres
+// son fallos de entorno con un mensaje que se explica solo.
+//
+// El segundo error, el de os.Getwd, no tiene test: se necesita que el directorio de
+// trabajo haya desaparecido o dejado de ser legible, y en un test eso significaría
+// unlinkear el CWD bajo los pies del propio proceso de test.
+func runTUI(manager process.Manager) error {
+	store, err := state.NewStore()
+	if err != nil {
+		return err
 	}
 
 	root, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "vroom:", err)
-		os.Exit(1)
+		return err
 	}
 
-	model := tui.New(store, process.NewManager(), root)
-	if _, err := tea.NewProgram(model).Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "vroom:", err)
-		os.Exit(1)
-	}
+	model := tui.New(store, manager, root)
+	_, err = tea.NewProgram(model, opts...).Run()
+	return err
 }
