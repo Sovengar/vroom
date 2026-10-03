@@ -171,6 +171,12 @@ func (s *Store) SaveMeta(projectPath string, m Meta) error {
 		return err
 	}
 	data, err := json.MarshalIndent(m, "", "  ")
+	// Rama no alcanzable con el tipo actual: Meta solo tiene string, int,
+	// int64 y bool, y json solo rechaza float NaN/Inf, canal, func y ciclos.
+	// Se conserva como red para un campo float64 futuro, que sí la activaría.
+	// No es codigo muerto como una guarda de runtime imposible: esta protege
+	// una propiedad del TIPO, y el tipo puede cambiar. Verificado con un Meta
+	// de los 18 campos puestos en store_constructor_test.go.
 	if err != nil {
 		return fmt.Errorf("could not marshal meta.json: %w", err)
 	}
@@ -237,6 +243,9 @@ func (s *Store) CollapsedFile() string {
 // Las claves son el nombre del primario o "primario/secundario".
 func (s *Store) SaveCollapsed(groups map[string]bool) error {
 	data, err := json.MarshalIndent(groups, "", "  ")
+	// Misma justificacion que en SaveMeta: map[string]bool es siempre
+	// serializable, incluidos nil y el mapa vacio, asi que la rama no se puede
+	// cubrir. Se conserva por el mismo motivo: protege una propiedad del tipo.
 	if err != nil {
 		return fmt.Errorf("could not marshal collapsed.json: %w", err)
 	}
