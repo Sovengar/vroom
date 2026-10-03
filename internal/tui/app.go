@@ -1439,7 +1439,16 @@ func (m *Model) setConsoleContent(content string) {
 
 // syncConsoleView rellena el viewport con el buffer actual (cambio de
 // tamaño, de modo de stream o de visibilidad del panel de detalles).
-func (m Model) syncConsoleView() tea.Cmd {
+func (m *Model) syncConsoleView() tea.Cmd {
+	// MEDIDO (bug): el receptor era POR VALOR y el método muta m.consoleView, así
+	// que escribía en su propia copia y la devolvía al caller, que nunca veía el
+	// cambio. MEDIDO con un servicio de verdad: se escribía una línea distinta en
+	// stdout y otra en stderr, se pulsaba `c` dos veces y el viewport se quedaba
+	// en blanco las tres veces. La tecla de stream estaba muerta y su rótulo —"c
+	// stream" en la línea de ayuda— prometía algo que no pasaba.
+	//
+	// El mismo bug no está en los otros dos llamadores porque usan
+	// setConsoleContent, que sí tiene receptor por puntero.
 	if m.activeTab != tabConsole {
 		return nil
 	}
@@ -1708,6 +1717,14 @@ func (m Model) nodeStats(primary, secondary string) (running, total int) {
 func (m Model) restartSelected() (tea.Model, tea.Cmd) {
 	p := m.selected()
 	if p == nil {
+		// MEDIDO: era la ÚNICA acción que se callaba sin selección. install, build,
+		// logs, tasks, clear y ask avisan; restart pulsado sobre un nodo de grupo
+		// no hacía absolutamente nada, y el usuario no tenía forma de distinguir
+		// "no arrancó" de "no hay nada aquí". El contrato es el mismo para todas
+		// las acciones contextuales: o hacen algo o dicen por qué no.
+		if m.onHeader() {
+			m.notify("select a service to restart")
+		}
 		return m, nil
 	}
 	if !p.Configured {
@@ -2267,24 +2284,40 @@ func statusBadge(p scanner.Project, sv *ServiceState, spinnerView, startSpinnerV
 }
 
 // trunc recorta s a n runes conservando el inicio.
+//
+// MEDIDO: con n <= 0 reventaba (`r[:n]` con n negativo es un índice negativo) y
+// con n == 0 devolvía "" por casualidad. No hay ningún llamador que hoy pase un
+// ancho negativo —todos llevan un max() por debajo—, pero son ~40 llamadas con
+// aritmética de anchos y un `w - metaW - gap` que hoy sale positivo no lo seguirá
+// siempre. Un panic en un helper de texto apaga la TUI entera; un "" no.
 func trunc(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
 	r := []rune(s)
 	if len(r) <= n {
 		return s
 	}
-	if n <= 1 {
-		return string(r[:n])
+	if n == 1 {
+		return string(r[:1])
 	}
 	return string(r[:n-1]) + "…"
 }
 
 // truncTail recorta s a n runes conservando el final (para rutas largas).
+//
+// MEDIDO: el caso n == 0 devolvía el ÚLTIMO rune en vez de nada. Con un ancho de
+// cero en el panel de detalles eso es una ruta de una letra pegada a la etiqueta,
+// que se lee como basura y no como "no cabe".
 func truncTail(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
 	r := []rune(s)
 	if len(r) <= n {
 		return s
 	}
-	if n <= 1 {
+	if n == 1 {
 		return string(r[len(r)-1:])
 	}
 	return "…" + string(r[len(r)-n+1:])

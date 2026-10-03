@@ -278,17 +278,24 @@ func (m Model) pickerBox() string {
 // askInnerW es el ancho interior del modal ask (compartido entre el
 // render del box y el width del textarea): crece con la pantalla hasta
 // un cap (110) para que el prefill del template quepa
-// en una línea en pantallas normales.
+// en una línea en pantallas normales, y ENCOGE con ella si no cabe.
+//
+// MEDIDO (bug): la base era 72 y sólo podía crecer, así que en cualquier pantalla
+// de menos de 86 columnas el modal era más ancho que la terminal. Con un modal más
+// ancho que la pantalla cada línea envuelve y todo lo de debajo baja: el teclado,
+// el árbol y las cajas dejan de encajar y el programa parece roto, no estrecho.
+//
+// `overlay` no recorta el box a la pantalla a propósito —es un compositor, no un
+// gestor de anchos—, así que la responsabilidad de que el modal quepa es de quien
+// calcula su ancho.
 func askInnerW(width int) int {
-	innerW := 72
-	if w := width - 14; w > innerW {
-		innerW = w
-	}
-	if innerW > 110 {
-		innerW = 110
-	}
+	avail := width - 14 // bordes, padding y margen
+	innerW := min(avail, 110)
+	// En pantallas normales se quiere al menos el ancho del prefill, pero sólo si
+	// cabe: de aquí el min(72, avail) en vez de un 72 a secas.
+	innerW = max(innerW, min(72, avail))
 	if innerW < 28 {
-		innerW = 28
+		innerW = 28 // el textarea necesita un mínimo; por debajo el modal no es usable
 	}
 	return innerW
 }
