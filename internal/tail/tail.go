@@ -47,6 +47,18 @@ func tamanoDe(f *os.File) (int64, error) {
 // directorio devuelve su tamaño de bloque, que es pequeño, y el `ReadAt` posterior
 // falla con EISDIR como debe.
 func readNew(path string, offset int64, tamano func(*os.File) (int64, error)) (string, int64, error) {
+	// El suelo del offset va ANTES de abrir, y no con los demás, para que ninguna de
+	// las salidas pueda devolver un offset negativo. La función es transparente con el
+	// offset cuando falla —devuelve el que le dieron, sin tocarlo—, así que corregirlo
+	// sólo en el camino que llega a leer deja el contrato roto según por dónde se salga.
+	//
+	// Nadie produce hoy un offset negativo: el que entra es la vuelta anterior de esta
+	// misma función. Pero un entero con signo que se cuele por un desbordamiento en
+	// `offset + n` volvería el valor ya grande, y feeds de vuelta en la suma.
+	if offset < 0 {
+		offset = 0
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -60,19 +72,13 @@ func readNew(path string, offset int64, tamano func(*os.File) (int64, error)) (s
 	if err != nil {
 		return "", offset, err
 	}
-	// Tres suelos, y los tres importan para que el `make` de abajo no pueda reventar.
-	// El primero es la rotación: un log truncado por debajo del offset se relee entero.
+	// El suelo de rotación: un log truncado por debajo del offset se relee entero.
 	if size < offset {
 		offset = 0
 	}
-	// El segundo es un offset negativo o desbordado. Nadie lo produce hoy —el offset
-	// viene de la vuelta anterior de esta misma función—, pero un entero con signo que
-	// se cuela por un desbordamiento en la suma `offset + n` haría que `size-offset`
-	// fuera enorme, y eso es un panic en la TUI en vez de un log vacío.
-	if offset < 0 {
-		offset = 0
-	}
-	// El tercero, para que el buffer sea válido por construcción.
+	// Y el de longitud, que cierra la puerta al `make`. El offset ya está corregido
+	// arriba y `size` viene de un `Stat`, así que la resta no puede dar negativo; el
+	// `max` lo hace explícito para quien lea esto dentro de seis meses.
 	buf := make([]byte, max(size-offset, 0))
 
 	// `ReadAt` y no `Read`: no mueve el descriptor, así que no depende de en qué

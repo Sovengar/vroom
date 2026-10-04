@@ -136,26 +136,37 @@ func TestReadNewNoDevuelveMasDeLoQueHay(t *testing.T) {
 // Este test existe porque el código la introdujo. Preguntar el tamaño con
 // `f.Seek(0, io.SeekEnd)` en vez de con `f.Stat()` parece más elegante —hace de una
 // vez lo que ambos hacían— pero sobre un descriptor de DIRECTORIO `Seek` al final
-// devuelve un tamaño enorme, del orden de 2^63 en ext4, y `make([]byte, tamano-offset)`
+// devuelve un valor enorme en ext4, del orden de 2^63, y `make([]byte, tamano-offset)`
 // revienta con "len out of range".
 //
 // Que un log acabe siendo un directorio no es una hipótesis: el servicio escribe su
 // log, alguien lo borra y crea un directorio en su sitio —una migración, un script de
 // despliegue, un `mkdir` a ciegas— y el siguiente tick de la consola lo lee.
 //
-// Lo que se comprueba es que NO PANIQUE y que devuelva un error: el caller trata un
-// error como "esta lectura no vale" y sigue, mientras que un panic en el tick de la
-// consola se come la TUI entera.
+// Lo que se comprueba es lo que es INVARIANTE entre sistemas de ficheros: que no
+// reviente, y que una lectura inválida no deje el offset por encima de donde estaba.
 //
-// MEDIDO: en el runner de CI (ext4) el fallo era un panic; en la máquina de desarrollo
-// el mismo caso pasaba, porque el tamaño del directorio que devuelve `Seek` depende
-// del sistema de ficheros. Un test que sólo falla en CI también es un test que no
-// avisó a tiempo.
+// Y hay que decirlo porque es la parte que no era evidente: el ERROR depende del
+// sistema de ficheros y de dónde caiga el offset. MEDIDO, con un directorio de 4096
+// bytes en ext4, `ReadAt` devuelve EISDIR si tiene bytes que pedir y `nil` si el
+// buffer sale vacío —porque una lectura de cero bytes ni toca el disco—.
+//
+//	offset dentro del tamaño   ->  EISDIR: el log no es un log, y hay que decirlo.
+//	offset en el tamaño        ->  vacío sin error: no ha Reads nada nuevo.
+//
+// Lo segundo no es un fallo: es exactamente lo que se le pide a un tail cuando el
+// fichero no ha crecido. Por eso este test no afirma que todo offset dé error, sino
+// que ninguno reviente y que ninguno avance el offset.
 func TestReadNewNoRevientaConUnLogQueEsUnDirectorio(t *testing.T) {
 	asDir := filepath.Join(t.TempDir(), "log-es-un-directorio")
 	if err := os.MkdirAll(filepath.Join(asDir, "con-contenido"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	fi, err := os.Stat(asDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tam := fi.Size()
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -164,14 +175,23 @@ func TestReadNewNoRevientaConUnLogQueEsUnDirectorio(t *testing.T) {
 		}
 	}()
 
-	for _, off := range []int64{0, 1, 4096, 1 << 40} {
+	// Los cuatro casos que importan: dentro del directorio, en su primer byte, en su
+	// tamaño exacto —donde el buffer sale vacío— y muy por encima, que es donde el
+	// `make` reventaba.
+	for _, off := range []int64{0, 1, tam, tam + 4096} {
 		data, nuevo, err := ReadNew(asDir, off)
-		if err == nil {
-			t.Errorf("ReadNew(%q, %d) = %q sin error: un directorio no es un log", asDir, off, data)
+		if data != "" {
+			t.Errorf("ReadNew(%d) devolvió %q con un directorio, want vacío: no hay log que leer", off, data)
 		}
 		if nuevo > off {
-			t.Errorf("ReadNew(%q, %d) dejó el offset en %d: avanzar sobre una lectura fallida "+
-				"perdería los bytes que no se leyeron", asDir, off, nuevo)
+			t.Errorf("ReadNew(%d) dejó el offset en %d: avanzar sobre una lectura que no ha leído "+
+				"nada perdería los bytes que no se leyeron", off, nuevo)
+		}
+		// Y el error sólo es obligatorio cuando había algo que pedir. Con el buffer
+		// vacío la lectura no llega al disco, así que nil es lo correcto.
+		if off < tam && err == nil {
+			t.Errorf("ReadNew(%d) = nil con un directorio y %d bytes que pedir, want EISDIR: un log "+
+				"que es un directorio tiene que decir algo, o el servicio parecerá callado", off, tam)
 		}
 	}
 }
