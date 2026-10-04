@@ -52,6 +52,23 @@ type ScanResult struct {
 // Scan busca .vroom.toml desde root con la profundidad dada.
 // Usa fd si está disponible; si no, WalkDir.
 func Scan(root string, depth int) (ScanResult, error) {
+	return scanWith(root, depth, fdPath())
+}
+
+// scanWith es Scan con la resolución de fd ya hecha, y recibe "" para forzar la
+// ruta de WalkDir.
+//
+// Existe porque la elección de herramienta se tomaba DENTRO del escaneo, lo que
+// hacía que la mitad del código fuera inalcanzable desde un test: fdPath mira el
+// PATH y dos rutas absolutas del sistema, y en cualquier máquina con fd instalado
+// la ruta de WalkDir no se ejecutaba nunca. Un `t.Setenv("PATH", "")` no basta
+// porque las dos rutas absolutas siguen ahí.
+//
+// El tradeoff de esto es una ruta de entrada más, y a cambio las dos rutas
+// --fd y WalkDir-- se ejecutan en la suite entera y se puede exigir que den EL
+// MISMO resultado. Sin eso, "el runner de CI no tiene fd" es un hecho del que
+// nadie sabe nada: la suite pasa con la ruta que esté en la máquina que corre.
+func scanWith(root string, depth int, fd string) (ScanResult, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return ScanResult{}, fmt.Errorf("could not resolve CWD: %w", err)
@@ -64,7 +81,7 @@ func Scan(root string, depth int) (ScanResult, error) {
 		return ScanResult{}, fmt.Errorf("%s is not a directory", absRoot)
 	}
 
-	if fd := fdPath(); fd != "" {
+	if fd != "" {
 		projects, bare, err := scanWithFD(fd, absRoot, depth)
 		if err != nil {
 			return ScanResult{Projects: projects, UsedFD: true}, err
@@ -108,13 +125,31 @@ func finalize(projects, bare []Project, root string) []Project {
 	return merged
 }
 
-// fdPath busca fd en PATH o en ubicaciones conocidas.
+// fdPath busca fd en el PATH y, si no está, en las rutas absolutas conocidas.
+//
+// Las dos rutas absolutas son el caso del runner de CI y de los sistemas donde fd
+// se instala por paquete pero no entra en el PATH del servicio. Son DATOS, no
+// lógica: por eso viven en `defaultFDFallbacks` y la búsqueda vive en
+// `fdInPaths`, que se puede probar con rutas que no existen. La alternativa —un
+// `var` global que un test cambia para simular que `/usr/bin/fd` no está— sería un
+// seam: contaminaría a los tests que corren en paralelo y no probaría nada del
+// sistema de ficheros.
 func fdPath() string {
 	if p, err := exec.LookPath("fd"); err == nil {
 		return p
 	}
-	for _, p := range []string{"/usr/bin/fd", "/usr/local/bin/fd"} {
-		if _, err := os.Stat(p); err == nil {
+	return fdInPaths(defaultFDFallbacks)
+}
+
+// defaultFDFallbacks son las rutas donde se busca fd cuando el PATH no lo tiene.
+var defaultFDFallbacks = []string{"/usr/bin/fd", "/usr/local/bin/fd"}
+
+// fdInPaths devuelve la primera de las rutas que exista y sea ejecutable, o "" si
+// ninguna. Es el `return ""` del escaneo por `fd`: sin él, `Scan` intentaría
+// ejecutar un binario que no existe.
+func fdInPaths(candidatos []string) string {
+	for _, p := range candidatos {
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
 			return p
 		}
 	}
@@ -220,10 +255,12 @@ func scanWithWalk(root string, depth int) (projects, bare []Project, err error) 
 		if !d.IsDir() {
 			return nil
 		}
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			return nil
-		}
+		// NO hay guarda de error aquí, y es a propósito: path viene del recorrido
+		// de root, así que Rel entre root y cualquiera de sus descendientes no
+		// puede fallar. Una guarda ahí era código muerto que además daba la
+		// impresión de que el recorrido podía perder directorios por un error de
+		// rutas, que es lo que un escaneo NO puede hacer.
+		rel, _ := filepath.Rel(root, path)
 		depthLevel := 0
 		if rel != "." {
 			depthLevel = strings.Count(rel, string(os.PathSeparator)) + 1
@@ -233,9 +270,16 @@ func scanWithWalk(root string, depth int) (projects, bare []Project, err error) 
 			if isHidden(d.Name()) || skipDirs[d.Name()] {
 				return fs.SkipDir
 			}
-			if depthLevel > depth {
-				return fs.SkipDir
-			}
+			// El corte por profundidad NO va aquí. Estaba aquí antes, como
+			// `depthLevel > depth`, y es código muerto por construcción: un
+			// hijo sólo se visita si el callback del padre devolvió nil, y el
+			// padre sale por el `depthLevel >= depth` del final de su callback.
+			// Para que un hijo tuviera depthLevel > depth, el padre tendría que
+			// tener depthLevel >= depth — y entonces ya habría cortado.
+			//
+			// Verificado sobre un árbol de tres niveles con depth de 0 a 6: el
+			// nivel más profundo encontrado es siempre min(depth, 3), y la
+			// rama nunca se toma.
 		}
 
 		if worktree.IsBareRepo(path) {

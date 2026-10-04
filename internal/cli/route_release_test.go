@@ -113,7 +113,9 @@ func stopWithMeta(t *testing.T, meta state.Meta) (string, *state.Store) {
 	if err := store.SaveMeta(dir, meta); err != nil {
 		t.Fatal(err)
 	}
-	stopCleanup(store, &noKillManager{}, dir)
+	if err := stopCleanup(store, &noKillManager{}, dir); err != nil {
+		t.Fatalf("stopCleanup: %v", err)
+	}
 	return dir, store
 }
 

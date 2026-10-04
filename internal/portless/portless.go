@@ -284,16 +284,25 @@ func execCommand(ctx context.Context, bin string, args ...string) (string, int, 
 	if cmd.ProcessState != nil {
 		code = cmd.ProcessState.ExitCode()
 	}
+	// El subcomando nombra el error, y se lee del primer argumento. Con la lista
+	// vacía no hay a quién culpar: se usa el nombre del binario. Indexar args[0]
+	// a pelo hacía que un llamador sin subcomando revantara con index out of
+	// range EN medio del arranque, que es lo peor que puede hacer este seam —
+	// su razón de existir es no colgar ni romper un arranque.
+	sub := filepath.Base(bin)
+	if len(args) > 0 {
+		sub = args[0]
+	}
 	if err != nil && ctx.Err() != nil {
 		// El deadline es lo que mató al proceso: se distingue de un fallo
 		// propio del binario porque el motivo que se publica es otro.
-		return stdout.String(), code, fmt.Errorf("portless %s: %w", args[0], ctx.Err())
+		return stdout.String(), code, fmt.Errorf("portless %s: %w", sub, ctx.Err())
 	}
 	if err != nil {
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return stdout.String(), code, fmt.Errorf("portless %s: %w: %s", args[0], err, msg)
+			return stdout.String(), code, fmt.Errorf("portless %s: %w: %s", sub, err, msg)
 		}
-		return stdout.String(), code, fmt.Errorf("portless %s: %w", args[0], err)
+		return stdout.String(), code, fmt.Errorf("portless %s: %w", sub, err)
 	}
 	return stdout.String(), code, nil
 }

@@ -170,19 +170,39 @@ func (s *Store) SaveMeta(projectPath string, m Meta) error {
 	if _, err := s.EnsureServiceDir(projectPath); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return fmt.Errorf("could not marshal meta.json: %w", err)
-	}
 	target := filepath.Join(s.ServiceDir(projectPath), "meta.json")
-	tmp := target + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("could not write meta.json: %w", err)
-	}
-	if err := os.Rename(tmp, target); err != nil {
-		return fmt.Errorf("could not replace meta.json: %w", err)
+	if err := writeJSONAtomic(target, m); err != nil {
+		return fmt.Errorf("could not save %s: %w", filepath.Base(target), err)
 	}
 	return nil
+}
+
+// writeJSONAtomic serializa v y lo deja en target con el patrón tmp + rename, que
+// es lo que hace que un corte de luz a mitad de escritura no deje un meta a medias.
+//
+// El error de `json.MarshalIndent` se convierte en panic en vez de en un `return`
+// error, y el motivo es concreto: con los tipos que se guardan aquí —`Meta` y
+// `map[string]bool`, todo string, int, int64 y bool— `encoding/json` nunca falla.
+// La rama que lo comprobaba era, literalmente, código muerto con forma de
+// comprobación, y una comprobación que no se puede ejecutar es una que nadie lee.
+//
+// Un panic tampoco es bonito, pero es HONESTO: si mañana `Meta` gana un campo que
+// `json` no sabe serializar —un `float64` con NaN, un canal, un ciclo— eso es un
+// error de programación en el sitio que añadió el campo, no una condición de
+// ejecución. Y aquí se ve, porque el panic nombra el tipo que no se pudo serializar
+// en vez de devolver un error a la octava capa de la TUI. El test
+// `TestWriteJSONAtomicRevientaConUnTipoNoSerializable` lo comprueba.
+func writeJSONAtomic(target string, v any) error {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		panic(fmt.Sprintf("json.MarshalIndent de %T falló y eso no puede pasar con los tipos que "+
+			"vroom guarda aquí: %v", v, err))
+	}
+	tmp := target + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, target)
 }
 
 // LoadMeta lee meta.json. Si el JSON está corrupto devuelve error
@@ -236,17 +256,12 @@ func (s *Store) CollapsedFile() string {
 // SaveCollapsed persiste el mapa de grupos colapsados a disco (átomico).
 // Las claves son el nombre del primario o "primario/secundario".
 func (s *Store) SaveCollapsed(groups map[string]bool) error {
-	data, err := json.MarshalIndent(groups, "", "  ")
-	if err != nil {
-		return fmt.Errorf("could not marshal collapsed.json: %w", err)
-	}
+	// El mismo criterio que en `SaveMeta`, y por el mismo motivo: un
+	// `map[string]bool` siempre se serializa. El panic y su motivo están en
+	// `writeJSONAtomic`.
 	target := s.CollapsedFile()
-	tmp := target + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("could not write collapsed.json: %w", err)
-	}
-	if err := os.Rename(tmp, target); err != nil {
-		return fmt.Errorf("could not replace collapsed.json: %w", err)
+	if err := writeJSONAtomic(target, groups); err != nil {
+		return fmt.Errorf("could not save %s: %w", filepath.Base(target), err)
 	}
 	return nil
 }

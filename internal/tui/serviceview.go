@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"vroom/internal/orchestrate"
 	"vroom/internal/portless"
@@ -192,12 +193,23 @@ func (m Model) groupDetailsLines(primary, secondary string, w int) []string {
 	return lines
 }
 
-// pad rellena s con espacios a n runes (para etiquetas sin ANSI).
+// pad rellena s con espacios hasta n runes (para etiquetas sin ANSI).
+//
+// MEDIDO: rellenaba a n BYTES, que es lo que decía media doc. Con las etiquetas
+// actuales —todas literales ASCII: path, branch, group, port, url, pattern,
+// pid/pgid, started, logs, type, stages, services, running— bytes y runes dan el
+// mismo número, así que hoy no se ve nada. Pero el día que una etiqueta lleve un
+// acento, `ñ` ocupa dos bytes y un byte de relleno: la columna queda un carácter
+// más estrecha a partir de ahí y todo lo de debajo se desplaza.
+//
+// Se cuenta por runes porque es lo que mide el terminal: un rune = una celda en
+// el área BMP. (Un emoji = dos, y eso es otro problema que no tiene arreglo aquí.)
 func pad(s string, n int) string {
-	if len(s) >= n {
+	if r := utf8.RuneCountInString(s); r >= n {
 		return s
+	} else {
+		return s + strings.Repeat(" ", n-r)
 	}
-	return s + strings.Repeat(" ", n-len(s))
 }
 
 // stackDetailsLines muestra el panel de detalles de un stack seleccionado

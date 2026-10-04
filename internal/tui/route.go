@@ -3,6 +3,7 @@ package tui
 import (
 	"vroom/internal/manifest"
 	"vroom/internal/portless"
+	"vroom/internal/startsvc"
 	"vroom/internal/state"
 )
 
@@ -37,8 +38,13 @@ var (
 )
 
 // portlessClient devuelve el seam ya resuelto, o nil si no hay contrato de ruta.
-func portlessClient(m *manifest.Manifest) *portless.Client {
-	return portless.ClientFor(m)
+//
+// Delega en startsvc.RegistrarFor, que es quien normaliza el nil. La razón de que
+// exista aquí y no allí es estructural: el guard TestDiscoveryIsNotInTheTUIRefreshPath
+// prohíbe que app.go mencione "portless.", y esta función es la única puerta de la
+// TUI a ese paquete para el registro.
+func portlessClient(m *manifest.Manifest) startsvc.RouteRegistrar {
+	return startsvc.RegistrarFor(m)
 }
 
 // releaseRoute retira la ruta de un servicio parado y REVOCA la propiedad si la

@@ -173,11 +173,14 @@ func buildContentLines(style *ansi.Style, leftChar, rightChar, content string, i
 		}
 	}
 
-	if len(result) == 0 {
-		emptyLine := strings.Repeat(" ", innerWidth)
-		result = append(result, styledChar(style, leftChar)+emptyLine+styledChar(style, rightChar))
-	}
-
+	// Sin guarda de "result vacío": result NO puede quedar vacío. El bucle
+	// corre sobre strings.Split, que nunca devuelve un slice vacío (con ""
+	// devuelve un elemento), y cada iteración añade al menos una línea — la
+	// rama de ajuste directo siempre añade una, y wrapLine garantiza al menos
+	// un chunk incluso cuando la línea es "" o el ancho no es positivo. La
+	// guarda era inalcanzable y, por tanto, intestable: ningún test podía
+	// cubrirla, y un test que la cubra tendría que inventar un estado que el
+	// llamador no puede producir.
 	return result
 }
 

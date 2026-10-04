@@ -56,7 +56,7 @@ type AskConfig struct {
 // ScannerConfig configura la búsqueda de proyectos.
 type ScannerConfig struct {
 	// Root es la ruta raíz donde buscar .vroom.toml. Vacío = CWD.
-	// Rutas relativas se resuelven相对于 CWD.
+	// Rutas relativas se resuelven respecto al CWD.
 	Root string `toml:"root"`
 	// Depth es la profundidad máxima de recursión (default 4).
 	Depth int `toml:"depth"`
