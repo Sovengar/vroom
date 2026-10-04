@@ -33,30 +33,50 @@ import (
 // Cero valor = terminal real, que es lo que usa main.
 var opts []tea.ProgramOption
 
-// main es el único sitio del repo que llama a os.Exit, y por eso no tiene test:
-// un os.Exit en medio de un test mata el proceso entero y no hay forma de observar
-// el código de salida desde dentro.
+// main es el único sitio del repo que llama a os.Exit, y por eso no tiene test
+// propio: un `os.Exit` en medio de un test mata el proceso entero y no hay forma de
+// observar el código de salida desde dentro.
 //
-// Lo que sí se cubre es todo lo que hay alrededor, vía runTUI: el reparto entre
-// modo CLI y modo TUI, la creación del store y el arranque del programa. El
-// `return` después de `cli.Run` se comprueba desde fuera, ejecutando el binario con
-// un subcomando y mirando su código de salida.
+// Lo que sí se comprueba es todo lo que hay alrededor, vía `runMain` —que devuelve
+// el código en vez de aplicarlo— y vía un proceso hijo que re-ejecuta este mismo
+// binario de test y llama a `main()` de verdad, mirando su código de salida desde
+// fuera. Eso es lo único que demuestra que `main` pasa el del proceso real a
+// `os.Exit`, y no un número inventado por el test.
 func main() {
+	os.Exit(runMain(os.Args[1:], func() error { return runTUI(process.NewManager()) }, os.Exit))
+}
+
+// runMain es el arranque entero: reparte entre modo CLI y modo TUI y devuelve el
+// código con el que debe morir el proceso.
+//
+// El código lo devuelve `runMain` y no se aplica aquí por dos razones. La primera es
+// que así todo el arranque es comprobable: `main()` se limita a lo único que no se
+// puede probar —llamar a `os.Exit`— y el reparto entre CLI y TUI, la creación del
+// store, el directorio de trabajo y los dos códigos de salida se ejecutan enteros
+// desde un test. La segunda es que el único `os.Exit` del repo queda en una línea,
+// que es donde se puede ver que es el único.
+//
+// El arranque de la TUI va por parámetro (`tui`) porque necesita un terminal de
+// verdad detrás: sin él, la rama de éxito sólo se puede ejecutar en un proceso hijo
+// con una TTY, que es un tipo de prueba que no se puede escribir. Con el parámetro,
+// el reparto entre "hubo subcomando" y "no lo hubo" se comprueba entero, y
+// `runTUI` se prueba por separado con la entrada y la salida redirigidas.
+func runMain(args []string, tui func() error, exit func(int)) int {
 	// CLI mode: subcomandos para consumo por IA.
 	//
-	// El código de salida lo aplica main, no el paquete cli: así el paquete
-	// informa del fallo en vez de matar el proceso, y main conserva el control
-	// del único os.Exit que existe en el arranque. `Run` devuelve false cuando
+	// El código de salida lo aplica quien llama, no este paquete: así el paquete
+	// cli informa del fallo en vez de matar el proceso. `Run` devuelve false cuando
 	// no hubo subcomando, y entonces sigue hacia la TUI.
-	if cli.Run(os.Args[1:]) {
-		return
+	if cli.Run(args, exit) {
+		return 0
 	}
 
 	// TUI mode: por defecto sin argumentos.
-	if err := runTUI(process.NewManager()); err != nil {
+	if err := tui(); err != nil {
 		fmt.Fprintln(os.Stderr, "vroom:", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 // runTUI es el arranque sin el os.Exit: separa "qué pasó" de "cómo muere el
@@ -70,10 +90,6 @@ func main() {
 //
 // El error no lleva contexto porque main ya imprime el prefijo "vroom:" y los tres
 // son fallos de entorno con un mensaje que se explica solo.
-//
-// El segundo error, el de os.Getwd, no tiene test: se necesita que el directorio de
-// trabajo haya desaparecido o dejado de ser legible, y en un test eso significaría
-// unlinkear el CWD bajo los pies del propio proceso de test.
 func runTUI(manager process.Manager) error {
 	store, err := state.NewStore()
 	if err != nil {

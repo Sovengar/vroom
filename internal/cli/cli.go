@@ -496,10 +496,15 @@ func releaseRouteOnStop(meta *state.Meta) {
 // os.Exit en caso de error, con lo que ninguno podía ejecutarse en un test sin
 // matar el binario de test. Ahora el error viaja como valor y el proceso se
 // cierra en un solo sitio —main— que es donde esa decisión pertenece.
-func Run(args []string) bool {
+// El `exit` va por parámetro y no como un `var` global intercambiable por la misma
+// razón que en `cmd/vroom`: una llamada a `os.Exit` mata el proceso de test, así que
+// la única forma de comprobar que se pide el código correcto es poder inyectar la
+// salida. Con un `var`, cualquier test que lo tocara contaminaría a los que corren
+// en el mismo proceso; con un parámetro, cada test ve sólo el suyo.
+func Run(args []string, exit func(int)) bool {
 	handled, code := runInto(os.Stdout, os.Stderr, args)
 	if handled && code != 0 {
-		os.Exit(code)
+		exit(code)
 	}
 	return handled
 }
@@ -1093,37 +1098,30 @@ func runLogged(kind, command, workDir, stdoutPath, stderrPath string) (time.Dura
 		}
 	}
 
-	appendLine := func(path, line string) error {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = f.Close() }()
-		_, err = f.WriteString(line + "\n")
-		return err
-	}
-
 	banner := fmt.Sprintf("── vroom ▶ %s: %s ──", kind, command)
-	if err := appendLine(stdoutPath, banner); err != nil {
+
+	// El stdout se abre UNA vez y de ahí sale también el banner. Con dos
+	// `OpenFile` sobre el mismo fichero —uno para el banner y otro para el comando—
+	// el segundo no podía fallar nunca, porque el primero acababa de demostrar que
+	// el directorio existe y el modo es de escritura: un `if err != nil` con forma
+	// de comprobación y sin nada detrás.
+	//
+	// Con un descriptor, los dos fallos son reales y se distinguen: que no se pueda
+	// abrir el log, y que se abra pero no acepte escrituras —disco lleno, un
+	// `/dev/full`—. El segundo importa más de lo que parece: un banner que no cabe
+	// significa que tampoco cabrá la salida del build.
+	out, err := os.OpenFile(stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer func() { _ = out.Close() }()
+	if _, err := fmt.Fprintf(out, "%s\n", banner); err != nil {
 		return 0, 0, err
 	}
 
 	start := time.Now()
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Dir = workDir
-	out, err := os.OpenFile(stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		// Seems un re-chequeo del MISMO OpenFile que el banner acaba de hacer
-		// con los mismos flags sobre la misma ruta, y por eso parece código
-		// muerto. No lo es del todo: entre los dos hay una ventana en la que
-		// otro actor puede borrar el fichero, y —más importante—replacearlo por
-		// un directorio, que es exactamente como se rompe: el banner abre un
-		// fichero, alguien lo cambia por un directorio, y este OpenFile falla con
-		// EISDIR. El coste de cubrir esa ventana es una comprobación; el de no
-		// cubrirla es un fd filtrado y un comando que se ejecuta sin log.
-		return 0, 0, err
-	}
-	defer func() { _ = out.Close() }()
 	errF, err := os.OpenFile(stderrPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return 0, 0, err
@@ -1139,9 +1137,9 @@ func runLogged(kind, command, workDir, stdoutPath, stderrPath string) (time.Dura
 		if errors.As(runErr, &exitErr) {
 			exitCode = exitErr.ExitCode()
 		}
-		_ = appendLine(stdoutPath, fmt.Sprintf("── vroom ✗ %s failed (exit %d, %s) ──", kind, exitCode, elapsed))
+		_, _ = fmt.Fprintf(out, "── vroom ✗ %s failed (exit %d, %s) ──\n", kind, exitCode, elapsed)
 		return elapsed, exitCode, runErr
 	}
-	_ = appendLine(stdoutPath, fmt.Sprintf("── vroom ✓ %s ok (%s) ──", kind, elapsed))
+	_, _ = fmt.Fprintf(out, "── vroom ✓ %s ok (%s) ──\n", kind, elapsed)
 	return elapsed, 0, nil
 }

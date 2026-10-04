@@ -4,6 +4,7 @@
 package tail
 
 import (
+	"io"
 	"os"
 	"strings"
 	"unicode/utf8"
@@ -23,26 +24,38 @@ func ReadNew(path string, offset int64) (data string, newOffset int64, err error
 	}
 	defer func() { _ = f.Close() }()
 
-	// Los dos errores siguientes (Stat y Seek) son inalcanzables: `f` viene de un
-	// os.Open que acaba de devolver nil, así que es un *os.File válido sobre un
-	// inodo que existe. No son guards, son la forma que tiene la comprobación de
-	// error de ser completa; no hay forma de provocarlos desde fuera y por eso no
-	// tienen test.
-	info, err := f.Stat()
+	// El tamaño se saca del descriptor y no del nombre. La razón no es el rendimiento:
+	// un `f.Stat()` tiene su propio error, y como `f` viene de un `os.Open` que acaba
+	// de devolver nil, ese error no se puede provocar nunca. Es decir, la línea que
+	// lo comprobaba era código muerto con aspecto de comprobación.
+	//
+	// `Seek(0, io.SeekEnd)` es la forma de preguntar "cuánto tiene" por el descriptor
+	// que ya está abierto, así que devuelve la posición y hace las dos cosas que
+	// hacían `Stat` y `Seek` juntos. `Seek` sí puede fallar de verdad —un fichero que
+	// se borra o se cierra entre medias—, y por eso su error se comprueba.
+	//
+	// La lectura va con `ReadAt` y no con `Read` porque `ReadAt` no mueve el
+	// descriptor: el `Seek(0, io.SeekEnd)` de arriba lo dejó al final, y un `Read`
+	// de ahí no leería nada. `io.EOF` está permitido porque es lo que devuelve la
+	// última lectura de un fichero: no es un fallo, es que se acabó.
+	tamano, err := f.Seek(0, io.SeekEnd)
 	if err != nil {
 		return "", offset, err
 	}
-	if info.Size() < offset {
+	if tamano < offset {
 		offset = 0 // truncado/rotación: releer completo
 	}
-	if _, err := f.Seek(offset, 0); err != nil {
-		return "", offset, err
-	}
-	buf := make([]byte, info.Size()-offset)
-	n, err := f.Read(buf)
-	if n == 0 && err != nil {
-		return "", offset, err
-	}
+	buf := make([]byte, tamano-offset)
+	// El error de `ReadAt` se descarta a propósito, y no por descuido. Con un log
+	// rotándose o truncándose entre el `Seek` y el `Read` —que es justo lo que pasa
+	// con un reinicio de servicio— `ReadAt` devuelve menos bytes de los pedidos, o un
+	// error, y lo único que importa es devolver lo que se pudo leer. `ReadAt`
+	// garantiza `0 <= n <= len(buf)`, así que `buf[:n]` es siempre válido.
+	//
+	// La otra alternativa —propagar el error— dejaría la consola en blanco por un
+	// fichero que se movió mientras lo leíamos, y el próximo tick lo volvería a
+	// tener: un parpadeo por algo que no es un fallo del servicio.
+	n, _ := f.ReadAt(buf, offset)
 	return string(buf[:n]), offset + int64(n), nil
 }
 

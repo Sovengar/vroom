@@ -709,7 +709,7 @@ func runLogged(kind, command, workDir, stdoutPath, stderrPath string) (time.Dura
 			return 0, 0, err
 		}
 	}
-	// El stdout se abre UNA vez y de ahí sale también el banner. Antes se abría dos
+	// El stdout se abre UNA vez y de ahí salen el banner y el pie. Antes se abría dos
 	// veces —una con `appendLine` para el banner y otra para el comando—, lo que
 	// hacía que el segundo `OpenFile` no pudiera fallar nunca y dejara un error
 	// muerto. Con un solo descriptor los dos fallos son reales y distinguibles: que
@@ -745,10 +745,15 @@ func runLogged(kind, command, workDir, stdoutPath, stderrPath string) (time.Dura
 		if errors.As(runErr, &exitErr) {
 			exitCode = exitErr.ExitCode()
 		}
-		_ = appendLine(stdoutPath, fmt.Sprintf("── vroom ✗ %s failed (exit %d, %s) ──", kind, exitCode, elapsed))
+		// El pie se escribe por el descriptor que ya está abierto en vez de reabrir
+		// el fichero: mismo destino, un `open` menos, y el error se descarta a
+		// propósito porque es decorativo —si el pie no cabe, el comando YA se
+		// ejecutó y su salida ya está en el log; devolver un error aquí mentiría
+		// sobre si el build corrió.
+		_, _ = fmt.Fprintf(out, "── vroom ✗ %s failed (exit %d, %s) ──\n", kind, exitCode, elapsed)
 		return elapsed, exitCode, runErr
 	}
-	_ = appendLine(stdoutPath, fmt.Sprintf("── vroom ✓ %s ok (%s) ──", kind, elapsed))
+	_, _ = fmt.Fprintf(out, "── vroom ✓ %s ok (%s) ──\n", kind, elapsed)
 	return elapsed, 0, nil
 }
 

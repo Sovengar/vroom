@@ -781,10 +781,11 @@ func TestRunLoggedSinShDevuelveElErrorDeEjecucion(t *testing.T) {
 // TestRunConUnComandoQueNoFallaDevuelveQueLoManejo: Run con éxito devuelve true
 // y NO mata el proceso, así que es ejecutable en un test.
 //
-// Es toda la parte de Run que se puede ejercitar en proceso: la otra es el
-// os.Exit del código de error, y esa sale por definición del proceso. Por eso
-// la cobertura de Run se queda en su rama de éxito, y por eso el contrato de
-// error se verifica con runInto, que recibe los writers y devuelve el código.
+// El `exit` inyectado se usa en las TRES llamadas, y en las tres tiene que quedar
+// sin llamar: `help` va bien, y sin argumentos no hay subcomando que ejecutar. La
+// cuarta rama —un subcomando que falla y sí pide salir— la comprueba
+// `TestRunPideSalirConElCodigoDelSubcomandoQueFalla`, que es la razón por la que
+// `exit` es un parámetro y no una llamada directa a `os.Exit`.
 //
 // El JSON sale por el stdout REAL del binario de test, que `go test` se come
 // salvo con -v. Es el precio de probar la función de verdad en vez de su copia.
@@ -792,12 +793,47 @@ func TestRunConUnComandoQueNoFallaDevuelveQueLoManejo(t *testing.T) {
 	root := cliEnv(t)
 	_ = chdirTree(t, root)
 
-	if !Run([]string{"help"}) {
+	salidas := 0
+	exit := func(int) { salidas++ }
+
+	if !Run([]string{"help"}, exit) {
 		t.Fatal("Run(help) debería manejar el comando")
 	}
 	// Y sin subcomando devuelve false, que es lo que hace que main lance la TUI.
-	if Run(nil) {
+	if Run(nil, exit) {
 		t.Error("Run sin argumentos no debe manejar nada: main lanzaría la TUI dos veces")
+	}
+	if salidas != 0 {
+		t.Errorf("se pidió salir %d veces, want 0: un comando que va bien y un arranque sin "+
+			"subcomando no matan el proceso", salidas)
+	}
+}
+
+// TestRunPideSalirConElCodigoDelSubcomandoQueFalla: la rama que mata el proceso.
+//
+// Es la línea que antes no tenía forma de probarse: `os.Exit` dentro del paquete. Con
+// `exit` inyectado se ve qué código se pide, que es lo que un script y un agente
+// leen del proceso.
+//
+// Y el código tiene que ser DISTINTO de 0: `vroom stop no-existe` es un fallo, y un
+// 0 haría que un `&&` encadenara el siguiente paso con la sesión parada.
+func TestRunPideSalirConElCodigoDelSubcomandoQueFalla(t *testing.T) {
+	root := cliEnv(t)
+	_ = chdirTree(t, root)
+
+	var pedidos []int
+	handled := Run([]string{"stop", "servicio-que-no-existe"}, func(c int) { pedidos = append(pedidos, c) })
+
+	if !handled {
+		t.Fatal("stop es un subcomando conocido: tiene que decir que lo manejó aunque falle")
+	}
+	if len(pedidos) != 1 {
+		t.Fatalf("exit = %v, want exactamente una llamada: un subcomando que falla mata el "+
+			"proceso una sola vez", pedidos)
+	}
+	if pedidos[0] == 0 {
+		t.Errorf("exit = 0 por un subcomando fallido: un 0 le dice al shell y al agente que todo " +
+			"fue bien, y el servicio sigue como estaba")
 	}
 }
 

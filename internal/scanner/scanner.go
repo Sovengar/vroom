@@ -125,20 +125,31 @@ func finalize(projects, bare []Project, root string) []Project {
 	return merged
 }
 
-// fdPath busca fd en PATH o en ubicaciones conocidas.
-// fdPath devuelve la ruta del binario de fd, o "" si no lo hay.
+// fdPath busca fd en el PATH y, si no está, en las rutas absolutas conocidas.
 //
 // Las dos rutas absolutas son el caso del runner de CI y de los sistemas donde fd
-// se instala por paquete pero no entra en el PATH del servicio. Esa rama NO se
-// puede cubrir desde un test sin escribir en /usr, y no se va a intentar: la
-// alternativa sería un seam para una lista de literales, que es peor que un
-// statement sin cubrir.
+// se instala por paquete pero no entra en el PATH del servicio. Son DATOS, no
+// lógica: por eso viven en `defaultFDFallbacks` y la búsqueda vive en
+// `fdInPaths`, que se puede probar con rutas que no existen. La alternativa —un
+// `var` global que un test cambia para simular que `/usr/bin/fd` no está— sería un
+// seam: contaminaría a los tests que corren en paralelo y no probaría nada del
+// sistema de ficheros.
 func fdPath() string {
 	if p, err := exec.LookPath("fd"); err == nil {
 		return p
 	}
-	for _, p := range []string{"/usr/bin/fd", "/usr/local/bin/fd"} {
-		if _, err := os.Stat(p); err == nil {
+	return fdInPaths(defaultFDFallbacks)
+}
+
+// defaultFDFallbacks son las rutas donde se busca fd cuando el PATH no lo tiene.
+var defaultFDFallbacks = []string{"/usr/bin/fd", "/usr/local/bin/fd"}
+
+// fdInPaths devuelve la primera de las rutas que exista y sea ejecutable, o "" si
+// ninguna. Es el `return ""` del escaneo por `fd`: sin él, `Scan` intentaría
+// ejecutar un binario que no existe.
+func fdInPaths(candidatos []string) string {
+	for _, p := range candidatos {
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
 			return p
 		}
 	}
