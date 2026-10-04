@@ -6,11 +6,7 @@ import (
 	"testing"
 )
 
-// TestFdInPathsDevuelveLaPrimeraQueExiste: la búsqueda en la lista.
-//
-// Son DATOS que se recorren, no lógica condicional: la lista es el caso del runner de
-// CI (`/usr/bin`) y el de una instalación por paquete fuera del PATH
-// (`/usr/local/bin`), y el orden importa porque la del sistema gana.
+// The candidate list is data, not branching logic: order decides, so the system path must precede the packaged one.
 func TestFdInPathsDevuelveLaPrimeraQueExiste(t *testing.T) {
 	dir := t.TempDir()
 	segunda := filepath.Join(dir, "segunda")
@@ -31,15 +27,7 @@ func TestFdInPathsDevuelveLaPrimeraQueExiste(t *testing.T) {
 	}
 }
 
-// TestFdInPathsDevuelveVacioSinNingunaRutaUsable: el `return ""`.
-//
-// Es la rama que decide que el escaneo cae al walk de `filepath.WalkDir`. Con un
-// `var` global de las rutas, provocarla exigía que `/usr/bin/fd` y
-// `/usr/local/bin/fd` no existieran en la máquina, y en una máquina donde fd está
-// instalado no se puede.
-//
-// Con la lista como parámetro, la comprobación es sobre rutas que el test controla
-// y la respuesta es la misma: sin ningún candidato, `""`.
+// The list is a parameter, not a global, so the no-candidate branch stays reachable on a machine that has fd installed.
 func TestFdInPathsDevuelveVacioSinNingunaRutaUsable(t *testing.T) {
 	dir := t.TempDir()
 
@@ -53,10 +41,7 @@ func TestFdInPathsDevuelveVacioSinNingunaRutaUsable(t *testing.T) {
 		t.Errorf("fdInPaths con una ruta inexistente = %q, want \"\": sin candidato no hay fd", got)
 	}
 
-	// Un DIRECTORIO llamado `fd` no cuenta: ejecutarlo daría EISDIR en vez de un
-	// escaneo. Antes la comprobación era sólo `err == nil`, así que un directorio con
-	// ese nombre pasaba el filtro y `Scan` se comía un error feo en vez de caer al
-	// walk.
+	// A directory named fd is not a candidate: exec fails with EISDIR, and a mere err == nil check made Scan surface that instead of falling back to the walk.
 	sub := filepath.Join(dir, "fd-directorio")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
@@ -66,15 +51,9 @@ func TestFdInPathsDevuelveVacioSinNingunaRutaUsable(t *testing.T) {
 	}
 }
 
-// TestScanCaeAlWalkSinFdEnElPath: el contrato completo de la caída.
-//
-// La pregunta que importa no es "¿qué devuelve fdPath?", sino "¿funciona el escaneo
-// sin fd?". Con el PATH vacío, `Scan` tiene que salir por `filepath.WalkDir` y
-// devolver LOS MISMOS proyectos que devolvería con fd. Un `UsedFD` a true sin fd
-// sería un escaneo que intenta ejecutar algo inexistente.
+// Reporting UsedFD true while falling back would mean claiming a tool that cannot be exec'd.
 func TestScanCaeAlWalkSinFdEnElPath(t *testing.T) {
-	// MEDIDO: `LookPath` con un PATH vacío falla siempre, así que la rama del PATH
-	// queda descartada sin tocar `/usr`.
+	// MEDIDO: LookPath always fails on an empty PATH, so the fallback branch is reached without touching /usr.
 	t.Setenv("PATH", "")
 
 	root := t.TempDir()
@@ -93,9 +72,7 @@ func TestScanCaeAlWalkSinFdEnElPath(t *testing.T) {
 	if len(res.Projects) != 1 {
 		t.Fatalf("el walk encontró %d proyectos, want 1", len(res.Projects))
 	}
-	// El camino de fd y el del walk tienen que dar el mismo resultado observable.
-	// Con fd disponible se compara con él; sin él no hay contra qué, y lo que se
-	// comprueba es que el proyecto veio bien formado.
+	// With fd absent there is no baseline to diff against, so only the well-formed project is checked; fd/walk parity lives in paths_test.go.
 	p := res.Projects[0]
 	if !p.Configured || p.Manifest == nil || p.Manifest.Name != "app" {
 		t.Errorf("proyecto = %+v, want Configured con Manifest.Name=app: la caída al walk tiene "+

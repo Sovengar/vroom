@@ -5,19 +5,15 @@ import (
 	"strings"
 )
 
-// Status es la fotografía git de un proyecto para la tab Git.
 type Status struct {
-	Branch  string   // rama actual ("" si no hay repo legible)
-	Changed []string // líneas de `git status --porcelain`
-	Commits []string // líneas de `git log --oneline`
-	Err     string   // error de git ("" si ok)
+	Branch  string
+	Changed []string
+	Commits []string
+	Err     string
 }
 
-// Dirty reporta si hay cambios sin commitear.
 func (s Status) Dirty() bool { return len(s.Changed) > 0 }
 
-// ReadStatus lee rama, cambios pendientes y últimos commits ejecutando
-// git. Branch se resuelve por disco (barato) y el resto vía git.
 func ReadStatus(path string) Status {
 	st := Status{Branch: Branch(path)}
 
@@ -42,7 +38,6 @@ func ReadStatus(path string) Status {
 	return st
 }
 
-// runGit ejecuta git -C path … y devuelve stdout recortado.
 func runGit(path string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", path}, args...)...)
 	var out strings.Builder

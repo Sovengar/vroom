@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-// tree construye un árbol en un directorio temporal.
 type tree struct {
 	t    *testing.T
 	root string
@@ -47,7 +46,6 @@ func find(projects []Project, name string) *Project {
 	return nil
 }
 
-// Solo se detectan proyectos con .vroom.toml
 func TestScanDetectsVroomTomlProject(t *testing.T) {
 	tr := newTree(t).
 		mkdir("myapp").
@@ -65,7 +63,6 @@ func TestScanDetectsVroomTomlProject(t *testing.T) {
 	}
 }
 
-// Directorio sin .vroom.toml NO es proyecto
 func TestScanIgnoresDirsWithoutManifest(t *testing.T) {
 	tr := newTree(t).
 		mkdir("no-manifest").
@@ -80,7 +77,6 @@ func TestScanIgnoresDirsWithoutManifest(t *testing.T) {
 	}
 }
 
-// Depth 2 con .vroom.toml se detecta
 func TestScanDepth2(t *testing.T) {
 	tr := newTree(t).
 		file("a/b/.vroom.toml", "name = \"b\"\ncommand_start = \"echo hi\"\n")
@@ -93,7 +89,6 @@ func TestScanDepth2(t *testing.T) {
 	}
 }
 
-// Depth 3 se ignora con depth=2
 func TestScanDepth3IgnoredWithDepth2(t *testing.T) {
 	tr := newTree(t).
 		file("a/b/c/.vroom.toml", "name = \"too-deep\"\ncommand_start = \"echo\"\n")
@@ -106,7 +101,6 @@ func TestScanDepth3IgnoredWithDepth2(t *testing.T) {
 	}
 }
 
-// Depth 3 se detecta con depth=4
 func TestScanDepth3DetectedWithDepth4(t *testing.T) {
 	tr := newTree(t).
 		file("a/b/c/.vroom.toml", "name = \"c\"\ncommand_start = \"echo\"\n")
@@ -119,7 +113,6 @@ func TestScanDepth3DetectedWithDepth4(t *testing.T) {
 	}
 }
 
-// Manifiesto malformado sigue visible pero no marcado como configurado
 func TestScanMalformedManifest(t *testing.T) {
 	tr := newTree(t).
 		file("broken/.vroom.toml", "name = [toml roto")
@@ -139,7 +132,6 @@ func TestScanMalformedManifest(t *testing.T) {
 	}
 }
 
-// fd con --hidden encuentra .vroom.toml en directorios ocultos (correcto)
 func TestScanFindsVroomTomlInHiddenDirs(t *testing.T) {
 	tr := newTree(t).
 		file(".hidden/.vroom.toml", "name = \"h\"\ncommand_start = \"echo\"\n").
@@ -153,7 +145,6 @@ func TestScanFindsVroomTomlInHiddenDirs(t *testing.T) {
 	}
 }
 
-// Orden por ruta
 func TestScanSortsByPath(t *testing.T) {
 	tr := newTree(t).
 		file("zebra/.vroom.toml", "name = \"zebra\"\ncommand_start = \"echo z\"\n").
@@ -170,7 +161,6 @@ func TestScanSortsByPath(t *testing.T) {
 	}
 }
 
-// Manifiesto con grupos
 func TestScanManifestWithGroups(t *testing.T) {
 	tr := newTree(t).
 		file("api/.vroom.toml", "name = \"api\"\nprimary_group = \"tienda\"\nsecondary_group = \"backend\"\ncommand_start = \"go run .\"\nport = 8080\n")
@@ -193,7 +183,6 @@ func TestScanManifestWithGroups(t *testing.T) {
 	}
 }
 
-// El playground completo se escanea (depth=2 desde playground/)
 func TestScanPlaygroundFixture(t *testing.T) {
 	result, err := Scan(filepath.Join("..", "..", "playground"), 4)
 	if err != nil {
@@ -209,7 +198,6 @@ func TestScanPlaygroundFixture(t *testing.T) {
 	}
 }
 
-// ScanResult indica si usó fd o WalkDir
 func TestScanResultIndicatesMethod(t *testing.T) {
 	tr := newTree(t).
 		file("proj/.vroom.toml", "name = \"proj\"\ncommand_start = \"echo\"\n")
@@ -233,10 +221,8 @@ func projectNames(projects []Project) string {
 	return strings.Join(names, ", ")
 }
 
-// ---- Topología repo/worktree ----
+// The fake git keeps the degradation and topology paths testable without a real repo.
 
-// fakeGitPATH escribe un git falso con el porcelain dado y devuelve un
-// PATH que lo antepone al real (degradación y topología sin git real).
 func fakeGitPATH(t *testing.T, output string, code int) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -254,7 +240,6 @@ func codeStr(n int) string {
 	return "1"
 }
 
-// porcelainRepo construye el porcelain de un repo con sus worktrees.
 func porcelainRepo(main string, worktrees ...string) string {
 	var b strings.Builder
 	b.WriteString("worktree " + main + "\nHEAD aaaa000000000000000000000000000000000000\nbranch refs/heads/main\n\n")
@@ -264,8 +249,6 @@ func porcelainRepo(main string, worktrees ...string) string {
 	return b.String()
 }
 
-// Un worktree in-root se anota con RepoRoot y no aparece como top-level
-// por sí mismo (el slice sigue plano).
 func TestScanAnnotatesWorktrees(t *testing.T) {
 	tr := newTree(t).
 		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
@@ -288,13 +271,11 @@ func TestScanAnnotatesWorktrees(t *testing.T) {
 	if !p.IsWorktree || p.RepoRoot != main {
 		t.Errorf("anotación = worktree:%v repoRoot:%q, want true %q", p.IsWorktree, p.RepoRoot, main)
 	}
-	// El main checkout no es worktree.
 	if r := find(result.Projects, "repo"); r == nil || r.IsWorktree {
 		t.Errorf("el main checkout no debe marcarse worktree: %+v", r)
 	}
 }
 
-// Un worktree sin manifiesto se sintetiza como fila no configurada.
 func TestScanSynthesizesUnconfiguredWorktree(t *testing.T) {
 	tr := newTree(t).
 		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
@@ -317,7 +298,6 @@ func TestScanSynthesizesUnconfiguredWorktree(t *testing.T) {
 	}
 }
 
-// Un worktree prunable no aparece como fila.
 func TestScanSkipsPrunableWorktree(t *testing.T) {
 	tr := newTree(t).
 		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
@@ -336,8 +316,6 @@ func TestScanSkipsPrunableWorktree(t *testing.T) {
 	}
 }
 
-// Un worktree prunable cuyo directorio sigue existiendo se trata como
-// worktree normal (se anota/nida), no se omite.
 func TestScanKeepsPrunableWorktreeWhenDirExists(t *testing.T) {
 	tr := newTree(t).
 		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
@@ -359,7 +337,6 @@ func TestScanKeepsPrunableWorktreeWhenDirExists(t *testing.T) {
 	}
 }
 
-// Un bare repo se detecta y se expone como contenedor no configurado.
 func TestScanDetectsBareRepo(t *testing.T) {
 	tr := newTree(t).
 		file("bare/HEAD", "ref: refs/heads/main\n").
@@ -386,8 +363,6 @@ func TestScanDetectsBareRepo(t *testing.T) {
 	}
 }
 
-// finalize deduplica la fila contenedora bare cuando ya existe un
-// proyecto con esa ruta (no se duplica la fila).
 func TestFinalizeDedupsBareContainer(t *testing.T) {
 	dir := t.TempDir()
 	project := Project{Path: dir, Name: "bare", Configured: true}
@@ -401,7 +376,7 @@ func TestFinalizeDedupsBareContainer(t *testing.T) {
 	}
 }
 
-// Un bare repo se consulta vía git aunque no tenga .git: sus worktrees// in-root sin manifiesto se descubren y se sintetizan anidadas (H1).
+// H1: a bare repo is queried through git even without a .git, so its in-root manifestless worktrees are discovered and synthesized.
 func TestScanBareRepoDiscoversManifestlessWorktree(t *testing.T) {
 	tr := newTree(t).
 		file("bare/HEAD", "ref: refs/heads/main\n").
@@ -430,12 +405,11 @@ func TestScanBareRepoDiscoversManifestlessWorktree(t *testing.T) {
 	}
 }
 
-// Git ausente degrada: los proyectos siguen y se registra el motivo.
 func TestScanDegradesWhenGitUnavailable(t *testing.T) {
 	tr := newTree(t).
 		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
 		file("repo/.git/config", "[core]\n\tbare = false\n")
-	t.Setenv("PATH", t.TempDir()) // sin git (ni fd): degrada, no crashea
+	t.Setenv("PATH", t.TempDir()) // empty PATH means neither git nor fd is reachable
 
 	result, err := Scan(tr.path(), 4)
 	if err != nil {
@@ -450,7 +424,6 @@ func TestScanDegradesWhenGitUnavailable(t *testing.T) {
 	}
 }
 
-// git worktree list con exit != 0 se trata como sin worktrees + error.
 func TestScanWorktreeListFailure(t *testing.T) {
 	tr := newTree(t).
 		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
@@ -467,7 +440,6 @@ func TestScanWorktreeListFailure(t *testing.T) {
 	}
 }
 
-// Salida malformada de porcelain se trata como sin worktrees + error.
 func TestScanWorktreeListMalformed(t *testing.T) {
 	tr := newTree(t).
 		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
@@ -484,8 +456,7 @@ func TestScanWorktreeListMalformed(t *testing.T) {
 	}
 }
 
-// Worktrees cuyo main checkout está fuera del root se anotan igual
-// (RepoRoot apunta fuera; el contenedor lo sintetiza la TUI).
+// RepoRoot may point outside the root; the container row for it is the TUI's job, not the scanner's.
 func TestScanWorktreeOutsideRoot(t *testing.T) {
 	tr := newTree(t).
 		file("repo-wt-a/.vroom.toml", "name = \"api\"\ncommand_start = \"echo\"\n").
@@ -504,8 +475,7 @@ func TestScanWorktreeOutsideRoot(t *testing.T) {
 	}
 }
 
-// M2: el camino WalkDir detecta bare repos en un único recorrido (sin un
-// segundo walk).
+// M2: the WalkDir path finds bare repos in a single pass, with no second walk.
 func TestScanWithWalkDetectsBareWithoutExtraWalk(t *testing.T) {
 	tr := newTree(t).
 		file("bare/HEAD", "ref: refs/heads/main\n").
@@ -537,7 +507,7 @@ func TestScanWithWalkDetectsBareWithoutExtraWalk(t *testing.T) {
 	}
 }
 
-// M2: el camino fd detecta bare repos sin usar WalkDir en absoluto.
+// M2: the fd path finds bare repos without touching WalkDir at all.
 func TestScanWithFDUsesNoWalkForBare(t *testing.T) {
 	tr := newTree(t).
 		file("bare/HEAD", "ref: refs/heads/main\n").
@@ -577,8 +547,6 @@ func TestScanWithFDUsesNoWalkForBare(t *testing.T) {
 	}
 }
 
-// countingGitPATH escribe un git falso que incrementa un contador por
-// invocación y devuelve un PATH que lo antepone al real.
 func countingGitPATH(t *testing.T, counter, output string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -598,7 +566,7 @@ func gitCallCount(t *testing.T, path string) int {
 	return strings.Count(string(data), "x")
 }
 
-// M3: un repo con varios worktrees en el scan invoca git una sola vez.
+// M3: a repo with several worktrees in one scan invokes git once, not once per worktree.
 func TestQueryWorktreeRelationsOneGitCallPerRepo(t *testing.T) {
 	tr := newTree(t)
 	repo := filepath.Join(tr.path(), "repo")

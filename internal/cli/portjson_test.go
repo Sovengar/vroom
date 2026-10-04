@@ -13,10 +13,7 @@ import (
 	"vroom/internal/state"
 )
 
-// One real process for the whole binary. Evaluate needs a genuinely live PID
-// with a matching creation_time to reach the port branches; a stub that
-// reimplemented Evaluate would only test the stub. It is a plain `sleep`, not
-// a service: no discovery, no ports, and it costs a few milliseconds once.
+// One shared real process: Evaluate needs a genuinely live PID with a matching creation_time to reach the port branches, and a stub would only test the stub.
 var (
 	liveOnce sync.Once
 	liveRes  process.StartResult
@@ -40,8 +37,7 @@ func liveProcess(t *testing.T) process.StartResult {
 	return liveRes
 }
 
-// openPort returns a port that is really accepting, so Evaluate's dial
-// succeeds and the resolved path is exercised instead of failing closed.
+// Returns a port that is really accepting, so Evaluate's dial succeeds and the resolved path runs instead of failing closed.
 func openPort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -61,11 +57,8 @@ func openPort(t *testing.T) int {
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
-// These tests assert on the MARSHALLED project row, not on internal helpers:
-// the JSON is the contract agents consume, so a test that only reads
-// ProjectInfo fields cannot catch a wrong tag or an omitted field.
+// These tests assert on the marshalled row, not on helpers: the JSON is the contract agents consume, so reading ProjectInfo fields cannot catch a wrong tag or an omitted field.
 
-// jsonRow builds a service, seeds its meta, and returns the marshalled row.
 func jsonRow(t *testing.T, m *manifest.Manifest, meta state.Meta, live bool) map[string]any {
 	t.Helper()
 	store := state.NewStoreAt(t.TempDir())
@@ -91,8 +84,6 @@ func jsonRow(t *testing.T, m *manifest.Manifest, meta state.Meta, live bool) map
 	return row
 }
 
-// liveMetaWithState seeds a meta backed by the real live process, in the given
-// state, with the given port.
 func liveMetaWithState(t *testing.T, s string, port int, verified bool) state.Meta {
 	t.Helper()
 	res := liveProcess(t)
@@ -102,7 +93,6 @@ func liveMetaWithState(t *testing.T, s string, port int, verified bool) state.Me
 	}
 }
 
-// closedPort returns a port nobody is listening on, without a fixed value.
 func closedPort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -120,8 +110,7 @@ func dynamicManifest() *manifest.Manifest {
 	}
 }
 
-// port_unresolved: el puerto NO se emite. Emitir el declarado aquí es lo que
-// hace que un agente se conecte al puerto del twin de otro worktree.
+// An unresolved port must not emit the declared one, or an agent connects to the twin worktree's port.
 func TestJSONPortUnresolvedEmitsNoPort(t *testing.T) {
 	row := jsonRow(t, dynamicManifest(),
 		liveMetaWithState(t, state.StatePortUnresolved, 0, false), true)
@@ -147,7 +136,6 @@ func TestJSONPortUnresolvedEmitsNoPort(t *testing.T) {
 	}
 }
 
-// Un servicio dinámico resuelto: puerto real, verificado, estado sano.
 func TestJSONResolvedDynamicEmitsRealPort(t *testing.T) {
 	port := openPort(t)
 	row := jsonRow(t, dynamicManifest(),
@@ -167,7 +155,6 @@ func TestJSONResolvedDynamicEmitsRealPort(t *testing.T) {
 	}
 }
 
-// no_port: vivo, sin puerto TCP, y el estado no afirma que tenga uno.
 func TestJSONNoPortIsNotReportedAsRunning(t *testing.T) {
 	row := jsonRow(t, dynamicManifest(),
 		liveMetaWithState(t, state.StateNoPort, 0, false), true)
@@ -186,8 +173,6 @@ func TestJSONNoPortIsNotReportedAsRunning(t *testing.T) {
 	}
 }
 
-// port_pending: discovery en vuelo. Se decide pending, y se fija que NO es lo
-// mismo que unresolved — son hechos distintos y el JSON los distingue.
 func TestJSONPortPendingIsDistinctFromUnresolved(t *testing.T) {
 	reserved := closedPort(t)
 	row := jsonRow(t, dynamicManifest(),
@@ -207,15 +192,13 @@ func TestJSONPortPendingIsDistinctFromUnresolved(t *testing.T) {
 	}
 }
 
-// Puerta de no-regresión: un manifiesto legacy sin port_mode y con port = 0
-// se comporta exactamente como antes.
+// Regression gate: a legacy manifest with no port_mode and port = 0 must behave exactly as before.
 func TestJSONLegacyFixedZeroPortIsUnchanged(t *testing.T) {
-	m := &manifest.Manifest{Name: "svc", Command: "run"} // sin port_mode, sin port
+	m := &manifest.Manifest{Name: "svc", Command: "run"}
 	if mode := m.EffectivePortMode(); mode != manifest.PortModeNone {
 		t.Fatalf("EffectivePortMode = %q, want none", mode)
 	}
 
-	// Parado: como hoy, puerto 0 y sin port_verified (nunca hubo contrato).
 	stopped := jsonRow(t, m, state.Meta{}, false)
 	if stopped["port"] != float64(0) {
 		t.Errorf("port = %v, want 0", stopped["port"])
@@ -224,7 +207,6 @@ func TestJSONLegacyFixedZeroPortIsUnchanged(t *testing.T) {
 		t.Error("un servicio sin PID no tiene contrato de puerto que afirmar")
 	}
 
-	// Vivo: port = 0, y ahora port_verified presente y false.
 	live := jsonRow(t, m, liveMetaWithState(t, state.StateRunning, 0, false), true)
 	if live["port"] != float64(0) {
 		t.Errorf("port = %v, want 0", live["port"])
@@ -240,10 +222,8 @@ func TestJSONLegacyFixedZeroPortIsUnchanged(t *testing.T) {
 	}
 }
 
-// Un manifiesto legacy fixed con puerto y servicio PARADO conserva el puerto
-// declarado: es la única información que existe.
 func TestJSONStoppedFixedKeepsDeclaredPort(t *testing.T) {
-	m := &manifest.Manifest{Name: "svc", Command: "run", Port: 8080} // sin port_mode
+	m := &manifest.Manifest{Name: "svc", Command: "run", Port: 8080}
 	row := jsonRow(t, m, state.Meta{}, false)
 
 	if row["port"] != float64(8080) {
@@ -257,8 +237,7 @@ func TestJSONStoppedFixedKeepsDeclaredPort(t *testing.T) {
 	}
 }
 
-// port_verified es tri-estado: ausente en una fila no configurada. Un
-// false ahí afirmaría algo sobre un manifiesto que nunca llegó a parsearse.
+// port_verified is tri-state: a false on an unconfigured row would assert something about a manifest that was never parsed.
 func TestJSONUnconfiguredRowHasNoPortContract(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	p := scanner.Project{Path: "/nope", Name: "svc"}
@@ -283,7 +262,6 @@ func TestJSONUnconfiguredRowHasNoPortContract(t *testing.T) {
 	}
 }
 
-// Un manifiesto inválido tampoco emite contrato de puerto, pero sí su error.
 func TestJSONManifestErrorRowHasNoPortContract(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	p := scanner.Project{
@@ -306,9 +284,7 @@ func TestJSONManifestErrorRowHasNoPortContract(t *testing.T) {
 	}
 }
 
-// La superficie JSON y la TUI cuentan la misma historia sobre el mismo meta.
-// Antes de este cambio el mismo servicio se leía "port_unresolved" en la TUI
-// y "running" en el JSON.
+// The JSON and the TUI must tell the same story about the same meta: before this change one service read port_unresolved in the TUI and running in the JSON.
 func TestJSONAndTUIAgreeOnTheSameMeta(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()

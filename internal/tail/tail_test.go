@@ -8,7 +8,6 @@ import (
 	"unicode/utf8"
 )
 
-// ReadNew devuelve solo los bytes nuevos desde el offset.
 func TestReadNewIncremental(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stdout.log")
 	if err := os.WriteFile(path, []byte("line1\n"), 0o644); err != nil {
@@ -40,7 +39,6 @@ func TestReadNewIncremental(t *testing.T) {
 	}
 }
 
-// ReadNew con fichero inexistente: vacío sin error (servicio sin arrancar).
 func TestReadNewMissingFile(t *testing.T) {
 	data, _, err := ReadNew(filepath.Join(t.TempDir(), "nope.log"), 0)
 	if err != nil || data != "" {
@@ -48,7 +46,6 @@ func TestReadNewMissingFile(t *testing.T) {
 	}
 }
 
-// ReadNew tras truncado/rotación: relee completo (offset reset).
 func TestReadNewAfterTruncate(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "out.log")
 	if err := os.WriteFile(path, []byte("aaaa\nbbbb\n"), 0o644); err != nil {
@@ -67,7 +64,6 @@ func TestReadNewAfterTruncate(t *testing.T) {
 	}
 }
 
-// Strip de ANSI en logs con color.
 func TestStripANSI(t *testing.T) {
 	tests := []struct {
 		name, in, want string
@@ -90,7 +86,6 @@ func TestStripANSI(t *testing.T) {
 	}
 }
 
-// Cap del buffer conservando el final y cortando por líneas.
 func TestCapBuffer(t *testing.T) {
 	if got := CapBuffer("short", 64); got != "short" {
 		t.Errorf("bajo el cap no debe tocar: %q", got)
@@ -108,7 +103,6 @@ func TestCapBuffer(t *testing.T) {
 		t.Errorf("corte debe ser por línea completa: %q", got)
 	}
 
-	// Línea única enorme sin \n: recorta conservando runes válidos.
 	one := strings.Repeat("x", 100) + "ñ"
 	got = CapBuffer(one, 50)
 	if got != one[52:] {

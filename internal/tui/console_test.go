@@ -5,9 +5,7 @@ import (
 	"testing"
 )
 
-// Los logs traen \r (progreso de Maven, spinners) y el renderer
-// los interpreta con semántica de terminal (x = col 0), invadiendo el
-// árbol. El saneo emula la sobrescritura por línea antes del viewport.
+// Logs carry \r (Maven progress, spinners) and the renderer reads it as column 0, corrupting the tree, so sanitizeConsole emulates per-line overwrite.
 func TestSanitizeConsoleCarriageReturns(t *testing.T) {
 	cases := []struct {
 		name string
@@ -60,9 +58,7 @@ func TestSanitizeConsoleCarriageReturns(t *testing.T) {
 	}
 }
 
-// Resaltado estilo IntelliJ: ERROR→rojo, WARN→amarillo, ruido (debug/
-// trace, stack traces, [INFO] Maven)→gris tenue; el resto queda default
-// y ERROR gana siempre que haya mezcla.
+// IntelliJ-style palette is deliberate, and ERROR outranks noise when both hit the same line.
 func TestHighlightConsole(t *testing.T) {
 	cases := []struct {
 		name string
@@ -167,8 +163,6 @@ func TestHighlightConsole(t *testing.T) {
 	}
 }
 
-// E2E: el buffer llega al viewport resaltado (ANSI en la línea ERROR) y
-// sin \r (highlight).
 func TestSetConsoleContentHighlights(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -183,8 +177,6 @@ func TestSetConsoleContentHighlights(t *testing.T) {
 	}
 }
 
-// E2E: el contenido con \r llega al viewport sin \r y solo con lo que un
-// terminal mostraría.
 func TestSetConsoleContentEmulatesCarriageReturns(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")

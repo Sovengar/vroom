@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// threadRow es una fila de la tabla de hilos.
 type threadRow struct {
 	Name  string
 	TID   int
@@ -14,7 +13,6 @@ type threadRow struct {
 	CPU   float64
 }
 
-// sortRows ordena por CPU% descendente con desempate por TID.
 func sortRows(rows []threadRow) {
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].CPU != rows[j].CPU {
@@ -24,18 +22,15 @@ func sortRows(rows []threadRow) {
 	})
 }
 
-// threadSample es la muestra previa para calcular el delta de CPU.
 type threadSample struct {
 	at    time.Time
 	ticks map[int]uint64
 }
 
-// threadsLines renderiza la tabla de hilos del servicio seleccionado
-// Nombre, TID, estado y CPU% ordenados por CPU.
 func (m Model) threadsLines(w, h int) []string {
 	p := m.selected()
 	if p == nil {
-		if m.onHeader() { // Nodo sin proceso propio
+		if m.onHeader() {
 			return []string{styleDim.Render(trunc("group selected — pick a service to inspect threads", w))}
 		}
 		return nil
@@ -47,7 +42,7 @@ func (m Model) threadsLines(w, h int) []string {
 		return []string{styleDim.Render("service not running")}
 	}
 	rows := m.threads[p.Path]
-	if rows == nil { // primera muestra en curso o proceso recién muerto
+	if rows == nil {
 		return []string{styleDim.Render("sampling threads…")}
 	}
 

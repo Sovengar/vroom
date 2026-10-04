@@ -2,22 +2,8 @@ package portless
 
 import "testing"
 
-// ---------------------------------------------------------------------------
-// Lo que `auto` AFIRMA y lo que `auto` HACE.
-//
-// DeriveName no recibe la ruta del worktree, sólo la rama y el nombre del
-// proyecto. Eso significa que su alcance real es la RAMA, no el worktree: dos
-// clones del mismo repo, ambos en `main`, derivan el mismo nombre.
-//
-// Estos tests existen para que esa limitación sea una AFIRMACIÓN VERIFICADA y
-// no una frase de marketing en el README. Un test que no puede fallar es peor
-// que no tener test; éste falla si alguien "arregla" el saneo y rompe la
-// derivación, y también falla si alguien reintroduce la expectativa falsa de
-// que el worktree participa en el nombre.
-// ---------------------------------------------------------------------------
+// DeriveName never sees the worktree path, only branch and project, so auto's real scope is the branch: two clones on main derive the same name.
 
-// El caso feliz: `auto` separa RAMAS distintas. Eso es lo que hace bien, y es
-// lo que evita que dos ramas del mismo repo compartan una dirección.
 func TestAutoSeparatesDistinctBranches(t *testing.T) {
 	one, err := DeriveName(RouteModeAuto, "", "feat/a", "miapp")
 	if err != nil {
@@ -32,14 +18,7 @@ func TestAutoSeparatesDistinctBranches(t *testing.T) {
 	}
 }
 
-// Y el límite real, afirmado: dos worktrees en la MISMA rama colisionan. No es
-// un defecto de esta implementación, es su alcance — y el README debe decirlo
-// en vez de prometer lo contrario.
 func TestAutoCannotSeparateSameBranchWorktrees(t *testing.T) {
-	// Dos worktrees distintos del mismo repo, ambos en `main`. DeriveName no
-	// ve la ruta del worktree, así que no puede separarlos. Se fija aquí para
-	// que la limitación sea explícita y para que un cambio futuro que la
-	// resuelva hay que actualizar este test a propósito.
 	a, err := DeriveName(RouteModeAuto, "", "main", "miapp")
 	if err != nil {
 		t.Fatal(err)
@@ -56,16 +35,11 @@ func TestAutoCannotSeparateSameBranchWorktrees(t *testing.T) {
 	}
 }
 
-// La respuesta a esa colisión NO es una segunda dirección: es un conflicto
-// limpio. Y la ruta existente no se destruye — que es justo lo que garantiza
-// el pre-cheque de Apply.
 func TestSameBranchCollisionDegradesWithoutEvicting(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
-	// El primer worktree ya registró su ruta.
 	f.routes[Hostname("main.miapp")] = 4000
 
-	// El segundo worktree deriva el MISMO nombre y pide otro puerto.
 	res := c.Apply("main.miapp", 5000, Ownership{})
 
 	if res.Succeeded() {
@@ -79,8 +53,7 @@ func TestSameBranchCollisionDegradesWithoutEvicting(t *testing.T) {
 	}
 }
 
-// `named` es la respuesta documentada a la colisión: un nombre que no depende
-// de la rama. Por eso la referencia a `named` en el README no es decorativa.
+// named is the documented answer to the collision: a name that does not depend on the branch.
 func TestNamedIsTheEscapeFromBranchScopedNames(t *testing.T) {
 	got, err := DeriveName(RouteModeNamed, "mi-api", "main", "miapp")
 	if err != nil {
@@ -89,7 +62,6 @@ func TestNamedIsTheEscapeFromBranchScopedNames(t *testing.T) {
 	if got != "mi-api" {
 		t.Errorf("named ignora la rama a propósito, got %q", got)
 	}
-	// Y es único por construcción: no depende del estado de git.
 	again, _ := DeriveName(RouteModeNamed, "mi-api", "otra-rama", "otro-proyecto")
 	if again != got {
 		t.Errorf("named debe ser estable entre ramas, %q != %q", got, again)

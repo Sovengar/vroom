@@ -10,24 +10,11 @@ import (
 	"vroom/internal/process"
 )
 
-// ---------------------------------------------------------------------------
-// El reparto entre modo CLI y modo TUI, y el código de salida.
-//
-// `main()` no tiene test por sí mismo —mata el proceso con `os.Exit`—, pero todo lo
-// que decide se ha movido a `runMain`, que sí. Lo que se comprueba aquí es la
-// pregunta que hace `main`: ¿esto es un subcomando o es la TUI?
-// ---------------------------------------------------------------------------
+// main() has no test of its own because it os.Exits, so everything it decides was moved into runMain, which answers the only question main asks: subcommand or TUI?
 
-// TestRunMainConUnSubcomandoNoLlegaALaTUI: el modo CLI.
-//
-// Con un subcomando reconocido, `runMain` no tiene que arrancar un programa de
-// terminal —que en un test colgaría esperando entrada—. Si lo hiciera, este test se
-// quedaría esperando y el fallo se vería como un cuelgue, no como un error.
+// The injected TUI double must never be called here: the real one would hang the test waiting for input, and a hang reports nothing.
 func TestRunMainConUnSubcomandoNoLlegaALaTUI(t *testing.T) {
 	t.Setenv("VROOM_CONFIG", filepath.Join(t.TempDir(), "ausente.toml"))
-	// El subcomando más inocuo que existe: `--help` imprime y sale con 0.
-	// El arranque de la TUI se inyecta y NO debe llamarse: con un subcomando
-	// reconocido la TUI no se toca, y una llamada aquí colgaría el test.
 	llamada := false
 	falso := func() error { llamada = true; return nil }
 
@@ -39,14 +26,7 @@ func TestRunMainConUnSubcomandoNoLlegaALaTUI(t *testing.T) {
 	}
 }
 
-// TestRunMainDevuelveCeroCuandoLaTUIArrancaYSale: el camino bueno de la TUI.
-//
-// Sin subcomando y con la TUI arrancando y cerrándose bien, el proceso tiene que
-// salir con 0. Un 1 aquí lo haría aparecer como fallo en cualquier script que
-// lance `vroom` sin argumentos.
-//
-// Y la TUI va inyectada porque la de verdad necesita un terminal: lo que se prueba
-// es la decisión del arranque, no el programa de terminal.
+// The TUI is injected because the real one needs a terminal: what is under test is the startup decision, not the terminal program.
 func TestRunMainDevuelveCeroCuandoLaTUIArrancaYSale(t *testing.T) {
 	t.Setenv("VROOM_CONFIG", filepath.Join(t.TempDir(), "ausente.toml"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), "state"))
@@ -57,28 +37,12 @@ func TestRunMainDevuelveCeroCuandoLaTUIArrancaYSale(t *testing.T) {
 	}
 }
 
-// TestRunMainConAYSinSubcomandoEsElRepartoQueDecideElModo: el interruptor.
-//
-// `cli.Run` devuelve false cuando no hubo subcomando, y `runMain` sigue hacia la
-// TUI. El caso que importa es el de los argumentos que NO son un subcomando: son
-// las flags que la TUI misma acepta.
-//
-// Y aquí se comprueba el otro lado del interruptor: con un subcomando la TUI no se
-// arranca, y sin él tampoco se puede arrancar en un test —haría falta un terminal—,
-// así que el camino de la TUI se cubre por `runTUI` y lo que se comprueba aquí es
-// que el reparto no se equivoca de lado.
+// An unknown flag is not a failed subcommand but "start the TUI", so it must never reach the CLI exit path: exiting there would leave `vroom --whatever` doing nothing.
 func TestRunMainConAYSinSubcomandoEsElRepartoQueDecideElModo(t *testing.T) {
 	t.Setenv("VROOM_CONFIG", filepath.Join(t.TempDir(), "ausente.toml"))
 	root := t.TempDir()
 	t.Chdir(root)
 
-	// Un flag que no es ningún subcomando: `cli.Run` no lo reconoce, devuelve false
-	// —"esto no es un subcomando"—, y entonces `runMain` cae en la TUI.
-	//
-	// El código 1 que sale es el de "la TUI no arrancó", y lo que se comprueba aquí
-	// es que NO se pide un `exit` por el camino de la CLI: ese `exit` es para cuando un
-	// subcomando falla, y un flag desconocido no es un subcomando fallido sino "arranca
-	// la TUI". Pedir salir aquí dejaría `vroom --lo-que-sea` sin hacer nada.
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
 
 	var pedidos []int
@@ -92,15 +56,7 @@ func TestRunMainConAYSinSubcomandoEsElRepartoQueDecideElModo(t *testing.T) {
 	}
 }
 
-// TestRunMainPropagaElCodigoDeSalidaDeUnSubcomandoQueFalla: el otro `exit`.
-//
-// El reparto tiene DOS caminos de salida y no se deben confundir. Uno es el de aquí:
-// un subcomando que se ejecutó y falló —`start` de un servicio que no existe—, y el
-// código lo aplica el `cli.Run` con el `exit` que le pasó `runMain`. El otro es el de
-// la TUI, y lo aplica `runMain` con su valor de retorno.
-//
-// Si los dos se mezclaran, un subcomando fallido podría salir con 0 por el camino de
-// la TUI, que es el peor sitio posible para esconderse.
+// runMain has two exit paths that must not be confused: a failed subcommand is applied by cli.Run through the exit callback, the TUI by runMain's own return value, and mixing them lets a failed subcommand exit 0.
 func TestRunMainPropagaElCodigoDeSalidaDeUnSubcomandoQueFalla(t *testing.T) {
 	t.Setenv("VROOM_CONFIG", filepath.Join(t.TempDir(), "ausente.toml"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), "state"))
@@ -141,23 +97,11 @@ func TestRunMainPropagaElCodigoDeSalidaDeUnSubcomandoQueFalla(t *testing.T) {
 	}
 }
 
-// TestRunTUIFallaSinDirectorioDeTrabajo: el `os.Getwd` que no puede resolverse.
-//
-// El segundo fallo de arranque es el del directorio de trabajo, y es el que menos se
-// piensa: `os.Getwd` falla cuando el directorio de trabajo ha desaparecido o ha
-// dejado de ser legible, que pasa cuando alguien renombra un directorio de proyecto
-// desde otra terminal mientras la TUI está corriendo en él.
-//
-// MEDIDO: se provoca borrando el directorio de trabajo del proceso de test. Es
-// agresivo, pero es la única forma de que `getcwd` devuelva ENOENT, y `t.Chdir` se
-// encarga de dejar el proceso donde estaba para que el resto de la suite no note
-// nada.
+// MEDIDO: os.Getwd only returns ENOENT when the working directory is deleted, which is the real case of a project dir renamed from another terminal; t.Chdir restores the process so the rest of the suite does not notice.
 func TestRunTUIFallaSinDirectorioDeTrabajo(t *testing.T) {
 	t.Setenv("VROOM_CONFIG", filepath.Join(t.TempDir(), "ausente.toml"))
 
-	// El CWD se borra DESPUÉS de que `t.Chdir` lo haya elegido: `os.Getwd` usa el
-	// descriptor que tiene abierto el kernel, que sigue siendo válido hasta que el
-	// directorio desaparece de verdad.
+	// The dir is removed after t.Chdir picked it because os.Getwd uses the kernel descriptor, which stays valid until the directory actually disappears.
 	volado := filepath.Join(t.TempDir(), "proyecto-que-desaparece")
 	if err := os.MkdirAll(volado, 0o755); err != nil {
 		t.Fatal(err)
@@ -173,8 +117,7 @@ func TestRunTUIFallaSinDirectorioDeTrabajo(t *testing.T) {
 			"está probando el fallo que dice probar")
 	}
 
-	// Con el CWD dentro de un directorio volado, `state.NewStore` puede fallar antes
-	// (por el HOME), así que se aísla para que lo que se provoque sea el Getwd.
+	// Isolated because inside a deleted CWD NewStore can fail first on HOME and mask the Getwd error.
 	t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), "state"))
 
 	err = runTUI(&procesoFalso{})
@@ -188,8 +131,7 @@ func TestRunTUIFallaSinDirectorioDeTrabajo(t *testing.T) {
 	}
 }
 
-// procesoFalso acepta todo: lo que se prueba es el arranque, no la gestión de
-// procesos, y así ningún test de `main` puede matar algo de verdad.
+// Accepts everything: these tests cover startup, not process management, so no test of main can kill a real process.
 type procesoFalso struct{}
 
 func (*procesoFalso) Start(process.StartSpec) (process.StartResult, error) {

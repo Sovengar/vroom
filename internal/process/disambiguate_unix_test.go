@@ -11,11 +11,6 @@ import (
 	"time"
 )
 
-// ---- R1: el puerto reservado es el principal ----
-
-// La app honra PORT y además abre un listener de metrics ANTES que el
-// principal. R1 gana sin heurística: si la app honra PORT, no hay nada que
-// adivinar aunque abra listeners por etapas.
 func TestR1ReservedPortWinsOverEarlierMetricsPort(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -38,8 +33,6 @@ func TestR1ReservedPortWinsOverEarlierMetricsPort(t *testing.T) {
 	})
 	t.Cleanup(func() { _ = m.Stop(StopSpec{Pid: res.Pid, Pgid: res.Pgid, Timeout: time.Second}) })
 
-	// El metrics abre primero; el principal va detrás. Aceptar la primera
-	// muestra elegiría el listener equivocado.
 	d := DiscoverPort(res.Pid, reserved, "/health", 8*time.Second)
 	if d.Port != reserved {
 		t.Errorf("R1 debe elegir el puerto reservado %d, eligió %d (listeners=%v)", reserved, d.Port, d.All)
@@ -52,7 +45,6 @@ func TestR1ReservedPortWinsOverEarlierMetricsPort(t *testing.T) {
 	}
 }
 
-// Un único listener es trivialmente el principal, y verificado.
 func TestR1SingleListenerIsTrivial(t *testing.T) {
 	only, release := listenerOn(t, statusHandler(200))
 	defer release()
@@ -66,9 +58,6 @@ func TestR1SingleListenerIsTrivial(t *testing.T) {
 	}
 }
 
-// ---- R2: la app ignora PORT y health_path decide ----
-
-// Dos listeners, sólo uno responde bien en health_path.
 func TestR2HealthPathDecides(t *testing.T) {
 	good, releaseGood := listenerOn(t, statusHandler(200))
 	defer releaseGood()
@@ -85,7 +74,6 @@ func TestR2HealthPathDecides(t *testing.T) {
 	}
 }
 
-// El ranking declarado es 200 > 2xx/3xx > 5xx > 404, y el resto no gana.
 func TestR2HealthRanking(t *testing.T) {
 	if healthRank(200) <= healthRank(301) {
 		t.Error("200 debe ganar al 3xx")
@@ -104,7 +92,6 @@ func TestR2HealthRanking(t *testing.T) {
 	}
 }
 
-// Un 5xx gana a un 404: el servidor está vivo aunque la ruta no sea la buena.
 func TestR2ServerErrorBeatsNotFound(t *testing.T) {
 	err5xx, releaseA := listenerOn(t, statusHandler(503))
 	defer releaseA()
@@ -117,16 +104,13 @@ func TestR2ServerErrorBeatsNotFound(t *testing.T) {
 	}
 }
 
-// ---- R3: empate o protocolo no-HTTP ----
-
-// Empieje: ambos responden 200 en health_path. Gana el menor, siempre.
 func TestR3TiePicksLowestPort(t *testing.T) {
 	a, releaseA := listenerOn(t, statusHandler(200))
 	defer releaseA()
 	b, releaseB := listenerOn(t, statusHandler(200))
 	defer releaseB()
 
-	for i := 0; i < 3; i++ { // determinista entre corridas
+	for i := 0; i < 3; i++ { // deterministic across runs
 		d := decidePort([]int{minPort(a, b), maxPort(a, b)}, 0, "/health")
 		if d.Port != minPort(a, b) {
 			t.Errorf("el empate debe ganar el menor puerto %d, eligió %d", minPort(a, b), d.Port)
@@ -137,8 +121,7 @@ func TestR3TiePicksLowestPort(t *testing.T) {
 	}
 }
 
-// Protocolo no-HTTP: sockets crudos que no responden como HTTP. Nadie gana,
-// se aplica R3 y se declara que no se puede saber.
+// Non-HTTP protocol: raw sockets that never answer as HTTP, so R3 applies and it must be declared unknown.
 func TestR3NonHTTPFallsBackToLowestAndDeclaresUnverified(t *testing.T) {
 	rawA, releaseA := rawListenerOn(t)
 	defer releaseA()
@@ -155,8 +138,7 @@ func TestR3NonHTTPFallsBackToLowestAndDeclaresUnverified(t *testing.T) {
 	}
 }
 
-// La enumeración de listeners no depende del número de listeners para terminar: el
-// trabajo es acotado por el tamaño de /proc, no por lo que la app abra.
+// Listener enumeration is bounded by the size of /proc, not by how many listeners the app opens.
 func TestListenerEnumerationIsBoundedByProcNotByApp(t *testing.T) {
 	requireProc(t)
 
@@ -166,14 +148,11 @@ func TestListenerEnumerationIsBoundedByProcNotByApp(t *testing.T) {
 	}
 	elapsed := time.Since(start)
 
-	// 5 enumeraciones completas del árbol de procesos de esta máquina.
-	// Si el coste escalara con los listeners de la app, esto no lo ocultaría.
+	// Five full walks of this machine's process tree: if the cost scaled with the app's listeners this would not hide it.
 	if elapsed > 2*time.Second {
 		t.Errorf("enumerar listeners tardó %s: demasiado para el arranque", elapsed)
 	}
 }
-
-// ---- helpers ----
 
 func listenerOn(t *testing.T, h http.Handler) (int, func()) {
 	t.Helper()
@@ -185,16 +164,13 @@ func listenerOn(t *testing.T, h http.Handler) (int, func()) {
 	return ln.Addr().(*net.TCPAddr).Port, func() { _ = ln.Close() }
 }
 
-// statusHandler responde con un código fijo, sin ruta: todos los health_path
-// dan la misma respuesta, que es justo el caso "no distingo por ruta".
+// A fixed status for every path, which is exactly the "cannot tell by route" case.
 func statusHandler(status int) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(status)
 	})
 }
 
-// rawListenerOn abre un socket que acepta y no responde: simula un
-// protocolo no-HTTP (gRPC-like, base de datos, etc.).
 func rawListenerOn(t *testing.T) (int, func()) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -207,7 +183,7 @@ func rawListenerOn(t *testing.T) (int, func()) {
 			if err != nil {
 				return
 			}
-			_ = c.Close() // acepta y cuelga: no es HTTP
+			_ = c.Close() // accepts and hangs: not HTTP
 		}
 	}()
 	return ln.Addr().(*net.TCPAddr).Port, func() { _ = ln.Close() }

@@ -10,26 +10,15 @@ import (
 	"vroom/internal/state"
 )
 
-// ---------------------------------------------------------------------------
-// El HIGH: prevPort era una capacidad que sobrevivía a la ruta que la
-// autorizaba, porque el stop persistía RouteName/RoutePort para siempre y
-// nunca decía "ya no es nuestra".
-//
-// Estos tests pasan por el arranque y el stop REALES y leen el Meta que queda
-// en disco, que es exactamente el dato que autorizaba el abuso. Un test sobre
-// Apply con un Ownership construido a mano no lo detectaría: el defecto estaba
-// en lo que el stop guarda, no en el predicado.
-// ---------------------------------------------------------------------------
+// These go through the real start and stop and read the Meta left on disk, because the defect was in what stop persists and not in Apply's predicate: a hand-built Ownership would never catch it.
 
-// El stop retira la ruta y REVOCA la propiedad, conservando el handle.
 func TestStopRevokesOwnershipAndKeepsHandle(t *testing.T) {
 	dir := t.TempDir()
 	store := state.NewStoreAt(t.TempDir())
 	if _, err := store.EnsureServiceDir(dir); err != nil {
 		t.Fatal(err)
 	}
-	// Estado de un servicio que SÍ tuvo ruta y que ya está parado: RouteName y
-	// RoutePort sobreviven, que es la forma exacta que dispara el fallo.
+	// A stopped service that did own a route: RouteName and RoutePort survive, the exact shape that triggered the defect.
 	if err := store.SaveMeta(dir, state.Meta{
 		Name: "svc", Port: 4321, RouteName: "svc", RoutePort: 4321,
 		RouteOwned: true, RouteStatus: portless.StatusRegistered,
@@ -46,16 +35,13 @@ func TestStopRevokesOwnershipAndKeepsHandle(t *testing.T) {
 	if meta.RouteOwned {
 		t.Error("tras retirar la ruta la propiedad debe quedar revocada en el Meta")
 	}
-	// El handle se conserva a propósito: si la retirada falla, la ruta puede
-	// seguir ahí y sin handle la reconciliación no podría limpiarla.
+	// The handle is kept on purpose: if the removal failed the route may still be there, and without the handle reconciliation could not clean it up.
 	if meta.RouteName == "" || meta.RoutePort != 4321 {
 		t.Errorf("el handle de reconciliación debe conservarse, got name=%q port=%d",
 			meta.RouteName, meta.RoutePort)
 	}
 }
 
-// Y el arranque real: con la propiedad revocada en el Meta, el nombre ocupado
-// por otro en nuestro puerto anterior NO se pisa.
 func TestStartAfterStopDoesNotEvictForeignRouteInOurOldPort(t *testing.T) {
 	dir := t.TempDir()
 	store := state.NewStoreAt(t.TempDir())
@@ -82,15 +68,11 @@ func TestStartAfterStopDoesNotEvictForeignRouteInOurOldPort(t *testing.T) {
 	}
 	f.cleanup(t, out)
 
-	// Lo que el arranque recibió es lo que el Meta decía. Si el stop no
-	// revocara, aquí llegaría Owned=true con Port=4321 y el nombre ajeno sería
-	// pisable.
 	if routes.saw.Owned {
 		t.Errorf("el arranque recibió una propiedad revocada por el stop, llegó %+v", routes.saw)
 	}
 }
 
-// Registrar CONCEDE la propiedad: es lo que autoriza a mover la ruta después.
 func TestStartGrantsRouteOwnership(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
@@ -111,7 +93,6 @@ func TestStartGrantsRouteOwnership(t *testing.T) {
 	}
 }
 
-// ownershipSpy recuerda la Ownership que recibió el arranque.
 type ownershipSpy struct {
 	prevPorts []int
 	saw       portless.Ownership
@@ -131,16 +112,14 @@ func (o *ownershipSpy) Reconcile(_ string, _ portless.Ownership, _ string) []str
 	return nil
 }
 
-// stopFixtureService ejerce el tramo de parada que retira la ruta, sin tocar el
-// proceso: lo que importa aquí es qué queda persistido.
+// stopFixtureService exercises the stop path that removes the route without touching the process, because what matters here is what ends up persisted.
 func stopFixtureService(t *testing.T, store *state.Store, dir string) {
 	t.Helper()
 	rec := &ownershipSpy{}
 	releaseOnce(t, rec, store, dir)
 }
 
-// releaseOnce es el cuerpo de la retirada: lo que hace el stop en los caminos
-// reales, aislado para poderيفة observar el Meta resultante.
+// The removal body as the real stop paths run it, isolated so the resulting Meta can be observed.
 func releaseOnce(t *testing.T, rec *ownershipSpy, store *state.Store, dir string) {
 	t.Helper()
 	meta, err := store.LoadMeta(dir)
@@ -148,8 +127,6 @@ func releaseOnce(t *testing.T, rec *ownershipSpy, store *state.Store, dir string
 		t.Fatal(err)
 	}
 	if portless.Release(nil, meta.RouteName) {
-		// La retirada surtió efecto: la propiedad se revoca, el handle se
-		// conserva para la reconciliación.
 		meta.RouteOwned = false
 		_ = store.SaveMeta(dir, meta)
 	}
@@ -157,7 +134,7 @@ func releaseOnce(t *testing.T, rec *ownershipSpy, store *state.Store, dir string
 
 var _ process.Manager = (*stopNoopManager)(nil)
 
-// stopNoopManager no hace nada: no se está probando el kill.
+// A no-op manager, because the kill is not what this file tests.
 type stopNoopManager struct{}
 
 func (*stopNoopManager) Stop(process.StopSpec) error { return nil }

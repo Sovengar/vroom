@@ -14,43 +14,31 @@ import (
 type treeItemKind int
 
 const (
-	itemPrimary   treeItemKind = iota // header de primario
-	itemSecondary                     // header de secundario (dentro de un primario)
-	itemProject                       // proyecto
-	itemStack                         // stack de orquestación — concepto propio
-	itemRepo                          // fila contenedora de repo sin proyecto (bare / fuera de root)
+	itemPrimary treeItemKind = iota
+	itemSecondary
+	itemProject
+	itemStack
+	itemRepo
 )
 
-// treeItem es una fila navegable del árbol: header primario, header
-// secundario, proyecto o stack. primary/secondary viajan en todas las
-// filas para conocer el contenedor de un proyecto al plegarlo.
+// primary and secondary ride on every row because the tree is flattened: folding a group must find its members from the row itself.
 type treeItem struct {
 	kind      treeItemKind
-	primary   string             // primario del bloque ("" solo en proyecto inline)
-	secondary string             // secundario del bloque ("" = directo bajo el primario)
-	project   scanner.Project    // válido en itemProject/itemRepo
-	stack     *orchestrate.Stack // válido en itemStack
-	repoPath  string             // ruta del repo contenedor (filas de repo)
-	indent    int                // indentación extra (worktrees anidados = 1)
-	hasKids   bool               // la fila de repo tiene worktrees
+	primary   string
+	secondary string
+	project   scanner.Project
+	stack     *orchestrate.Stack
+	repoPath  string
+	indent    int
+	hasKids   bool
 }
 
-// buildTree compone las filas del árbol: header
-// primario antes de su bloque; dentro, header de secundario antes de
-// sus miembros. Los worktrees se anidan bajo la fila de su repo
-// (colapsada por defecto) y no se emiten como filas top-level. Los stacks
-// Se añaden al FINAL de cada bloque primario bajo un header
-// "Composers".
 func (m Model) buildTree() []treeItem {
 	nStacks := 0
 	if m.composeFile != nil {
 		nStacks = len(m.composeFile.Stacks)
 	}
 
-	// Reparto repo→worktrees: cada worktree cuelga de la ruta de su main
-	// checkout (RepoRoot). Un repo con fila propia es un proyecto normal
-	// del slice; si su main checkout está fuera del scan root, no hay
-	// fila y se sintetiza una contenedora.
 	children := make(map[string][]scanner.Project)
 	hasOwnRow := make(map[string]bool)
 	for _, e := range m.entries {
@@ -65,8 +53,7 @@ func (m Model) buildTree() []treeItem {
 		sort.Slice(children[k], func(i, j int) bool { return children[k][i].Path < children[k][j].Path })
 	}
 
-	// Los worktrees no participan de la agrupación top-level: su
-	// primary_group es inerte para el posicionamiento (option B).
+	// Worktrees never group at top level: their primary_group is inert for positioning.
 	visible := make([]group.Entry, 0, len(m.entries))
 	for _, e := range m.entries {
 		if e.Project.IsWorktree {
@@ -76,13 +63,13 @@ func (m Model) buildTree() []treeItem {
 	}
 
 	items := make([]treeItem, 0, len(visible)+nStacks+1)
-	skipPrimary := ""   // primario colapsado cuyos miembros y headers se omiten
-	skipSecondary := "" // clave compuesta "primario/secundario" colapsada
+	skipPrimary := ""
+	skipSecondary := ""
 
 	for i, e := range visible {
 		if group.IsPrimaryHeader(visible, i) {
 			items = append(items, treeItem{kind: itemPrimary, primary: e.Primary})
-			skipPrimary, skipSecondary = "", "" // nuevo bloque: reset
+			skipPrimary, skipSecondary = "", ""
 			if m.collapsed[e.Primary] {
 				skipPrimary = e.Primary
 				continue
@@ -106,8 +93,6 @@ func (m Model) buildTree() []treeItem {
 		items = append(items, m.repoBlock(e.Project, e.Primary, e.Secondary, children, false)...)
 	}
 
-	// Contenedores sintetizados para worktrees cuyo main checkout está
-	// fuera del scan root (no tienen fila propia en el slice).
 	synthetic := make([]string, 0, len(children))
 	for repoPath := range children {
 		if !hasOwnRow[repoPath] {
@@ -120,11 +105,8 @@ func (m Model) buildTree() []treeItem {
 		items = append(items, m.repoBlock(cp, "", "", children, true)...)
 	}
 
-	// Append stacks at the end of each primary group.
-	// Stacks are a SEPARATE concept — own code, own rendering,
-	// visually grouped under "Composers" but not mixed into secondary_group.
+	// Stacks look like a secondary group but are a separate concept: own code, own rendering, grouped under "Composers" without ever touching secondary_group.
 	if m.composeFile != nil {
-		// Collect primaries in order of appearance
 		primaries := make([]string, 0)
 		seenPrimaries := make(map[string]bool)
 		for _, e := range visible {
@@ -133,7 +115,6 @@ func (m Model) buildTree() []treeItem {
 				primaries = append(primaries, e.Primary)
 			}
 		}
-		// Also add primaries that only have stacks (no projects)
 		for _, s := range m.composeFile.Stacks {
 			if !seenPrimaries[s.PrimaryGroup] {
 				seenPrimaries[s.PrimaryGroup] = true
@@ -143,13 +124,12 @@ func (m Model) buildTree() []treeItem {
 
 		for _, prim := range primaries {
 			if m.collapsed[prim] {
-				continue // primary collapsed: skip its stacks too
+				continue
 			}
 			stacks := m.stacksForPrimary(prim)
 			if len(stacks) == 0 {
 				continue
 			}
-			// Emit Composers header (only if not collapsed)
 			composersKey := m.secondaryKey(prim, composersGroup)
 			if !m.collapsed[composersKey] {
 				items = append(items, treeItem{kind: itemSecondary, primary: prim, secondary: composersGroup})
@@ -166,9 +146,6 @@ func (m Model) buildTree() []treeItem {
 	return items
 }
 
-// repoBlock compone la fila de un proyecto y, si es una fila de repo con
-// worktrees, sus hijos indentados cuando el repo está expandido. Las
-// filas contenedoras (bare o sintetizadas) no son ejecutables (itemRepo).
 func (m Model) repoBlock(p scanner.Project, primary, secondary string, children map[string][]scanner.Project, container bool) []treeItem {
 	kids := children[p.Path]
 	kind := itemProject
@@ -198,24 +175,16 @@ func (m Model) repoBlock(p scanner.Project, primary, secondary string, children 
 	return out
 }
 
-// repoKeyPrefix namespacea las claves de plegado de nodos repo con un byte
-// NUL, que no puede producir un nombre de grupo leído de un manifiesto, de
-// modo que la clave de un nodo repo no puede colisionar con una clave de
-// grupo (primary o primary/secondary).
+// The NUL byte can never come from a group name read out of a manifest, so repo-node fold keys cannot collide with group keys.
 const repoKeyPrefix = "\x00repo:"
 
-// repoKey es la clave de plegado de una fila de repo: namespace
-// propio, estructuralmente disjunto de las claves de grupo, para que el
-// estado persistido no colisione.
 func repoKey(repoPath string) string { return repoKeyPrefix + repoPath }
 
-// repoExpanded reporta si la fila de repo está expandida. Default:
-// colapsada (inverso al default de los grupos, que empiezan expandidos).
+// Repo rows default collapsed, the inverse of group nodes, which default expanded.
 func (m Model) repoExpanded(repoPath string) bool {
 	return m.collapsed[repoKey(repoPath)]
 }
 
-// repoGlyph es el glifo de expansión de una fila de repo.
 func (m Model) repoGlyph(repoPath string) string {
 	if m.repoExpanded(repoPath) {
 		return "▾"
@@ -223,9 +192,6 @@ func (m Model) repoGlyph(repoPath string) string {
 	return "▸"
 }
 
-// repoRunningKids cuenta los worktrees del repo cuyo servicio está en
-// ejecución: alimenta el badge +N de la fila de repo, que de otro
-// modo oculta esa actividad cuando los worktrees están plegados.
 func (m Model) repoRunningKids(repoPath string) int {
 	n := 0
 	for _, e := range m.entries {
@@ -240,8 +206,6 @@ func (m Model) repoRunningKids(repoPath string) int {
 	return n
 }
 
-// runningBadge marca con +N los worktrees en ejecución tras una fila de
-// repo; "" si no hay ninguno.
 func runningBadge(n int) string {
 	if n <= 0 {
 		return ""
@@ -249,7 +213,6 @@ func runningBadge(n int) string {
 	return " " + styleWorktreeRunning.Render(fmt.Sprintf("+%d", n))
 }
 
-// stacksForPrimary devuelve los stacks que pertenecen a un primary_group.
 func (m Model) stacksForPrimary(primary string) []orchestrate.Stack {
 	if m.composeFile == nil {
 		return nil
@@ -263,13 +226,10 @@ func (m Model) stacksForPrimary(primary string) []orchestrate.Stack {
 	return out
 }
 
-// composersGroup es el secondary_group visual para stacks.
-// Es solo un label de renderizado, NO un secondary_group de projectos.
+// A render-only label, not a real secondary_group: it must never collide with a manifest group of the same name.
 const composersGroup = "Composers"
 
-// treeLines genera las líneas de la columna de árbol; la posición de
-// línea del cursor es su propio índice (una fila por ítem). El header
-// secundario se dibuja indentado 2 espacios extra.
+// Cursor position is the item index, so the tree must stay exactly one line per item.
 func (m Model) treeLines() ([]string, int) {
 	lines := make([]string, 0, len(m.tree))
 	for i, it := range m.tree {
@@ -297,26 +257,19 @@ func (m Model) treeLines() ([]string, int) {
 	return lines, m.cursor
 }
 
-// projectRow dibuja una fila de proyecto; las filas de repo con
-// worktrees anteponen el glifo de expansión, añaden el badge +N de
-// worktrees en ejecución y los worktrees anidados usan
-// worktreeRow (rama incluida). Un error de topología (WorktreeErr)
-// se marca con ⚠ de forma independiente de si hay hijos: un fallo de
-// `git worktree list` implica cero worktrees descubiertos.
+// The warning shows even with no children, because a failed "git worktree list" discovers zero worktrees and hasKids would hide it.
 func (m Model) projectRow(it treeItem) string {
 	badge := ""
 	if it.hasKids {
 		badge = runningBadge(m.repoRunningKids(it.repoPath))
 	}
-	// El ancho de nombre descuenta cursor(2)+bolita+espacio(2) y los
-	// prefijos que se anteponen (glifo de expansión, ⚠) para no rebasar
-	// la columna fija treeWidth (padW no recorta).
+	// padW pads but never truncates, so every prepended prefix must be subtracted here or the row overflows the fixed tree column.
 	prefixW := 0
 	if it.hasKids {
-		prefixW += 2 // "▸ "
+		prefixW += 2
 	}
 	if it.project.WorktreeErr != "" {
-		prefixW += 2 // "⚠ "
+		prefixW += 2
 	}
 	row := m.treeRow(it.project, treeWidth-4-prefixW-lipglossWidth(badge))
 	if it.indent > 0 {
@@ -331,16 +284,11 @@ func (m Model) projectRow(it treeItem) string {
 	return row + badge
 }
 
-// containerRow dibuja una fila contenedora (bare repo o main checkout
-// fuera del scan root): no ejecutable y sin estado de servicio propio,
-// pero con el badge +N de sus worktrees en ejecución.
 func (m Model) containerRow(it treeItem) string {
 	badge := runningBadge(m.repoRunningKids(it.repoPath))
-	// Presupuesto: cursor(2) + glifo de expansión + sufijo "(bare)" +
-	// badge, todo descontado del nombre para no rebasar treeWidth.
 	extraW := 0
 	if it.hasKids {
-		extraW += 2 // "▸ "
+		extraW += 2
 	}
 	if it.project.IsBareContainer {
 		extraW += len(" (bare)")
@@ -357,8 +305,6 @@ func (m Model) containerRow(it treeItem) string {
 	return warn + row + badge
 }
 
-// worktreeRow dibuja una fila de worktree anidada: estado + nombre +
-// rama git (incluye "<sha> (detached)" para HEAD detached).
 func (m Model) worktreeRow(p scanner.Project) string {
 	row := treeDot(p, m.services[p.Path], m.spinner.View(), m.startSpinner.View()) + " " + trunc(p.Name, treeWidth-8)
 	if b := m.branches[p.Path]; b != "" {
@@ -367,23 +313,16 @@ func (m Model) worktreeRow(p scanner.Project) string {
 	return row
 }
 
-// primaryRow dibuja el header del primario (columna 0): ▾ expandido,
-// ▸ colapsado con conteo running/total; el total incluye todos
-// sus secundarios.
 func (m Model) primaryRow(primary string) string {
 	r, n := m.nodeStats(primary, "")
 	return m.groupHeaderRow(primary, primary, r, n)
 }
 
-// secondaryRow dibuja el header del secundario; su conteo es el de sus
-// propios miembros (la indentación la aplica treeLines).
 func (m Model) secondaryRow(primary, secondary string) string {
 	r, n := m.nodeStats(primary, secondary)
 	return m.groupHeaderRow(m.secondaryKey(primary, secondary), secondary, r, n)
 }
 
-// groupHeaderRow compone un header de grupo: ▾ nombre expandido, ▸
-// nombre (r/t) colapsado.
 func (m Model) groupHeaderRow(key, label string, running, total int) string {
 	glyph := "▾"
 	text := label
@@ -394,15 +333,10 @@ func (m Model) groupHeaderRow(key, label string, running, total int) string {
 	return styleGroupHeader.Render(glyph + " " + trunc(text, treeWidth-4))
 }
 
-// treeRow dibuja la fila del proyecto: punto de estado + nombre. El
-// texto del estado vive en el panel de detalles; en el árbol la bolita
-// basta (y los sin manifiesto llevan icono de "roto").
 func (m Model) treeRow(p scanner.Project, nameW int) string {
 	return treeDot(p, m.services[p.Path], m.spinner.View(), m.startSpinner.View()) + " " + trunc(p.Name, nameW)
 }
 
-// treeDot es el glifo de estado: ● running, spinner para starting,
-// spinner animado para unknown y ⚠ para sin manifiesto / manifiesto inválido.
 func treeDot(p scanner.Project, sv *ServiceState, spinnerView, startSpinnerView string) string {
 	if !p.Configured || p.ManifestErr != "" {
 		return styleWarn.Render("⚠")
@@ -419,17 +353,7 @@ func treeDot(p scanner.Project, sv *ServiceState, spinnerView, startSpinnerView 
 		return styleStopping.Render("○")
 	case statusUnknown:
 		return spinnerView
-	// MEDIDO (bug): estos tres NO caían en el default, así que un servicio VIVO
-	// se pintaba con el punto de parado.
-	//
-	// El primero es el más grave porque se contradice con la propia TUI: el badge de
-	// la fila dice "starting, port pending" mientras el punto dice "parado", y la
-	// acción de `s` trata port_pending como vivo y lo para. El usuario ve parado y
-	// la acción lo encuentra corriendo.
-	//
-	// Los otros dos son vivos y sanos —sólo que sin puerto TCP confirmado— y ya
-	// tienen su propio texto en el badge. Aquí van con el punto de vivo, que es lo
-	// que el servicio es.
+	// Measured bug: these three used to fall through to the stopped dot, showing a live service as stopped while the row badge and the s action said otherwise.
 	case statusPortPending:
 		return startSpinnerView
 	case statusPortUnresolved, statusNoPort:
@@ -439,10 +363,6 @@ func treeDot(p scanner.Project, sv *ServiceState, spinnerView, startSpinnerView 
 	}
 }
 
-// filterMatch reporta si el proyecto matchea la query del filtro
-// Substring case-insensitive contra el nombre y los nombres
-// de grupo (primary/secondary); filtrar un grupo trae a todos sus
-// miembros aunque el texto no aparezca en ningún nombre de proyecto.
 func filterMatch(p scanner.Project, q string) bool {
 	q = strings.ToLower(q)
 	if strings.Contains(strings.ToLower(p.Name), q) {
@@ -454,8 +374,6 @@ func filterMatch(p scanner.Project, q string) bool {
 	return strings.Contains(strings.ToLower(group.SecondaryOf(p)), q)
 }
 
-// stackRow dibuja la fila del stack: 🎵 nombre (running/total). Si el
-// stack tiene un nombre de servicio ambiguo, lo marca como conflicto.
 func (m Model) stackRow(s *orchestrate.Stack) string {
 	r, n, err := m.stackStats(s)
 	label := fmt.Sprintf("🎵 %s (%d/%d)", s.Name, r, n)
@@ -465,21 +383,13 @@ func (m Model) stackRow(s *orchestrate.Stack) string {
 	return styleStack.Render(trunc(label, treeWidth-4))
 }
 
-// stackStats cuenta servicios running y total de un stack. Devuelve un
-// error explícito si un nombre de servicio es ambiguo (varios proyectos lo
-// declaran): mismo criterio que el engine/CLI, sin elegir el
-// primero arbitrariamente.
+// An ambiguous service name is an explicit error, never the first match: same rule as the engine and the CLI.
 func (m Model) stackStats(s *orchestrate.Stack) (running, total int, err error) {
 	_, running, total, err = m.resolveStack(s)
 	return running, total, err
 }
 
-// resolveStack resuelve los servicios de un stack y cuenta los vivos.
-//
-// Devuelve la lista resuelta además de los números porque quien valida un stack
-// necesita las dos cosas y resolver dos veces es trabajo de más —y una ventana
-// entre las dos en la que los proyectos podrían cambiar—. Quien sólo quiere el
-// recuento usa `stackStats`, que es esta función sin la lista.
+// Returns the resolved list too, because callers that validate a stack need both and resolving twice would open a window where projects could change.
 func (m Model) resolveStack(s *orchestrate.Stack) (services []orchestrate.ResolvedService, running, total int, err error) {
 	seen := make(map[string]bool)
 	for _, stage := range s.Stages {
@@ -502,8 +412,6 @@ func (m Model) resolveStack(s *orchestrate.Stack) (services []orchestrate.Resolv
 	return services, running, total, nil
 }
 
-// exampleManifest genera un manifiesto de ejemplo para proyectos sin
-// configurar.
 func exampleManifest(name string) string {
 	return fmt.Sprintf(`name = %q
 command_start = "go run main.go"

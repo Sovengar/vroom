@@ -12,13 +12,10 @@ import (
 	"vroom/internal/tui/bordered"
 )
 
-// lipglossWidth devuelve el ancho visible de s ignorando secuencias ANSI.
 func lipglossWidth(s string) int {
 	return lipgloss.Width(s)
 }
 
-// truncANSI recorta s a un ancho visible w conservando las secuencias
-// ANSI (para líneas ya estilizadas).
 func truncANSI(s string, w int) string {
 	if lipglossWidth(s) <= w {
 		return s
@@ -26,11 +23,6 @@ func truncANSI(s string, w int) string {
 	return ansi.Truncate(s, w, "")
 }
 
-// renderDashboard compone el dashboard completo como una fila de cajas con
-// borde redondeado y título: Projects (izquierda, alto completo), la columna
-// derecha (Details arriba + Output abajo) y, bajo ambas, la caja Keybinds a
-// todo el ancho. El mensaje de estado se dibuja como leyenda del borde
-// inferior de la caja de keybinds.
 func (m Model) renderDashboard() string {
 	left := frameBoxLines("Projects", strings.Join(fitLines(padLines(m.treeColumnLines(), m.bodyH), treeWidth), "\n"), treeWidth+boxFrame)
 	right := m.rightColumnLines()
@@ -50,15 +42,11 @@ func (m Model) renderDashboard() string {
 	return b.String()
 }
 
-// frameTitle compone el título de una caja: el texto con un espacio a cada
-// lado para separarlo del trazo del borde.
 func frameTitle(text string) string {
 	return styleTitle.Render(" " + text + " ")
 }
 
-// frameBoxLines dibuja una caja redondeada con título superior y devuelve sus
-// líneas. width es el ancho TOTAL (marco incluido); content debe venir ya
-// recortado al ancho interior (width-boxFrame) para que no haya re-wrap.
+// width is the total box width and content must already be trimmed to width-boxFrame, or the compositor re-wraps and changes the height.
 func frameBoxLines(title, content string, width int) []string {
 	return strings.Split(bordered.RenderWithTitleEx(
 		lipgloss.RoundedBorder(),
@@ -70,7 +58,6 @@ func frameBoxLines(title, content string, width int) []string {
 	), "\n")
 }
 
-// padLines rellena lines con líneas vacías hasta n (y recorta si sobran).
 func padLines(lines []string, n int) []string {
 	if n < 0 {
 		n = 0
@@ -84,8 +71,6 @@ func padLines(lines []string, n int) []string {
 	return lines
 }
 
-// fitLines recorta cada línea a w celdas visibles (ANSI-aware) para que el
-// compositor de cajas no tenga que envolverlas y altere el alto.
 func fitLines(lines []string, w int) []string {
 	for i := range lines {
 		lines[i] = truncANSI(lines[i], w)
@@ -93,8 +78,6 @@ func fitLines(lines []string, w int) []string {
 	return lines
 }
 
-// rightColumnLines compone la columna derecha como dos cajas apiladas:
-// Details (si cabe) arriba y Output abajo, cada una del ancho rightW+boxFrame.
 func (m Model) rightColumnLines() []string {
 	outerW := m.rightW + boxFrame
 	var out []string
@@ -105,8 +88,6 @@ func (m Model) rightColumnLines() []string {
 	return out
 }
 
-// detailsContentLines devuelve exactamente detailsHeight líneas de detalle del
-// item seleccionado, aplicando el scroll vertical.
 func (m Model) detailsContentLines() []string {
 	d := m.allDetailsLines(m.rightW)
 	top := m.detailsTop
@@ -123,8 +104,6 @@ func (m Model) detailsContentLines() []string {
 	return fitLines(padLines(d, detailsHeight), m.rightW)
 }
 
-// consoleContentLines devuelve exactamente contentH+1 líneas: la barra de
-// pestañas y el contenido de la pestaña activa del panel Output.
 func (m Model) consoleContentLines() []string {
 	lines := []string{m.tabsBar(m.rightW)}
 	switch m.activeTab {
@@ -146,10 +125,6 @@ func (m Model) consoleContentLines() []string {
 	return fitLines(padLines(lines, m.contentH+1), m.rightW)
 }
 
-// keybindsBox dibuja la caja inferior a todo el ancho con las dos líneas de
-// ayuda y, si hay mensaje de estado, la leyenda en el borde inferior derecho.
-// Ambas líneas se recortan al ancho interior (ANSI-aware) para que el
-// compositor no las envuelva y rompa el alto fijo de la caja.
 func (m Model) keybindsBox() string {
 	innerW := m.width - boxFrame
 	if innerW < 1 {
@@ -180,8 +155,6 @@ func (m Model) keybindsBox() string {
 	)
 }
 
-// tabLabel renderiza la etiqueta de una pestaña: activa con fondo
-// invertido, inactiva atenuada.
 func tabLabel(tab tabKind, active bool) string {
 	text := tabLabelText(tab)
 	if active {
@@ -190,8 +163,6 @@ func tabLabel(tab tabKind, active bool) string {
 	return styleTabInactive.Render(text)
 }
 
-// tabsBar dibuja todas las pestañas del panel Output con la activa resaltada
-// y, a la derecha, el estado del stream o del proceso muestreado.
 func (m Model) tabsBar(w int) string {
 	parts := make([]string, 0, tabCount)
 	for k := tabKind(0); k < tabCount; k++ {
@@ -233,25 +204,19 @@ func (m Model) tabsBar(w int) string {
 	return truncANSI(bar, w)
 }
 
-// ---- Modal genérico: tasks de mise y agentes de IA ----
-
-// pickerKind identifica el tipo de modal de selección.
 type pickerKind int
 
 const (
-	pickerTasks  pickerKind = iota // tasks de mise
-	pickerAgents                   // agentes de IA
+	pickerTasks pickerKind = iota
+	pickerAgents
 )
 
-// pickerItem es una fila del modal de selección.
 type pickerItem struct {
 	Name        string
 	Description string
-	agentCmd    []string // solo pickerAgents: plantilla argv del agente
+	agentCmd    []string // only for pickerAgents: the agent argv template
 }
 
-// pickerBox renderiza el modal: título, lista con el cursor resaltado
-// y ventana deslizante si no caben todos.
 func (m Model) pickerBox() string {
 	innerW := m.pickerInnerW()
 	rows, more := m.pickerRows(m.pickerMaxRows(), innerW)
@@ -275,35 +240,18 @@ func (m Model) pickerBox() string {
 		Render(strings.Join(lines, "\n"))
 }
 
-// askInnerW es el ancho interior del modal ask (compartido entre el
-// render del box y el width del textarea): crece con la pantalla hasta
-// un cap (110) para que el prefill del template quepa
-// en una línea en pantallas normales, y ENCOGE con ella si no cabe.
-//
-// MEDIDO (bug): la base era 72 y sólo podía crecer, así que en cualquier pantalla
-// de menos de 86 columnas el modal era más ancho que la terminal. Con un modal más
-// ancho que la pantalla cada línea envuelve y todo lo de debajo baja: el teclado,
-// el árbol y las cajas dejan de encajar y el programa parece roto, no estrecho.
-//
-// `overlay` no recorta el box a la pantalla a propósito —es un compositor, no un
-// gestor de anchos—, así que la responsabilidad de que el modal quepa es de quien
-// calcula su ancho.
+// The width must shrink with the screen because overlay never clips: a too-wide modal wraps and pushes everything below it down.
 func askInnerW(width int) int {
-	avail := width - 14 // bordes, padding y margen
+	avail := width - 14 // borders, padding and margin
 	innerW := min(avail, 110)
-	// En pantallas normales se quiere al menos el ancho del prefill, pero sólo si
-	// cabe: de aquí el min(72, avail) en vez de un 72 a secas.
-	innerW = max(innerW, min(72, avail))
+	innerW = max(innerW, min(72, avail)) // prefill width is a wish, the screen is the limit
 	if innerW < 28 {
-		innerW = 28 // el textarea necesita un mínimo; por debajo el modal no es usable
+		innerW = 28 // the textarea needs a minimum usable width
 	}
 	return innerW
 }
 
-// askBox renderiza el modal del prompt de ask AI. El
-// textarea es multi-línea con alto dinámico (crece con el contenido
-// hasta el cap de pantalla, luego scroll interno) y llega ya
-// dimensionado por sizeAskPrompt, así que se renderiza sin truncar.
+// The textarea arrives already sized by sizeAskPrompt, so it is rendered untruncated.
 func (m Model) askBox() string {
 	innerW := askInnerW(m.width)
 	lines := []string{
@@ -320,7 +268,6 @@ func (m Model) askBox() string {
 		Render(strings.Join(lines, "\n"))
 }
 
-// pickerTitle es el nombre del proyecto mostrado en el título del modal.
 func (m Model) pickerTitle() string {
 	if p := m.selected(); p != nil {
 		return p.Name
@@ -328,9 +275,8 @@ func (m Model) pickerTitle() string {
 	return "?"
 }
 
-// pickerMaxRows es el alto de la lista del modal (según la pantalla).
 func (m Model) pickerMaxRows() int {
-	max := m.bodyH - 7 // título + blank + hint + bordes + margen
+	max := m.bodyH - 7 // title + blank + hint + borders + margin
 	if max < 3 {
 		max = 3
 	}
@@ -340,8 +286,6 @@ func (m Model) pickerMaxRows() int {
 	return max
 }
 
-// pickerInnerW es el ancho interior del modal: cabe la fila más larga
-// sin exceder la pantalla.
 func (m Model) pickerInnerW() int {
 	w := m.width - 14
 	if w < 28 {
@@ -362,8 +306,6 @@ func (m Model) pickerInnerW() int {
 	return w
 }
 
-// pickerRows devuelve las filas visibles con el cursor resaltado; more
-// son las filas ocultas por la ventana deslizante.
 func (m Model) pickerRows(maxRows, w int) (rows []string, more int) {
 	items := m.pickerItems
 	if maxRows <= 0 {
@@ -398,16 +340,10 @@ func (m Model) pickerRows(maxRows, w int) (rows []string, more int) {
 	return rows, len(items) - (end - start)
 }
 
-// ---- Filtro del árbol ----
-
-// filterBarVisible reporta si la barra del filtro ocupa la primera línea
-// de la columna del árbol: box abierto o filtro aplicado.
 func (m Model) filterBarVisible() bool {
 	return m.filterOpen || m.filterText != ""
 }
 
-// treeVis es el alto visible del árbol: la barra consume su
-// primera línea cuando es visible.
 func (m Model) treeVis() int {
 	if m.filterBarVisible() {
 		return m.bodyH - 1
@@ -415,12 +351,7 @@ func (m Model) treeVis() int {
 	return m.bodyH
 }
 
-// treeColumnLines compone las líneas de la columna de árbol: rebanadas
-// por treeTop (fix: el auto-scroll ahora sí tiene efecto
-// visual), capadas al alto visible y, si la barra es visible, con el
-// filtro en la línea 0 y "no matches" si el árbol quedó vacío.
-// El clamp de top evita rebanar fuera cuando el árbol se
-// reduce (plegado) con un treeTop ya obsoleto.
+// The top clamp avoids slicing out of range when the tree shrinks by collapsing with a stale treeTop.
 func (m Model) treeColumnLines() []string {
 	tree, _ := m.treeLines()
 	visH := m.bodyH
@@ -446,9 +377,6 @@ func (m Model) treeColumnLines() []string {
 	return append(extra, tree...)
 }
 
-// filterBar dibuja la línea de filtro: el input (prompt "/" + cursor)
-// si el box está abierto; con filtro aplicado, el indicador persistente
-// `⌕ texto · n` en dim (n = proyectos matcheados).
 func (m Model) filterBar() string {
 	if m.filterOpen {
 		return m.filterInput.View()
@@ -456,8 +384,6 @@ func (m Model) filterBar() string {
 	return styleDim.Render(trunc(fmt.Sprintf("⌕ %s · %d", m.filterText, len(m.entries)), treeWidth-2))
 }
 
-// overlay compone box centrado sobre base sin perder el contenido
-// circundante (recortes ANSI-safe).
 func overlay(base, box string, width, height int) string {
 	lines := strings.Split(base, "\n")
 	blocks := strings.Split(box, "\n")
@@ -466,11 +392,7 @@ func overlay(base, box string, width, height int) string {
 	if bh > height {
 		bh = height
 	}
-	// Los dos suelos van en la expresión y no en un `if`: `x` e `y` son el sitio
-	// donde se recorta `base`, y un valor negativo indexaría por debajo del inicio
-	// de `lines` —un fallo de índice, no un modal feo—. Además son ALCANZABLES: un
-	// modal más ancho o más alto que la pantalla los pone a negativo de verdad, con
-	// un terminal de 20 columnas y un picker de ancho fijo, por ejemplo.
+	// Both clamps are reachable (a modal bigger than the screen) and a negative x or y would index before the start of lines.
 	x := max((width-bw)/2, 0)
 	y := max((height-bh)/2, 0)
 	for j := 0; j < bh && y+j < len(lines); j++ {

@@ -2,9 +2,7 @@ package manifest
 
 import "testing"
 
-// route_mode es tri-estado con default off, igual que port_mode pero con la
-// diferencia que importa: con off vroom NI SIQUIERA busca el binario de
-// portless, así que la puerta de compatibilidad hacia atrás es total.
+// With off vroom does not even look for the portless binary, so the backward-compatibility door is total.
 func TestEffectiveRouteModeDefaults(t *testing.T) {
 	cases := []struct {
 		name string
@@ -25,8 +23,7 @@ func TestEffectiveRouteModeDefaults(t *testing.T) {
 	}
 }
 
-// route_mode inválido se propaga como off pero NO se acepta: la puerta de
-// atrás no puede ser la puerta por la que entra un valor basura.
+// An unknown route_mode propagates as off but is not accepted: the backward-compatibility door cannot be the door garbage walks in.
 func TestValidateRejectsUnknownRouteMode(t *testing.T) {
 	m := Manifest{Name: "x", Command: "run", Port: 8080, RouteMode: "prestable"}
 	if err := m.Validate(); err == nil {
@@ -34,8 +31,7 @@ func TestValidateRejectsUnknownRouteMode(t *testing.T) {
 	}
 }
 
-// Una ruta apunta a un puerto: aceptar route_mode sin puerto sería una promesa
-// que vroom no puede cumplir.
+// A route points at a port, so accepting route_mode without one would be a promise vroom cannot keep.
 func TestValidateRouteModeRequiresAPort(t *testing.T) {
 	rejected := []Manifest{
 		{Name: "x", Command: "run", RouteMode: RouteModeAuto}, // sin puerto
@@ -53,8 +49,7 @@ func TestValidateRouteModeRequiresAPort(t *testing.T) {
 	}
 }
 
-// route_name sin named es un nombre que nadie usaría. Se rechaza en vez de
-// ignorarse en silencio.
+// A route_name without named is a name nobody would use, so it is rejected instead of silently ignored.
 func TestValidateRouteNameRequiresNamedMode(t *testing.T) {
 	rejected := []Manifest{
 		{Name: "x", Command: "run", Port: 8080, RouteName: "mi-nombre"},
@@ -72,8 +67,6 @@ func TestValidateRouteNameRequiresNamedMode(t *testing.T) {
 	}
 }
 
-// LA PUERTA DE COMPATIBILIDAD HACIA ATRÁS: todo manifiesto que se aceptaba
-// antes sigue aceptándose, y sin route_mode no se busca el binario.
 func TestManifestWithoutRouteModeIsUnchanged(t *testing.T) {
 	legacy := []Manifest{
 		{Name: "x", Command: "run"},

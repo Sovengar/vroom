@@ -14,71 +14,34 @@ import (
 	"vroom/internal/manifest"
 )
 
-// RouteMode son los tres estados del contrato de ruta. El default es off, de
-// modo que un manifiesto que no declara nada se comporta exactamente como
-// antes — y con off vroom NI SIQUIERA busca el binario.
+// Route mode defaults to off so a manifest that declares nothing behaves exactly as before, and with off vroom does not even look for the binary.
 const (
-	// RouteModeOff: sin ruta. vroom no toca portless en absoluto.
 	RouteModeOff = "off"
-	// RouteModeAuto: nombre derivado de la RAMA, sin escribir nada. Es scope
-	// de rama, no de worktree: dos worktrees en la misma rama colisionan, y la
-	// colisión produce un conflicto limpio, no una segunda dirección.
-	RouteModeAuto = "auto"
-	// RouteModeNamed: nombre estable y explícito (route_name).
+	// RouteModeAuto derives the name from the branch, so worktrees sharing a branch collide into a clean conflict instead of a second address.
+	RouteModeAuto  = "auto"
 	RouteModeNamed = "named"
 )
 
-// RouteModeEnabled dice si un modo implica trabajo de ruta. Con off no se
-// resuelve ni el binario: es la puerta de compatibilidad hacia atrás.
 func RouteModeEnabled(mode string) bool { return mode != "" && mode != RouteModeOff }
 
-// Releaser es el seam de retirada, con la misma forma que el de registro.
-//
-// Existe por el mismo motivo que existe portless.Release: sin un punto de
-// inyección, la retirada no la puede probar nadie. `Release` construye su
-// cliente internamente, así que ningún test podía observar si se llamaba, y la
-// consecuencia fue que borrar los tres call sites dejaba la suite en verde —
-// o sea, que la decisión 13 del ADR ("se retira en los tres caminos") no la
-// verificaba nada. Un seam que nadie puede injectar no es un seam.
+// Releaser exists because Release builds its own client, so without an injection point deleting its call sites left the suite green.
 type Releaser interface {
-	// RemoveAbsent retira la ruta name y devuelve ErrRouteAbsent si ya no
-	// estaba. No es Remove a propósito: Remove es benigno por contrato, y quien
-	// revoca propiedad necesita distinguir "no estaba" de "falló de verdad".
+	// RemoveAbsent, not Remove: Remove is benign by contract, and revoking ownership must tell "was not there" from "really failed".
 	RemoveAbsent(name string) error
 }
 
-// ReleaserFunc adapta una función a Releaser.
 type ReleaserFunc func(name string) error
 
-// RemoveAbsent implementa Releaser.
 func (f ReleaserFunc) RemoveAbsent(name string) error { return f(name) }
 
-// inertReleaser es lo que se usa en un binario de test cuando nadie ha inyectado
-// un seam. Existe porque `nil` significa "construye el cliente real", que
-// resolvería el portless y el state dir del DESARROLLADOR: un test que se
-// olvide de instalar el seam no debe poder mutar su routes.json real.
-//
-// Vive aquí y no en los tres sitios que lo necesitan porque son tres copias de
-// la misma comprobación, que es exactamente el hazard por el que se subió
-// ClientFor a este paquete.
+// inertReleaser guards a test binary that never installed a seam, because a nil Releaser means the real client and would mutate the developer's own routes.json.
 var inertReleaser = ReleaserFunc(func(string) error { return nil })
 
-// InertReleaser devuelve un Releaser que no hace nada, para los caminos que en
-// un binario de test no deben tocar nada.
 func InertReleaser() Releaser { return inertReleaser }
 
-// IsTestBinary reporta si el proceso actual es un binario de test. No depende
-// de una variable que un test pueda no poner.
 func IsTestBinary() bool { return strings.HasSuffix(os.Args[0], ".test") }
 
-// ClientFor devuelve el seam ya resuelto para un manifiesto, o nil si no hay
-// contrato de ruta.
-//
-// Existe en este paquete, y no duplicado en cada llamador, por una razón que no
-// es de estilo: con route_mode = "off" hay que devolver nil ANTES de resolver
-// nada, y ese "antes" es la puerta de compatibilidad hacia atrás. Tres copias
-// de esa comprobación son tres sitios donde un día alguien la mueve y la puerta
-// se abre sin que nada falle.
+// ClientFor returns nil before resolving anything when route_mode is off, because that early return is the backwards-compatibility gate and three copies of it would drift.
 func ClientFor(m *manifest.Manifest) *Client {
 	if m == nil || !RouteModeEnabled(m.EffectiveRouteMode()) {
 		return nil
@@ -86,153 +49,64 @@ func ClientFor(m *manifest.Manifest) *Client {
 	return Default()
 }
 
-// Release retira la ruta de un servicio parado y dice SI LA RETIRÓ.
-//
-// El bool no es el error: es si la propiedad se REVOCA. Quitar una ruta que no
-// existe sale con 1 (medido, M10) y eso es benigno —un stop repetido no es un
-// error— pero la ruta, para efectos de propiedad, ya no es nuestra de todos
-// modos, así que Ownership debe quedar revocada igualmente.
-//
-// Recibe el NOMBRE, no el Meta: este paquete es un seam y no debe depender del
-// tipo de persistencia. Y no relee el manifiesto, que pudo cambiar desde el
-// arranque; se retira lo que se registró, que es lo único que se puede demostrar
-// como propio.
-//
-// r es el punto de inyección. nil significa "construye el cliente real", que es
-// lo que usan los caminos de stop en producción; los tests pasan un doble.
+// Release's bool means ownership revoked, not success: a route that was already absent (M10) revokes too, and a real failure keeps the handle so the route stays reconcilable.
 func Release(r Releaser, name string) bool {
 	if name == "" {
-		return true // no había nada nuestro que retirar
+		return true
 	}
 	if r == nil {
 		r = Default()
 	}
-	// ErrRouteAbsent SÍ revoca: la ruta no está, que es exactamente lo que se
-	// quería. Un fallo real NO revoca, porque entonces la ruta puede seguir ahí
-	// y perder el handle la dejaría sin nadie que la limpie.
 	err := r.RemoveAbsent(name)
 	return err == nil || errors.Is(err, ErrRouteAbsent)
 }
 
-// Result es el resultado de aplicar una ruta. Tri-estado y honesto por
-// construcción: Name está siempre (es el nombre PRETENDIDO, haya éxito o no),
-// Status siempre, Url SÓLO cuando se ha visto funcionar y Reason sólo al
-// degradar. Es la lección de port_verified aplicada entera: una URL que nadie
-// verificó no se publica, porque un agente que la lea se conecta a otra cosa.
+// Result is deliberately tri-state: Url is published only when it was seen working, because an agent reading an unverified url connects to something else.
 type Result struct {
-	Name   string // nombre pretendido, sin el TLD
-	Host   string // hostname completo, con el TLD
-	Status string // registered | degraded
-	Url    string // sólo si registered, y con el esquema que se comprobó
-	Reason string // sólo si degraded
-	Port   int    // puerto real al que apunta la ruta, si se registró
-	// Registered dice que la escritura OCURRIÓ, con independencia de que la
-	// ruta se haya podido verificar.
-	//
-	// Es distinto de Succeeded() a propósito, y esa distinción es el punto: una
-	// ruta escrita con el proxy parado no se ha verificado, pero ES NUESTRA y
-	// debe conservar el handle. Conceder propiedad con Succeeded() la
-	// perdería, y un reinicio con el puerto movido chocaría entonces con
-	// nuestra propia ruta, que es un conflicto inventado.
+	Name   string
+	Host   string
+	Status string
+	Url    string
+	Reason string
+	Port   int
+	// Written is not the same as verified: an unverified route is still ours and must keep its handle.
 	Registered bool
 }
 
-// Succeeded dice si la ruta quedó registrada y verificada en el proxy vivo.
 func (r Result) Succeeded() bool { return r.Status == StatusRegistered }
 
-// Degraded construye un resultado degradado con su motivo. No lleva Url: un
-// resultado degradado no publica dirección.
 func Degraded(name, reason string) Result {
 	return Result{Name: name, Host: Hostname(name), Status: StatusDegraded, Reason: reason}
 }
 
-// Ownership es lo que vroom PUEDE PROBAR de una ruta que ya registró, y es lo
-// que autoriza a pisarla.
-//
-// No es un puerto. Un puerto persistido es un número, y un número no caduca: si
-// queda en el Meta para siempre, entonces cualquier actor que coja el nombre y
-// lo deje en ESE número se convierte de hecho en un dueño cuya ruta podemos
-// pisar. La secuencia —registrar, retirar, otro toma el nombre con nuestro
-// puerto anterior, arrancar— destruía la ruta de otro sin que nada fallara.
-//
-// Lo que caduca es la PROPIEDAD. Se concede al registrar y se revoca al
-// retirar, así que sólo autoriza mientras la ruta sigue siendo nuestra.
+// Ownership is a revocable lease, not a port: a persisted port never expires, so anyone reusing the name with it would inherit the right to be stomped.
 type Ownership struct {
-	// Owned dice que vroom registró esta ruta y no la ha retirado.
 	Owned bool
-	// Port es el puerto al que apuntaba cuando la registramos.
+	// Port is the port recorded at registration, never the live one: it is the proof the name is still ours.
 	Port int
 }
 
-// Authorises dice si esta propiedad permite escribir sobre un nombre que ya
-// apunta a existing.
-//
-// La coincidencia de puerto NO es prueba de propiedad: sólo lo es junto con
-// Owned, y sólo mientras nadie la haya revocado. Por eso el método existe en
-// vez de comparar números en el predicado: la comparación sola es el bug.
+// Authorises exists as a method because a port match alone is the bug: ownership is what authorises, and only while it is unrevoked.
 func (o Ownership) Authorises(existing int) bool {
 	return o.Owned && o.Port > 0 && o.Port == existing
 }
 
-// Apply registra la ruta de un servicio y devuelve lo que se ha podido
-// PROBAR de ella, no lo que se ha pedido.
-//
-// prev es lo que se sabe de la ruta anterior de ESTE servicio: si la tenemos y
-// sigue siendo nuestra, y el nombre aparece en otro puerto, es que la app
-// reinició y hay que mover la ruta —si no, quedaría apuntando a un puerto
-// muerto—. Sin esa prueba, cualquier nombre ajeno es conflicto y no se toca:
-// el fallo cerrado que gobierna la limpieza, aplicado al alta.
-//
-// El orden de los pasos es el contrato, y cada uno responde a un hecho medido:
-//
-//  1. ¿Hay binario? No → degrada. No es error: la ausencia de portless es la
-//     condición normal (limitación 6 de adr-0012, cerrada por adr-0013).
-//  2. ¿El puerto real está resuelto? No → degrada. Registrar contra un puerto
-//     sin resolver sólo compra una ventana de error (M9), y publicar una
-//     dirección a un puerto que nadie escucha es una mentira.
-//  3. Se CONSULTA el estado previo del nombre y se decide. Por M8 el alta es un
-//     upsert incondicional sin detección de conflictos, así que escribir a
-//     ciegas DESTRUYE la ruta que hubiera. Esta comprobación va ANTES del alta
-//     por eso: después de escribir, la única diferencia entre "mi ruta" y "la
-//     ruta de otro" es la que acabamos de producir nosotros, y compararlas
-//     sería una tautología. La prueba que autoriza a escribir sobre un nombre
-//     ajeno es Ownership, no un puerto: ver su doc.
-//  4. Se REGISTRA contra el puerto real. Por M9 el puerto destino no necesita
-//     estar escuchando, y por M3 la ruta sobrevive a un reinicio del proxy: el
-//     registro es persistente y correcto aunque el proxy esté parado, así que
-//     la verificación decide qué se PUBLICA, no si se REGISTRA.
-//  5. Se LEE DE VUELTA y se compara el puerto, para cubrir la ventana entre la
-//     consulta y el alta: otro actor puede tomar el nombre en medio.
-//  6. Se SONDA EL PROXY VIVO. Por M1 el binario nunca contacta con el proxy,
-//     así que exit 0 no prueba nada sobre ahora mismo.
-//
-// Ningún paso puede hacer fallar el arranque: todos devuelven un Result
-// degradado. La salud del servicio no depende de su ruta.
+// Apply registers the route and reports what it could PROVE, never what was asked; no failure may reach startup, because service health never depends on its route.
 func (c *Client) Apply(name string, port int, prev Ownership) Result {
 	if !c.HasBinary() {
 		return Degraded(name, ReasonPortlessMissing)
 	}
 	if port <= 0 {
-		// Nada honesto que apuntar: no se inventa una dirección a un puerto
-		// que nadie confirmó.
+		// Nothing honest to point at: registering an unresolved port only buys an error window (M9).
 		return Degraded(name, ReasonPortUnresolved)
 	}
 
-	// El estado PREVIO es lo que decide si el alta es legítima. Consultar
-	// después de escribir sería una tautología: la tabla compararía lo escrito
-	// contra lo escrito, y no podría distinguir nuestra ruta de la de otro
-	// dueño.
 	existing, found, err := c.Lookup(name)
 	switch {
 	case err != nil:
-		// No se puede ni leer el estado previo: no se escribe nada, porque
-		// escribir sin saber contra qué es exactamente el daño que M8 permite.
 		return Degraded(name, classify(err))
 	case found && existing != port && !prev.Authorises(existing):
-		// El nombre lo tiene un puerto que no es el nuestro, y no tenemos
-		// prueba de que siga siendo nuestra. No se puede demostrar que sea una
-		// ruta huérfana —podría ser la de otra app, o la de otro vroom en
-		// marcha—, y por eso no se toca.
+		// Someone else's port with no proof it is still ours: it could be another app or another running vroom, so it stays untouched.
 		return Degraded(name, ReasonRouteConflict)
 	}
 
@@ -240,37 +114,25 @@ func (c *Client) Apply(name string, port int, prev Ownership) Result {
 		return Degraded(name, classify(err))
 	}
 
-	// Desde aquí la escritura OCURRIÓ, la haya servido el proxy o no. Todo lo que
-	// viene después degrada o verifica, pero no deshace el alta: por eso
-	// Registered se pone aquí y no en el return final.
+	// From here the write happened; later degradation must not undo it, so Registered is set here and not in the final return.
 	registered := Result{Name: name, Host: Hostname(name), Port: port, Registered: true}
 
-	// Lectura de vuelta: confirma la escritura y cubre la ventana entre la
-	// consulta y el alta.
+	// Read-back confirms the write and covers the window between the lookup and the write, when another actor can take the name (M8).
 	published, found, err := c.Lookup(name)
 	switch {
 	case err != nil:
-		// Se registró pero no se puede ni leer de vuelta: no se afirma nada.
-		// La propiedad se conserva: la escritura ocurrió.
+		// Cannot even read back: assert nothing, but the write happened, so ownership is kept.
 		return registered.withReason(classify(err))
 	case !found:
 		return registered.withReason(ReasonRouteNotServed)
 	case published != port:
-		// El nombre cambió de dueño entre la consulta y el alta. M8 en vivo.
 		return registered.withReason(ReasonRouteConflict)
 	}
 
-	// verify se llama solo después de que Register tuviera éxito, y pone
-	// Registered en su propio literal de éxito (ver su comentario). Aquí ya no
-	// hay que forzar nada: si verify degrada, la ruta sigue registrada y su
-	// Result conserva el hecho, porque lo compuso `registered` antes de
-	// verificar y verify no puede perderlo.
 	return c.verify(name, port)
 }
 
-// withReason devuelve el resultado degradado conservando que la escritura
-// ocurrió. Degradar el ESTADO no deshace el HECHO: una ruta escrita con el proxy
-// parado es nuestra aunque no se pueda afirmar que responda.
+// withReason degrades the state without undoing the fact: a route written while the proxy was down is still ours.
 func (r Result) withReason(reason string) Result {
 	r.Status = StatusDegraded
 	r.Reason = reason
@@ -278,20 +140,11 @@ func (r Result) withReason(reason string) Result {
 	return r
 }
 
-// verify sondea el proxy vivo para la ruta y decide si se publica su URL.
-//
-// El esquema se determina PROBANDO, no suponiendo: se intenta https y, si no
-// responde, http, y se publica el que respondió. Así el caso TLS / puerto 443
-// no es un riesgo — no hay ningún supuesto que el TLS pueda refutar — y el
-// precio es una sonda.
+// verify probes https then http instead of assuming a scheme, so the TLS/443 case needs no guess and the price is one extra probe.
 func (c *Client) verify(name string, port int) Result {
 	host := Hostname(name)
 
-	// M6: la ausencia de proxy.port ES la señal de que no hay proxy. Se
-	// degrada aquí y no se cae a un puerto supuesto como 1355.
-	// Estas degradaciones ocurren DESPUÉS de que Register tuviera éxito, así que
-	// la ruta sigue siendo nuestra: se construyen sobre `registered` para no
-	// perder el hecho al degradar el estado.
+	// M6: a missing proxy.port is the no-proxy signal, never a hardcoded 1355; this degrades after Register, so the route stays ours.
 	proxyPort, err := c.ProxyPort()
 	if err != nil {
 		r := Degraded(name, ReasonProxyNotRunning)
@@ -302,26 +155,13 @@ func (c *Client) verify(name string, port int) Result {
 	for _, scheme := range []string{"https", "http"} {
 		status, err := c.probeWithTimeout(scheme, host, proxyPort, probePath)
 		if err != nil {
-			// Fallo de conexión o timeout: nadie está sirviendo por aquí.
 			continue
 		}
 		if status == 404 {
-			// MEDIDO: el proxy responde 404 cuando NO conoce el host, y 502
-			// cuando lo enruta y el backend no responde. Tratar 404 como
-			// prueba de enrutado afirmaría una dirección que el proxy no
-			// sirve, que es justo el fallo que este diseño existe para evitar.
+			// Measured: the proxy answers 404 when it does not know the host and 502 when it routes to a dead backend, so treating 404 as proof of routing would publish an address the proxy does not serve.
 			return Degraded(name, ReasonRouteNotServed)
 		}
-		// Cualquier otra respuesta —incluido 502— prueba que el proxy ENRUTA
-		// esta ruta. Un 502 dice "enruta y el servicio de detrás no responde",
-		// que es información distinta de "no la sirve".
-		//
-		// Registered va aquí, en el literal, y no se fuerza desde Apply: verify
-		// sólo se llama DESPUÉS de que Register tuviera éxito, así que su
-		// resultado es siempre una ruta registrada. Ponerlo aquí hace que la
-		// función no pueda equivocarse por su cuenta: si mañana se llama desde
-		// otro sitio, el campo viaja con el resultado que ella construye en vez
-		// de depender de que alguien se acuerde de rellenarlo después.
+		// Any other status, 502 included, proves the proxy routes this route; Registered lives in this literal so verify cannot forget it if it is ever called from elsewhere.
 		return Result{
 			Name:       name,
 			Host:       host,
@@ -332,8 +172,6 @@ func (c *Client) verify(name string, port int) Result {
 		}
 	}
 
-	// Ningún esquema respondió. No hay proxy sirviendo, o el puerto declarado no
-	// atiende: en ambos casos no se publica url.
 	if !c.acceptsConnections(proxyPort) {
 		r := Degraded(name, ReasonProxyUnreachable)
 		r.Registered = true
@@ -344,24 +182,16 @@ func (c *Client) verify(name string, port int) Result {
 	return r
 }
 
-// probePath es la ruta que se pide al proxy. "/" basta: la verificación es
-// "¿el proxy enruta este host?", y hasta un 404 de la app de detrás es prueba
-// de enrutado. No se usa health_path porque ése es un contrato de la TUI y una
-// ruta puede no tener ninguno.
+// probePath is "/" because even a 404 from the app behind proves routing, and health_path is a TUI contract a route may not have.
 const probePath = "/"
 
-// probeWithTimeout acota la sonda. Una sonda sin cota contra un proxy colgado
-// colgaría el arranque, que es la única pérdida de disponibilidad real de este
-// seam.
 func (c *Client) probeWithTimeout(scheme, host string, proxyPort int, path string) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
 	defer cancel()
 	return c.probe(ctx, scheme, host, proxyPort, path)
 }
 
-// acceptsConnections dice si el puerto declarado del proxy acepta alguna
-// conexión. Distingue "el proxy declarado no responde" de "el proxy responde y
-// no conoce la ruta", que degradan con motivos distintos.
+// acceptsConnections separates "the declared proxy port answers nobody" from "the proxy answers but does not know the route", which degrade with different reasons.
 func (c *Client) acceptsConnections(proxyPort int) bool {
 	conn, err := net.DialTimeout("tcp",
 		net.JoinHostPort("127.0.0.1", strconv.Itoa(proxyPort)), c.timeout)
@@ -372,9 +202,7 @@ func (c *Client) acceptsConnections(proxyPort int) bool {
 	return true
 }
 
-// classify traduce un error del binario al motivo de degradación que se
-// publica. El timeout tiene su propio motivo porque su aviso al usuario es
-// distinto: no es que portless falle, es que no respondió.
+// classify: a timeout gets its own reason because the warning differs - portless did not answer is not portless failed.
 func classify(err error) string {
 	switch {
 	case err == nil:
@@ -390,14 +218,7 @@ func classify(err error) string {
 	}
 }
 
-// isMissingBinary distingue "no hay binario" de "el binario falló".
-//
-// No basta con errors.Is(err, exec.ErrNotFound): con una RUTA que no existe,
-// exec.Command no devuelve ErrNotFound sino el error de fork/exec ("no such file
-// or directory"), así que un binario ausente y uno roto darían el mismo aviso —
-// y el usuario acabaría depurando un portless roto que no existe, o un Node
-// viejo que no es la causa. Los dos motivos se distinguen por el texto porque
-// no hay más señal disponible.
+// errors.Is(err, exec.ErrNotFound) is not enough: a missing path fails as fork/exec "no such file or directory", so a missing and a broken binary would otherwise share one warning.
 func isMissingBinary(err error) bool {
 	if errors.Is(err, exec.ErrNotFound) {
 		return true
@@ -405,15 +226,7 @@ func isMissingBinary(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "no such file or directory")
 }
 
-// Warn devuelve el aviso que el usuario ve para un resultado dado, o "" si no
-// hay nada que avisar. Va al canal de avisos que YA existe (Result.Warnings de
-// startsvc → log del servicio en CLI, notificación visible en la TUI): no se
-// inventa un canal nuevo.
-//
-// El texto nombra el fallo CONCRETO, porque un aviso que no dice qué pasa no
-// es un aviso: es ruido. Y todos dicen lo mismo en lo importante — el servicio
-// sigue vivo en su puerto — para que la ausencia de ruta nunca se lea como una
-// caída.
+// Warn rides the existing Result.Warnings channel and every message ends by saying the service is still alive on its own port, so a missing route never reads as a crash.
 func Warn(r Result) string {
 	switch r.Reason {
 	case "":
@@ -448,76 +261,26 @@ func Warn(r Result) string {
 	}
 }
 
-// routeState es lo que se ha podido PROBAR de una ruta ajena al registro. La
-// distinción entre "viva" y "enrutada pero muerta" es la que hace que la
-// reconciliación sirva de algo: una ruta cuyo backend no responde es exactamente
-// la huella que deja un vroom que murió sin parar su servicio.
+// routeState splits routed-but-dead from alive because a route whose backend is gone is exactly the footprint of a vroom that died without stopping its service.
 type routeState int
 
 const (
-	// routeUnknown: el proxy no sirve esta ruta (404) o no hay proxy. No
-	//responde.
 	routeUnknown routeState = iota
-	// routeRoutedDead: el proxy ENRUTA la ruta y el backend no responde (502).
 	routeRoutedDead
-	// routeAlive: el proxy enruta la ruta y hay alguien detrás.
 	routeAlive
 )
 
-// Reconcile limpia las rutas que este servicio se dejó a sí mismo en un
-// arranque anterior. Es OBLIGATORIA en cada arranque, no una mejora pendiente.
-//
-// Por qué no puede delegarse: `portless prune` NO toca las rutas de alias
-// (`pid: 0`, contadas como activas, M5) — medido, no supuesto. Luego vroom es
-// lo ÚNICO que puede limpiarlas, y una ruta que dejó un vroom que murió sin
-// parar su servicio sería permanente sin esto.
-//
-// La regla que gobierna la limpieza es el fallo cerrado que ya gobierna el
-// cambio de puertos: sólo se retira lo que se puede PROBAR propio —el nombre y
-// el puerto que este servicio persistió—, y una ruta que responde con OTRO
-// puerto se avisa pero no se toca, porque no hay forma de probar que sea ajena.
-// Borrar algo ajeno es peor que dejar una ruta de más.
-//
-// prev es el nombre que este servicio persistió en su Meta anterior ("" si no
-// registró ninguno) y prevPort el puerto al que apuntaba, que es lo que permite
-// Reconcile limpia las rutas que este servicio se dejó a sí mismo en un
-// arranque anterior. Es OBLIGATORIA en cada arranque, no una mejora pendiente.
-//
-// held es lo que se sabe de la ruta anterior: NO un puerto. Un puerto crudo
-// sobre un handle vivo es una autoridad de borrado REAL sobre un nombre que
-// vroom puede haber descartado ya —la revocación conserva el handle a propósito,
-// para que la reconciliación tenga dónde mirar, así que(handle vivo) ≠ (somos
-// dueños)—. La autoridad para borrar la aporta held.Authorises.
-//
-// Por qué no puede delegarse: `portless prune` NO toca las rutas de alias
-// (`pid: 0`, contadas como activas, M5) — medido, no supuesto. Luego vroom es
-// lo ÚNICO que puede limpiarlas, y una ruta que dejó un vroom que murió sin
-// parar su servicio sería permanente sin esto.
+// Reconcile is mandatory on every startup because portless prune never touches alias routes (pid: 0, counted as active, M5), so vroom is the only thing that can clean them; cleanup is fail-closed, removing only a provably own route and merely warning about one answering on another port, because nobody can prove it is someone else's; and held is an Ownership rather than a bare port, since revocation deliberately keeps the handle for reconciliation, so a live handle does not mean we still own the name.
 
 func (c *Client) Reconcile(prev string, held Ownership, current string) []string {
 	if !c.HasBinary() || prev == "" || prev == current {
-		return nil // nada que reconciliar, o ya es la misma ruta
+		return nil
 	}
 
 	published, st := c.liveRoute(prev)
 	switch {
 	case st == routeUnknown:
-		// No se puede saber si hay alguien detrás. published es 0 SIEMPRE en
-		// esta rama —liveRoute devuelve (0, routeUnknown) en sus dos caminos de
-		// "no sé"—, así que no hay puerto con el que comparar.
-		//
-		// Con el puerto no se puede, y la única evidencia disponible es la
-		// PROPIEDAD: si seguimos teniendo una concesión sin revocar sobre este
-		// nombre, la ruta es nuestra y retirarla es lo que toca. Si la
-		//laihad revocar —porque alguien ya la retiró o porque el Meta es de antes
-		// de route_owned— NO se toca nada, porque no se puede probar que sea
-		// nuestra y borrar lo ajeno es el daño que todo esto evita.
-		//
-		// La versión anterior de esta guarda era
-		// `!held.Authorises(published) && published != 0`, y era CÓDIGO MUERTO:
-		// published != 0 no se cumple nunca en esta rama y Authorises(0)
-		// exige Port > 0. Remove corría sin comprobar propiedad alguna.
-		// Reproducido contra portless real en los dos estados que la disparan.
+		// liveRoute returns published == 0 in this branch, so ownership is the only evidence left: without an unrevoked lease the route stays, because deleting someone else's route is the harm this all avoids.
 		if !held.Owned {
 			return []string{fmt.Sprintf(
 				"a portless route named %q is no longer served and vroom no longer owns it; it was left untouched",
@@ -526,15 +289,11 @@ func (c *Client) Reconcile(prev string, held Ownership, current string) []string
 		_ = c.Remove(prev)
 		return nil
 	case published != held.Port:
-		// Responde, pero en un puerto que no es el que persistimos: no es
-		// nuestra. Se avisa y NO se toca. Nadie puede probar lo contrario.
+		// It answers on a port we never persisted, so it is not ours and stays untouched; nobody can prove otherwise.
 		return []string{fmt.Sprintf(
 			"a portless route named %q is already serving another port (%d); it was left untouched",
 			Hostname(prev), published)}
 	case st == routeRoutedDead:
-		// El nombre y el puerto son los que persistimos y la propiedad está
-		// viva: es nuestra, y no hay nadie detrás. Es la huella de un vroom que
-		// murió sin parar, y es lo único que prune no limpia.
 		if !held.Authorises(published) {
 			return []string{fmt.Sprintf(
 				"a portless route named %q is no longer served and vroom no longer owns it; it was left untouched",
@@ -543,37 +302,29 @@ func (c *Client) Reconcile(prev string, held Ownership, current string) []string
 		_ = c.Remove(prev)
 		return nil
 	default:
-		return nil // viva y con nuestro puerto: no se toca. Idempotente.
+		return nil
 	}
 }
 
-// liveRoute sondea un nombre de ruta contra el proxy vivo y devuelve el puerto
-// que portless publica para él, y en qué estado se ha encontrado.
-//
-// Las dos cosas se necesitan juntas: que responda no basta (podría estar
-// sirviendo OTRO nombre) y el puerto del fichero tampoco basta (M2: sólo
-// prueba que escribimos). Por eso se cruzan.
+// liveRoute needs both signals: a response alone could be another name, and the stored port alone only proves we wrote (M2).
 func (c *Client) liveRoute(name string) (int, routeState) {
 	proxyPort, err := c.ProxyPort()
 	if err != nil {
-		return 0, routeUnknown // no hay proxy: nada responde
+		return 0, routeUnknown
 	}
 	for _, scheme := range []string{"https", "http"} {
 		status, err := c.probeWithTimeout(scheme, Hostname(name), proxyPort, probePath)
 		if err != nil {
-			continue // fallo de conexión o timeout: nadie atiende
+			continue
 		}
 		if status == 404 {
-			continue // el proxy no conoce el host: no lo está sirviendo
+			continue
 		}
 		published, found, lookupErr := c.Lookup(name)
 		if lookupErr != nil || !found {
 			continue
 		}
 		if isBackendDown(status) {
-			// MEDIDO: el proxy enruta la ruta y devuelve 502 porque el backend
-			// no responde. Prueba que la ruta existe, y NO que haya alguien
-			// detrás — que es justo la huella de un servicio muerto.
 			return published, routeRoutedDead
 		}
 		return published, routeAlive
@@ -581,13 +332,7 @@ func (c *Client) liveRoute(name string) (int, routeState) {
 	return 0, routeUnknown
 }
 
-// isBackendDown distingue "el proxy enruta pero el servicio no responde" de
-// "hay alguien sirviendo". Sólo los errores de pasarela generated por el proxy
-// cuentan: un 500 lo genera la propia app, que está viva.
-//
-// Es la misma distinción que gobierna la verificación del alta —donde 502 SÍ
-// prueba el enrutado— pero aquí la pregunta es otra: no importa si el proxy
-// enruta, sino si hay alguien detrás que justifique dejar la ruta.
+// isBackendDown counts only the proxy's own gateway errors: a 500 comes from the app itself, which is alive, and here the question is who is behind, not whether the proxy routes.
 func isBackendDown(status int) bool {
 	return status == http.StatusBadGateway || status == http.StatusGatewayTimeout
 }

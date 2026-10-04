@@ -12,36 +12,7 @@ import (
 	gopsprocess "github.com/shirou/gopsutil/v3/process"
 )
 
-// ---------------------------------------------------------------------------
-// El descubrimiento del puerto en sus tres desenlaces, y las degradaciones que
-// sólo se ven cuando /proc no responde como se espera.
-//
-// Los tres desenlaces son los que el llamador de `DiscoverPort` tiene que saber
-// distinguir, y cada uno tiene un camino de salida distinto:
-//
-//   - R1: el puerto reservado está escuchando. Determinista, sin heurística.
-//   - Estabilización: hay listeners y el conjunto deja de crecer. Se acepta.
-//   - Sin decidir: hay listeners, el conjunto no se estabiliza y el plazo vence.
-//
-// El segundo y el tercero son LA MISMA condición con distinta respuesta, y esa
-// diferencia es el contrato: "todavía no puedo saberlo" no es "no tiene puerto".
-// Por eso este archivo insiste en el tercero, que es el que se confunde con el
-// cuarto veredicto (no expone puerto) y hace que la UI diga que un servicio está
-// sano cuando en realidad nadie sabe qué puerto escucha.
-// ---------------------------------------------------------------------------
-
-// TestDiscoverPortEsperaAQueElConjuntoDeListenersSeEstabilice: la ventana de
-// estabilización, cuando el listener NO es el puerto reservado.
-//
-// Es el caso que el resto de la suite no toca: los tests que ya existían pasaban
-// el puerto reservado como `reserved`, así que salían por R1 —que devuelve sin
-// esperar— y nunca llegaban a la cuenta atrás de `discoverSettle`.
-//
-// Y esa cuenta atrás es el comportamiento que importa: una app que abre listeners
-// por etapas (metrics en una goroutine, main en otra) tiene un momento en el que
-// el primer listener ya está accepting y el principal todavía no. Aceptar la
-// primera muestra elige el de metrics, y vroom publicaría una URL que devuelve
-// health checks del endpoint equivocado.
+// The other tests all passed the reserved port, so they exited by R1 without waiting and never reached the discoverSettle countdown.
 func TestDiscoverPortEsperaAQueElConjuntoDeListenersSeEstabilice(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -54,7 +25,7 @@ func TestDiscoverPortEsperaAQueElConjuntoDeListenersSeEstabilice(t *testing.T) {
 
 	m := newTestManager(t)
 	dir := t.TempDir()
-	// reserved = 0 a propósito: sin atajo R1, el único camino es estabilizar.
+	// reserved = 0 on purpose: without the R1 shortcut the only path is to settle.
 	res := startSleep(t, m, StartSpec{
 		Command:    "setsid " + testBinary(t) + " -test.run=^TestHelperListener$ & sleep 120",
 		WorkDir:    dir,
@@ -72,15 +43,11 @@ func TestDiscoverPortEsperaAQueElConjuntoDeListenersSeEstabilice(t *testing.T) {
 	if d.Port != port {
 		t.Errorf("DiscoverPort = %+v, want el puerto %d del único listener", d, port)
 	}
-	// Un solo listener estabilizado es un hecho, no una suposición: por eso sale
-	// `Verified`, que es lo que la UI usa para decir que la ruta funciona.
 	if !d.Verified {
 		t.Error("Verified en false con un solo listener estabilizado: la UI no puede afirmar que " +
 			"la ruta funciona y el servicio aparece sin URL")
 	}
-	// Y tuvo que ESPERAR: la ventana de estabilización es el comportamiento, no un
-	// detalle de temporización. Sin esta comprobación, un discovery que aceptase la
-	// primera muestra pasaría el test anterior.
+	// It must have WAITED: accepting the first sample is exactly the bug the settle window prevents.
 	if esperado < discoverSettle {
 		t.Errorf("decidió en %s, want al menos %s: aceptó la primera muestra sin esperar a que el "+
 			"conjunto dejara de crecer, que es exactamente el bug que la ventana previene",
@@ -91,19 +58,7 @@ func TestDiscoverPortEsperaAQueElConjuntoDeListenersSeEstabilice(t *testing.T) {
 	}
 }
 
-// TestDiscoverPortNoDecideUnConjuntoQueNoSeEstabiliza: los listeners que no paran
-// de aparecer.
-//
-// El helper abre y cierra un listener efímero cada 80 ms, así que el conjunto que
-// ve el discovery cambia en cada muestra y nunca lleva `discoverSettle` quieto.
-// Con el plazo vencido y listeners presentes, la respuesta tiene que ser "sin
-// decidir", no "no tiene puerto".
-//
-// MEDIDO: la diferencia importa porque las dos se_reportan al usuario de forma
-// distinta. `Unresolved` produce `port_unresolved`, que la TUI pinta como
-// "arrancándose" y `vroom list --json` declara explícitamente; un `DiscoveryResult{}`
-// vacío produciría `no_port`, que afirma una cosa que no se ha comprobado: que el
-// servicio no expone NINGÚN puerto TCP.
+// MEDIDO: Unresolved yields port_unresolved while an empty result yields no_port, which asserts something never checked - that the service exposes no TCP port at all.
 func TestDiscoverPortNoDecideUnConjuntoQueNoSeEstabiliza(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -122,8 +77,7 @@ func TestDiscoverPortNoDecideUnConjuntoQueNoSeEstabiliza(t *testing.T) {
 	})
 	t.Cleanup(func() { _ = m.Stop(StopSpec{Pid: res.Pid, Pgid: res.Pgid, Timeout: time.Second}) })
 
-	// Plazo corto a propósito: no hace falta agotarlo, sólo llegar a él con
-	// listeners delante.
+	// Short deadline on purpose: reaching it with listeners present is enough.
 	d := DiscoverPort(res.Pid, 0, "/health", 900*time.Millisecond)
 
 	if !d.Unresolved {
@@ -137,49 +91,22 @@ func TestDiscoverPortNoDecideUnConjuntoQueNoSeEstabiliza(t *testing.T) {
 	if d.Verified {
 		t.Error("Verified en true sin decidir: afirmaría que la ruta funciona sin haberlo comprobado")
 	}
-	// Y no es un veredicto de muerte: el linaje sigue vivo.
 	if d.LineageDead {
 		t.Error("LineageDead con el helper corriendo: sin deciding el puerto, el proceso sigue ahí")
 	}
 }
 
-// TestDescendantsDeUnProcRootInexistenteNoDevuelveNada: la degradación del
-// snapshot.
-//
-// `descendantsAt` es lo que hace que el Stop por linaje mate a los nietos en vez
-// de sólo al hijo. Si /proc no se puede leer, la respuesta tiene que ser "no sé de
-// quién es", que degrada a matar sólo la raíz, y no "no tiene descendientes" con
-// la misma consequence… que es exactamente lo mismo aquí, pero la diferencia está
-// en que el código tiene que distinguish la ausencia de conocimiento de la ausencia
-// de hijos para no tratar el caso bueno por accidente.
 func TestDescendantsDeUnProcRootInexistenteNoDevuelveNada(t *testing.T) {
 	if got := descendantsAt("/proc/definitely-not-here", os.Getpid()); len(got) != 0 {
 		t.Errorf("descendantsAt con un /proc inexistente devolvió %v, want nada", got)
 	}
-	// Y lo mismo para el camino que cruza sockets con el linaje.
 	if got := lineageListenersAt("/proc/definitely-not-here", os.Getpid()); got != nil {
 		t.Errorf("lineageListenersAt con un /proc inexistente devolvió %v, want nil", got)
 	}
 }
 
-// TestDescendantsFromTerminaAnteUnCicloEnElArbol: la guarda de visitados.
-//
-// MEDIDO, y es lo que costó ver: en un /proc real la guarda NO se puede alcanzar por
-// duplicados. Cada proceso aparece una vez en el snapshot y con un único `ppid`, así
-// que `children[ppid]` no puede listar dos veces al mismo pid. Mi primera versión de
-// este test montaba un "rombo" —4 hijo de 2 y de 3— y no era un rombo: con un `ppid`
-// por proceso eso es imposible, y el `continue` no se ejecutaba nunca.
-//
-// Lo único que puede activarla es un CICLO: un pid cuyo padre es su propio
-// descendiente. El kernel no lo produce, pero la función es un BFS sobre un mapa que
-// le pasa quien llama, y un BFS sin guarda de visitados sobre un ciclo NO TERMINA.
-//
-// Y el fallo no es un return raro: `descendantsAt` es lo que `Stop` usa para decidir a
-// quién matar, así que un bucle infinito ahí deja a vroom colgado con el servicio
-// intacto y sin devolver el control. Un hang es el peor resultado posible de una
-// función que sólo tiene que devolver una lista.
 func TestDescendantsFromTerminaAnteUnCicloEnElArbol(t *testing.T) {
-	// 1 → 2 → 3 → 1. La raíz reaparece como hija de su propio descendiente.
+	// 1 -> 2 -> 3 -> 1: the root reappears as a child of its own descendant.
 	snap := map[int]procInfo{
 		1: {pid: 1, ppid: 3},
 		2: {pid: 2, ppid: 1},
@@ -187,8 +114,7 @@ func TestDescendantsFromTerminaAnteUnCicloEnElArbol(t *testing.T) {
 		4: {pid: 4, ppid: 2},
 	}
 
-	// Si la guarda no estuviera, esto no devolvería nunca y el test colgaría el
-	// binario de test, que es la forma más clara de que el hang es real.
+	// Without the guard this never returns and hangs the test binary, which is the clearest proof that the hang is real.
 	got := descendantsFrom(snap, 1)
 
 	if len(got) != 2 || got[0] != 2 || got[1] != 4 {
@@ -202,16 +128,7 @@ func TestDescendantsFromTerminaAnteUnCicloEnElArbol(t *testing.T) {
 	}
 }
 
-// TestDescendantsFromIgnoraUnProcesoQueEsSuPropioPadre: el otro filtro del BFS.
-//
-// El `continue` de la construcción de `children` existe por un caso que sí ocurre:
-// `/proc` guarda el ppid del proceso que ya se está muriendo, y hay ventanas en las que
-// un reaping va rápido. Más relevante: el pid 1 tiene ppid 0 y el kernel no garantiza
-// que un pid zombie conserve su padre.
-//
-// El efecto de colgarlo de sí mismo es que `children[p]` incluye a `p`, y el BFS se
-// visiting a sí mismo en cada vuelta. Con la guarda de visitados no cuelga, pero el
-// proceso aparecería como descendiente de sí mismo en el Stop.
+// The kernel keeps a dying process's ppid, pid 1 has ppid 0, and a zombie is not guaranteed to keep its parent, so children[p] can contain p.
 func TestDescendantsFromIgnoraUnProcesoQueEsSuPropioPadre(t *testing.T) {
 	snap := map[int]procInfo{
 		1: {pid: 1, ppid: 0},
@@ -230,26 +147,18 @@ func TestDescendantsFromIgnoraUnProcesoQueEsSuPropioPadre(t *testing.T) {
 	}
 }
 
-// TestParseThreadStatConUnStimeNoNumericoEsUnStatInvalido: el campo 15 roto.
-//
-// utime y stime se parsean por separado y con el mismo criterio, pero un stat real
-// puede tener uno bueno y el otro basura: basta con un `/proc` de una versión
-// distinta, o un fichero escrito a mano. Lo que no puede pasar es devolver un
-// recuento de ticks con un campo del medio sin leer, porque el resultado se usa
-// para calcular el % de CPU y un 0 silencioso hace que un hilo saturado parezca
-// inactivo.
+// A real stat can hold one good field and one garbage one, but never a tick count with a field skipped, because a silent 0 makes a saturated thread look idle.
 func TestParseThreadStatConUnStimeNoNumericoEsUnStatInvalido(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "stat")
 
-	// 13 campos después del ')': state + 12 más. utime en rest[11] bien, stime en
-	// rest[12] con basura.
+	// 13 fields after the ')': utime in rest[11] is good, stime in rest[12] is garbage.
 	escribirStat(t, path, "R 0 0 0 0 0 0 0 0 0 0 1234 no-es-un-número")
 	if _, _, err := parseThreadStat(path); err == nil {
 		t.Fatal("un stime no numérico tiene que ser un stat inválido, no ticks 1234")
 	}
 
-	// Y el caso bueno, para que la prueba sea del parsing y no del rechazo.
+	// The good case too, so this tests parsing and not only rejection.
 	escribirStat(t, path, "R 0 0 0 0 0 0 0 0 0 0 100 200")
 	state, ticks, err := parseThreadStat(path)
 	if err != nil {
@@ -258,15 +167,11 @@ func TestParseThreadStatConUnStimeNoNumericoEsUnStatInvalido(t *testing.T) {
 	if state != "R" {
 		t.Errorf("state = %q, want R", state)
 	}
-	// ticks es utime + stime, no uno de los dos: el porcentaje de CPU de un hilo
-	// cuenta el tiempo en sistema igual que en usuario.
 	if ticks != 300 {
 		t.Errorf("ticks = %d, want 300 (utime 100 + stime 200)", ticks)
 	}
 }
 
-// escribirStat escribe un /proc/<tid>/stat sintético: pid, comm entre paréntesis y
-// los campos a partir del estado.
 func escribirStat(t *testing.T, path, rest string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte("42 (un nombre con (paréntesis) "+rest+"\n"), 0o644); err != nil {
@@ -274,28 +179,8 @@ func escribirStat(t *testing.T, path, rest string) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// `Evaluate` cuando el PID del meta está muerto y hay que decidir por señales
-// externas.
-//
-// Este es el caso que hace que vroom no se equivoque con un twin: un servicio
-// reiniciado FUERA de vroom deja un meta con el PID viejo, que ya no existe, pero
-// con el puerto abierto. Decir "running" porque el puerto responde sería
-// afirmar la salud de quien lo haya abierto, que puede ser otro servicio con el
-// mismo número de puerto.
-// ---------------------------------------------------------------------------
+// A service restarted outside vroom leaves a meta with a dead pid but an open port, so answering running would vouch for whoever opened it.
 
-// TestEvaluateConUnPuertoDePropietarioAmbiguoDegradaAIndeterminado: dos dueños,
-// ninguna prueba.
-//
-// El mismo número de puerto escuchando en IPv4 y en IPv6 da DOS entradas en
-// /proc/net/tcp{,6} para un solo proceso. `PortOwnerPID` no puede deducir cuál de
-// las dos es la del servicio, así que devuelve 0 y el veredicto tiene que ser
-// indeterminado.
-//
-// Y el orden importa: un `running` aquí haría que vroom dijera que el servicio
-// está sano cuando lo único que sabe es que ALGO escucha en ese número, que
-// puede ser el servicio de otro worktree.
 func TestEvaluateConUnPuertoDePropietarioAmbiguoDegradaAIndeterminado(t *testing.T) {
 	port := freePortForHelper(t)
 
@@ -311,9 +196,7 @@ func TestEvaluateConUnPuertoDePropietarioAmbiguoDegradaAIndeterminado(t *testing
 	}
 	defer func() { _ = v6.Close() }()
 
-	// MEDIDO: las dos entradas son del MISMO proceso, y aun así hay dos. La
-	// ambigüedad no necesita dos procesos: basta con que el mismo escuche en las
-	// dos familias. Por eso `PortOwnerPID` devuelve 0 con `len(owners) == 2`.
+	// MEDIDO: both entries belong to the SAME process and there are still two, so ambiguity needs no second process - one process on both address families is enough.
 	if pids := PortOwnerPIDs(port); len(pids) != 2 {
 		t.Skipf("esta máquina no da dos dueños para el mismo número de puerto (obtuve %v): "+
 			"la condición del test no se cumple", pids)
@@ -329,17 +212,7 @@ func TestEvaluateConUnPuertoDePropietarioAmbiguoDegradaAIndeterminado(t *testing
 	}
 }
 
-// TestEvaluateConElPuertoDeUnProcesoVivoLoDaPorRunningConPruebaDePropiedad: el
-// caso bueno del mismo camino.
-//
-// Cuando hay UN solo dueño y su creation time es la que dice el meta, sí hay
-// prueba, y el veredicto es `running`. La comparación de creation time es lo que
-// distingue este caso del anterior: mismo puerto abierto, pero aquí se sabe de
-// quién es.
-//
-// El listener se abre en el proceso de test a propósito: así el creation time que
-// hay que comparar es el del propio binario de test, que se puede leer del mismo
-// sitio que lee producción.
+// The listener is opened in the test process so the creation time compared is the test binary's, read from the same source production reads.
 func TestEvaluateConElPuertoDeUnProcesoVivoLoDaPorRunningConPruebaDePropiedad(t *testing.T) {
 	port := freePortForHelper(t)
 	ln, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))
@@ -366,9 +239,6 @@ func TestEvaluateConElPuertoDeUnProcesoVivoLoDaPorRunningConPruebaDePropiedad(t 
 		t.Errorf("Evaluate = %v, want running: hay un único dueño vivo y su creation time es la del meta", got)
 	}
 
-	// Y el contraste que da sentido a la comparación: el MISMO puerto con un
-	// creation time que no es el suyo es de otro proceso que ocupó el número, así
-	// que tiene que ser stopped y no running.
 	otro := NewManager().Evaluate(EvalSpec{
 		Pid:            0,
 		Port:           port,
@@ -380,21 +250,13 @@ func TestEvaluateConElPuertoDeUnProcesoVivoLoDaPorRunningConPruebaDePropiedad(t 
 	}
 }
 
-// TestReservePortSaltaLosPuertosQueElSistemaYaTieneOcupados: el `continue` del
-// pool.
-//
-// El set en memoria y el sistema son dos fuentes de verdad distintas: algo que no
-// es vroom —otra instancia, un servicio del sistema, un puerto efímero del kernel
-// en su rango— puede tener tomado el puerto que el set cree libre. La respuesta
-// correcta es pasar al siguiente del rango, no fallar: el pool tiene mil puertos y
-// el rango es del kernel, no nuestro.
+// The in-memory set and the system are two sources of truth, and a foreign holder means take the next port rather than fail: the range belongs to the kernel, not to vroom.
 func TestReservePortSaltaLosPuertosQueElSistemaYaTieneOcupados(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: socket real")
 	}
 
-	// Se ocupa el PRIMER puerto del rango, que es exactamente por donde empieza
-	// el bucle, así que la primera iteración tiene que fallar y continuar.
+	// Occupies the FIRST port of the range, exactly where the loop starts, so the first iteration must fail and continue.
 	bloqueo, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", DynamicPortLow))
 	if err != nil {
 		t.Skipf("el puerto %d del rango está ocupado por otra cosa: %v", DynamicPortLow, err)

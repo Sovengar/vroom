@@ -15,27 +15,6 @@ import (
 	"vroom/internal/manifest"
 )
 
-// ---------------------------------------------------------------------------
-// Los ultimos bordes: ramas de un statement que seemed decorativas hasta que se
-// miro por que existian. Todas comparten una forma: una condicion que el codigo
-// de produccion hace imposible o casi imposible, y que sin embargo tiene un
-// comportamiento que DEPENDE de ella.
-//
-// No se eliminan como el `len(result)==0` de bordered (guarda de runtime
-// imposible): estas son validas y un cambio futuro las puede activar. Se
-// cubren para que su comportamiento sea conocido en vez de supuesto.
-// ---------------------------------------------------------------------------
-
-// TestHostnameNoDuplicaElSufijoNiLoPierde: la normalizacion de Hostname. Un
-// nombre que ya acaba en .localhost no debe duplicarlo (alias y --remove
-// normalizan igual, asi que vroom puede pasar cualquiera de las dos formas), y
-// uno que solo tiene el sufijo no debe producir nada.
-//
-// El segundo caso del test es el que no es obvio: "..localhost" colapsa los
-// puntos DESPUES de quitar el sufijo, asi que puede RECONSTRUIR uno. Por eso el
-// HasSuffix de Hostname existe y no es decorativo: sin el, la entrada
-// "a..localhost" —que sanitize reduce a "a"— no fallaria, pero una entrada donde
-// el colapso reconstruya el sufijo devolveria "x.localhost.localhost".
 func TestHostnameNoDuplicaElSufijoNiLoPierde(t *testing.T) {
 	tests := []struct {
 		name string
@@ -52,10 +31,7 @@ func TestHostnameNoDuplicaElSufijoNiLoPierde(t *testing.T) {
 		{"con espacios alrededor", "  svc  ", "svc.localhost"},
 		{"subdominio", "a.b", "a.b.localhost"},
 		{
-			// El caso que hace que el HasSuffix de Hostname exista: quitar el
-			// sufijo ocurre ANTES de colapsar los puntos, asi que una entrada
-			// con ".localhost" separado puede RECONSTRUIR el sufijo al colapsar.
-			// Sin el HasSuffix, esta devolveria "x.localhost.localhost".
+			// Stripping the suffix happens BEFORE collapsing dots, so it can rebuild it: without the HasSuffix this yields "x.localhost.localhost".
 			"sufijo reconstruido por el colapso de puntos",
 			"localhost..LocalHostLocalHost", "localhost.localhost",
 		},
@@ -70,11 +46,6 @@ func TestHostnameNoDuplicaElSufijoNiLoPierde(t *testing.T) {
 	}
 }
 
-// TestHostnameNuncaEmiteElSufijoDosVeces: invariante sobre un barrido. El
-// sufijo ".localhost" tiene que aparecer UNA vez como mucho en la salida, y solo
-// si queda algo antes. Se recorre un conjunto de entradas adversariales —con
-// puntos, guiones, mayusculas y sufijo repetido— porque la combinacion de "quitar
-// el sufijo" y "colapsar puntos" es donde un nombre malformado se escapa.
 func TestHostnameNuncaEmiteElSufijoDosVeces(t *testing.T) {
 	atoms := []string{"", ".", "..", "a", "svc", "-", "_", "localhost", ".localhost", "LocalHost", "9"}
 	checked := 0
@@ -104,9 +75,6 @@ func TestHostnameNuncaEmiteElSufijoDosVeces(t *testing.T) {
 	t.Logf("barridas %d combinaciones", checked)
 }
 
-// TestDeriveNameAutoSinRamaUsaElProyecto: en auto, sin rama utilizable, el
-// nombre cae al proyecto. Es la degradacion honesta: se sigue Derrickndo una
-// direccion en vez de fallar, y el conflicto por rama repetida lo reporta Apply.
 func TestDeriveNameAutoSinRamaUsaElProyecto(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -131,10 +99,6 @@ func TestDeriveNameAutoSinRamaUsaElProyecto(t *testing.T) {
 	}
 }
 
-// TestDeriveNameAutoSinRamaNiProyectoUtilizableFalla: sin rama Y sin proyecto
-// utilizable no hay nada que derivar. Falla en vez de inventar un nombre: un
-// nombre inventado seria una ruta que colisionaria con la de otro sin que nada
-// lo dijera.
 func TestDeriveNameAutoSinRamaNiProyectoUtilizableFalla(t *testing.T) {
 	got, err := DeriveName(manifest.RouteModeAuto, "", "", "!!!")
 
@@ -146,9 +110,6 @@ func TestDeriveNameAutoSinRamaNiProyectoUtilizableFalla(t *testing.T) {
 	}
 }
 
-// TestDeriveNameAutoPrefiereLaRama: el orden de la derivacion. La rama manda
-// porque auto es SCOPE DE RAMA, no de worktree: dos ramas distintas del mismo
-// repo no pueden compartir direccion.
 func TestDeriveNameAutoPrefiereLaRama(t *testing.T) {
 	got, err := DeriveName(manifest.RouteModeAuto, "", "feature/login", "tienda-api")
 	if err != nil {
@@ -159,9 +120,6 @@ func TestDeriveNameAutoPrefiereLaRama(t *testing.T) {
 	}
 }
 
-// TestResolveBinaryEncuentraElDelPATH: el segundo paso del orden. Con
-// PORTLESS_BIN vacio y un portless ejecutable en el PATH, tiene que resolverlo
-// sin llegar a los shims.
 func TestResolveBinaryEncuentraElDelPATH(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "portless")
@@ -179,10 +137,7 @@ func TestResolveBinaryEncuentraElDelPATH(t *testing.T) {
 	}
 }
 
-// TestResolveBinaryIgnoraUnFicheroNoEjecutableDelPATH: LookPath exige permiso de
-// ejecucion. Resolver un fichero sin el bit seria devolver un binario que no se
-// puede ejecutar, y el error seria un "permission denied" en vez del aviso claro
-// de "no hay portless".
+// Without the exec bit LookPath refuses it, which keeps the clear "no portless" warning instead of a later permission denied.
 func TestResolveBinaryIgnoraUnFicheroNoEjecutableDelPATH(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root puede ejecutar un fichero sin permiso de ejecucion: la rama no se puede provocar")
@@ -194,7 +149,6 @@ func TestResolveBinaryIgnoraUnFicheroNoEjecutableDelPATH(t *testing.T) {
 	}
 	t.Setenv("PORTLESS_BIN", "")
 	t.Setenv("PATH", dir)
-	// Un HOME sin shim: si el PATH no resuelve, no debe aparecer nada.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
@@ -203,13 +157,7 @@ func TestResolveBinaryIgnoraUnFicheroNoEjecutableDelPATH(t *testing.T) {
 	}
 }
 
-// TestHTTPProbeConElNombreDeUnProxyMuerto: httpProbe devuelve un error (no un
-// status) cuando no hubo respuesta. verify depende de esa distincion: un error
-// significa "ningun esquema respondio" y le deja seguir al siguiente, mientras
-// que un 404 significa "el proxy no conoce el host" y corta.
-//
-// Sin este test, un httpProbe que devolviera 0 con error en vez de propagar el
-// error haria que verify tratara un fallo de conexion como un 404.
+// A transport failure must return an error, never status 0: verify reads a bare 0 as a 404 and would stop trying schemes.
 func TestHTTPProbeConElNombreDeUnProxyMuerto(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -231,9 +179,6 @@ func TestHTTPProbeConElNombreDeUnProxyMuerto(t *testing.T) {
 	}
 }
 
-// TestHTTPProbePropagaElStatusDeVerdad: y el camino feliz, con el Host en la
-// peticion. El Host es lo que el proxy usa para elegir la ruta, asi que una
-// sonda que no lo enviara consultaria siempre la misma ruta por defecto.
 func TestHTTPProbePropagaElStatusDeVerdad(t *testing.T) {
 	var gotHost string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -257,10 +202,6 @@ func TestHTTPProbePropagaElStatusDeVerdad(t *testing.T) {
 	}
 }
 
-// TestAcceptsConnectionsConUnPuertoRealYCerrado: la distincion que verify usa
-// para separar "el puerto declarado esta muerto" de "el proxy responde y no
-// conoce la ruta". Un net.Dial de verdad, sin stub: lo que se comprueba es que
-// dialea o no.
 func TestAcceptsConnectionsConUnPuertoRealYCerrado(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -295,9 +236,6 @@ func TestAcceptsConnectionsConUnPuertoRealYCerrado(t *testing.T) {
 	_ = l.Close()
 }
 
-// TestDeriveNamedRechazaUnNombreNoUtilizable: en named, un route_name que no es
-// un hostname utilizable es un ERROR, no una degradacion: aqui el nombre es un
-// contrato (OAuth, CORS) y una direccion inventada no serviria de nada.
 func TestDeriveNamedRechazaUnNombreNoUtilizable(t *testing.T) {
 	for _, name := range []string{"", "   ", "!!!", ".localhost", "-"} {
 		got, err := DeriveName(manifest.RouteModeNamed, name, "", "proyecto")
@@ -307,9 +245,7 @@ func TestDeriveNamedRechazaUnNombreNoUtilizable(t *testing.T) {
 	}
 }
 
-// TestDeriveNamedIgnoraLaRama: named es estable por construccion, y es lo que
-// OAuth y CORS necesitan. Si dependiera de la rama, un `git branch -m` cambiaria
-// la URL de un callback ya configurado.
+// named must ignore the branch: OAuth and CORS callbacks are configured ahead of time, so a `git branch -m` would move the URL.
 func TestDeriveNamedIgnoraLaRama(t *testing.T) {
 	got, err := DeriveName(manifest.RouteModeNamed, "tienda", "cualquier-rama", "proyecto")
 	if err != nil {
@@ -320,9 +256,7 @@ func TestDeriveNamedIgnoraLaRama(t *testing.T) {
 	}
 }
 
-// TestDeriveNameRechazaUnModoDesconocido: un route_mode que EffectiveRouteMode
-// ya habria convertido en off. DeriveName es la segunda linea y tambien tiene que
-// rechazarlo, porque es publico y un llamador puede pasar la cadena cruda.
+// DeriveName is public and can get the raw string, so it must reject what EffectiveRouteMode already turned into off.
 func TestDeriveNameRechazaUnModoDesconocido(t *testing.T) {
 	for _, mode := range []string{"", "OFF", "auto ", "inventado"} {
 		got, err := DeriveName(mode, "tienda", "rama", "proyecto")
@@ -332,16 +266,13 @@ func TestDeriveNameRechazaUnModoDesconocido(t *testing.T) {
 	}
 }
 
-// TestRouteModeEnabledPuertaDeCompatibilidad: la condicion que gobierna
-// ClientFor. "" (manifiesto sin route_mode) tiene que estar DESHABILITADO, que es
-// la puerta hacia atras: un manifiesto que no declara nada se comporta como antes
-// de que existiera esta funcion.
+// An absent route_mode must be off: that is the backward-compatibility gate for manifests written before routes existed.
 func TestRouteModeEnabledPuertaDeCompatibilidad(t *testing.T) {
 	tests := []struct {
 		mode string
 		want bool
 	}{
-		{"", false}, // ausente: off, la puerta de compatibilidad
+		{"", false},
 		{manifest.RouteModeOff, false},
 		{manifest.RouteModeAuto, true},
 		{manifest.RouteModeNamed, true},
@@ -354,9 +285,6 @@ func TestRouteModeEnabledPuertaDeCompatibilidad(t *testing.T) {
 	}
 }
 
-// TestEffectiveRouteModeCaeAOff: un route_mode invalido tiene que acabar en off,
-// no en un valor que se propague. Es lo que hace que ClientFor devuelva nil ante un
-// manifiesto corrupto en ese campo.
 func TestEffectiveRouteModeCaeAOff(t *testing.T) {
 	for _, mode := range []string{"", "OFF", "Auto", "inventado", "auto "} {
 		m := &manifest.Manifest{Name: "svc", RouteMode: mode}
@@ -372,9 +300,6 @@ func TestEffectiveRouteModeCaeAOff(t *testing.T) {
 	}
 }
 
-// TestOwnershipAuthorisesSoloSuPropioPuerto: la regla que decide si se puede
-// reescribir una ruta o hay que declararla ajena. Con Owned=false no autoriza NADA
-// (aun con el puerto correcto), porque no hay prueba de que siga siendo nuestra.
 func TestOwnershipAuthorisesSoloSuPropioPuerto(t *testing.T) {
 	tests := []struct {
 		name string
@@ -398,10 +323,7 @@ func TestOwnershipAuthorisesSoloSuPropioPuerto(t *testing.T) {
 	}
 }
 
-// TestExecCommandSinSubcomandoNoRevienta: el error se nombra con args[0], y
-// antes de arreglarlo indexaba la lista a pelo. Con la lista vacia reventaba con
-// index out of range EN MEDIO DEL ARRANQUE, que es lo peor que puede hacer este
-// seam: su razon de existir es no colgar ni romper un arranque.
+// Empty args used to index out of range mid-startup, the worst thing this seam can do, so the error must name the binary instead.
 func TestExecCommandSinSubcomandoNoRevienta(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "falla")
@@ -409,7 +331,7 @@ func TestExecCommandSinSubcomandoNoRevienta(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, code, err := execCommand(context.Background(), script) // sin args
+	_, code, err := execCommand(context.Background(), script)
 
 	if err == nil {
 		t.Fatal("un exit 4 deberia ser error aunque no haya subcomando")
@@ -417,23 +339,12 @@ func TestExecCommandSinSubcomandoNoRevienta(t *testing.T) {
 	if code != 4 {
 		t.Errorf("code = %d, want 4", code)
 	}
-	// El error tiene que nombrar ALGO: sin subcomando nombra el binario.
 	if !strings.Contains(err.Error(), "falla") {
 		t.Errorf("el error no nombra ni el subcomando ni el binario: %q", err)
 	}
 }
 
-// TestVerifyDegradaCuandoElPuertoAceptaPeroNoHablaHTTP: el ultimo final de
-// verify, y el que mas se confunde con los demas.
-//
-// Un listener que ACEPTA la conexion pero no responde deja probe con error
-// (ningun esquema respondio) y acceptsConnections en true (el puerto vive).
-// Los otros dos finales degradados se separan por el status, asi que este solo
-// se alcanza aqui. La consecuencia es que se degrada con ReasonRouteNotServed:
-// hay alguien en el puerto, pero no es un proxy que sirva la ruta.
-//
-// Y Registered=true: el alta ocurrio antes de sondear y eso no lo deshace un
-// fallo de sonda.
+// A listener that accepts but never answers is the only path reaching ReasonRouteNotServed: the port is alive, so it cannot be ReasonProxyUnreachable.
 func TestVerifyDegradaCuandoElPuertoAceptaPeroNoHablaHTTP(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -446,13 +357,12 @@ func TestVerifyDegradaCuandoElPuertoAceptaPeroNoHablaHTTP(t *testing.T) {
 			if err != nil {
 				return
 			}
-			// Cierra sin responder: el dial funciona, el HTTP no.
 			_ = conn.Close()
 		}
 	}()
 
 	f := newFake()
-	f.noProxy = true // ninguna sonda recibe respuesta
+	f.noProxy = true
 	c := newClientWithProxy(t, l.Addr().(*net.TCPAddr).Port, f.exec)
 
 	r := c.Apply("svc", 8080, Ownership{})
@@ -471,20 +381,13 @@ func TestVerifyDegradaCuandoElPuertoAceptaPeroNoHablaHTTP(t *testing.T) {
 	}
 }
 
-// TestReconcileRetiraLaRutaEnrutaYMuertaCuandoEsNuestra: la limpieza que hace
-// falta Reconcile. La ruta esta ENRUTADA (el proxy la sirve con 502) y no hay
-// nadie detras, que es la huella que deja un vroom que murio sin parar su
-// servicio. Y es la unica que `portless prune` no limpia (M5, medido).
-//
-// La condicion de propiedad es la que se prueba aqui: con held.Authorises(published)
-// en true, la retirada proceeds. El caso contrario —la misma situacion sin
-// propiedad— NO retira y avisa, y esta cubierto aparte.
+// Routed with a dead backend and ours is the only cleanup `portless prune` does not do (M5), so the orphan would survive forever.
 func TestReconcileRetiraLaRutaEnrutaYMuertaCuandoEsNuestra(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
 	host := Hostname("ruta-vieja")
 	f.routes[host] = 8080
-	f.probeStatus = 502 // enruta, y el backend no responde
+	f.probeStatus = 502
 
 	held := Ownership{Owned: true, Port: 8080}
 	warnings := c.Reconcile("ruta-vieja", held, "ruta-nueva")
@@ -500,20 +403,7 @@ func TestReconcileRetiraLaRutaEnrutaYMuertaCuandoEsNuestra(t *testing.T) {
 	}
 }
 
-// TestReconcileNoRetiraUnaRutaEnrutaYMuertaSinPropiedad: MISMO estado que el
-// anterior —proxy enruta, 502, nadie detrás, y el puerto persistido COINCIDE con
-// el que sirve el proxy— pero con la propiedad revocada. No se puede probar que
-// sea nuestra, y borrar lo ajeno es el daño que todo esto evita.
-//
-// El estado de entrada es real y es el que dejó MEDIUM-C: un Meta con
-// route_port = 8080 y route_owned = false, que es lo que hay cuando alguien ya
-// retiró la ruta o cuando el Meta es de antes de que route_owned existiera. Que
-// el puerto coincida NO la salva, y esa es la parte importante: el puerto es un
-// número que no caduca, luego la autoridad es la propiedad.
-//
-// Si alguien cambiara la guarda para retirar en cuanto el puerto coincida, este
-// test falla y el anterior pasa: son la pareja mínima que hace verificable la
-// decisión.
+// Same 502 orphan with ownership revoked: a matching port is no proof, because a port is a number that does not expire and only ownership is authority.
 func TestReconcileNoRetiraUnaRutaEnrutaYMuertaSinPropiedad(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
@@ -521,8 +411,6 @@ func TestReconcileNoRetiraUnaRutaEnrutaYMuertaSinPropiedad(t *testing.T) {
 	f.routes[host] = 8080
 	f.probeStatus = 502
 
-	// El puerto coincide con el que sirve el proxy, pero la propiedad está
-	// revocada: el numero solo no autoriza nada.
 	held := Ownership{Owned: false, Port: 8080}
 	warnings := c.Reconcile("ruta-ajena", held, "ruta-nueva")
 
@@ -540,10 +428,6 @@ func TestReconcileNoRetiraUnaRutaEnrutaYMuertaSinPropiedad(t *testing.T) {
 	}
 }
 
-// TestHTTPProbeConUnHostnameNoParseable: la rama de error de http.NewRequest, que
-// ocurre antes de tocar la red. Se cubre con un hostname invalido, y lo que
-// importa es que devuelva ERROR y no un status: verify trata las dos cosas de
-// forma distinta, y un 0 disfrazado de status seria un 404.
 func TestHTTPProbeConUnHostnameNoParseable(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -559,22 +443,15 @@ func TestHTTPProbeConUnHostnameNoParseable(t *testing.T) {
 	}
 }
 
-// TestLiveRouteSaltaALLookupCuandoLaTablaNoLaTiene: el proxy ENRUTA la ruta
-// (responde 200, no 404) pero la tabla de `portless list` no la menciona.
-//
-// Sin ese salto, published seria 0 y la reconciliacion compararia 0 contra el
-// puerto persistido, y concluiria que "no es nuestra" cuando lo que pasa es que
-// la lectura de la tabla y la sonda discrepan. Es la ventana entre M8 y la sonda.
+// Routed but absent from list: without the early return published stays 0 and reconciliation reads "not ours" out of the M8/probe window.
 func TestLiveRouteSaltaALLookupCuandoLaTablaNoLaTiene(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
 	host := Hostname("ruta-fantasma")
-	// El proxy la sirve (no 404)…
 	f.routes[host] = 8080
 	f.serve404[host] = false
 	f.probeStatus = 200
 
-	// …pero list no la devuelve.
 	c.exec = func(ctx context.Context, bin string, args ...string) (string, int, error) {
 		if args[0] == "list" {
 			return "\nActive routes:\n\n", 0, nil
@@ -592,9 +469,6 @@ func TestLiveRouteSaltaALLookupCuandoLaTablaNoLaTiene(t *testing.T) {
 	}
 }
 
-// TestLiveRouteSaltaALLookupCuandoLaLecturaFalla: lo mismo, pero la lectura de
-// la tabla falla en vez de no encontrar la ruta. Distinguirlo de "no esta" es lo
-// que evita tratar un estado de portless ilegible como evidencia de nada.
 func TestLiveRouteSaltaALLookupCuandoLaLecturaFalla(t *testing.T) {
 	f := newFake()
 	c := f.client(t)

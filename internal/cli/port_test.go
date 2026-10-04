@@ -10,9 +10,7 @@ import (
 	"vroom/internal/state"
 )
 
-// El JSON emite el puerto REAL del servicio, no el declarado. El bug que
-// este feature elimina: ProjectInfo.Port se asignaba antes de
-// evaluateStatus, así que siempre ganaba el valor del manifiesto.
+// The JSON must emit the resolved port, not the declared one: ProjectInfo.Port used to be assigned before evaluateStatus, so the manifest value always won.
 func TestBuildProjectInfoEmitsResolvedPort(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
@@ -55,9 +53,7 @@ func TestBuildProjectInfoEmitsResolvedPort(t *testing.T) {
 	}
 }
 
-// Sin meta (servicio parado) el JSON vuelve al puerto declarado: es lo que
-// el usuario espera ver en un servicio que no está corriendo. Para uno PARADO
-// el declarado es la única información que existe, así que se conserva.
+// A stopped service falls back to the declared port because without meta that is the only information that exists.
 func TestBuildProjectInfoFallsBackToDeclaredPort(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	p := scanner.Project{

@@ -14,26 +14,7 @@ import (
 	"vroom/internal/state"
 )
 
-// ---------------------------------------------------------------------------
-// Los tea.Cmd de app.go y las funciones puras que los acompaña.
-//
-// Todos devuelven un Cmd —una función que devuelve un Msg— así que todos son
-// ejecutables en un test sin Bubbletea: se invoca el Cmd y se mira el Msg. Eso es
-// lo que hace falta para poder afirmar qué le dice la TUI al runtime.
-//
-// Y el msg es la AFIRMACIÓN que la vista va a renderizar. Un `refreshedMsg` con
-// status equivocado produce una TUI que dice "corriendo" sobre un servicio
-// parado, y eso no se ve hasta que se mira el msg, no la función.
-// ---------------------------------------------------------------------------
-
-// TestStateOfMetaTraduceAlVocabularioDeProceso: el estado persistido y el de
-// proceso comparten nombres A PROPÓSITO, y el translate vive en un solo sitio.
-//
-// Que el string crudo se convierta en Status es lo que evita que se separen: si
-// un estado nuevo se publica sin pasar por aquí, la TUI lo trataría como
-// desconocido y el servicio aparecería como parado. El caso "" es el que obliga a
-// ello: un Meta sin estado no es un servicio en ningún estado, y "unknown" lo
-// dice sin afirmar que esté parado.
+// "" maps to unknown, not stopped: a state published without passing through here must not be rendered as stopped.
 func TestStateOfMetaTraduceAlVocabularioDeProceso(t *testing.T) {
 	tests := []struct {
 		in   state.Meta
@@ -54,13 +35,7 @@ func TestStateOfMetaTraduceAlVocabularioDeProceso(t *testing.T) {
 	}
 }
 
-// TestInitDevuelveLosCincoRelojes: Init arranca el polling, el tail de consola y
-// los dos spinners.
-//
-// Los cinco, y no "alguno": el polling y el tail son relojes DISTINTOS con
-// intervalos distintos (2s el estado, 400ms la consola) porque sirven cosas
-// distintas, y perder uno deja la TUI showing datos viejos sin que nada falle
-// visiblemente. El conteo es la afirmación.
+// Five, not any: the polling and the tail are distinct clocks with distinct intervals (2s state, 400ms console), and losing either leaves stale data with nothing visibly failing.
 func TestInitDevuelveLosCincoRelojes(t *testing.T) {
 	m, _ := newTestModel(t)
 	cmd := m.Init()
@@ -69,9 +44,6 @@ func TestInitDevuelveLosCincoRelojes(t *testing.T) {
 	}
 
 	msgs := collectBatch(t, cmd)
-	// El Msg no lleva identidad de qué reloj es, así que lo que se comprueba es
-	// que hay AL MENOS los cinco latidos y que el tipo del tick de estado trae
-	// su marca de tiempo (que es lo que distingue un reloj de otro).
 	if len(msgs) < 5 {
 		t.Errorf("Init produjo %d mensajes, want al menos 5 (polling, consola y dos spinners)", len(msgs))
 	}
@@ -98,11 +70,7 @@ func TestInitDevuelveLosCincoRelojes(t *testing.T) {
 	}
 }
 
-// TestTickCmdDevuelveSuMsg: los dos relojes sueltos, ejecutados.
-//
-// Se ejecutan de verdad, con su espera. Son 2s y 400ms, y la prueba de que un
-// reloj devuelve SU mensaje (y no otro, ni uno con otro nombre) tiene que
-// pagar ese coste.
+// Each clock is run for real, waiting out its interval, because only executing it proves it returns its own message.
 func TestTickCmdDevuelveSuMsg(t *testing.T) {
 	if msg := runCmd(tickCmd()); !isTickOfState(msg) {
 		t.Errorf("tickCmd devolvió %T, want tickMsg", msg)
@@ -112,14 +80,8 @@ func TestTickCmdDevuelveSuMsg(t *testing.T) {
 	}
 }
 
-// TestThreadsCmdMuestreaElPidYPropagaElError: el muestreo de hilos es
-// informativo, y su fallo tiene que LLEGAR en el msg y no en un panic.
-//
-// El caso que importa es el PID muerto: threadsCmd se lanza desde el tick para
-// cualquier servicio corriendo, y entre el Evaluate y el muestreo el proceso
-// puede morir. Un error aquí es routine, no una excepción.
+// The process can die between Evaluate and the sample, so an error here is routine and has to arrive in the message, not as a panic.
 func TestThreadsCmdMuestreaElPidYPropagaElError(t *testing.T) {
-	// Un PID que no existe: el msg trae el error y el modelo lo tolera.
 	msg := runCmd(threadsCmd("/tmp/x", 0))
 	th, ok := msg.(threadsMsg)
 	if !ok {
@@ -132,7 +94,6 @@ func TestThreadsCmdMuestreaElPidYPropagaElError(t *testing.T) {
 		t.Error("un PID inexistente debería venir con error: si no, la UI mostraría cero hilos como un hecho")
 	}
 
-	// Un proceso real sí trae hilos, y sin error.
 	msg = runCmd(threadsCmd("/tmp/x", livePID(t)))
 	th = msg.(threadsMsg)
 	if th.err != nil {
@@ -143,18 +104,9 @@ func TestThreadsCmdMuestreaElPidYPropagaElError(t *testing.T) {
 	}
 }
 
-// TestRefreshCmdRecorreSoloLosConfiguradosYAtribuyeElMotivo: el polling le
-// repregunta al store a cada servicio configurado, y el resultado dice POR QUÉ
-// lo que dice.
-//
-// Las cuatro ramas del switch sobre el error del store son cuatro hechos
-// distintos —nunca arrancado, meta ilegible, servicio vivo, meta sin PID— y
-// confundirlas produce una TUI que afirma "corriendo" sobre un servicio parado.
+// The store error has four distinct branches (never started, unreadable meta, live service, meta without PID), and conflating them makes the TUI claim "running" on a stopped service.
 func TestRefreshCmdRecorreSoloLosConfiguradosYAtribuyeElMotivo(t *testing.T) {
-	// isolateConfig es OBLIGATORIO aquí y no un detalle: New lee config.Load(), y
-	// si la config del developer trae scanner.root el modelo escanea su workspace
-	// real. Un test que pase por casualidad con la config ajena está probando los
-	// proyectos del developer.
+	// isolateConfig is mandatory: New reads config.Load(), so a developer config carrying scanner.root would make the model scan their real workspace.
 	isolateConfig(t)
 	root := writeTestTree(t, false)
 	store := state.NewStoreAt(t.TempDir())
@@ -167,11 +119,10 @@ func TestRefreshCmdRecorreSoloLosConfiguradosYAtribuyeElMotivo(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// tienda-web: meta.json con basura -> error de lectura, no ausencia.
+	// tienda-web: garbage meta.json, so the store errors instead of reporting it absent.
 	if err := os.WriteFile(filepath.Join(store.ServiceDir(rotoPath), "meta.json"), []byte("{no-json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// api: vivo y con puerto.
 	live := livePID(t)
 	if err := store.SaveMeta(apiPath, state.Meta{
 		Name: "tienda-api", Pid: live, Pgid: live, Port: 8081, State: state.StateRunning,
@@ -188,13 +139,7 @@ func TestRefreshCmdRecorreSoloLosConfiguradosYAtribuyeElMotivo(t *testing.T) {
 		t.Fatalf("refreshCmd devolvió %T", msg)
 	}
 
-	// El meta ilegible: stopped, PERO con un aviso que lo dice.
-	//
-	// Es un fallo cerrado a propósito —una TUI que dice "desconocido" para un
-	// servicio con el store corrupto sería peor que una que dice "parado" y lo
-	// avisa— y la mitad importante es el `warn`: sin él, "parado" sería una
-	// afirmación que nadie sabe. El aviso tiene que nombrar el proyecto, porque la
-	// columna muestra uno solo cada vez.
+	// Fail-closed on purpose: an unreadable meta reports stopped plus a warn, and the warn must name the project because the column shows one at a time.
 	got := ref.results[rotoPath]
 	if got.status != process.StatusStopped {
 		t.Errorf("un meta ilegible dio %q, want stopped (fallo cerrado)", got.status)
@@ -206,25 +151,19 @@ func TestRefreshCmdRecorreSoloLosConfiguradosYAtribuyeElMotivo(t *testing.T) {
 		t.Errorf("el aviso no dice qué proyecto y por qué: %q", got.warn)
 	}
 
-	// El vivo: con el stubManager Evaluate devuelve stopped, así que lo que se
-	// comprueba aquí es que el msg trae la rama git y que hay resultado para él.
+	// stubManager's Evaluate reports stopped even for the live PID, so what matters here is that a result exists and carries the git branch.
 	if got, ok := ref.results[apiPath]; !ok {
 		t.Error("no hay resultado para un servicio configurado")
 	} else if got.meta.Pid != live {
 		t.Errorf("meta.Pid = %d, want el del Meta persistido", got.meta.Pid)
 	}
 
-	// Un servicio NUNCA arrancado sí se consulta, y sale stopped: un meta ausente
-	// es un hecho —no hay proceso— y tratarlo como error llenaría la TUI de avisos
-	// de nada en cada arranque en frío. Es el tercer proyecto del árbol, que está
-	// configurado y no tiene Meta.
+	// A service never started is still queried and comes back stopped: a missing meta is a fact, not a failure, or every cold start would fill the TUI with warnings.
 	sinMetaPath := filepath.Join(root, "suelto")
 	if got := ref.results[sinMetaPath].status; got != process.StatusStopped {
 		t.Errorf("un servicio sin meta dio %q, want stopped: un meta ausente es un hecho, no un fallo", got)
 	}
 
-	// Y un proyecto NO configurado no aparece: no hay Manifest que arrancar, así
-	// que preguntarle por él produce ruido y nada más.
 	noCfg := filepath.Join(root, "sin-manifiesto")
 	if err := os.MkdirAll(noCfg, 0o755); err != nil {
 		t.Fatal(err)
@@ -240,14 +179,7 @@ func TestRefreshCmdRecorreSoloLosConfiguradosYAtribuyeElMotivo(t *testing.T) {
 	}
 }
 
-// TestRefreshCmdPropagaLaRamaGitDeCadaProyecto: el polling también refresca la
-// rama cacheada, que es lo que hace que el header del árbol no se quede en la
-// rama del último commit del que se miró.
-//
-// El msg trae la rama POR servicio, no por proyecto suelto, y sin ella el
-// `git branch -m` de una app cambiaría su nombre de ruta sin que vroom se
-// enterara —que es exactamente el caso que obliga a la reconciliación de
-// portless.
+// The branch arrives per service because that name decides the route, and a `git branch -m` vroom never notices is what forces portless reconciliation.
 func TestRefreshCmdPropagaLaRamaGitDeCadaProyecto(t *testing.T) {
 	isolateConfig(t)
 	root := writeTestTree(t, false)
@@ -256,9 +188,7 @@ func TestRefreshCmdPropagaLaRamaGitDeCadaProyecto(t *testing.T) {
 
 	ref := runCmd(refreshCmd(store, &stubManager{}, m.projects)).(refreshedMsg)
 
-	// Cada proyecto CONFIGURADO trae rama. No se exige que no sea vacía: un
-	// proyecto que no es un repo no tiene rama, y eso es un hecho que el polling
-	// tiene que poder reportar sin inventar nada.
+	// A configured project that is not a repo has no branch, and the polling must report that without inventing a name.
 	for _, p := range m.projects {
 		if !p.Configured {
 			continue
@@ -273,9 +203,7 @@ func TestRefreshCmdPropagaLaRamaGitDeCadaProyecto(t *testing.T) {
 		}
 	}
 
-	// La rama del proyecto que NO es repo viene vacía, no con el nombre del
-	// directorio. Un fallback al nombre inventaría una rama que el usuario
-	//un worktree puede no tenerla, y esa rama es la que decide el nombre de la ruta en auto.
+	// Never fall back to the directory name for a branch: that invented name is what decides the auto route path.
 	for _, p := range m.projects {
 		if p.Name == "tienda-api" {
 			continue
@@ -286,13 +214,7 @@ func TestRefreshCmdPropagaLaRamaGitDeCadaProyecto(t *testing.T) {
 	}
 }
 
-// TestJobCmdDistingueElFalloDelComandoDelFalloDeLanzamiento: es la distinción
-// que hace que el `exit_code` signifique algo.
-//
-// El comando que sale 1 NO es un error de vroom: el jobMsg lleva exit_code y err
-// vacío, y así el footer del log dice "falló (exit 1)". Un fallo de lanzamiento
-// —no hay `sh`, o no se puede escribir el log— sí es err, y entonces no hay
-// exit_code que atribuir a nadie.
+// A command exiting nonzero is not a vroom error (jobMsg carries the exit code with an empty err); only a failed launch is an error, and then there is no exit code to attribute.
 func TestJobCmdDistingueElFalloDelComandoDelFalloDeLanzamiento(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "stdout.log")
@@ -319,7 +241,7 @@ func TestJobCmdDistingueElFalloDelComandoDelFalloDeLanzamiento(t *testing.T) {
 	})
 
 	t.Run("el comando no se puede lanzar", func(t *testing.T) {
-		t.Setenv("PATH", "") // sin `sh`
+		t.Setenv("PATH", "") // no sh in PATH
 		jm := runCmd(jobCmd(dir, "build", "echo hola", dir, out, errLog)).(jobMsg)
 		if jm.err == nil {
 			t.Error("sin intérprete el job tiene que traer error: si no, parecería un build correcto")
@@ -330,7 +252,7 @@ func TestJobCmdDistingueElFalloDelComandoDelFalloDeLanzamiento(t *testing.T) {
 	})
 
 	t.Run("el log no se puede escribir", func(t *testing.T) {
-		// stdout.log es un directorio: el banner no cabe.
+		// stdout.log is a directory, so the banner cannot be written.
 		blocked := makeDir(t, filepath.Join(dir, "stdout-es-dir"))
 		jm := runCmd(jobCmd(dir, "build", "echo hola", dir, blocked, errLog)).(jobMsg)
 		if jm.err == nil {
@@ -339,16 +261,9 @@ func TestJobCmdDistingueElFalloDelComandoDelFalloDeLanzamiento(t *testing.T) {
 	})
 }
 
-// TestAppendLineCreaElFicheroYAnadeAlFinal: la primitiva de la que dependen el
-// banner del job, los avisos del stop y las líneas de estado del servicio.
-//
-// Lo que importa es que ANADE: si truncara, el log del servicio perdería su
-// historia en cada arranque, y `--tail` dejaría de ser útil.
+// It must append: truncating would lose the service log's history on every start, which is exactly what --tail exists for.
 func TestAppendLineCreaElFicheroYAnadeAlFinal(t *testing.T) {
-	// MEDIDO: appendLine NO crea los directorios intermedios, a diferencia de
-	// runLogged, que sí. Es correcto: quien llama (el stop, el arranque) ya ha
-	// creado el directorio de servicio, y crear un árbol de directorios como
-	// efecto secundario de "escribir una línea" escondería un bug de rutas.
+	// MEDIDO: unlike runLogged, appendLine creates no intermediate directories, because callers already created the service dir and an mkdir tree as a side effect of writing one line would hide a path bug.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "linea.log")
 
@@ -367,10 +282,7 @@ func TestAppendLineCreaElFicheroYAnadeAlFinal(t *testing.T) {
 	}
 }
 
-// TestAppendLineFallaDondeNoPuedeEscribir: y falla en vez de tragarse el error.
-//
-// Un `appendLine` que ignorara el fallo perdería el aviso de un stop sin que nada
-// lo dijera, y el usuario vería un servicio parado sin ninguna explicación.
+// It must fail loudly: swallowing the error would drop the stop notice silently and leave the user with a stopped service and no explanation.
 func TestAppendLineFallaDondeNoPuedeEscribir(t *testing.T) {
 	dir := t.TempDir()
 	blocked := makeDir(t, filepath.Join(dir, "bloqueado"))
@@ -378,17 +290,12 @@ func TestAppendLineFallaDondeNoPuedeEscribir(t *testing.T) {
 		t.Error("appendLine sobre un directorio debería fallar")
 	}
 
-	// Y un directorio padre inexistente también: sin crear nada.
 	if err := appendLine(filepath.Join(dir, "no-existe", "x.log"), "y"); err == nil {
 		t.Error("appendLine no debe crear directorios: su contrato es escribir una línea, no un árbol")
 	}
 }
 
-// TestJobBannerIdentificaElJob: el separador del log nombra el kind y el comando.
-//
-// Es lo que permite atribuir una línea del log a un build y no al servicio: sin
-// el banner, un `echo fuera` de un build y el mismo `echo` del servicio serían
-// indistinguibles en el mismo fichero.
+// Without the banner an echo from a build and the same echo from the service are indistinguishable in one log file.
 func TestJobBannerIdentificaElJob(t *testing.T) {
 	got := jobBanner("build", "make build")
 	want := "── vroom ▶ build: make build ──"
@@ -397,13 +304,7 @@ func TestJobBannerIdentificaElJob(t *testing.T) {
 	}
 }
 
-// TestReadNewStrippedDevuelveDesdeElOffsetYSinANSI: el tail de la consola lee
-// desde un offset y quita los códigos de escape.
-//
-// El offset es lo que evita releer el log entero en cada tick, y el StripANSI es
-// lo que evita que los códigos se dibujen como texto. Y un error NO avanza el
-// offset: si avanzara, el siguiente tick se saltaría justo los bytes que no se
-// pudieron leer.
+// An error must not advance the offset, or the next tick skips exactly the bytes it could not read.
 func TestReadNewStripped(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "consola.log")
 	if err := os.WriteFile(path, []byte("\x1b[31mrojo\x1b[0m\n"), 0o644); err != nil {
@@ -424,7 +325,6 @@ func TestReadNewStripped(t *testing.T) {
 		t.Errorf("offset = %d, want el tamaño del fichero", off)
 	}
 
-	// Segundo tramo desde el offset: no relee.
 	if err := os.WriteFile(path, []byte("\x1b[31mrojo\x1b[0m\nmas\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -436,9 +336,7 @@ func TestReadNewStripped(t *testing.T) {
 		t.Errorf("segunda lectura = %q, want sólo lo nuevo", got)
 	}
 
-	// Un log que aún NO existe no es un error: es un servicio que todavía no ha
-	// escrito nada. Tratarlo como error llenaría el tick de consola de avisos de
-	// nada en cada arranque.
+	// A log that does not exist yet is not an error, or every cold start would fill the console tick with warnings.
 	missing := filepath.Join(t.TempDir(), "no-existe.log")
 	got, same, err := readNewStripped(missing, 1234)
 	if err != nil {
@@ -451,8 +349,6 @@ func TestReadNewStripped(t *testing.T) {
 		t.Errorf("offset = %d con un log ausente, want el que se pasó: avanzar perdería bytes", same)
 	}
 
-	// Un log que SÍ da error (un directorio donde debería haber fichero) sí lo
-	// propaga, y el offset queda intacto para que el siguiente tick reintente.
 	asDir := makeDir(t, filepath.Join(t.TempDir(), "log-es-dir"))
 	_, same, err = readNewStripped(asDir, 1234)
 	if err == nil {
@@ -462,8 +358,7 @@ func TestReadNewStripped(t *testing.T) {
 		t.Errorf("offset = %d tras un error, want 1234: avanzar perdería justo los bytes que no se leyeron", same)
 	}
 
-	// Y un log truncado por debajo del offset se relee ENTERO: rotar un log no
-	// puede hacer que la consola deje de mostrarlo.
+	// A log truncated below the offset is re-read whole: rotation must not make the console go blank.
 	short := filepath.Join(t.TempDir(), "corto.log")
 	if err := os.WriteFile(short, []byte("nuevo\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -477,12 +372,7 @@ func TestReadNewStripped(t *testing.T) {
 	}
 }
 
-// TestConsoleTickYReadDevuelvenElOffsetQueSeHaLeido: el reloj de la consola es
-// lo que hace que el contenido nuevo llegue, y su offset es lo que evita
-// duplicarlo.
-//
-// Laproperty importante es que los offsets de stdout y stderr son INDEPENDIENTES:
-// un comando que escribe en los dos dos no puede hacer que uno se pise al otro.
+// stdout and stderr offsets are independent, so a command writing to both cannot make one overwrite the other.
 func TestConsoleReadDevuelveOffsetIndependientePorFlujo(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "o.log")
@@ -516,16 +406,7 @@ func TestConsoleReadDevuelveOffsetIndependientePorFlujo(t *testing.T) {
 	}
 }
 
-// TestTickCmdEsMasLentoQueElTickDeConsola: los dos relojes tienen intervalos
-// distintos A PROPÓSITO, y confundirlos rompe una de las dos cosas.
-//
-// El estado se sondea cada 2s porque leer el store y evaluar procesos es caro; la
-// consola cada 400ms porque una línea de log se nota al instante y `tail.ReadNew`
-// es barato. Si ambos fueran 2s, escribir en un log se vería con dos segundos de
-// retraso; si ambos fueran 400ms, el polling se comería la CPU.
-//
-// Se mide sobre el intervalo declarado, no sobre el reloj: correr un tick real de
-// 2s en un test no compra nada sobre la constante.
+// The intervals differ on purpose: polling the store and evaluating processes is expensive, while a log line is noticed instantly and tail.ReadNew is cheap.
 func TestTickCmdEsMasLentoQueElTickDeConsola(t *testing.T) {
 	if consoleTick >= pollInterval {
 		t.Errorf("consoleTick (%v) debería ser más rápido que pollInterval (%v): "+
@@ -536,13 +417,7 @@ func TestTickCmdEsMasLentoQueElTickDeConsola(t *testing.T) {
 	}
 }
 
-// ---- helpers ----
-
-// collectBatch ejecuta un Cmd que devuelve un batch y recoge TODOS los mensajes.
-//
-// tea.Batch devuelve un Cmd que al ejecutarse produce un tea.BatchMsg con la
-// lista. Ejecutarlo sin descomponer perdería la mitad de lo que se quiere
-// comprobar: Init promete cinco relojes y sólo se verían como un valor opaco.
+// tea.Batch only exposes its list through a BatchMsg, so the batch has to be decomposed or Init's five clocks stay opaque.
 func collectBatch(t *testing.T, cmd tea.Cmd) []tea.Msg {
 	t.Helper()
 	if cmd == nil {
@@ -551,7 +426,7 @@ func collectBatch(t *testing.T, cmd tea.Cmd) []tea.Msg {
 	msg := runCmd(cmd)
 	batch, ok := msg.(tea.BatchMsg)
 	if !ok {
-		// Un Cmd suelto también es válido; se devuelve como lista de uno.
+		// A lone Cmd is also valid, so it is returned as a one-element list.
 		return []tea.Msg{msg}
 	}
 	var out []tea.Msg
@@ -564,8 +439,6 @@ func collectBatch(t *testing.T, cmd tea.Cmd) []tea.Msg {
 	return out
 }
 
-// isTickOfState distingue el tick de estado del de consola por su TIPO, que es lo
-// que separa los dos relojes.
 func isTickOfState(msg tea.Msg) bool {
 	_, ok := msg.(tickMsg)
 	return ok
@@ -576,7 +449,6 @@ func isConsoleTick(msg tea.Msg) bool {
 	return ok
 }
 
-// makeDir crea un directorio y devuelve su ruta.
 func makeDir(t *testing.T, path string) string {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o755); err != nil {
@@ -585,11 +457,7 @@ func makeDir(t *testing.T, path string) string {
 	return path
 }
 
-// livePID arranca un proceso vivo para los tests que necesitan un PID real.
-//
-// Se hace aquí y no con un stub porque lo que se mide es el muestreo de hilos del
-// SISTEMA: un doble devolvería los hilos que el test le dicta, y no hay nada que
-// verificar entonces.
+// A real process, not a stub: what is measured is the system's own thread sampling, which a double would only echo back.
 func livePID(t *testing.T) int {
 	t.Helper()
 	dir := t.TempDir()

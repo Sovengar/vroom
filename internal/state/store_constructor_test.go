@@ -8,28 +8,7 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// El store estaba al 68.9% y el hueco tenía una forma concreta: TODOS los
-// tests usaban NewStoreAt, que no crea nada, así que NewStore y DefaultBaseDir
-// (la resolución real del directorio) no se ejercitaban, y con ellas las
-// mensagens de error que son las que de verdad importan.
-//
-// Un store que no puede decir "no puedo crear el directorio de estado" deja el
-// programa escribiendo el estado en un sitio que el usuario no controla, o
-// fallando sin decir por qué.
-//
-// Estos tests no usan NewStoreAt: construyen el store por la vía real, con
-// XDG_STATE_HOME y HOME redirigidos a temporales, y provocan los fallos reales
-// de filesystem (chmod, padre-fichero, destino-directorio) en vez de stubear
-// os.
-// ---------------------------------------------------------------------------
-
-// isolateHome redirige XDG_STATE_HOME y HOME a un temporal, para que ningun test
-// toque el estado real del desarrollador. Se usa t.Setenv, que restaura solo.
-//
-// Las dos variables, no solo la primera: DefaultBaseDir consulta XDG_STATE_HOME
-// y, si no está, cae en el home. Poner solo XDG_STATE_HOME deja el fallback
-// apuntando al home real en cualquier test que la vacíe.
+// Both vars, not just XDG_STATE_HOME: DefaultBaseDir falls back to HOME, so a test that clears one can still touch the real home.
 func isolateHome(t *testing.T) string {
 	t.Helper()
 	tmp := t.TempDir()
@@ -38,20 +17,7 @@ func isolateHome(t *testing.T) string {
 	return tmp
 }
 
-// TestMetaWireFormatEstable: meta.json es un contrato entre versiones de vroom —
-// un meta escrito por una versión anterior tiene que seguir leyéndose. Este test
-// fija el JSON exacto, no solo el round-trip que ya hacía TestMetaRoundtrip,
-// porque hay dos cosas que el round-trip NO detecta:
-//
-//   - el omitempty de los campos Route*. Si alguien lo quita, un Meta vacío
-//     pasa a escribir "route_name": "" en disco: el round-trip sigue dando igual
-//     y nadie se entera, pero cambia el formato y un meta viejo se distingue de
-//     uno nuevo por el ruido.
-//   - las etiquetas json. Un rename de Name a name sigue compilando y el
-//     round-trip pasa; solo el JSON delata que el fichero persisted cambia de
-//     forma.
-//
-// Las dos rutas se comprueban contra disco, no contra la struct.
+// meta.json is a cross-version contract: a round-trip test cannot catch a dropped omitempty or a renamed json tag, only the bytes on disk can.
 func TestMetaWireFormatEstable(t *testing.T) {
 	t.Run("meta vacio solo escribe los campos sin omitempty", func(t *testing.T) {
 		s := NewStoreAt(t.TempDir())
@@ -98,18 +64,7 @@ func TestMetaWireFormatEstable(t *testing.T) {
 	})
 
 	t.Run("cualquier valor de Meta es serializable", func(t *testing.T) {
-		// Justifica por que las dos ramas de error de json.MarshalIndent de
-		// SaveMeta y SaveCollapsed NO se pueden cubrir con los tipos actuales:
-		// Meta solo tiene string, int, int64 y bool, y ninguno de ellos puede
-		// fallar al serializar (probado tambien con un Meta con los 18 campos
-		// puestos). El unico valor que json rechaza es un float NaN o Inf, y no
-		// hay float en Meta.
-		//
-		// Las ramas se conservan a proposito: son la red que atraparia un NaN si
-		// alguien añadiera un campo float64 a Meta. No son codigo muerto como el
-		// `len(result) == 0` de bordered, que protegia una condicion de runtime
-		// imposible; estas protegen una propiedad del TIPO, que es algo que un
-		// cambio futuro puede romper.
+		// Meta has no float field, so json.Marshal cannot fail; the error branches stay as a net for a future float64.
 		s := NewStoreAt(t.TempDir())
 		full := Meta{
 			Name: "n", ProjectPath: "/p", Port: 1, ReservedPort: 2,
@@ -122,9 +77,6 @@ func TestMetaWireFormatEstable(t *testing.T) {
 		if err := s.SaveMeta(full.ProjectPath, full); err != nil {
 			t.Fatalf("un Meta con todos los campos puestos no deberia fallar al guardar: %v", err)
 		}
-		// Y collapsed: map[string]bool es siempre serializable, incluidos nil
-		// y el mapa vacio, que es lo que se guarda antes de que el usuario
-		// colapse nada.
 		for _, groups := range []map[string]bool{nil, {}, {"a": true}, {"a": true, "b/c": false}} {
 			if err := s.SaveCollapsed(groups); err != nil {
 				t.Errorf("SaveCollapsed(%v) fallo: %v", groups, err)
@@ -133,9 +85,6 @@ func TestMetaWireFormatEstable(t *testing.T) {
 	})
 }
 
-// TestNewStoreCreaElLayoutReal: NewStore es lo que llama main() antes de
-// escanear. Tiene que crear services/ con 0755 y devolver un store cuyo Base
-// apunte a la ruta resuelta, no a otra.
 func TestNewStoreCreaElLayoutReal(t *testing.T) {
 	tmp := isolateHome(t)
 
@@ -160,8 +109,7 @@ func TestNewStoreCreaElLayoutReal(t *testing.T) {
 	}
 }
 
-// TestNewStoreEsIdempotente: llamarlo dos veces no debe fallar. main() lo llama
-// en cada arranque, y un store ya existente es el caso normal, no el exceptional.
+// main() calls this on every boot, so an already existing store is the normal case rather than the exceptional one.
 func TestNewStoreEsIdempotente(t *testing.T) {
 	isolateHome(t)
 
@@ -169,7 +117,6 @@ func TestNewStoreEsIdempotente(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Un servicio real escrito por el store anterior debe sobrevivir.
 	const path = "/home/user/dev/persistente"
 	if err := first.SaveMeta(path, Meta{Name: "p", State: StateRunning}); err != nil {
 		t.Fatal(err)
@@ -188,17 +135,14 @@ func TestNewStoreEsIdempotente(t *testing.T) {
 	}
 }
 
-// TestNewStoreFallaConBaseDirNoEscribible: el error que el usuario ve cuando su
-// HOME está en un sitio que no puede escribir. Tiene que ser explícito sobre el
-// directorio, no un error de permisos pelado del que no se sabe qué hacer.
+// The error must name the directory and suggest permissions, otherwise the user has nothing to act on.
 func TestNewStoreFallaConBaseDirNoEscribible(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignora los permisos del directorio: el test no puede provocar el fallo")
 	}
 	tmp := isolateHome(t)
 
-	// Un fichero donde debería ir vroom/: MkdirAll de services/ debajo de un
-	// fichero regular falla con ENOTDIR.
+	// A regular file where vroom/ belongs makes MkdirAll fail with ENOTDIR.
 	if err := os.WriteFile(filepath.Join(tmp, "vroom"), []byte("bloqueado"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -216,9 +160,6 @@ func TestNewStoreFallaConBaseDirNoEscribible(t *testing.T) {
 	}
 }
 
-// TestDefaultBaseDirCaeAlHomeSinXDG: sin XDG_STATE_HOME el store va a
-// ~/.local/state/vroom. Es el camino por defecto en la mayoría de máquinas, y el
-// test existente solo cubría la rama de XDG.
 func TestDefaultBaseDirCaeAlHomeSinXDG(t *testing.T) {
 	tmp := isolateHome(t)
 	t.Setenv("XDG_STATE_HOME", "")
@@ -233,9 +174,6 @@ func TestDefaultBaseDirCaeAlHomeSinXDG(t *testing.T) {
 	}
 }
 
-// TestDefaultBaseDirSinHomeNiXDG: sin ninguna de las dos, no hay dónde persistir
-// y hay que decirlo. Es el único camino que produce el error de resolución, y
-// sin él el programa persistiría en un sitio arbitrario.
 func TestDefaultBaseDirSinHomeNiXDG(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("la resolucion del home en windows no depende de HOME")
@@ -248,9 +186,7 @@ func TestDefaultBaseDirSinHomeNiXDG(t *testing.T) {
 	}
 }
 
-// TestBaseDevuelveLaRaizDelStore: el getter más tonto del paquete y estaba al
-// 0%. Lo que importa es que devuelva la raíz y no el directorio de un servicio:
-// un Base() equivocado hace que todos los servicios compartan una carpeta.
+// Base() must return the root, not a service dir, or every service ends up sharing one folder.
 func TestBaseDevuelveLaRaizDelStore(t *testing.T) {
 	base := t.TempDir()
 	if got := NewStoreAt(base).Base(); got != base {
@@ -258,10 +194,7 @@ func TestBaseDevuelveLaRaizDelStore(t *testing.T) {
 	}
 }
 
-// TestNewStorePropagaElErrorDeResolucion: NewStore tiene que devolver el error de
-// DefaultBaseDir tal cual, sin envolver ni sustituir. Si lo sustituyera por un
-// "could not create state directory", el mensaje culparía a los permisos cuando
-// el problema real es que no hay home: dos causas y dos acciones distintas.
+// Propagate DefaultBaseDir's error verbatim: a generic "could not create state directory" blames permissions when the real cause is a missing home.
 func TestNewStorePropagaElErrorDeResolucion(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("la resolucion del home en windows no depende de HOME")
@@ -281,10 +214,6 @@ func TestNewStorePropagaElErrorDeResolucion(t *testing.T) {
 	}
 }
 
-// TestEnsureServiceDirFallaConPadreQueNoEsDirectorio: el error de creación del
-// directorio del servicio, que ocurre cuando services/ fue sustituido por un
-// fichero. Sin este test la rama de error está sin ejercitar y un mensaje mal
-// escrito pasaría inadvertido.
 func TestEnsureServiceDirFallaConPadreQueNoEsDirectorio(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignora los permisos: el test no puede provocar el fallo")
@@ -307,11 +236,7 @@ func TestEnsureServiceDirFallaConPadreQueNoEsDirectorio(t *testing.T) {
 	}
 }
 
-// TestSaveMetaFallaEnDirectorioNoEscribible: la escritura de meta.json es la
-// operacion mas importante del store — es de donde sale el estado que la TUI
-// reengancha al arrancar — y su fallo nunca se ha probado. Sin esto, un disco
-// lleno o un HOME de solo-lectura produciría un arranque que cree que no hay
-// ningún servicio, en vez de un error.
+// A silent SaveMeta failure makes the TUI boot believing no service exists, instead of surfacing the error.
 func TestSaveMetaFallaEnDirectorioNoEscribible(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignora los permisos: el test no puede provocar el fallo")
@@ -322,7 +247,7 @@ func TestSaveMetaFallaEnDirectorioNoEscribible(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// r-x: se puede listar y entrar, no crear ficheros.
+	// 0o500: enterable but not writable, which is what a read-only HOME looks like.
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatal(err)
 	}
@@ -336,10 +261,7 @@ func TestSaveMetaFallaEnDirectorioNoEscribible(t *testing.T) {
 	}
 }
 
-// TestSaveMetaNoDejaTmpResidualCuandoFallaElRename: la escritura es atómica
-// (tmp + rename), así que un rename fallido tiene que dejar el tmp detrás. No es
-// un bug —el próximo SaveMeta lo sobrescribe— pero conviene que sea visible y no
-// un misterio cuando alguien lista el directorio del servicio.
+// A failed rename leaves meta.json.tmp behind: the next SaveMeta overwrites it, so it is leftover litter rather than corruption.
 func TestSaveMetaFallaEnRenameYDejaTmp(t *testing.T) {
 	s := NewStoreAt(t.TempDir())
 	const path = "/home/user/dev/rename-fallido"
@@ -347,7 +269,7 @@ func TestSaveMetaFallaEnRenameYDejaTmp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// meta.json como DIRECTORIO: rename(tmp, dir) falla con EISDIR.
+	// meta.json as a directory makes rename(tmp, dir) fail with EISDIR.
 	if err := os.MkdirAll(filepath.Join(dir, "meta.json"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -360,10 +282,7 @@ func TestSaveMetaFallaEnRenameYDejaTmp(t *testing.T) {
 	}
 }
 
-// TestRegisterPidFallaEnDirectorioNoEscribible: registrar el PID es lo que
-// permite parar un servicio tras reiniciar la TUI. Si el write falla en silencio,
-// el servicio queda sin dueño: nadie lo puede detener y ocupa el puerto para
-// siempre.
+// A silent RegisterPid failure leaves the service ownerless forever: stop cannot reach it and it holds the port for good.
 func TestRegisterPidFallaEnDirectorioNoEscribible(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignora los permisos: el test no puede provocar el fallo")
@@ -382,16 +301,13 @@ func TestRegisterPidFallaEnDirectorioNoEscribible(t *testing.T) {
 	if err := s.RegisterPid(path, 4242, 4242); err == nil {
 		t.Fatal("RegisterPid deberia fallar en un directorio de solo lectura")
 	}
-	// El pid tiene que haber fallado ANTES de escribir pgid: un pid a medias
-	// sería peor que ninguno, porque el stop leería un pgid de otro servicio.
+	// The pid write must fail before pgid is touched, or stop reads another service's process group.
 	if _, err := os.Stat(s.PgidFile(path)); err == nil {
 		t.Error("se escribio pgid aunque pid fallo: el servicio queda con un grupo de proceso de otro")
 	}
 }
 
-// TestClearPidFallaConPidQueNoEsBorrable: ClearPid se llama al parar, y su
-// rama de error decide si el stop reporta fallo. Si el pid no se puede borrar y
-// el error se traga, el siguiente arranque cree que el servicio sigue vivo.
+// Swallowing this error makes the next boot believe the service is still alive.
 func TestClearPidFallaConPidQueNoEsBorrable(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignora los permisos: el test no puede provocar el fallo")
@@ -415,10 +331,7 @@ func TestClearPidFallaConPidQueNoEsBorrable(t *testing.T) {
 	}
 }
 
-// TestSaveCollapsedFallaEnRename: el estado de plegado es UI, no del servicio,
-// así que su fallo no es crítico — pero no debe ser silencioso, porque el
-// síntoma (grupos que no se recuerdan) parece un fallo de la TUI y acabaría
-// persiguiendo al código equivocado.
+// Collapsed state is UI-only so the failure is not critical, but it must not be silent: forgotten groups look like a TUI bug.
 func TestSaveCollapsedFallaEnRename(t *testing.T) {
 	s := NewStoreAt(t.TempDir())
 	if err := os.MkdirAll(s.CollapsedFile(), 0o755); err != nil {
@@ -430,7 +343,6 @@ func TestSaveCollapsedFallaEnRename(t *testing.T) {
 	}
 }
 
-// TestSaveCollapsedFallaEnDirectorioNoEscribible: el otro fallo del estado de UI.
 func TestSaveCollapsedFallaEnDirectorioNoEscribible(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignora los permisos: el test no puede provocar el fallo")
@@ -446,13 +358,9 @@ func TestSaveCollapsedFallaEnDirectorioNoEscribible(t *testing.T) {
 	}
 }
 
-// TestRegisterPidFallaAntesDeEscribir: si el directorio del servicio no se puede
-// crear, RegisterPid tiene que fallar antes de tocar nada. Es un orden de
-// operaciones, no un valor de retorno: importa que el error de mkdir se propague
-// en vez de que un write posterior lo enmascare.
+// The mkdir error must propagate instead of being masked by a later write failure.
 func TestRegisterPidFallaAntesDeEscribir(t *testing.T) {
 	base := t.TempDir()
-	// services/ es un fichero: EnsureServiceDir no puede crear nada debajo.
 	if err := os.WriteFile(filepath.Join(base, "services"), []byte("bloqueado"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -467,15 +375,7 @@ func TestRegisterPidFallaAntesDeEscribir(t *testing.T) {
 	}
 }
 
-// TestRegisterPidDejaPidSiPgidFalla: los dos ficheros se escriben en orden y sin
-// atomicidad entre ellos, así que un fallo del segundo deja el primero escrito.
-// Se fija el comportamiento en vez de documentarlo: es lo que hay, y quien lea el pid
-// tiene que saber que puede existir sin pgid.
-//
-// Importa porque los dos llamadores de RegisterPid (startsvc, dos sitios) hacen
-// `_ =` con el error, y ClearPid borra los dos ficheros: un pgid ausente no
-// rompe el stop, que ya tiene el pid, pero un pgid de otro servicio sí lo haría
-// — por eso el test anterior asegura que un fallo del mkdir no escribe ninguno.
+// pid and pgid are written in order with no atomicity between them, so a pgid failure leaves pid written and the callers discard the error.
 func TestRegisterPidDejaPidSiPgidFalla(t *testing.T) {
 	s := NewStoreAt(t.TempDir())
 	const path = "/home/user/dev/pgid-falla"
@@ -483,7 +383,7 @@ func TestRegisterPidDejaPidSiPgidFalla(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// pgid como DIRECTORIO: WriteFile falla con EISDIR, pero pid ya se escribio.
+	// pgid as a directory makes WriteFile fail with EISDIR, after pid is already written.
 	if err := os.MkdirAll(filepath.Join(dir, "pgid"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -500,9 +400,6 @@ func TestRegisterPidDejaPidSiPgidFalla(t *testing.T) {
 	}
 }
 
-// TestSaveMetaFallaAntesDeEscribirCuandoNoHayDirectorio: el mismo orden en
-// SaveMeta. El mkdir va primero, y su error tiene que salir como error de mkdir
-// y no como un fallo de escritura posterior, que mentiria sobre la causa.
 func TestSaveMetaFallaAntesDeEscribirCuandoNoHayDirectorio(t *testing.T) {
 	base := t.TempDir()
 	if err := os.WriteFile(filepath.Join(base, "services"), []byte("bloqueado"), 0o644); err != nil {
@@ -520,10 +417,7 @@ func TestSaveMetaFallaAntesDeEscribirCuandoNoHayDirectorio(t *testing.T) {
 	}
 }
 
-// TestRutasDeServicioCoherentesConElHash: las cinco rutas derivadas (log,
-// pid, pgid, service dir) tienen que caer SIEMPRE dentro del directorio del
-// servicio. Es la propiedad que hace que dos proyectos homónimos no se pisen, y
-// dependía solo de que PathKey no colisionara, lo que ya se prueba en otro sitio.
+// Every derived path must land inside the service dir, which is what keeps two same-named projects from colliding.
 func TestRutasDeServicioCoherentesConElHash(t *testing.T) {
 	base := t.TempDir()
 	s := NewStoreAt(base)

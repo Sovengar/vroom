@@ -11,24 +11,6 @@ import (
 	"vroom/internal/worktree"
 )
 
-// ---------------------------------------------------------------------------
-// Los caminos de error y los bordes del escaneo.
-//
-// El escaneo es la ENTRADA de todo lo demás: un proyecto que no aparece no se
-// puede arrancar, y uno que aparece mal clasificado se confunde con otro worktree.
-// Los tests que ya existen cubren el caso feliz con fd; estos cubren lo que pasa
-// cuando fd no está, cuando el directorio no existe, cuando el `.git` está a
-// medio construir, y los bordes de profundidad.
-//
-// Y hay un motivo concreto para `scanWithWalk`: en el runner de CI puede haber fd
-// o no, y las dos rutas de escaneo tienen que dar el MISMO resultado. Si sólo se
-// prueba la de fd, la mitad del código no se ejecuta nunca y la suite no se
-// queja: `fdPath` decide en runtime, así que el test pasa con la ruta que esté.
-// ---------------------------------------------------------------------------
-
-// writeTree escribe un árbol de directorios con los ficheros dados, donde la
-// clave es la ruta relativa al root y el valor el contenido ("" = sólo el
-// directorio).
 func writeTree(t *testing.T, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -44,12 +26,7 @@ func writeTree(t *testing.T, files map[string]string) string {
 	return root
 }
 
-// TestScanDaErrorCuandoElRootNoExiste: un root inexistente es un error que NOMBRA
-// la ruta.
-//
-// Es la primera comprobación que hace el CLI, y su mensaje es lo que permite
-// distinguir "no hay proyectos" de "el root que me diste no existe". Un error
-// genérico haría que un agente concluyera que el workspace está vacío.
+// An error that does not name the root reads as an empty workspace.
 func TestScanDaErrorCuandoElRootNoExiste(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "no-existe")
 
@@ -65,12 +42,7 @@ func TestScanDaErrorCuandoElRootNoExiste(t *testing.T) {
 	}
 }
 
-// TestScanDaErrorCuandoElRootNoEsUnDirectorio: un root que es un fichero también
-// es un error, y DISTINTO del anterior.
-//
-// Lo dice porque las dos causas se arreglan distinto —una ruta mal escrita y un
-// fichero donde se esperaba un directorio— y un mismo mensaje obligaría al agente
-// a mirar las dos.
+// The two root failures are fixed differently, so they must not share a message.
 func TestScanDaErrorCuandoElRootNoEsUnDirectorio(t *testing.T) {
 	root := writeTree(t, map[string]string{"un-fichero.txt": "x"})
 
@@ -83,12 +55,7 @@ func TestScanDaErrorCuandoElRootNoEsUnDirectorio(t *testing.T) {
 	}
 }
 
-// TestScanSinFdDaLaMismaRespuestaQueConFd: las dos rutas de escaneo tienen que
-// encontrar EXACTAMENTE los mismos proyectos.
-//
-// Es la propiedad que hace que "el runner de CI no tiene fd" no sea un hecho
-// distinto del "mi máquina tiene fd". Si divergieran, un usuario vería proyectos
-// que otro no ve, y el fallo aparecería sólo en la máquina del otro.
+// Parity is what makes "the CI runner has no fd" the same fact as "my machine has fd"; divergence would only show up on the other machine.
 func TestScanSinFdDaLaMismaRespuestaQueConFd(t *testing.T) {
 	files := map[string]string{
 		"api/go.mod":               "module api\n",
@@ -112,9 +79,7 @@ func TestScanSinFdDaLaMismaRespuestaQueConFd(t *testing.T) {
 		t.Skip("no hay fd en este sistema: sólo se puede comparar la ruta de WalkDir consigo misma")
 	}
 
-	// scanWith con fd == "" fuerza la ruta de WalkDir sin tocar el PATH: es lo
-	// que hace falta porque fdPath mira dos rutas absolutas del sistema que un
-	// t.Setenv no puede alcanzar.
+	// scanWith with fd == "" forces the WalkDir path; t.Setenv cannot reach the absolute fallbacks fdPath also checks.
 	sinFD, err := scanWith(root, 3, "")
 	if err != nil {
 		t.Fatalf("sin fd: %v", err)
@@ -128,12 +93,6 @@ func TestScanSinFdDaLaMismaRespuestaQueConFd(t *testing.T) {
 	}
 }
 
-// TestScanRespetaLaProfundidad: depth acota el recorrido, y el límite se cuenta
-// en directorios.
-//
-// La aritmética es la que importa: con depth 1 el escaneo ve root y sus hijos
-// directos, pero no los nietos. Un `SkipDir` en el nivel equivocado deja fuera un
-// proyecto que el usuario tiene, y un `>` en vez de `>=` entra un nivel de más.
 func TestScanRespetaLaProfundidad(t *testing.T) {
 	files := map[string]string{
 		"nivel1/.vroom.toml":           "name = \"nivel1\"\ncommand_start = \"./a\"\n",
@@ -148,7 +107,7 @@ func TestScanRespetaLaProfundidad(t *testing.T) {
 	}{
 		{1, []string{"nivel1"}},
 		{2, []string{"nivel1", "nivel2"}},
-		{3, []string{"nivel1", "nivel2"}}, // nivel3 no tiene manifiesto
+		{3, []string{"nivel1", "nivel2"}}, // nivel3 holds .v.toml, not a manifest
 		{0, nil},
 	}
 	for _, tt := range tests {
@@ -172,12 +131,7 @@ func TestScanRespetaLaProfundidad(t *testing.T) {
 	}
 }
 
-// TestScanSaltaDirectoriosOcultosYDeDependencias: `.git`, `node_modules` y los
-// directorios ocultos no se recorren.
-//
-// Es lo que evita que un escaneo de un workspace real tarde minutos: `node_modules`
-// de un proyecto tiene cientos de miles de ficheros. Y `SkipDir` es lo que corta
-// el recorrido, no un `continue` —que seguiría bajando—.
+// The cut needs SkipDir, not continue, or the traversal keeps descending into the hundreds of thousands of files under node_modules.
 func TestScanSaltaDirectoriosOcultosYDeDependencias(t *testing.T) {
 	files := map[string]string{
 		"api/.vroom.toml":                  "name = \"api\"\ncommand_start = \"./a\"\n",
@@ -198,19 +152,14 @@ func TestScanSaltaDirectoriosOcultosYDeDependencias(t *testing.T) {
 	}
 }
 
-// TestScanDetectaBareReposComoFilasContenedoras: un repo sin manifiesto sale
-// igual, como fila contenedora.
-//
-// Es lo que permite que la TUI muestre el repo y sus worktrees. Un bare repo que
-// no sale del escaneo es un repo que el usuario tiene y vroom no ve, y el
-// worktree de ese repo aparece sin fila madre.
+// A bare repo missing from the scan leaves its worktrees showing with no parent row.
 func TestScanDetectaBareReposComoFilasContenedoras(t *testing.T) {
 	bare := writeTree(t, map[string]string{
 		"bare.git/HEAD":            "ref: refs/heads/main\n",
 		"bare.git/config":          "[core]\n\tbare = true\n",
 		"bare.git/objects/00/0000": "",
 	})
-	// Un bare repo de verdad, hecho con git, no con ficheros a mano.
+	// The real git repo wins over the hand-written tree: bare detection is a heuristic over git's own layout.
 	if repo := initBare(t); repo != "" {
 		bare = filepath.Dir(repo)
 	}
@@ -236,14 +185,7 @@ func TestScanDetectaBareReposComoFilasContenedoras(t *testing.T) {
 	}
 }
 
-// TestReadGitDirRechazaLoQueNoEsUnPunteroAGit: el fichero `.git` de un worktree
-// dice "gitdir: <ruta>", y todo lo demás no es un worktree.
-//
-// Los tres rechazos importan cada uno por un motivo: un fichero ilegible, un
-// `.git` que no es un puntero (un repo con .git como fichero pero sin contenido
-// válido), y un puntero sin ruta. Aceptar cualquiera de los tres daría un repo
-// raíz que apunta a "" y luego todas las filas.worktree colgarían de un repo
-// inexistente.
+// Accepting any of these yields a repo root of "" and hangs every worktree row off a repo that does not exist.
 func TestReadGitDirRechazaLoQueNoEsUnPunteroAGit(t *testing.T) {
 	dir := t.TempDir()
 
@@ -295,17 +237,11 @@ func TestReadGitDirRechazaLoQueNoEsUnPunteroAGit(t *testing.T) {
 	})
 }
 
-// TestCommonDirResuelveElRepoPrincipalDeUnWorktree: el gitdir de un worktree
-// apunta al .git del MAIN, y eso es lo que hace que dos worktrees se agrupen.
-//
-// Un worktree tiene su propio directorio de trabajo, pero comparte el .git del
-// repo principal. Sin resolver el common dir, cada worktree sería su propio repo
-// y la TUI los mostraría como proyectos sueltos en vez de bajo una fila madre.
+// Without commondir each worktree is its own repo and the TUI shows them as loose projects instead of under one row.
 func TestCommonDirResuelveElRepoPrincipalDeUnWorktree(t *testing.T) {
 	dir := t.TempDir()
 
 	t.Run("sin commondir: el propio gitdir", func(t *testing.T) {
-		// Un repo normal no tiene commondir: su gitdir ES el common dir.
 		if got := commonDir(dir); got != dir {
 			t.Errorf("commonDir = %q, want el propio gitdir %q", got, dir)
 		}
@@ -323,9 +259,7 @@ func TestCommonDirResuelveElRepoPrincipalDeUnWorktree(t *testing.T) {
 		if err := os.MkdirAll(wtDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		// MEDIDO en un repo real: el commondir de <repo>/.git/worktrees/<nombre>
-		// es "../..", que desde ahí sube a <repo>/.git. Con "../../.." subiría
-		// uno de más y el repo principal quedaría mal identificado.
+		// MEDIDO in a real repo: <repo>/.git/worktrees/<name>/commondir is "../.."; "../../.." climbs one level too far.
 		writeStr(t, filepath.Join(wtDir, "commondir"), "../..\n")
 		want := filepath.Clean(filepath.Join(dir, ".git"))
 		if got := commonDir(wtDir); got != want {
@@ -346,13 +280,7 @@ func TestCommonDirResuelveElRepoPrincipalDeUnWorktree(t *testing.T) {
 	})
 }
 
-// TestWithinRootNoDejaSalirAlArbol: una ruta fuera del root no está dentro, y es
-// lo que impide que un worktree de otro repo entre en el escaneo.
-//
-// Las tres formas de estar fuera: el padre directo, un hermano con el mismo
-// prefijo (`/a/b` vs `/a/bc`) y un error de Rel. El caso del hermano es el que se
-// confunde con un `HasPrefix` ingenuo: `/a/bc` empieza por `/a/b` y NO está
-// dentro.
+// /a/bc starts with /a/b but is outside, which is the case a naive HasPrefix gets wrong.
 func TestWithinRootNoDejaSalirAlArbol(t *testing.T) {
 	root := "/srv/work"
 	tests := []struct {
@@ -372,20 +300,13 @@ func TestWithinRootNoDejaSalirAlArbol(t *testing.T) {
 		}
 	}
 
-	// Y con relaciones que no se pueden calcular (unidades distintas en unix no
-	// existen, pero un root relativo y un path absoluto los tienen): el resultado
-	// es "fuera", que es el fallo cerrado.
+	// A Rel that cannot be computed counts as outside, the closed failure.
 	if withinRoot("relativo", "/absoluto") {
 		t.Error("una comparación que no se puede hacer no puede decir 'dentro'")
 	}
 }
 
-// TestIsNestedRowCubreLasDosFormasDeFilaAnidada: una fila es anidada si es un
-// worktree linkeado o una fila contenedora, y sólo por eso.
-//
-// La agregación de grupos EXCLUYE las filas anidadas. Si una fila anidada se
-// contara en dos sitios --en su repo y en su grupo-- el conteo del header del grupo
-// no cuadraría con el número de filas que se ven debajo.
+// Group aggregation excludes nested rows; counting one in both places makes the group header disagree with the rows under it.
 func TestIsNestedRowCubreLasDosFormasDeFilaAnidada(t *testing.T) {
 	tests := []struct {
 		name string
@@ -405,19 +326,11 @@ func TestIsNestedRowCubreLasDosFormasDeFilaAnidada(t *testing.T) {
 	}
 }
 
-// TestFdPathDevuelveAlgoDistintoDeCadenaVaciaOElFichero: fdPath devuelve la ruta
-// del binario, no su contenido, y devuelve "" cuando no lo hay.
-//
-// Que devuelva una RUTA y no un contenido es lo que hace que scanWithFD pueda
-// invocarlo; y "" es lo que selecciona la ruta de WalkDir. El caso de /usr/bin/fd
-// y /usr/local/bin/fd es el de los sistemas donde fd no está en el PATH pero sí
-// instalado, que es el caso del runner de CI.
 func TestFdPathDevuelveAlgoDistintoDeCadenaVaciaOElFichero(t *testing.T) {
 	got := fdPath()
 	if got == "" {
 		t.Skip("no hay fd en este sistema: sólo se puede probar la rama de ausencia")
 	}
-	// Es un binario ejecutable, no un directorio.
 	info, err := os.Stat(got)
 	if err != nil {
 		t.Fatalf("fdPath devolvió %q, que no existe: %v", got, err)
@@ -430,13 +343,7 @@ func TestFdPathDevuelveAlgoDistintoDeCadenaVaciaOElFichero(t *testing.T) {
 	}
 }
 
-// TestIsBareRepoDeVerdadYDeMentira: la detección de bare repo es lo que decide si
-// un directorio sin manifiesto sale como fila o no, así que los dos signos tienen
-// que estar bien.
-//
-// Un repo NORMAL con worktrees tiene un directorio .git y no es bare: si se
-// tomara por bare, su worktree aparecería como fila madre y el repo con manifiesto
-// desaparecería del grupo.
+// A normal repo with worktrees has a .git directory; read as bare, its worktree becomes the parent row and the manifested repo drops out of its group.
 func TestIsBareRepoDeVerdadYDeMentira(t *testing.T) {
 	t.Run("un repo normal no es bare", func(t *testing.T) {
 		root := writeTree(t, map[string]string{
@@ -462,9 +369,6 @@ func TestIsBareRepoDeVerdadYDeMentira(t *testing.T) {
 	})
 }
 
-// ---- helpers ----
-
-// writeStr escribe un fichero y devuelve su ruta.
 func writeStr(t *testing.T, path, content string) string {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -504,7 +408,6 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
-// initBare crea un bare repo de verdad con git.
 func initBare(t *testing.T) string {
 	t.Helper()
 	requireGit(t)
@@ -513,16 +416,7 @@ func initBare(t *testing.T) string {
 	return dir
 }
 
-// TestScanConFdQueFallaDaErrorConSuSalida: si fd sale distinto de cero, el escaneo
-// falla Y el error lleva la salida de fd.
-//
-// El error con la salida de fd dentro es lo que hace falta: "fd failed: exit
-// status 1" sin más obligaría al usuario a reproducirlo a mano para ver qué pasó.
-// Con la salida dentro, el mensaje suele bastar.
-//
-// Y el fallo NO degrada a WalkDir en silencio: un escaneo que devuelve un
-// resultado distinto según si fd falla sería la peor sorpresa. O da lo que dio
-// fd, o falla.
+// A failing fd must not silently degrade to WalkDir, since a scan whose result depends on whether fd failed is the worst surprise; the error must carry fd's own output, otherwise the user has to reproduce the run by hand.
 func TestScanConFdQueFallaDaErrorConSuSalida(t *testing.T) {
 	root := writeTree(t, map[string]string{"api/.vroom.toml": "name = \"api\"\n"})
 	failing := writeStr(t, filepath.Join(t.TempDir(), "fd-roto"), "#!/bin/sh\necho 'boom en fd' >&2\nexit 2\n")
@@ -541,7 +435,6 @@ func TestScanConFdQueFallaDaErrorConSuSalida(t *testing.T) {
 		t.Errorf("el error no incluye la salida de fd: %q", err)
 	}
 
-	// Y el escaneo de bare repos con fd: también falla en voz alta.
 	if _, err := scanBareReposWithFD(failing, root, 3); err == nil {
 		t.Error("scanBareReposWithFD con fd fallando debería dar error")
 	} else if !strings.Contains(err.Error(), "fd (dirs) failed") {
@@ -549,11 +442,7 @@ func TestScanConFdQueFallaDaErrorConSuSalida(t *testing.T) {
 	}
 }
 
-// TestScanConFdQueNoEncuentraNadaDaUnaListaVacia: fd sale 0 y no encuentra nada,
-// que es un resultado VÁLIDO y no un error.
-//
-// Es lo que pasa en un workspace vacío, y tratarlo como error haría que `vroom
-// list` fallara en un directorio recién creado.
+// An empty workspace is a valid result; treating it as an error would break vroom list on a freshly created directory.
 func TestScanConFdQueNoEncuentraNadaDaUnaListaVacia(t *testing.T) {
 	root := writeTree(t, map[string]string{"vacio.txt": "x"})
 	empty := writeStr(t, filepath.Join(t.TempDir(), "fd-vacio"), "#!/bin/sh\nexit 0\n")
@@ -573,24 +462,15 @@ func TestScanConFdQueNoEncuentraNadaDaUnaListaVacia(t *testing.T) {
 	}
 }
 
-// TestScanPorWalkConBareRepoYProfundidad: la ruta de WalkDir también tiene que
-// sacar los bare repos y respetar la profundidad.
-//
-// Es la mitad del escaneo que no se ejecutaba en una máquina con fd instalado, y
-// su propia aritmética de profundidad: con SkipDir en el nivel equivocado se
-// pierde un subárbol entero.
+// This is the half of the scan that never runs on a machine with fd, and it has its own depth arithmetic.
 func TestScanPorWalkConBareRepoYProfundidad(t *testing.T) {
 	requireGit(t)
 	root := t.TempDir()
 
-	// Un bare repo de verdad: sale como fila contenedora.
 	bare := filepath.Join(root, "repo.git")
 	runGit(t, root, "init", "--bare", "-q", bare)
 
-	// Y un repo normal con un worktree linkeado, que sale como fila anidada con
-	// el .git como FICHERO. Se usa `git worktree add` y no `git clone` porque un
-	// clone tiene su propio .git como directorio: no es un worktree y la
-	// aserción de abajo no significaría nada.
+	// git worktree add, not git clone: a clone has its own .git directory, so it is not a worktree and the assertion would prove nothing.
 	repo := filepath.Join(root, "repo")
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
@@ -623,7 +503,6 @@ func TestScanPorWalkConBareRepoYProfundidad(t *testing.T) {
 		t.Errorf("hay %d worktrees, want 1: el walk tiene que reconocer el .git como fichero", worktrees)
 	}
 
-	// Y con profundidad 0 no se entra en ninguna fila.
 	shallow, err := scanWith(root, 0, "")
 	if err != nil {
 		t.Fatal(err)
@@ -633,15 +512,7 @@ func TestScanPorWalkConBareRepoYProfundidad(t *testing.T) {
 	}
 }
 
-// TestScanPorWalkFallaSiElWalkFalla: un error del recorrido se propaga.
-//
-// El error de WalkDir es un fallo de permisos en un subdirectorio que el proceso
-// no puede leer. Degradar a una lista parcial sería peor que fallar: el usuario
-// vería un workspace con menos proyectos del que tiene, y creería que ese es el
-// estado real.
-//
-// Se provoca sustituyendo la variable `walkDir`, que existe para esto desde antes
-// de este test.
+// A partial list would show a workspace with fewer projects than the user has, and they would believe it.
 func TestScanPorWalkFallaSiElWalkFalla(t *testing.T) {
 	orig := walkDir
 	t.Cleanup(func() { walkDir = orig })
@@ -649,8 +520,7 @@ func TestScanPorWalkFallaSiElWalkFalla(t *testing.T) {
 	calls := 0
 	walkDir = func(root string, fn fs.WalkDirFunc) error {
 		calls++
-		// Se devuelve el error por el callback, que es como WalkDir lo hace de
-		// verdad cuando no puede leer un directorio.
+		// The error travels through the callback, which is how real WalkDir reports an unreadable directory.
 		_ = fn(root, nil, walkErr)
 		return walkErr
 	}
@@ -671,20 +541,15 @@ func TestScanPorWalkFallaSiElWalkFalla(t *testing.T) {
 	}
 }
 
-// TestRepoKeyRechazaUnGitAMedioConstruir: un `.git` sin `config` NO es un repo.
-//
-// Es un caso real: `git init` crea el directorio y escribe HEAD antes de escribir
-// config, y un escaneo que pasara por ahí declararía repo un directorio a medias.
-// El efecto sería agrupar proyectos bajo un repo que no existe.
+// git init writes HEAD before config, so a scan landing in between would declare a half-built directory a repo.
 func TestRepoKeyRechazaUnGitAMedioConstruir(t *testing.T) {
 	medio := writeTree(t, map[string]string{
-		"repo/.git/HEAD": "ref: refs/heads/main\n", // sin config
+		"repo/.git/HEAD": "ref: refs/heads/main\n",
 	})
 	if got := repoKey(filepath.Join(medio, "repo")); got != "" {
 		t.Errorf("repoKey = %q con un .git sin config, want \"\"", got)
 	}
 
-	// Y con config, sí es repo: el caso bueno de la misma comprobación.
 	completo := writeTree(t, map[string]string{
 		"repo/.git/HEAD":   "ref: refs/heads/main\n",
 		"repo/.git/config": "[core]\n",
@@ -695,12 +560,7 @@ func TestRepoKeyRechazaUnGitAMedioConstruir(t *testing.T) {
 	}
 }
 
-// TestRepoKeyRechazaUnGitFicheroQueNoEsUnPuntero: un `.git` que es un FICHERO
-// tiene que decir "gitdir: <ruta>"; si no lo dice, no es un worktree.
-//
-// El caso es real en repos mal copiados, y el efecto de aceptarlo sería agrupar el
-// proyecto bajo un repo raíz vacío, con lo que la agregación de grupos contaría
-// mal.
+// A .git file that is not a pointer is what a badly copied repo looks like; accepting it groups the project under an empty root.
 func TestRepoKeyRechazaUnGitFicheroQueNoEsUnPuntero(t *testing.T) {
 	dir := writeTree(t, map[string]string{
 		"repo/.git":        "esto no es un puntero\n",
@@ -711,13 +571,7 @@ func TestRepoKeyRechazaUnGitFicheroQueNoEsUnPuntero(t *testing.T) {
 	}
 }
 
-// TestFinalizeNoDuplicaLaFilaDeUnBareQueTambienEsProyecto: un repositorio que
-// aparece por los dos caminos se lista UNA vez.
-//
-// Los dos caminos son el escaneo de manifiestos y el de bare repos. Un directorio
-// con ambos —un repo con `.vroom.toml` que además es bare— aparecería dos veces, y
-// dos filas del mismo servicio harían que el TUI lo ofreciera como duplicado y
-// que el `stop` de una dejara a la otra afirmando un PID.
+// Two rows for one service make stop leave the other claiming a PID.
 func TestFinalizeNoDuplicaLaFilaDeUnBareQueTambienEsProyecto(t *testing.T) {
 	dir := "/srv/doble"
 	projects := []Project{{Path: dir, Name: "doble", Configured: true}}
@@ -727,23 +581,18 @@ func TestFinalizeNoDuplicaLaFilaDeUnBareQueTambienEsProyecto(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("hay %d filas, want 1: el mismo path no puede salir dos veces", len(got))
 	}
-	// Gana la del escaneo de manifiestos, que es la que tiene el Manifest.
+	// The manifest-scan row wins because it is the one carrying the Manifest.
 	if !got[0].Configured {
 		t.Error("la fila duplicada se quedó con la versión sin manifiesto: el servicio parecería no gestionable")
 	}
 
-	// Y dos bares con el mismo path también se deduplican entre sí.
 	dup := []Project{{Path: dir, IsBareContainer: true}, {Path: dir, IsBareContainer: true}}
 	if got := finalize(nil, dup, "/srv"); len(got) != 1 {
 		t.Errorf("hay %d filas con dos bares del mismo path, want 1", len(got))
 	}
 }
 
-// TestFinalizeDedupsProyectosRepetidos: dos filas de proyecto con el mismo path
-// se funden en una.
-//
-// El escaneo con fd y el de WalkDir nunca repiten, pero `finalize` es donde se
-// garantiza, y una fila repetida se ve como un servicio duplicado en el árbol.
+// Neither scan path repeats a path; finalize is where that is guaranteed.
 func TestFinalizeDedupsProyectosRepetidos(t *testing.T) {
 	dir := "/srv/doble"
 	dup := []Project{
@@ -755,15 +604,9 @@ func TestFinalizeDedupsProyectosRepetidos(t *testing.T) {
 	}
 }
 
-// TestScanCortaElRecorridoCuandoSePasaDeProfundidad: un directorio más profundo
-// que el límite no se entra, ni siquiera para buscar nietos.
-//
-// Es lo que evita que un escaneo con depth 2 entre en `node_modules/lo/que/haya`,
-// y el SkipDir tiene que estar donde está: un `continue` seguiría bajando y el
-// corte no serviría de nada.
 func TestScanCortaElRecorridoCuandoSePasaDeProfundidad(t *testing.T) {
 	root := writeTree(t, map[string]string{
-		// El manifiesto está 4 niveles abajo y depth 2, así que no puede salir.
+		// The manifest sits 4 levels down and depth is 2, so it cannot show up.
 		"a/b/c/d/.vroom.toml": "name = \"profundo\"\ncommand_start = \"./x\"\n",
 		"a/.vroom.toml":       "name = \"a\"\ncommand_start = \"./x\"\n",
 	})
@@ -777,8 +620,6 @@ func TestScanCortaElRecorridoCuandoSePasaDeProfundidad(t *testing.T) {
 		t.Errorf("se encontraron %v con depth 2, want sólo a: el recorrido debe cortarse", names)
 	}
 
-	// Con depth 0 el corte ocurre al entrar en el primer hijo: es el mismo
-	// SkipDir pero por la otra aritmética (1 > 0 en vez de 3 > 2).
 	zero, err := scanWith(root, 0, "")
 	if err != nil {
 		t.Fatal(err)
@@ -787,10 +628,7 @@ func TestScanCortaElRecorridoCuandoSePasaDeProfundidad(t *testing.T) {
 		t.Errorf("con depth 0 aparecieron %v: no se puede entrar en ningún hijo", namesOf(zero.Projects))
 	}
 
-	// Y con depth 5 sí sale, que es lo que demuestra que el corte anterior era por
-	// profundidad y no por otra cosa. El nombre de la fila es el del DIRECTORIO,
-	// no el del manifiesto: es lo que hacen las dos rutas del escaneo, y
-	// findProject tiene una segunda pasada por si acaso.
+	// The row name is the directory, not the manifest; both scan paths do that and findProject has a second pass.
 	more, err := scanWith(root, 5, "")
 	if err != nil {
 		t.Fatal(err)
@@ -800,14 +638,7 @@ func TestScanCortaElRecorridoCuandoSePasaDeProfundidad(t *testing.T) {
 	}
 }
 
-// TestScanConElCwdBorradoDaErrorEn vezDeSalirCallado: sin directorio de trabajo no
-// se puede resolver una ruta RELATIVA, y eso tiene que ser un error.
-//
-// La alternativa sería devolver el path tal cual y escanear el directorio
-// equivocado: el usuario vería la lista de otro sitio y no sabría por qué.
-//
-// Sólo afecta a rutas relativas: filepath.Abs de una ruta absoluta no necesita el
-// CWD, y ese es el caso normal del CLI, que siempre pasa un root absoluto.
+// Only relative roots are affected: filepath.Abs of an absolute path needs no CWD, and the CLI always passes an absolute root.
 func TestScanConElCwdBorradoDaError(t *testing.T) {
 	gone := t.TempDir()
 	t.Chdir(gone)
@@ -821,7 +652,6 @@ func TestScanConElCwdBorradoDaError(t *testing.T) {
 	}
 }
 
-// contains dice si la lista tiene el valor.
 func contains(list []string, want string) bool {
 	for _, v := range list {
 		if v == want {

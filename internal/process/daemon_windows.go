@@ -4,19 +4,9 @@ package process
 
 import "fmt"
 
-// windowsManager es un placeholder documentado para v2 (el diseño no
-// bloquea Windows).
-//
-// Plan de implementación v2:
-//   - Spawn: exec.Command con SysProcAttr{CreationFlags: CREATE_NEW_PROCESS_GROUP |
-//     DETACHED_PROCESS | CREATE_NO_WINDOW} para desacoplar del padre.
-//   - Graceful stop: CTRL_BREAK_EVENT al grupo (no hay SIGTERM en Windows),
-//     con timeout.
-//   - Forzado: taskkill /T /F o TerminateJobObject (Job Objects para árboles).
-//   - Liveness/creation-time: gopsutil ya funciona igual en Windows (portable).
+// Deliberate v1 placeholder: Windows detachment needs CREATE_NEW_PROCESS_GROUP plus DETACHED_PROCESS and graceful stop has no SIGTERM, out of scope for a Linux-first v1.
 type windowsManager struct{}
 
-// NewManager devuelve el Manager de la plataforma actual.
 func NewManager() Manager { return &windowsManager{} }
 
 func (w *windowsManager) Start(spec StartSpec) (StartResult, error) {

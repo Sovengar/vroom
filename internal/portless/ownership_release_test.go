@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-// recordingReleaser registra lo que se le pide retirar y puede fallar.
 type recordingReleaser struct {
 	removed []string
 	err     error
@@ -16,23 +15,11 @@ func (r *recordingReleaser) RemoveAbsent(name string) error {
 	return r.err
 }
 
-// errRemoveFailed es un fallo de retirada que NO debe revoke la propiedad.
+// errRemoveFailed is a removal failure, which must NOT revoke ownership.
 var errRemoveFailed = errors.New("portless alias --remove exited 1")
 
-// ---------------------------------------------------------------------------
-// El stop retira la ruta y REVOCA la propiedad.
-//
-// Son dos hechos distintos y confundirlos es lo que abrió el HIGH: RouteName y
-// RoutePort se conservaban para siempre, así que una ruta ya retirada seguía
-// pareciendo nuestra y el arranque siguiente podía pisar la de otro.
-//
-// El handle se conserva SÍ o sí, incluso tras revocar: si la retirada falla, la
-// ruta puede seguir ahí y sin handle la reconciliación no podría limpiarla. El
-// handle dice DÓNDE mirar; la propiedad dice SI se puede pisar. No se
-// contradicen.
-// ---------------------------------------------------------------------------
+// Removing the route and revoking ownership are two facts: conflating them is what kept RouteName/RoutePort forever, and the handle survives either way because it says WHERE to look while ownership says WHETHER to stomp.
 
-// Una retirada efectiva revoca la propiedad y devuelve true.
 func TestReleaseRevokesOwnershipOnSuccess(t *testing.T) {
 	rec := &recordingReleaser{}
 	if !Release(rec, "mi-ruta") {
@@ -43,8 +30,6 @@ func TestReleaseRevokesOwnershipOnSuccess(t *testing.T) {
 	}
 }
 
-// Una retirada que FALLA no revoca: la ruta puede seguir ahí, y perder el
-// handle la dejaría sin nadie que la limpie.
 func TestReleaseKeepsOwnershipWhenItFails(t *testing.T) {
 	rec := &recordingReleaser{err: errRemoveFailed}
 	if Release(rec, "mi-ruta") {
@@ -55,7 +40,6 @@ func TestReleaseKeepsOwnershipWhenItFails(t *testing.T) {
 	}
 }
 
-// Un nombre vacío no es una retirada: no había nada nuestro que revocar.
 func TestReleaseOfNothingRevokesNothing(t *testing.T) {
 	rec := &recordingReleaser{}
 	if !Release(rec, "") {
@@ -66,14 +50,6 @@ func TestReleaseOfNothingRevokesNothing(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// La verdad completa de la combinación que cerraba el HIGH, en un sitio
-// legible: propiedad CONCEDIDA o REVOCADA, con el nombre libre u ocupado por
-// otro en nuestro puerto anterior.
-// ---------------------------------------------------------------------------
-
-// REVOCADA + nombre ajeno en nuestro puerto anterior → no se puede pisar. Éste
-// es exactamente el HIGH.
 func TestRevokedOwnershipDoesNotAuthoriseForeignRoute(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
@@ -82,13 +58,11 @@ func TestRevokedOwnershipDoesNotAuthoriseForeignRoute(t *testing.T) {
 		t.Fatalf("alta inicial: %+v", res)
 	}
 
-	// El stop retira la ruta y revoca.
 	held := Ownership{Owned: true, Port: 4321}
 	if Release(c, "app") {
 		held = Ownership{}
 	}
 
-	// Otro dueño toma el nombre, en nuestro puerto anterior.
 	f.routes[Hostname("app")] = 4321
 
 	res := c.Apply("app", 5000, held)
@@ -103,9 +77,6 @@ func TestRevokedOwnershipDoesNotAuthoriseForeignRoute(t *testing.T) {
 	}
 }
 
-// CONCEDIDA + nombre ajeno en nuestro puerto → se mueve. Es el caso que prevPort
-// existía para servir, y el que no debe romperse al cerrar el HIGH: sin esto,
-// reiniciar la app en otro puerto dejaría la ruta apuntando a un puerto muerto.
 func TestLiveOwnershipStillAuthorisesMovingOurRoute(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
@@ -122,8 +93,6 @@ func TestLiveOwnershipStillAuthorisesMovingOurRoute(t *testing.T) {
 	}
 }
 
-// CONCEDIDA + nombre ya en NUESTRO puerto → alta idempotente, que es lo que
-// hace que un reinicio converja sin acumular rutas.
 func TestLiveOwnershipAuthorisesIdempotentReRegister(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
@@ -135,8 +104,6 @@ func TestLiveOwnershipAuthorisesIdempotentReRegister(t *testing.T) {
 	}
 }
 
-// SIN propiedad + nombre libre → se registra. El caso normal de arranque en
-// frío, que no debe depender de ninguna concesión.
 func TestNoOwnershipStillRegistersAFreeName(t *testing.T) {
 	f := newFake()
 	c := f.client(t)

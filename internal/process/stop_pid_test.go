@@ -10,13 +10,8 @@ import (
 	"time"
 )
 
-// StopSpec.Pid está documentado como "raíz del linaje", pero como objetivo de
-// muerte era decorativo: todo el bloque de kill estaba bajo `if spec.Pgid > 0`,
-// así que con un PID válido y PGID 0 Stop no hacía nada. Eso es lo que dejó
-// helpers vivos reteniendo puertos del rango de reserva.
+// Two regressions pinned here: the kill block sat under "if spec.Pgid > 0" so a valid Pid with Pgid 0 made Stop a no-op, and an earlier test that called Stop(StopSpec{Pid: os.Getpid()}) killed the test binary mid-suite.
 
-// pidGone dice si el proceso ya no está corriendo (un zombie cuenta como
-// muerto: no ejecuta ni puede retener un puerto).
 func pidGone(t *testing.T, pid int) bool {
 	t.Helper()
 	info, err := procStatAt(filepath.Join(procRoot, strconv.Itoa(pid)))
@@ -29,7 +24,6 @@ func pidGone(t *testing.T, pid int) bool {
 func syscallKill(pid int) error    { return syscall.Kill(pid, syscall.SIGKILL) }
 func syscallKillGroup(g int) error { return syscall.Kill(-g, syscall.SIGKILL) }
 
-// assertDead falla si el proceso sigue vivo tras Stop.
 func assertDead(t *testing.T, pid int, what string) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -42,8 +36,6 @@ func assertDead(t *testing.T, pid int, what string) {
 	t.Errorf("%s %d sigue vivo tras Stop", what, pid)
 }
 
-// startBareSpawned arranca un proceso real fuera de todo grupo de vroom, para
-// que Stop sólo pueda alcanzarlo por PID.
 func startBareSpawned(t *testing.T) StartResult {
 	t.Helper()
 	dir := t.TempDir()
@@ -60,7 +52,6 @@ func startBareSpawned(t *testing.T) StartResult {
 	return res
 }
 
-// Con PID y sin PGID, Stop tiene que matar. Antes: no-op completo.
 func TestStopWithPidAndNoPgidTerminates(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -72,7 +63,7 @@ func TestStopWithPidAndNoPgidTerminates(t *testing.T) {
 		t.Fatalf("precondición: el proceso debería estar vivo, got %d", res.Pid)
 	}
 
-	// El spec exacto que usan los helpers de startsvc.
+	// The exact StopSpec the startsvc helpers use.
 	if err := newTestManager(t).Stop(StopSpec{
 		Pid: res.Pid, Pgid: 0, Port: 0, Timeout: 2 * time.Second,
 	}); err != nil {
@@ -82,8 +73,6 @@ func TestStopWithPidAndNoPgidTerminates(t *testing.T) {
 	assertDead(t, res.Pid, "el proceso raíz")
 }
 
-// La vía del PID también tiene que alcanzar a un descendiente re-sid, que
-// vive en otro process group y no comparte señales con la raíz.
 func TestStopWithPidOnlyKillsResidDescendant(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -120,7 +109,6 @@ func TestStopWithPidOnlyKillsResidDescendant(t *testing.T) {
 		t.Fatalf("precondición: el backend debe estar en otro pgid (tiene %d)", backend.pgid)
 	}
 
-	// Sólo el PID de la raíz, sin PGID.
 	if err := m.Stop(StopSpec{Pid: res.Pid, Timeout: 3 * time.Second}); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
@@ -130,7 +118,6 @@ func TestStopWithPidOnlyKillsResidDescendant(t *testing.T) {
 	waitFor(t, 3*time.Second, "puerto liberado", func() bool { return !PortOpen(port) })
 }
 
-// Un PID inexistente no puede hacer paniquear ni colgarse.
 func TestStopWithNonexistentPidIsClean(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: sin spawn, pero con /proc")
@@ -155,14 +142,12 @@ func TestStopWithNonexistentPidIsClean(t *testing.T) {
 	}
 }
 
-// Sin PID ni PGID no hay raíz creíble: no-op, y no se señala nada.
 func TestStopWithoutAnyRootIsNoOp(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
 	}
 	requireProc(t)
 
-	// Un proceso ajeno que debe seguir intacto.
 	res := startBareSpawned(t)
 
 	var warns []string

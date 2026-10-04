@@ -11,24 +11,7 @@ import (
 	"vroom/internal/tail"
 )
 
-// ---------------------------------------------------------------------------
-// El render de la columna derecha y de las cajas.
-//
-// Lo que se prueba aquí es una propiedad, no un snapshot: cada función devuelve
-// EXACTAMENTE las líneas que su caja espera, ni una más ni una menos. Y eso no es
-// cosmetics: el compositor apila cajas de altura fija, así que una línea de más
-// empuja el borde inferior fuera de la pantalla y una de menos deja un hueco.
-//
-// Los siete estados de la pestaña Output están porque son siete ramas
-// independientes y sólo se ejercitaba una. El resto de pestañas se ve en negro con
-// un servicio parado, y un panel en negro no es un panel probado.
-// ---------------------------------------------------------------------------
-
-// TestPadLinesRellenaYRecortaConElAltoExacto: el contrato de las cajas.
-//
-// Recortar y rellenar son las dos mitades: recortar protege de un contenido más
-// alto que la caja, rellenar protege de uno más bajo. Y n negativo tiene que dar
-// cero líneas, no un índice negativo que revienta.
+// Both halves are needed: clipping protects against content taller than the box, padding against content shorter, and a negative n must yield no lines at all.
 func TestPadLinesRellenaYRecortaConElAltoExacto(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -66,13 +49,7 @@ func TestPadLinesRellenaYRecortaConElAltoExacto(t *testing.T) {
 	}
 }
 
-// TestFitLinesRecortaCadaLineaAlAnchoVisible: el ancho se mide en celdas
-// visibles, no en bytes.
-//
-// Con ANSI en medio, un `len()` daría un número que no es el ancho que se dibuja y
-// el compositor envolvería la línea, cambiando el alto de la caja. Por eso
-// truncANSI. Lo que se prueba es que el texto SIN escapes que queda es del ancho
-// pedido y que un rune multibyte no se parte.
+// Width is measured in visible cells: len() would count ANSI bytes and make the compositor wrap the line, changing the box height.
 func TestFitLinesRecortaCadaLineaAlAnchoVisible(t *testing.T) {
 	lines := []string{
 		strings.Repeat("x", 50),
@@ -86,7 +63,7 @@ func TestFitLinesRecortaCadaLineaAlAnchoVisible(t *testing.T) {
 			t.Errorf("línea %d mide %d celdas visibles, want <= 10: %q", i, n, l)
 		}
 	}
-	// Y el contenido escapado se conserva: fitLines recorta, no quita escapes.
+	// Escaped content survives: fitLines truncates, it never strips escapes.
 	if !strings.Contains(got[1], "\x1b[31m") {
 		t.Errorf("el estilo se ha perdido al recortar: %q", got[1])
 	}
@@ -95,20 +72,11 @@ func TestFitLinesRecortaCadaLineaAlAnchoVisible(t *testing.T) {
 	}
 }
 
-// TestDetailsContentLinesDevuelveSiempreElAltoDeLaCaja: ni una línea más ni una
-// menos, venga el contenido que venga.
-//
-// El alto es FIJO porque la caja de Details tiene borde y título: si el panel
-// devolviera menos, el borde inferior flotaría; si devolviera más, se saldría de
-// la pantalla. Y tiene que valer para un panel de tres líneas y para uno de
-// veinte, que es lo que pasa según el proyecto.
-//
-// Se barre variando el proyecto seleccionado: un servicio sin manifiesto tiene
-// menos campos que uno con rama, grupo, patrón, pid, ruta y logs.
+// The height is fixed because the Details box has a border and a title: fewer lines leave the bottom border floating, more lines push it off screen.
 func TestDetailsContentLinesDevuelveSiempreElAltoDeLaCaja(t *testing.T) {
 	conProyecto, _ := newTestModel(t)
 	conProyecto = moveCursorTo(t, conProyecto, "tienda-api")
-	// Se le añade rama, patrón y ruta para que el panel tenga el máximo de filas.
+	// Branch, pattern and pid are added so the panel gets the maximum number of rows.
 	path := pathOfSelected(t, conProyecto)
 	conProyecto.branches[path] = "feature/una-rama-muy-larga-que-cabe"
 	if p := conProyecto.projectByPath(path); p != nil && p.Manifest != nil {
@@ -135,13 +103,7 @@ func TestDetailsContentLinesDevuelveSiempreElAltoDeLaCaja(t *testing.T) {
 	}
 }
 
-// TestDetailsContentLinesAplicaElScrollYNoSeSalePorEncima: con scroll el panel
-// muestra una ventana, y nunca se sale del contenido.
-//
-// Las dos clamps son distintas y ambas importan: el `top` hacia abajo evita un
-// índice fuera de rango cuando el contenido se hace más corto (un proyecto sin
-// rama tras un refresh), y el `top` negativo evita un panic si algo lo deja
-// negativo.
+// Both clamps matter: a top past the content indexes out of range after a refresh shrinks it, a negative one panics.
 func TestDetailsContentLinesAplicaElScrollYNoSeSalePorEncima(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -170,15 +132,9 @@ func TestDetailsContentLinesAplicaElScrollYNoSeSalePorEncima(t *testing.T) {
 	})
 }
 
-// TestConsoleContentLinesCubreLasSietePestanas: cada pestaña produce su panel y
-// todas respetan el alto.
-//
-// Las siete son ramas de un switch independiente. Cubrir sólo la consola deja las
-// otras seis en negro, y en negro un panel con un error no se distingue de un
-// panel con una columna de más.
+// The seven tabs are independent switch branches: an unexercised panel is indistinguishable from a panel one column short.
 func TestConsoleContentLinesCubreLasSietePestanas(t *testing.T) {
-	// Un servicio vivo con métricas, entorno, git, eventos y salud: es el estado
-	// en el que las siete pestañas tienen algo que pintar.
+	// A live service with metrics, env, git, events and health: the state in which all seven tabs have something to paint.
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
@@ -202,26 +158,19 @@ func TestConsoleContentLinesCubreLasSietePestanas(t *testing.T) {
 		if len(got) != m.contentH+1 {
 			t.Errorf("pestaña %d: %d líneas, want %d (la barra + el contenido)", k, len(got), m.contentH+1)
 		}
-		// La barra siempre está, y nombra la pestaña.
 		if !strings.Contains(tail.StripANSI(got[0]), tabLabelText(k)) {
 			t.Errorf("pestaña %d: la barra no la nombra: %q", k, got[0])
 		}
 	}
 }
 
-// TestConsoleContentLinesConUnPanelDeMasLineasSeRecorta: el compositor no puede
-// envolver.
-//
-// Si el panel devuelve más de las que caben, el borde inferior de la caja Output
-// se sale de la pantalla. Por eso el retorno va rellenado/recortado a un alto
-// exacto, y por eso hay que comprobarlo con contenido que DESBORDE.
+// The return is padded and clipped to an exact height on purpose: one line too many pushes the Output box border off screen.
 func TestConsoleContentLinesConUnPanelDeMasLineasSeRecorta(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
 	markRunning(&m, path, livePID(t))
 
-	// 300 variables de entorno: muy por encima de lo que cabe.
 	vars := make([]string, 300)
 	for i := range vars {
 		vars[i] = "VARIABLE_DE_ENTORNO_LARGUISIMA_NUMERO_" + strings.Repeat("x", 30)
@@ -233,7 +182,6 @@ func TestConsoleContentLinesConUnPanelDeMasLineasSeRecorta(t *testing.T) {
 	if len(got) != m.contentH+1 {
 		t.Errorf("con 300 variables devolvió %d líneas, want %d", len(got), m.contentH+1)
 	}
-	// Y ninguna línea se sale del ancho: si se saliera, el compositor envolvería.
 	for i, l := range got {
 		if n := lipglossWidth(l); n > m.rightW {
 			t.Fatalf("línea %d mide %d celdas, want <= %d", i, n, m.rightW)
@@ -241,14 +189,7 @@ func TestConsoleContentLinesConUnPanelDeMasLineasSeRecorta(t *testing.T) {
 	}
 }
 
-// TestTabsBarDistingueFollowYPausaYElPIDDeCadaPestaña: el rótulo de la derecha
-// cambia de significado según la pestaña.
-//
-// El caso de Console es el que importa: "follow" y "paused" son estados
-// OPUESTOS y el usuario tiene que poder ver en cuál está sin recordar si pulsó
-// algo. En las pestañas de muestreo el rótulo es el PID, y con el servicio parado
-// tiene que decir "pid —" en vez de omitirlo (omitirlo deja la barra descentrada y
-// no dice nada).
+// "follow" and "paused" are opposite states the user must read at a glance, and a stopped service still says "pid -" because omitting it unbalances the bar and says nothing.
 func TestTabsBarDistingueFollowYPausaYElPIDDeCadaPestaña(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.width, m.height = 160, 30
@@ -304,8 +245,7 @@ func TestTabsBarDistingueFollowYPausaYElPIDDeCadaPestaña(t *testing.T) {
 	})
 
 	t.Run("barra estrecha: el rótulo se cae pero la barra se dibuja", func(t *testing.T) {
-		// Con un ancho menor que barra + rótulo, el rótulo se descarta entero. Es lo
-		// correcto: partirlo a la mitad daría "pid 43" que es un pid FALSO.
+		// Below bar+label width the label is dropped whole: half of it would render "pid 43", a pid that does not exist.
 		m.activeTab = tabConsole
 		got := m.tabsBar(20)
 		if lipglossWidth(got) > 20 {
@@ -317,11 +257,7 @@ func TestTabsBarDistingueFollowYPausaYElPIDDeCadaPestaña(t *testing.T) {
 	})
 }
 
-// TestTabsBarConCursorEnUnHeaderNoInventaRótulo: sin proyecto seleccionado no hay
-// PID que enseñar.
-//
-// Un rótulo de proceso sin proceso es inventado, y con el cursor sobre un grupo
-// es la forma más fácil de="">
+// No selected project means no PID to show.
 func TestTabsBarConCursorEnUnHeaderNoInventaRotulo(t *testing.T) {
 	m, _ := newTestModel(t)
 	cursorEn(t, &m, "tienda")
@@ -334,12 +270,7 @@ func TestTabsBarConCursorEnUnHeaderNoInventaRotulo(t *testing.T) {
 	}
 }
 
-// TestKeybindsBoxTraeElMensajeDeEstadoAbajo: el mensaje de estado vive en el borde
-// inferior derecho.
-//
-// Es el único sitio donde cabe sin empujar las dos líneas de ayuda, que están
-// fijas. Y un mensaje largo tiene que recortarse al ancho interior: sin recorte
-// el compositor envolvería la línea y el alto de la caja cambiaría.
+// The message lives at the bottom right because it is the only spot that does not push the two fixed help lines, and it must be clipped or the compositor would wrap it.
 func TestKeybindsBoxTraeElMensajeDeEstadoAbajo(t *testing.T) {
 	m, _ := newTestModel(t)
 
@@ -354,7 +285,6 @@ func TestKeybindsBoxTraeElMensajeDeEstadoAbajo(t *testing.T) {
 		t.Errorf("el mensaje de estado no aparece: %q", withMensaje)
 	}
 
-	// Y con un mensaje enorme no se sale del ancho ni crece la caja.
 	m.message = strings.Repeat("un-mensaje-muy-largo-", 50)
 	corta := tail.StripANSI(m.keybindsBox())
 	for i, l := range strings.Split(corta, "\n") {
@@ -363,18 +293,13 @@ func TestKeybindsBoxTraeElMensajeDeEstadoAbajo(t *testing.T) {
 		}
 	}
 
-	// Y sin mensaje la caja tiene el mismo alto que con mensaje: el alto es fijo.
 	m.message = ""
 	if a, b := len(strings.Split(sinMensaje, "\n")), len(strings.Split(tail.StripANSI(m.keybindsBox()), "\n")); a != b {
 		t.Errorf("la caja de keybinds cambia de alto según el mensaje: %d vs %d", a, b)
 	}
 }
 
-// TestKeybindsBoxDistingueWalkDeFD: el método de escaneo se enseña en la barra.
-//
-// Es la diferencia entre "vroom tarda porque recorre el árbol" y "vroom tarda
-// porque fd no está instalado". Sin el rótulo el usuario no puede ni formular la
-// pregunta, y el tick de 2s se ve igual en los dos casos.
+// Without the label the user cannot tell "vroom is slow because it walks the tree" from "fd is missing": the 2s tick looks the same.
 func TestKeybindsBoxDistingueWalkDeFD(t *testing.T) {
 	m, _ := newTestModel(t)
 
@@ -388,12 +313,7 @@ func TestKeybindsBoxDistingueWalkDeFD(t *testing.T) {
 	}
 }
 
-// TestPickerRowsDeslizaLaVentanaYCuentaLosOcultos: la lista larga scrollea
-// abriendo la ventana sobre el cursor.
-//
-// Lo que importa es que el elemento bajo el cursor SIEMPRE está visible: sin eso
-// el usuario vería una lista en la que navega y el elemento resaltado no aparece,
-// que es la forma más desconcertante de que un modal esté roto.
+// The item under the cursor must always be visible: a list that navigates without showing the highlighted row is the most confusing way for a modal to look broken.
 func TestPickerRowsDeslizaLaVentanaYCuentaLosOcultos(t *testing.T) {
 	m := newStackModel(t)
 	items := make([]pickerItem, 30)
@@ -413,37 +333,28 @@ func TestPickerRowsDeslizaLaVentanaYCuentaLosOcultos(t *testing.T) {
 		if got, want := maxRows+more, len(items); got != want {
 			t.Fatalf("cursor %d: %d visibles + %d ocultos = %d, want %d", cur, len(rows), more, got, want)
 		}
-		// El cursor tiene que estar dentro de la ventana.
 		if !strings.Contains(tail.StripANSI(rows[cur%maxRows]), items[cur].Name) &&
 			!strings.Contains(tail.StripANSI(strings.Join(rows, "\n")), "▶ "+items[cur].Name) {
 			t.Errorf("cursor %d: el elemento resaltado no está en la ventana: %q", cur, rows)
 		}
-		// Y sólo hay una flecha.
 		body := tail.StripANSI(strings.Join(rows, "\n"))
 		if n := strings.Count(body, "▶"); n != 1 {
 			t.Errorf("cursor %d: %d flechas en la ventana, want 1", cur, n)
 		}
 	}
 
-	// Con todo dentro, more = 0.
 	m.pickerCursor = 0
 	rows, more := m.pickerRows(40, 60)
 	if more != 0 || len(rows) != len(items) {
 		t.Errorf("con todo dentro: %d filas y %d ocultos, want %d y 0", len(rows), more, len(items))
 	}
 
-	// Con maxRows <= 0 no hay ventana y TODO está oculto.
 	if rows, more := m.pickerRows(0, 60); len(rows) != 0 || more != len(items) {
 		t.Errorf("con maxRows 0: %d filas y %d ocultos, want 0 y %d", len(rows), more, len(items))
 	}
 }
 
-// TestPickerTitleYAncho: el título nombra el proyecto y el ancho se ajusta a lo
-// que hay.
-//
-// El ancho mínimo de 28 importa: por debajo, la caja del modal sería más estrecha
-// que su propio texto y el compositor envolvería cada fila, convirtiendo una lista
-// en un bloque ilegible.
+// The 28 floor matters: below it the modal box is narrower than its own text and the compositor wraps every row into an unreadable block.
 func TestPickerTitleYAncho(t *testing.T) {
 	m := newStackModel(t)
 
@@ -452,12 +363,11 @@ func TestPickerTitleYAncho(t *testing.T) {
 		t.Errorf("con un proyecto = %q, want tienda-api", got)
 	}
 
-	cursorEn(t, &m, "front") // un stack no es un proyecto
+	cursorEn(t, &m, "front") // a stack, not a project
 	if got := m.pickerTitle(); got != "?" {
 		t.Errorf("sin proyecto = %q, want un interrogante", got)
 	}
 
-	// Ancho: mínimo de 28, y se ajusta a la fila más larga + 2.
 	m.width = 200
 	m.pickerItems = []pickerItem{{Name: "corta"}, {Name: "una-tarea-con-el-nombre-mas-largo-de-lote"}}
 	if w := m.pickerInnerW(); w < 28 {
@@ -473,11 +383,7 @@ func TestPickerTitleYAncho(t *testing.T) {
 	}
 }
 
-// TestPickerBoxDibujaElModalCompleto: título, ventana y ayuda.
-//
-// Las tres partes están porque el modal es la única ventana modal del programa y
-// un usuario perdido en ella no tiene forma de salir: por eso la línea de ayuda
-// ("j/k select · enter run · esc close") no es decorativa, es el contrato.
+// The help line is the contract, not decoration: this is the only modal in the program and a lost user has no other way out.
 func TestPickerBoxDibujaElModalCompleto(t *testing.T) {
 	m := newStackModel(t)
 	m.pickerItems = []pickerItem{
@@ -499,7 +405,6 @@ func TestPickerBoxDibujaElModalCompleto(t *testing.T) {
 		t.Errorf("el modal de agentes tiene su propio título:\n%s", body)
 	}
 
-	// Y con ventana deslizante avisa de los ocultos.
 	m.pickerItems = make([]pickerItem, 200)
 	for i := range m.pickerItems {
 		m.pickerItems[i] = pickerItem{Name: "t" + strconv.Itoa(i)}
@@ -509,8 +414,7 @@ func TestPickerBoxDibujaElModalCompleto(t *testing.T) {
 	}
 }
 
-// TestPickerMaxRowsNuncaSaleDeLaPantallaNiSePasaDeLaLista: el alto de la lista
-// tiene dos techos y uno sólo está puesto.
+// Two ceilings exist and only the screen one is enforced in production.
 func TestPickerMaxRowsNuncaSaleDeLaPantallaNiSePasaDeLaLista(t *testing.T) {
 	m := newStackModel(t)
 
@@ -523,14 +427,12 @@ func TestPickerMaxRowsNuncaSaleDeLaPantallaNiSePasaDeLaLista(t *testing.T) {
 		t.Errorf("con 500 items = %d, want %d (el alto de la pantalla manda)", got, want)
 	}
 
-	// Pantalla diminuta: el mínimo de 3 filas.
 	m.bodyH = 1
 	m.pickerItems = make([]pickerItem, 500)
 	if got := m.pickerMaxRows(); got < 3 {
 		t.Errorf("con una pantalla de una línea = %d, want >= 3", got)
 	}
 
-	// Sin items: 0, que pickerRows sabe tratar como "todo oculto".
 	m.pickerItems = nil
 	m.bodyH = 30
 	if got := m.pickerMaxRows(); got != 0 {
@@ -538,20 +440,13 @@ func TestPickerMaxRowsNuncaSaleDeLaPantallaNiSePasaDeLaLista(t *testing.T) {
 	}
 }
 
-// TestOverlayCentraElBoxYConservaElAlrededor: el overlay no borra lo que hay
-// debajo, lo recorta.
-//
-// Es lo que hace que un modal sea un modal y no un cambio de pantalla: la lista de
-// detrás tiene que seguir siendo legible alrededor. Y cuando el box es más grande
-// que la base no puede desbordarse: se recorta en vertical y se ancla a la
-// izquierda.
+// The overlay clips the base instead of erasing it, which is what makes a modal a modal and not a screen change.
 func TestOverlayCentraElBoxYConservaElAlrededor(t *testing.T) {
 	base := strings.Repeat("linea-base\n", 10)
 	box := strings.Repeat("X", 3)
 
 	got := overlay(base, box, 20, 10)
 
-	// El box aparece y la base sigue ahí.
 	if !strings.Contains(got, "XXX") {
 		t.Error("el box no se dibujó")
 	}
@@ -559,36 +454,21 @@ func TestOverlayCentraElBoxYConservaElAlrededor(t *testing.T) {
 		t.Errorf("sólo quedan %d líneas de base de 10: el overlay no puede borrar el contenido", n)
 	}
 
-	// Un box más alto que la base no puede desbordar.
 	tall := strings.Repeat("X", 20)
 	if got := overlay(base, tall, 20, 3); len(strings.Split(got, "\n")) != len(strings.Split(base, "\n")) {
 		t.Errorf("un box más alto que la base cambió el alto: %d vs %d", len(strings.Split(got, "\n")), len(strings.Split(base, "\n")))
 	}
 
-	// MEDIDO: overlay NO recorta el box a la pantalla. Se recorta el CONTENIDO de
-	// base que queda a los lados, pero un box más ancho que la base se sale por la
-	// derecha. Es a propósito —es un compositor, no un gestor de anchos— y por eso
-	// quien calcula el ancho del box tiene que.ensure que cabe. El sitio donde eso
-	// se rompió es askInnerW, y lo comprueba TestAskInnerWNuncaDesbordaLaPantalla.
+	// MEDIDO: overlay does NOT clip the box to the screen; it clips the surrounding base content, so whoever sizes the box must make it fit (askInnerW is where that broke).
 	if got = overlay("corta", strings.Repeat("W", 100), 20, 1); lipglossWidth(got) != 100 {
 		t.Errorf("el box mide %d, want 100: overlay no lo recorta, quien lo llama tiene que encajarlo", lipglossWidth(got))
 	}
 }
 
-// TestAskInnerWNuncaDesbordaLaPantalla: el modal ask encoge con la pantalla.
-//
-// El ancho del modal decide si el teclado, el árbol y las cajas siguen encajando
-// debajo. Con el modal más ancho que la terminal cada línea envuelve y el layout se
-// desmonte: no es que quede feo, es que el programa deja de funcionar de forma
-// coherente.
-//
-// Y el suelo de 28 se mantiene porque es el mínimo con el que el textarea es
-// usable —por debajo de eso hay que aceptar el desborde, no eliminar el suelo—.
+// The modal width decides whether the tree and the boxes still fit underneath: wider than the terminal every line wraps and the layout comes apart, so the 28 floor is kept even if it overflows.
 func TestAskInnerWNuncaDesbordaLaPantalla(t *testing.T) {
 	for _, width := range []int{40, 60, 80, 86, 100, 124, 200, 300} {
 		inner := askInnerW(width)
-		// El modal completo son inner + 2 de padding + 2 de borde, y el overlay lo
-		// centra: tiene que caber en la pantalla con margen.
 		if total := inner + boxFrame; total > width {
 			t.Errorf("width=%d: el modal mide %d de ancho interior, want <= %d", width, inner, width-boxFrame)
 		}
@@ -597,27 +477,18 @@ func TestAskInnerWNuncaDesbordaLaPantalla(t *testing.T) {
 		}
 	}
 
-	// En pantallas de lo normal manda el prefill (72), no lo que sobra.
 	if got := askInnerW(100); got != 86 {
 		t.Errorf("askInnerW(100) = %d, want 86: en una pantalla normal manda lo que sobra", got)
 	}
-	// Y en las anchas el cap.
 	if got := askInnerW(300); got != 110 {
 		t.Errorf("askInnerW(300) = %d, want el cap de 110", got)
 	}
-	// Y por debajo del suelo se acepta el desborde en vez de romper el modal.
 	if got := askInnerW(20); got != 28 {
 		t.Errorf("askInnerW(20) = %d, want 28: el suelo sobrevive a la pantalla estrecha", got)
 	}
 }
 
-// TestAddEventIgnoraPathVacioYRecortaLaLista: el timeline es un anillo, no un
-// registro infinito.
-//
-// Path vacío significaría guardar bajo la clave "" y que ese evento apareciera en
-// el panel de cualquier servicio al que se le leyera `m.events[""]`. Y el recorte
-// a maxTimeline es lo que evita que una TUI abierta una semana tenga un slice de
-// cien mil eventos por servicio.
+// An empty path would store under key "" and that event would then show up on every service reading m.events[""].
 func TestAddEventIgnoraPathVacioYRecortaLaLista(t *testing.T) {
 	m, _ := newTestModel(t)
 	path := projectPath(t, m, "tienda-api")
@@ -633,21 +504,13 @@ func TestAddEventIgnoraPathVacioYRecortaLaLista(t *testing.T) {
 	if got := len(m.events[path]); got != maxTimeline {
 		t.Errorf("la lista tiene %d eventos, want %d", got, maxTimeline)
 	}
-	// Y lo que sobrevive es lo MÁS RECIENTE, no lo más antiguo: un timeline que
-	// empieza por el principio es un timeline inútil.
 	last := m.events[path][maxTimeline-1]
 	if last.Detail != strconv.Itoa(maxTimeline+49) {
 		t.Errorf("el último evento es %q, want el más reciente (%d)", last.Detail, maxTimeline+49)
 	}
 }
 
-// TestHealthLinesDistingueSinPuertoDePuertoSinResolver: los dos motivos por los
-// que no hay un probe que hacer son distintos y no se pueden sondear igual.
-//
-// Con puerto sin resolver, mostrar el declarado y sondearlo apuntaría a un puerto
-// que puede ser el de otro worktree. Sin puerto declarado, no hay a qué apuntar.
-// Colapsarlos en un mismo mensaje haría que el usuario creyese que su servicio
-// podría arrancar y que el problema era la sonda.
+// With an unresolved port, showing and probing the declared one would point at a port that may belong to another worktree.
 func TestHealthLinesDistingueSinPuertoDePuertoSinResolver(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -693,12 +556,7 @@ func TestHealthLinesDistingueSinPuertoDePuertoSinResolver(t *testing.T) {
 	})
 }
 
-// TestHumanKBUsaLaUnidadQueTocaYNoSePasaDeKB: el tamaño legible con el techo
-// correcto.
-//
-// Los tres tramos son distintos y se notan: un proceso con 900 MB que se
-// presentara como "943718.4 KB" no es legible, y uno con 2 GB presentado como
-// "2048.0 KB" tampoco.
+// The three tiers are visibly different: 900 MB shown as "943718.4 KB" is unreadable, and so is 2 GB shown as "2048.0 KB".
 func TestHumanKBUsaLaUnidadQueTocaYNoSePasaDeKB(t *testing.T) {
 	tests := []struct {
 		kb   int64
@@ -710,7 +568,7 @@ func TestHumanKBUsaLaUnidadQueTocaYNoSePasaDeKB(t *testing.T) {
 		{1024, "1.0 MB"},
 		{1536, "1.5 MB"},
 		{1024*1024 - 1, "1024.0 MB"},
-		// La entrada es en KiB, así que un GB son 1024*1024 KiB.
+		// The input is in KiB, so a GB is 1024*1024 KiB.
 		{1024 * 1024, "1.0 GB"},
 		{3 * 1024 * 1024, "3.0 GB"},
 		{1024*1024*1024 - 1, "1024.0 GB"},

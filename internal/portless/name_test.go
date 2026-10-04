@@ -6,19 +6,15 @@ import (
 	"testing"
 )
 
-// MEDIDO: `portless alias` rechaza con exit 1 cualquier hostname con guion
-// bajo, espacio, dos puntos o acentos, y TRUNCA en silencio un nombre con
-// barra. Una rama de git está llena de guiones bajos y barras, así que sin
-// sanear vroom registraría el nombre equivocado —o chocaría con el worktree
-// vecino— sin decir nada. Estos tests son el contrato de ese saneo.
+// MEASURED: `portless alias` rejects underscores, spaces, colons and accents and silently truncates at a slash, so a git branch would register the wrong name or collide with the twin worktree.
 func TestHostnameNormalizesLikePortless(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"miapp", "miapp.localhost"},
-		{"miapp.localhost", "miapp.localhost"}, // no se duplica el TLD
-		{"MiApp", "miapp.localhost"},           // portless normaliza a minúsculas
-		{"mi_app", "mi-app.localhost"},         // guion bajo -> guion
+		{"miapp.localhost", "miapp.localhost"},
+		{"MiApp", "miapp.localhost"},
+		{"mi_app", "mi-app.localhost"},
 		{"feat/mi_app", "feat-mi-app.localhost"},
-		{"a..b", "a.b.localhost"}, // puntos consecutivos rechazados por portless
+		{"a..b", "a.b.localhost"},
 		{"-lead", "lead.localhost"},
 		{"  spaced  ", "spaced.localhost"},
 		{"a b", "a-b.localhost"},
@@ -32,9 +28,7 @@ func TestHostnameNormalizesLikePortless(t *testing.T) {
 	}
 }
 
-// El caso que más daño haría si no se saneara: la truncación en la barra.
-// `Feat/My_Branch.proj` se registró como `feat.localhost` — el nombre de otro
-// proyecto, en silencio.
+// The costliest case: Feat/My_Branch.proj registered as feat.localhost, another project's name, silently.
 func TestHostnameDoesNotTruncateAtSlash(t *testing.T) {
 	if got := Hostname("feat/my_branch.proj"); got != "feat-my-branch.proj.localhost" {
 		t.Errorf("un nombre con barra debe conservarla como guion, no truncarse: %q", got)
@@ -86,8 +80,6 @@ func TestDeriveName(t *testing.T) {
 }
 
 func TestRouteModeEnabled(t *testing.T) {
-	// off (y su forma ausente) NO buscan el binario: es la puerta de
-	// compatibilidad hacia atrás.
 	for _, m := range []string{RouteModeOff, ""} {
 		if RouteModeEnabled(m) {
 			t.Errorf("el modo %q no debe buscar portless", m)
@@ -100,15 +92,7 @@ func TestRouteModeEnabled(t *testing.T) {
 	}
 }
 
-// El state dir se deriva del entorno, nunca de un path de usuario escrito a
-// mano: vroom corre bajo un gestor de servicios cuyo entorno no es el shell de
-// login. Un path que funciona en la terminal y falla en el daemon es un bug.
-//
-// Y el orden NO es el que decía el plan: MEDIDO, el CLI honra
-// PORTLESS_STATE_DIR e IGNORA PORTLESS_HOME. Con el orden del plan, vroom leía
-// proxy.port de un directorio y el binario escribía routes.json en otro, así que
-// una ruta se registraba y luego no se podía quitar — un fallo silencioso que
-// este test es lo que vuelve imposible reintroducir.
+// MEASURED: the CLI honours PORTLESS_STATE_DIR and ignores PORTLESS_HOME, so the plan's order read proxy.port from one directory while the binary wrote routes.json in another.
 func TestResolveStateDirOrder(t *testing.T) {
 	t.Run("PORTLESS_STATE_DIR gana", func(t *testing.T) {
 		t.Setenv("PORTLESS_STATE_DIR", "/iso/state")
@@ -119,8 +103,6 @@ func TestResolveStateDirOrder(t *testing.T) {
 	})
 
 	t.Run("PORTLESS_HOME NO decide", func(t *testing.T) {
-		// Es el override que el CLI NO honra. Que vroom lo consultara es
-		// exactamente el bug anterior.
 		t.Setenv("PORTLESS_STATE_DIR", "/iso/state")
 		t.Setenv("PORTLESS_HOME", "/otra/cosa")
 		if got := ResolveStateDir(); got != "/iso/state" {
@@ -146,13 +128,11 @@ func TestResolveStateDirOrder(t *testing.T) {
 	})
 }
 
-// MEDIDO: `env -i PATH=/usr/bin:/bin` NO resuelve portless, porque vive tras
-// los shims de mise. Por eso la resolución tiene un tercer paso.
 func TestResolveBinaryFallsBackToMiseShims(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("PORTLESS_BIN", "")
-	t.Setenv("PATH", t.TempDir()) // PATH vacío: LookPath NO puede resolver
+	t.Setenv("PATH", t.TempDir())
 
 	shim := filepath.Join(home, ".local", "share", "mise", "shims")
 	if err := os.MkdirAll(shim, 0o755); err != nil {
@@ -175,8 +155,7 @@ func TestResolveBinaryPrefersExplicitEnv(t *testing.T) {
 	}
 }
 
-// Sin proxy.port no hay puerto: la ausencia ES la señal (M6). Nunca se cae a
-// un 1355 supuesto, ni siquiera cuando el state dir no resuelve.
+// MEASURED (M6): the absence of proxy.port IS the signal, and 1355 is never assumed, not even when the state dir does not resolve.
 func TestProxyPortRequiresTheFile(t *testing.T) {
 	c := New(WithBinary("/fake/portless"), WithStateDir(t.TempDir()))
 	if _, err := c.ProxyPort(); err == nil {
@@ -189,7 +168,7 @@ func TestProxyPortRequiresTheFile(t *testing.T) {
 	}
 }
 
-// proxy.port medido son 4 bytes sin salto de línea; se acepta con y sin.
+// MEASURED: 4 bytes with no trailing newline, accepted with or without.
 func TestProxyPortParsesBareNumber(t *testing.T) {
 	for _, content := range []string{"1399", "1399\n", " 1399 "} {
 		dir := t.TempDir()

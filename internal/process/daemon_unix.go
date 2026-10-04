@@ -16,17 +16,10 @@ import (
 	gopsprocess "github.com/shirou/gopsutil/v3/process"
 )
 
-// unixManager implementa Manager para plataformas unix.
 type unixManager struct{}
 
-// NewManager devuelve el Manager de la plataforma actual.
 func NewManager() Manager { return &unixManager{} }
 
-// Start daemoniza el comando:
-//  1. sh -c "{command}" para soportar pipes/redirecciones
-//  2. setsid() → nuevo session leader (sobrevive al cierre de la TUI)
-//  3. stdout/stderr redirigidos a ficheros de log (truncados en cada start)
-//  4. Un goroutine reaper hace Wait() para evitar zombies mientras la TUI vive
 func (u *unixManager) Start(spec StartSpec) (StartResult, error) {
 	if spec.Command == "" {
 		return StartResult{}, fmt.Errorf("empty command")
@@ -35,7 +28,6 @@ func (u *unixManager) Start(spec StartSpec) (StartResult, error) {
 		return StartResult{}, fmt.Errorf("could not create log directory: %w", err)
 	}
 
-	// Limpiar logs anteriores antes de abrir en modo append.
 	_ = os.Truncate(spec.StdoutPath, 0)
 	_ = os.Truncate(spec.StderrPath, 0)
 
@@ -53,17 +45,11 @@ func (u *unixManager) Start(spec StartSpec) (StartResult, error) {
 
 	cmd := exec.Command("sh", "-c", spec.Command)
 	cmd.Dir = spec.WorkDir
-	// `Stdin` se deja nil a propósito, y eso ya es "el hijo lee del null device":
-	// lo dice el doc de `os/exec.Cmd`. Antes se abría `/dev/null` a mano para
-	// exactamente lo mismo, con su `defer Close` y su rama de error. La razón de
-	// que haga falta: el hijo no puede leer el stdin de vroom, que en la TUI es el
-	// terminal del usuario.
+	// Stdin stays nil on purpose: that already hands the child the null device, which must never be the user's TUI terminal.
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	// En Go, cmd.Env == nil hereda os.Environ() y CUALQUIER slice no-nil la
-	// reemplaza por completo. Inyectar PORT con append(spec.Env, ...) dejaría
-	// al hijo con una sola variable y sin PATH. Se fusiona explícitamente.
+	// Any non-nil cmd.Env replaces os.Environ() wholesale, so PORT has to be merged or the child would be left without PATH.
 	cmd.Env = mergeEnv(os.Environ(), spec.Env)
 
 	if err := cmd.Start(); err != nil {
@@ -71,11 +57,10 @@ func (u *unixManager) Start(spec StartSpec) (StartResult, error) {
 	}
 	pid := cmd.Process.Pid
 
-	// Reaper: el hijo sigue siendo hijo de este proceso hasta que muere;
-	// sin Wait() quedaría zombie mientras la TUI esté abierta.
+	// Without Wait() the child stays a zombie for as long as the TUI lives.
 	go func() { _ = cmd.Wait() }()
 
-	result := StartResult{Pid: pid, Pgid: pid} // con setsid, pgid == pid
+	result := StartResult{Pid: pid, Pgid: pid} // setsid makes pgid == pid
 	if p, err := gopsprocess.NewProcess(int32(pid)); err == nil {
 		if ct, err := p.CreateTime(); err == nil {
 			result.CreationTimeMs = ct
@@ -84,9 +69,7 @@ func (u *unixManager) Start(spec StartSpec) (StartResult, error) {
 	return result, nil
 }
 
-// mergeEnv fusiona el entorno del padre con las variables del spec. Una
-// variable del spec pisa a la del padre; el resto sobrevive. Devuelve nil si
-// no hay nada que inyectar, para que exec aplique la herencia normal.
+// Spec keys override the parent's; with nothing to inject it returns nil so exec applies its normal inheritance.
 func mergeEnv(parent, extra []string) []string {
 	if len(extra) == 0 {
 		return nil
@@ -113,24 +96,7 @@ func mergeEnv(parent, extra []string) []string {
 	return out
 }
 
-// Stop termina el servicio con una escalera SIGTERM -> espera -> SIGKILL.
-//
-// Hay dos raíces creíbles y las dos se atienden, porque el linaje se captura
-// igual en ambas:
-//
-//	PGID conocido -> kill(-pgid) alcanza el grupo entero, más los descendientes
-//	                re-sid que viven fuera de él (nohup, pm2, docker run -d).
-//	PID conocido  -> no hay grupo al que matar, pero la raíz sí es un objetivo
-//	                válido y su linaje se señala pid a pid.
-//
-// Antes todo el bloque estaba bajo `if spec.Pgid > 0`, así que un spec con
-// sólo PID —válido según el propio doc de StopSpec— no mataba nada. Eso es lo
-// que dejó procesos vivos reteniendo puertos del rango de reserva.
-//
-// El linaje se captura de /proc ANTES de señalizar: una vez muerto el root sus
-// hijos se reparentan a init y la relación se pierde. Sin ninguna raíz
-// creíble, Stop es un no-op y el fallback de puerto NO se dispara: la prueba
-// de propiedad no se debilita un milímetro.
+// The lineage is captured before signalling because once the root dies its children are reparented to init and the relation is lost (see docs/adr/adr-0012-port-ownership-contract-and-dynamic-ports.md).
 func (u *unixManager) Stop(spec StopSpec) error {
 	timeout := spec.Timeout
 	if timeout <= 0 {
@@ -139,43 +105,24 @@ func (u *unixManager) Stop(spec StopSpec) error {
 
 	root, lineage := captureLineage(spec)
 
-	// La escalera se agota aquí, y el aviso de "se agotó" vive en `avisaSiSeAgotó`
-	// para separar dos cosas que se mezclaban: la PREGUNTA —¿sobrevivió alguien tras
-	// el SIGKILL?— y la DECISIÓN —¿hay que avisar?—. La pregunta sólo tiene respuesta
-	// con un proceso de otro usuario, que desde una cuenta normal no se puede montar en
-	// un test; la decisión sí, y es la que dice qué lee el usuario en su log.
+	// Only the decision (warn or stay silent) is exercisable in a test; whether anything survived SIGKILL needs a foreign user's process.
 	spec.avisaSiSeAgotó(root, lineage, root > 0 && !terminate(root, spec.Pgid, lineage, timeout))
 
-	// Último recurso: liberar el puerto, pero sólo con prueba de propiedad.
+	// Last resort: free the port, but only on proof of ownership.
 	if spec.Port > 0 && PortOpen(spec.Port) {
 		killPortHolderWith(spec.Port, root, lineage, PortOwnerPIDs, spec.Warn)
 	}
 	return nil
 }
 
-// avisaSiSeAgotó es el último aviso de la parada, y la decisión va separada de la
-// comprobación a propósito.
-//
-// La condición tiene dos partes y las dos importan. `huboRoot` porque sin un proceso
-// raíz no había nada que parar y `terminate` ni se llama: avisar de un linaje vacío
-// sería mentir. `noMurio` porque el aviso es lo único que le queda al usuario para
-// entender por qué su proceso sigue ahí después de SIGTERM y SIGKILL, y un `Stop` que
-// funcionó no debe dejar ruido en el log.
+// root > 0 because terminate is not called at all without a root; noMurio because a Stop that worked must leave no noise in the log.
 func (s StopSpec) avisaSiSeAgotó(root int, lineage []int, noMurio bool) {
 	if root > 0 && noMurio {
 		s.warnf("stop: quedan procesos vivos tras SIGKILL (%s)", lineageDesc(root, lineage))
 	}
 }
 
-// terminate es la escalera de parada, y es la ÚNICA implementación: la vía del
-// grupo y la vía del PID la comparten para que no puedan divergir en semántica.
-// pgid es 0 en la vía del PID, y entonces kill(-0, sig) nunca llega a emitirse.
-//
-// Un cambio de comportamiento deliberado en la vía del grupo: los descendientes
-// re-sid ahora reciben SIGTERM antes que SIGKILL. Antes sólo recibían SIGKILL,
-// porque kill(-pgid) no los alcanza y el bucle de refuerzo sólo iba a esa
-// señal. Es una mejora (parada graciosa en vez de caza) y no cambia el
-// contrato observable, que es "tras Stop no queda ningún pid del linaje vivo".
+// pgid is 0 on the PID-only path so kill(-0, sig) is never emitted; both roots share this single ladder so they cannot diverge.
 func terminate(root, pgid int, lineage []int, timeout time.Duration) bool {
 	signal := func(sig syscall.Signal) {
 		if pgid > 0 {
@@ -195,7 +142,6 @@ func terminate(root, pgid int, lineage []int, timeout time.Duration) bool {
 	return waitLineageGone(pgid, lineage, 2*time.Second)
 }
 
-// lineageDesc describe el linaje para un mensaje de aviso.
 func lineageDesc(root int, lineage []int) string {
 	if len(lineage) <= 1 {
 		return "pgid " + strconv.Itoa(root)
@@ -203,11 +149,6 @@ func lineageDesc(root int, lineage []int) string {
 	return "pgid " + strconv.Itoa(root) + " y " + strconv.Itoa(len(lineage)-1) + " descendiente(s)"
 }
 
-// Evaluate implementa el orden de confianza:
-//  1. PID vivo + creation_time coincide → base de confianza
-//  2. Si PID muere, fallback a puerto+pattern para detectar reinicio externo
-//  3. Si hay verificaciones configuradas (puerto/pattern) y todas fallan → unknown
-//  4. En caso contrario → running
 func (u *unixManager) Evaluate(spec EvalSpec) Status {
 	pidAlive := spec.Pid > 0 && Alive(spec.Pid, spec.CreationTimeMs)
 
@@ -234,24 +175,16 @@ func (u *unixManager) Evaluate(spec EvalSpec) Status {
 			return StatusUnknown
 		}
 		if spec.NoPort && spec.Port <= 0 {
-			// Vive y no expone puerto TCP: un hecho, no una ausencia de
-			// información. Se nombra para que la UI y el JSON no lo
-			// confundan con un servicio sano.
+			// Alive with no TCP port is a fact, not missing information: naming it stops the UI from reading it as healthy.
 			return StatusNoPort
 		}
 		if spec.PortUnresolved && spec.Port <= 0 {
-			// Vive y el puerto nunca se decidió: no es "sano" y no es
-			// "no tiene puerto". Se nombra para que la UI lo diga.
+			// Alive with the port never decided is neither healthy nor port-less, hence its own name.
 			return StatusPortUnresolved
 		}
 		return StatusRunning
 	}
 
-	// PID muerto: fallback externo (servicio reiniciado fuera de vroom).
-	// Si pattern matchea → running (el servicio está ahí).
-	// Si solo el puerto está abierto → verificar que el proceso escuchando
-	// sea el mismo servicio (misma creation_time) para evitar falsos positivos
-	// cuando otro servicio usa el mismo puerto.
 	if ok {
 		if patternMatch {
 			return StatusRunning
@@ -259,10 +192,7 @@ func (u *unixManager) Evaluate(spec EvalSpec) Status {
 		if portOpen {
 			ownerPID := PortOwnerPID(spec.Port)
 			if ownerPID <= 0 {
-				// Propietario indeterminado o ambiguo: resolver a
-				// "running" sería el veredicto optimista que hace que un
-				// twin de otro worktree se reporte vivo. Degrada a
-				// indeterminado.
+				// An ambiguous owner degrades to unknown: calling it running is the optimistic verdict that reports a twin worktree's process as ours.
 				return StatusUnknown
 			}
 			ownerAlive := Alive(int(ownerPID), spec.CreationTimeMs)
@@ -271,48 +201,12 @@ func (u *unixManager) Evaluate(spec EvalSpec) Status {
 			}
 			return StatusRunning
 		}
-		// No hay `return StatusRunning` para el caso "ok pero el puerto no está
-		// abierto": es inalcanzable, y estaba ahí.
-		//
-		// `ok` se compone como `ok = portOpen` y luego `ok = ok || patternMatch`,
-		// así que `ok && !patternMatch` IMPLICA `portOpen`, y el `if` de arriba
-		// absorbe todos los caminos. Un segundo sitio para el mismo veredicto
-		// invita a mantenerlos sincronizados, y este además era el único `return`
-		// del bloque sin condición: leerlo hacía creer que faltaba un caso.
-		//
-		// MEDIDO: la cobertura lo delató. `258` era la única línea del `Evaluate`
-		// que ningún test alcanzaba, y un test que no se puede escribir para una
-		// línea es una línea que no hace falta.
+		// No StatusRunning here on purpose: ok && !patternMatch implies portOpen, so the branch above already covers it (MEASURED: this was the only return no test could reach).
 	}
 	return StatusStopped
 }
 
-// PatternMatch verifica si pgrep -f encuentra el patrón (unix).
-// Excluye el propio proceso pgrep y sus ancestros para evitar falsos
-// positivos (pgrep -f matchea su propio command line).
-//
-// MEDIDO: con el patrón VACÍO devuelve true, porque `pgrep -f ""` lista todos los
-// procesos del sistema y basta con que haya alguno que no sea el propio pgrep. Un
-// servicio con `process_pattern = ""` se declararía running siempre.
-//
-// No lo corrige aquí a propósito: quien llama ya comprueba `spec.ProcessPattern != ""`
-// antes de invocar, y ese guard además evita marcar `checked`, que es lo que
-// decide el veredicto cuando el PID no está. La guarda aquí dentro pondría un
-// segundo sitio donde comprobar la misma regla. Se documenta porque el día que
-// alguien llame a PatternMatch desde otro camino sin mirar, el fallo es silencioso.
-//
-// MEDIDO: el patrón llega a `pgrep -f` SIN COMILLAR, así que pgrep lo trata como una
-// EXPRESIÓN REGULAR, no como un literal. Consecuencias medibles:
-//
-//   - `mi-servicio (web)` — los paréntesis son un grupo, no dos caracteres.
-//   - `a.b` matchearía `axb`.
-//   - `a b c d e f g` matchea casi cualquier cmdline con esas letras separadas por
-//     espacios.
-//
-// Es el comportamiento de pgrep y el manifiesto llama al campo `process_pattern`, no
-// `process_cmdline`, así que la semántica es la que el usuario espera. Se documenta
-// porque un patrón con paréntesis es un caso fácil de escribir sin querer, y el
-// síntoma es "vroom cree que mi servicio está corriendo".
+// An empty pattern returns true (measured: pgrep -f "" lists every process), left uncorrected because callers already guard non-empty and a second guard here would duplicate the rule; the pattern also reaches `pgrep -f` unquoted, so pgrep treats it as a REGEX, not a literal: "a.b" matches "axb" and parentheses are groups.
 func PatternMatch(pattern string) bool {
 	out, err := exec.Command("pgrep", "-f", pattern).Output()
 	if err != nil {
@@ -335,8 +229,6 @@ func PatternMatch(pattern string) bool {
 	return false
 }
 
-// waitLineageGone sondea hasta que el process group y todos los pids del
-// linaje capturado han desaparecido, o expira el timeout.
 func waitLineageGone(pgid int, lineage []int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for {
@@ -350,28 +242,15 @@ func waitLineageGone(pgid int, lineage []int, timeout time.Duration) bool {
 	}
 }
 
-// pgidAlive comprueba si queda algún proceso en el grupo via kill(-pgid, 0).
 func pgidAlive(pgid int) bool {
-	// kill(0, sig) no significa "no hay grupo": el pid 0 es "mi propio grupo
-	// de procesos", así que consultarlo sin guardia señalaría al propio vroom
-	// y devolvería true siempre. Sin PGID no hay grupo que preguntarle.
+	// kill(0, sig) means vroom's own process group: unguarded it always answers true and would signal vroom itself, and without a pgid there is no group to ask.
 	if pgid <= 0 {
 		return false
 	}
 	return grupoExiste(syscall.Kill(-pgid, syscall.Signal(0)))
 }
 
-// grupoExiste traduce el errno de `kill(-pgid, 0)` a "¿queda alguien?".
-//
-// Es una TABLA, y por eso tiene su propia función: los dos casos que importan no se
-// pueden provocar desde un test sin otro usuario en la máquina —`EPERM` es un grupo
-// ajeno, y `ESRCH` un grupo que ya no existe—, pero el significado de cada uno
-// tampoco es obvvio y equivocarse invierte la decisión.
-//
-// La asimetría de EPERM y ESRCH es deliberada: EPERM significa que el grupo EXISTE y
-// que el kernel se niega a decirnos de quién es, así que se responde "true" —hay
-// procesos vivos que quizá no son nuestros—. ESRCH significa que no hay nadie, y
-// cualquier otro errno es un fallo de la consulta, no una respuesta sobre el grupo.
+// EPERM means the group exists but is not ours (alive, maybe not our processes), ESRCH means nobody is left; swapping them inverts the decision.
 func grupoExiste(err error) bool {
 	switch {
 	case err == nil:
@@ -379,19 +258,13 @@ func grupoExiste(err error) bool {
 	case errors.Is(err, syscall.ESRCH):
 		return false
 	case errors.Is(err, syscall.EPERM):
-		return true // existe pero no es nuestro
+		return true // exists but is not ours
 	default:
 		return false
 	}
 }
 
-// killPortHolderWith libera el puerto MATANDO SÓLO si puede probar que el
-// proceso que lo escucha pertenece a su propio linaje. Es el fallo cerrado
-// del contrato de propiedad: sin prueba no se mata nada y se avisa.
-//
-// La prueba exige un único dueño conocido y contenido en el linaje. Cero
-// dueños (permisos, /proc ilegible), varios dueños (mismo puerto en IPv4 e
-// IPv6, o dos procesos) o un dueño ajeno: los tres son "no se puede probar".
+// fuser -k runs only on proof of ownership: exactly one known owner, inside this lineage, otherwise nothing is killed and a warning is emitted (see docs/adr/adr-0012-port-ownership-contract-and-dynamic-ports.md).
 func killPortHolderWith(port, rootPid int, lineage []int, owners func(int) []int32, warn func(string, ...any)) {
 	if warn == nil {
 		warn = func(string, ...any) {}
@@ -409,7 +282,6 @@ func killPortHolderWith(port, rootPid int, lineage []int, owners func(int) []int
 	}
 
 	_ = exec.Command("fuser", "-k", fmt.Sprintf("%d/tcp", port)).Run()
-	// Esperar a que el puerto se libere (max 3s).
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		if !PortOpen(port) {

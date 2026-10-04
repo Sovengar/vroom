@@ -10,29 +10,12 @@ import (
 	"vroom/internal/state"
 )
 
-// ---------------------------------------------------------------------------
-// Orquestación de stacks en la TUI: toggleStack, toggleComposers, stackStats.
-//
-// Aquí sí hace falta el ENGINE REAL, y no un doble, porque lo que hay que
-// verificar es que la TUI y el motor DICEN LO MISMO: que la TUI calcula
-// "corriendo" con el mismo criterio que usa el motor para decidir, y que el
-// motor recibe el stack entero. Un doble de engine probaría que la TUI llama a
-// un doble.
-//
-// El engine se construye con el mismo `New` de producción, que lo crea él solo
-// cuando encuentra un compose file. Por eso el árbol de estos tests lleva uno.
-// ---------------------------------------------------------------------------
-
-// stackTree es el árbol de test con un compose file, que es lo que hace que New
-// construya el engine.
+// The real engine is required: an engine double would only prove the TUI calls a double.
 func stackTree(t *testing.T) (root string, store *state.Store) {
 	t.Helper()
 	isolateConfig(t)
 	root = writeTestTree(t, false)
-	// Los dos servicios del árbol necesitan puerto ABIERTO para que
-	// process.Evaluate los dé por vivos: ver el comentario de listeningService en
-	// el paquete de cli. Aquí se usan puertos falsos porque lo que se prueba es la
-	// lógica de agregación del stack, no el dial.
+	// MEDIDO: fake ports are fine here, because process.Evaluate only dials a service alive when its port is open and the aggregation is under test, not the dial.
 	writeStr(t, filepath.Join(root, orchestrate.ComposeFileName), `primary_group = "tienda"
 
 [[stack]]
@@ -56,7 +39,6 @@ func writeStr(t *testing.T, path, body string) {
 	}
 }
 
-// newStackModel construye el modelo con engine a partir de stackTree.
 func newStackModel(t *testing.T) Model {
 	t.Helper()
 	root, store := stackTree(t)
@@ -69,13 +51,6 @@ func newStackModel(t *testing.T) Model {
 	return m
 }
 
-// TestStackStatsCuentaLosServiciosDelStackYNoLosDemas: el veredicto de "el stack
-// está corriendo" sale de SUS servicios, no de todos los del workspace.
-//
-// Es la propiedad de la que depende toda la decisión de toggleStack: si contara
-// de más, un stack con un servicio parado se declararía corriendo y el toggle lo
-// pararía cuando el usuario quería arrancarlo. Y si contara de menos, un stack
-// con un servicio de más en el workspace nunca parecería completo.
 func TestStackStatsCuentaLosServiciosDelStackYNoLosDemas(t *testing.T) {
 	m := newStackModel(t)
 	stacks := m.stacksForPrimary("tienda")
@@ -84,7 +59,6 @@ func TestStackStatsCuentaLosServiciosDelStackYNoLosDemas(t *testing.T) {
 	}
 	stack := &stacks[0]
 
-	// Nadie vivo: 0 de 2.
 	running, total, err := m.stackStats(stack)
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +70,6 @@ func TestStackStatsCuentaLosServiciosDelStackYNoLosDemas(t *testing.T) {
 		t.Errorf("running = %d sin ningún servicio vivo", running)
 	}
 
-	// Uno vivo: 1 de 2. Un servicio fuera del stack no cuenta.
 	markRunning(&m, projectPath(t, m, "tienda-web"), 4242)
 	running, total, err = m.stackStats(stack)
 	if err != nil {
@@ -107,12 +80,6 @@ func TestStackStatsCuentaLosServiciosDelStackYNoLosDemas(t *testing.T) {
 	}
 }
 
-// TestStackStatsConNombreAmbiguoEsError: dos proyectos con el mismo nombre de
-// manifiesto dentro del stack NO se pueden contar, y el recuento tiene que decirlo.
-//
-// Sin esto, el TUI calcularía running==total con un recuento que no sabe a qué
-// servicio corresponde y declararía el stack corriendo cuando en realidad uno de
-// los dos nunca arrancó.
 func TestStackStatsConNombreAmbiguoEsError(t *testing.T) {
 	isolateConfig(t)
 	root := writeTestTree(t, false)
@@ -143,11 +110,7 @@ primary_group = "tienda"
 	}
 }
 
-// TestToggleStackArrancaUnStackParadoYAvisa: la mitad de "arrancar" de toggleStack.
-//
-// Lo que se comprueba es el AVISO y el Cmd, no el estado: el arranque ocurre en
-// el Cmd, que devuelve un stackResultMsg, y el estado sólo cambia cuando ese msg
-// vuelve. Fijar el estado aquí sería fijar un estado intermedio que no existe.
+// Only the warning and the Cmd are asserted: the state changes when stackResultMsg arrives, so pinning it here would pin a state that does not exist.
 func TestToggleStackArrancaUnStackParadoYAvisa(t *testing.T) {
 	m := newStackModel(t)
 	stacks := m.stacksForPrimary("tienda")
@@ -162,7 +125,6 @@ func TestToggleStackArrancaUnStackParadoYAvisa(t *testing.T) {
 	if !strings.Contains(got.message, "launching stack front") {
 		t.Errorf("el aviso no dice que se está lanzando: %q", got.message)
 	}
-	// Y nada se marca como stopping: un stack parado no se está parando.
 	for path, sv := range got.services {
 		if sv.Status == statusStopping {
 			t.Errorf("%s quedó en stopping al lanzar el stack", path)
@@ -170,12 +132,6 @@ func TestToggleStackArrancaUnStackParadoYAvisa(t *testing.T) {
 	}
 }
 
-// TestToggleStackParaUnStackCompletoYAvisoYMarcaStopping: la mitad de "parar", que
-// es la que cambia el estado de los servicios.
-//
-// Marcar stopping ANTES de que el motor conteste es lo que evita que la TUI
-// muestre "corriendo" durante los segundos que tarda el stop. Y es sólo lo que
-// estaba vivo: un servicio del stack ya parado se queda como estaba.
 func TestToggleStackParaUnStackCompletoYAvisoYMarcaStopping(t *testing.T) {
 	m := newStackModel(t)
 	stacks := m.stacksForPrimary("tienda")
@@ -202,13 +158,7 @@ func TestToggleStackParaUnStackCompletoYAvisoYMarcaStopping(t *testing.T) {
 	}
 }
 
-// TestToggleStackConConflictoLoDiceYNoLanzaNada: un stack cuyo servicio tiene
-// nombre ambiguo no se puede ni contar ni lanzar, y el usuario tiene que saber
-// POR QUÉ.
-//
-// El silencio aquí sería especialmente malo: el usuario pulsa la tecla, no pasa
-// nada, y no hay forma de saber que el problema es un nombre duplicado en dos
-// worktrees — que es justo el caso que el compose file no puede expresar.
+// The compose file cannot express a name duplicated across two worktrees, so the rejection has to name the cause instead of silently doing nothing.
 func TestToggleStackConConflictoLoDiceYNoLanzaNada(t *testing.T) {
 	isolateConfig(t)
 	root := writeTestTree(t, false)
@@ -245,12 +195,6 @@ primary_group = "tienda"
 	}
 }
 
-// TestToggleComposersSinStacksLoDice: un primary sin stacks no es un error
-// silencioso.
-//
-// El caso es real: el compose file define `primary_group = "tienda"` a nivel
-// superior, así que un grupo del árbol sin ningún stack es normal. Pulsar la tecla
-// ahí no debe hacer nada sin decir nada.
 func TestToggleComposersSinStacksLoDice(t *testing.T) {
 	m := newStackModel(t)
 
@@ -268,13 +212,7 @@ func TestToggleComposersSinStacksLoDice(t *testing.T) {
 	}
 }
 
-// TestToggleComposersLanzaTodosLosStacksDelGrupo: la mitad de "lanzar" de
-// toggleComposers, y su contrato es que devuelve UN Cmd con todos los stacks.
-//
-// La diferencia con toggleStack es la agregación por grupo: el header Composers
-// actúa sobre todo lo que cuelga de un primary_group, no sobre un stack. El Cmd
-// único es lo que hace que los stacks se lanceran en paralelo en vez de uno a
-// uno, que es la razón de ser del botón.
+// The contract is one single Cmd carrying every stack, which is what makes them launch in parallel.
 func TestToggleComposersLanzaTodosLosStacksDelGrupo(t *testing.T) {
 	isolateConfig(t)
 	root := writeTestTree(t, false)
@@ -312,9 +250,7 @@ primary_group = "tienda"
 		t.Errorf("el aviso no dice que se lanzan stacks: %q", got.message)
 	}
 
-	// Con UNO de los dos stacks vivo el criterio de "todos" NO se cumple, así que
-	// se LANZA (que reinicia el parado) en vez de parar. Parar un stack a medio
-	// levantar dejaría el grupo en un estado que nadie pidió.
+	// The criterion is ALL: with one of the two stacks alive it launches and restarts the stopped one, because stopping a half-raised group would leave a state nobody asked for.
 	for _, p := range m.projects {
 		if p.Name == "tienda-web" {
 			markRunning(&m, p.Path, 4242)
@@ -330,16 +266,8 @@ primary_group = "tienda"
 	}
 }
 
-// TestToggleComposersParaCuandoTodosEstanVivos: la mitad de "parar" del
-// agregador, con el criterio de "todos" explícito.
-//
-// El criterio es TODOS, no "alguno": con stacks parcialmente vivos, el botón lanza
-// en vez de parar, porque parar un stack a medio levantar deja el grupo en un
-// estado que nadie pidió. Y eso se comprueba aquí: un stack vivo y otro parado NO
-// activan el camino de parada.
 func TestToggleComposersParaCuandoTodosEstanVivos(t *testing.T) {
 	m := newStackModel(t)
-	// Un solo stack con un servicio: si ese servicio vive, el stack está vivo.
 	stacks := m.stacksForPrimary("tienda")
 	stack := &stacks[0]
 	for _, name := range []string{"tienda-web", "tienda-api"} {
@@ -356,12 +284,6 @@ func TestToggleComposersParaCuandoTodosEstanVivos(t *testing.T) {
 	}
 }
 
-// TestHandleKeyRechazaBuildInstallYLogsEnUnStack: hay acciones que no tienen
-// sentido sobre un stack, y el rechazo tiene que ser EXPLÍCITO.
-//
-// La alternativa —no hacer nada— es indistinguible de "la tecla no está
-// asignada", y el usuario no tiene forma de saber que la operación no se puede
-// hacer ahí. El aviso dice qué hacer en su lugar.
 func TestHandleKeyRechazaBuildInstallYLogsEnUnStack(t *testing.T) {
 	isolateConfig(t)
 	root := writeTestTree(t, false)
@@ -379,7 +301,6 @@ primary_group = "tienda"
 	m.width, m.height = 100, 30
 	m.updateLayout()
 
-	// El cursor sobre el item del stack.
 	stackIdx := -1
 	for i, it := range m.tree {
 		if it.kind == itemStack {
@@ -393,8 +314,7 @@ primary_group = "tienda"
 
 	for _, key := range []string{"b", "i", "l"} {
 		t.Run(key, func(t *testing.T) {
-			// El nombre de la acción depende del config; se usan las teclas por
-			// defecto del harness, que ya están exercised por otros tests.
+			// The action names come from config, so these are the harness default keys, already exercised by other tests.
 			out, _ := m.Update(keyPress(key))
 			got := out.(Model)
 			if !strings.Contains(got.message, "not available for stacks") {
@@ -404,11 +324,7 @@ primary_group = "tienda"
 	}
 }
 
-// TestHandleKeyAliasOAlwaysOpensTheEditor: la tecla `o` es alias fijo de logs,
-// salvo que el config la reclame.
-//
-// "Salvo que el config lo reclame" es la parte que hace que esto sea una regla y
-// no un hecho: si el config asigna `o` a otra cosa, manda el config.
+// 'o' is a fixed alias for logs, but a config that binds 'o' wins over the alias.
 func TestHandleKeyAliasOAlwaysOpensTheEditor(t *testing.T) {
 	m, _ := newJobsTestModel(t)
 	m.cursor = findCursor(m, "tienda-api")
@@ -418,7 +334,6 @@ func TestHandleKeyAliasOAlwaysOpensTheEditor(t *testing.T) {
 	}
 	out, _ := m.Update(keyPress("o"))
 	got := out.(Model)
-	// Abrir el editor deja un cmd de ExecProcess; no hace falta ejecutarlo.
 	if got.message == "editor closed" {
 		t.Error("no se ejecutó el cmd del editor: la aserción se apoyaría en nada")
 	}

@@ -20,9 +20,6 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-// fakeGit escribe un script git falso que emite output y sale con code,
-// y devuelve el PATH con ese directorio al frente (para que LookPath
-// encuentre el falso y no el git real).
 func fakeGit(t *testing.T, output string, code int) string {
 	t.Helper()
 	return fakeGitStreams(t, output, "", code)
@@ -35,8 +32,6 @@ func itoa(n int) string {
 	return "1"
 }
 
-// fakeGitStreams escribe un git falso que separa stdout y stderr y sale
-// con code; devuelve el PATH con ese directorio al frente.
 func fakeGitStreams(t *testing.T, stdout, stderr string, code int) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -47,7 +42,6 @@ func fakeGitStreams(t *testing.T, stdout, stderr string, code int) string {
 	return dir + string(os.PathListSeparator) + os.Getenv("PATH")
 }
 
-// ParsePorcelain reconoce main + worktrees, detached, bare y prunable.
 func TestParsePorcelain(t *testing.T) {
 	out := `worktree /repo
 HEAD aaaa000000000000000000000000000000000000
@@ -87,7 +81,6 @@ prunable gitdir file points to non-existent location
 	}
 }
 
-// Un bare repo se reporta con la marca bare.
 func TestParsePorcelainBare(t *testing.T) {
 	out := "worktree /bare\nHEAD eeee000000000000000000000000000000000000\nbare\n\n"
 	wts, err := ParsePorcelain(out)
@@ -99,7 +92,6 @@ func TestParsePorcelainBare(t *testing.T) {
 	}
 }
 
-// Salida vacía = sin worktrees, sin error.
 func TestParsePorcelainEmpty(t *testing.T) {
 	wts, err := ParsePorcelain("")
 	if err != nil || len(wts) != 0 {
@@ -107,15 +99,12 @@ func TestParsePorcelainEmpty(t *testing.T) {
 	}
 }
 
-// Salida no vacía sin bloque worktree = inválida.
 func TestParsePorcelainMalformed(t *testing.T) {
 	if _, err := ParsePorcelain("garbage without blocks\n"); err == nil {
 		t.Fatal("salida malformada debe devolver error")
 	}
 }
 
-// Un bloque `worktree` sin ruta (degenerado) se ignora: nunca produce una
-// entrada con Path == "".
 func TestParsePorcelainIgnoresEmptyWorktreePath(t *testing.T) {
 	out := "worktree /repo\nHEAD aaaa000000000000000000000000000000000000\nbranch refs/heads/main\n\nworktree \nHEAD bbbb000000000000000000000000000000000000\n\n"
 	wts, err := ParsePorcelain(out)
@@ -132,7 +121,6 @@ func TestParsePorcelainIgnoresEmptyWorktreePath(t *testing.T) {
 	}
 }
 
-// IsBareRepo: conjunción completa + marcador core.bare = true.
 func TestIsBareRepo(t *testing.T) {
 	bare := t.TempDir()
 	writeFile(t, filepath.Join(bare, "HEAD"), "ref: refs/heads/main\n")
@@ -147,7 +135,6 @@ func TestIsBareRepo(t *testing.T) {
 		t.Error("bare repo con marcador debe detectarse")
 	}
 
-	// Sin marcador core.bare = true no es bare (falso positivo evitado).
 	noMarker := t.TempDir()
 	writeFile(t, filepath.Join(noMarker, "HEAD"), "ref: refs/heads/main\n")
 	writeFile(t, filepath.Join(noMarker, "config"), "[core]\n\tbare = false\n")
@@ -161,7 +148,6 @@ func TestIsBareRepo(t *testing.T) {
 		t.Error("sin marcador bare no debe detectarse")
 	}
 
-	// Un repo normal con .git (dir) nunca es bare.
 	normal := t.TempDir()
 	writeFile(t, filepath.Join(normal, ".git", "HEAD"), "ref: refs/heads/main\n")
 	writeFile(t, filepath.Join(normal, "HEAD"), "x\n")
@@ -176,7 +162,6 @@ func TestIsBareRepo(t *testing.T) {
 		t.Error("un dir con .git no debe tratarse como bare")
 	}
 
-	// Un worktree con .git file tampoco.
 	wt := t.TempDir()
 	writeFile(t, filepath.Join(wt, ".git"), "gitdir: /somewhere/.git/worktrees/wt\n")
 	writeFile(t, filepath.Join(wt, "HEAD"), "x\n")
@@ -192,8 +177,6 @@ func TestIsBareRepo(t *testing.T) {
 	}
 }
 
-// El marcador bare solo cuenta dentro de [core]: un `bare = true` en otra
-// sección no convierte un directorio en bare repo (falso positivo).
 func TestIsBareRepoScopesMarkerToCore(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "HEAD"), "ref: refs/heads/main\n")
@@ -208,14 +191,12 @@ func TestIsBareRepoScopesMarkerToCore(t *testing.T) {
 		t.Error("bare fuera de [core] no debe detectarse como bare repo")
 	}
 
-	// Con la clave dentro de [core] (aunque haya comentario inline) sí.
 	writeFile(t, filepath.Join(dir, "config"), "[core]\n\tbare = true # bare repo\n")
 	if !IsBareRepo(dir) {
 		t.Error("bare = true dentro de [core] debe detectarse")
 	}
 }
 
-// List sin git en PATH devuelve ErrGitUnavailable.
 func TestListGitUnavailable(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	if _, err := List(t.TempDir()); err != ErrGitUnavailable {
@@ -223,7 +204,6 @@ func TestListGitUnavailable(t *testing.T) {
 	}
 }
 
-// List con exit != 0 devuelve error.
 func TestListGitFailure(t *testing.T) {
 	t.Setenv("PATH", fakeGit(t, "boom\n", 1))
 	if _, err := List(t.TempDir()); err == nil {
@@ -231,7 +211,6 @@ func TestListGitFailure(t *testing.T) {
 	}
 }
 
-// List con salida válida parsea los worktrees.
 func TestListFakeGit(t *testing.T) {
 	out := "worktree /repo\nHEAD aaaa000000000000000000000000000000000000\nbranch refs/heads/main\n\n"
 	t.Setenv("PATH", fakeGit(t, out, 0))
@@ -244,8 +223,6 @@ func TestListFakeGit(t *testing.T) {
 	}
 }
 
-// Un warning en stderr no debe corromper el parseo del stdout (no se
-// mezclan streams).
 func TestListSeparatesStdoutFromStderr(t *testing.T) {
 	out := "worktree /repo\nHEAD aaaa000000000000000000000000000000000000\nbranch refs/heads/main\n\n"
 	t.Setenv("PATH", fakeGitStreams(t, out, "warning: something on stderr\n", 0))
@@ -258,7 +235,6 @@ func TestListSeparatesStdoutFromStderr(t *testing.T) {
 	}
 }
 
-// El mensaje de error incluye el stderr del fallo.
 func TestListFailureIncludesStderr(t *testing.T) {
 	t.Setenv("PATH", fakeGitStreams(t, "", "fatal: not a git repository\n", 1))
 	_, err := List("/whatever")
@@ -270,17 +246,14 @@ func TestListFailureIncludesStderr(t *testing.T) {
 	}
 }
 
-// M4: ante un git que cuelga (dejando un descendiente con el pipe
-// abierto) la llamada retorna dentro de un límite acotado, con el error de
-// degradación correcto.
+// M4: a hanging git must return within a bounded time with context.DeadlineExceeded instead of blocking the scan.
 func TestListTimeoutIsBounded(t *testing.T) {
 	oldTimeout, oldDelay := listTimeout, listWaitDelay
 	listTimeout, listWaitDelay = 200*time.Millisecond, 100*time.Millisecond
 	defer func() { listTimeout, listWaitDelay = oldTimeout, oldDelay }()
 
 	dir := t.TempDir()
-	// El shell lanza `sleep` y muere al cancelarse el contexto; el sleep
-	// huérfano conserva el pipe abierto.
+	// The shell spawns sleep and dies when the context is cancelled, so the orphan sleep keeps the pipe open.
 	script := "#!/bin/sh\nsleep 3\n"
 	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)

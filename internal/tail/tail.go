@@ -1,6 +1,4 @@
-// Package tail proporciona lectura incremental de ficheros de log para la
-// consola en tiempo real: solo bytes nuevos por llamada,
-// strip de ANSI y cap de buffer.
+// Package tail streams only the new bytes of a log file for the live console, stripping ANSI so the viewport keeps its real width.
 package tail
 
 import (
@@ -11,20 +9,12 @@ import (
 	"unicode/utf8"
 )
 
-// ReadNew devuelve los bytes añadidos a path desde offset, junto al nuevo
-// offset. Si el fichero no existe todavía (servicio sin arrancar) devuelve
-// vacío sin error. Si el fichero quedó más pequeño que offset (rotación o
-// truncado) se relee desde el principio.
+// A missing log is not an error: the service has not started yet, so the console simply gets nothing.
 func ReadNew(path string, offset int64) (data string, newOffset int64, err error) {
 	return readNew(path, offset, tamanoDe)
 }
 
-// tamanoDe pregunta el tamaño por el descriptor ya abierto, y no por el nombre.
-//
-// Va inyectado porque su error sí se puede provocar: entre el `os.Open` y la
-// pregunta, el log puede rotarse o desaparecer, y `Stat` devuelve ENOENT. Antes
-// esto estaba en la línea de `f.Stat()` con su error, que era una comprobación que
-// nadie había podido ejecutar; ahora es una función, y su fallo tiene un test.
+// Injected because its error is reachable: between Open and Stat the log can rotate away, so the failure needs to be testable instead of an inline Stat.
 func tamanoDe(f *os.File) (int64, error) {
 	info, err := f.Stat()
 	if err != nil {
@@ -33,28 +23,9 @@ func tamanoDe(f *os.File) (int64, error) {
 	return info.Size(), nil
 }
 
-// readNew es `ReadNew` con la pregunta por el tamaño inyectada.
-//
-// MEDIDO (bug, encontrado en CI): la versión anterior preguntaba el tamaño con
-// `f.Seek(0, io.SeekEnd)`, que parece más elegante porque hace las dos cosas que
-// hacían `Stat` y `Seek` a la vez. No sirve: sobre un descriptor de DIRECTORIO,
-// `Seek` al final devuelve un tamaño enorme —en ext4, del orden de 2^63—, así que
-// `make([]byte, tamano-offset)` reventaba con "len out of range". Y un log que es un
-// directorio es un caso real: el log se crea, alguien lo sustituye por un directorio,
-// y el tick de la consola lo lee.
-//
-// El panic es peor que el error que el código anterior daba. `Stat` sobre un
-// directorio devuelve su tamaño de bloque, que es pequeño, y el `ReadAt` posterior
-// falla con EISDIR como debe.
+// MEDIDO (bug): Seek(0, io.SeekEnd) on a DIRECTORY descriptor reports ~2^63 bytes on ext4 and panicked inside make, while Stat reports a small size and lets ReadAt fail with EISDIR.
 func readNew(path string, offset int64, tamano func(*os.File) (int64, error)) (string, int64, error) {
-	// El suelo del offset va ANTES de abrir, y no con los demás, para que ninguna de
-	// las salidas pueda devolver un offset negativo. La función es transparente con el
-	// offset cuando falla —devuelve el que le dieron, sin tocarlo—, así que corregirlo
-	// sólo en el camino que llega a leer deja el contrato roto según por dónde se salga.
-	//
-	// Nadie produce hoy un offset negativo: el que entra es la vuelta anterior de esta
-	// misma función. Pero un entero con signo que se cuele por un desbordamiento en
-	// `offset + n` volvería el valor ya grande, y feeds de vuelta en la suma.
+	// The negative clamp runs before Open because every exit returns the caller's offset untouched, so clamping only the read path would break that contract.
 	if offset < 0 {
 		offset = 0
 	}
@@ -72,20 +43,13 @@ func readNew(path string, offset int64, tamano func(*os.File) (int64, error)) (s
 	if err != nil {
 		return "", offset, err
 	}
-	// El suelo de rotación: un log truncado por debajo del offset se relee entero.
+	// A file smaller than the offset means rotation or truncation, so reread it whole.
 	if size < offset {
 		offset = 0
 	}
-	// Y el de longitud, que cierra la puerta al `make`. El offset ya está corregido
-	// arriba y `size` viene de un `Stat`, así que la resta no puede dar negativo; el
-	// `max` lo hace explícito para quien lea esto dentro de seis meses.
 	buf := make([]byte, max(size-offset, 0))
 
-	// `ReadAt` y no `Read`: no mueve el descriptor, así que no depende de en qué
-	// posición quedó. `io.EOF` NO es un fallo —es lo que devuelve la última lectura de
-	// un fichero, y también una lectura que se topó con una rotación a medio camino—.
-	// Cualquier otro error sí se propaga, y aquí hay uno que de verdad importa: `EISDIR`
-	// cuando el log es un directorio.
+	// ReadAt, not Read, so the descriptor position never matters; io.EOF is the normal end (including a rotation met mid-read), while EISDIR on a log that is a directory is a real error.
 	n, err := f.ReadAt(buf, offset)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return "", offset, err
@@ -93,9 +57,7 @@ func readNew(path string, offset int64, tamano func(*os.File) (int64, error)) (s
 	return string(buf[:n]), offset + int64(n), nil
 }
 
-// StripANSI elimina secuencias de escape ANSI (CSI, OSC y escapes de 2
-// bytes) de s. Los logs de servicios traen color y el viewport no los
-// interpreta: sin strip el ancho se rompe.
+// Service logs carry color that the viewport does not interpret, so unstripped escapes break the width.
 func StripANSI(s string) string {
 	if !strings.ContainsRune(s, '\x1b') {
 		return s
@@ -109,18 +71,16 @@ func StripANSI(s string) string {
 			i++
 			continue
 		}
-		// \x1b[ ... final 0x40-0x7E (CSI)
 		if i+1 < len(s) && s[i+1] == '[' {
 			i += 2
 			for i < len(s) && (s[i] < 0x40 || s[i] > 0x7E) {
 				i++
 			}
 			if i < len(s) {
-				i++ // consume el byte final
+				i++
 			}
 			continue
 		}
-		// \x1b] / \x1bP / \x1bX / \x1b^ / \x1b_ : cadena terminada en BEL o ESC \
 		if i+1 < len(s) && strings.IndexByte("]PX^_", s[i+1]) >= 0 {
 			i += 2
 			for i < len(s) {
@@ -136,35 +96,21 @@ func StripANSI(s string) string {
 			}
 			continue
 		}
-		i += 2 // escape de 2 bytes (\x1b + 1)
+		i += 2
 	}
 	return b.String()
 }
 
-// CapBuffer recorta s a como máximo maxBytes conservando el final (el
-// contenido más reciente), cortando por línea completa cuando es posible
-// y sin partir runes multibyte.
 func CapBuffer(s string, maxBytes int) string {
 	if maxBytes <= 0 || len(s) <= maxBytes {
 		return s
 	}
-	// Cortar en la primera línea completa dentro de la ventana final.
-	//
-	// El corte va hacia ADELANTE a propósito, y por eso este es el diseño
-	// correcto: cualquier línea que empiece en o después de `cut` cabe en
-	// maxBytes, porque a partir de `cut` quedan exactamente maxBytes. Buscar hacia
-	// ATRÁS en cambio daría un sufijo de maxBytes o más, y con líneas largas que
-	// no cabe ninguna: se acabaría partiendo la línea por la mitad.
-	//
-	// El precio es que se puede descartar contenido reciente: el buffer empieza en
-	// el principio de la línea siguiente a la ventana. Es lo que hace que el
-	// principio no sea texto partido, que es lo que importa al leerlo.
+	// The cut moves FORWARD on purpose: any line starting at or after cut fits in maxBytes, whereas searching backwards can only split a long line in half.
 	cut := len(s) - maxBytes
 	if nl := strings.IndexByte(s[cut:], '\n'); nl >= 0 {
 		cut = cut + nl + 1
 		return s[cut:]
 	}
-	// Una sola línea enorme: cortar por rune para no partir multibyte.
 	for cut < len(s) && !utf8.RuneStart(s[cut]) {
 		cut++
 	}

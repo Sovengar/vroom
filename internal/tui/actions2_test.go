@@ -12,30 +12,9 @@ import (
 	"vroom/internal/state"
 )
 
-// ---------------------------------------------------------------------------
-// Los rechazos que dependen del entorno, no de la tecla.
-//
-// La tanda anterior cubrió las acciones cuyo rechazo sale de los DATOS del
-// modelo —un manifiesto roto, un miembro sin estado—. Ésta es la otra clase:
-// rechazos que sólo existen cuando algo del sistema falla, y que sin un fallo
-// real ni se ven ni se pueden escribir.
-//
-// El patrón es el mismo en todos: provocar el fallo de verdad (un directorio sin
-// permiso de escritura, un `scanner.root` que no existe, un nombre de argv que no
-// existe) y comprobar que la función lo devuelve en vez de tragárselo.
-// ---------------------------------------------------------------------------
-
-// TestNewAvisaCuandoElEscaneoFalla: un `scanner.root` inservible.
-//
-// El escaneo es lo primero que hace `New`, y es lo único que puede fallar ahí
-// dentro. La pregunta que responde este test es si el fallo se ve: un `New` que
-// avisa y sigue con la lista vacía deja la TUI en pie, que es lo que hace falta
-// para que el usuario lea el motivo y corrija la config.
 func TestNewAvisaCuandoElEscaneoFalla(t *testing.T) {
 	isolateConfig(t)
-	// Un `scanner.root` que no existe. `Scan` sobre un root inexistente devuelve
-	// error en vez de lista vacía, que es justo lo que distingue "no hay
-	// proyectos" de "no pude mirar".
+	// Scan on a nonexistent root errors instead of returning an empty list, which is what separates "no projects" from "could not look".
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "config.toml")
 	if err := os.WriteFile(cfg, []byte("[scanner]\nroot = \"/nonexistent-vroom-root-9d2f\"\n"), 0o644); err != nil {
@@ -48,7 +27,6 @@ func TestNewAvisaCuandoElEscaneoFalla(t *testing.T) {
 		t.Fatal("un escaneo fallido tiene que dejar un aviso: si no, el usuario ve una TUI vacía " +
 			"sin ninguna pista de por qué")
 	}
-	// Y el aviso tiene que nombrar el fallo, no decir "algo salió mal".
 	if !strings.Contains(m.message, "scanning projects") {
 		t.Errorf("message = %q, want que nombre el escaneo", m.message)
 	}
@@ -57,20 +35,10 @@ func TestNewAvisaCuandoElEscaneoFalla(t *testing.T) {
 	}
 }
 
-// TestRunLoggedFallaSiElLogDeSalidaNoSePuedeAbrir: el primer descriptor.
-//
-// Los logs de un servicio se escriben bajo su directorio en el store. Si ese
-// fichero no se puede abrir, el comando NO se lanza: es preferible decir que no se
-// pudo escribir el log a ejecutar un build de dos minutos cuyo output no va a
-// ninguna parte.
-//
-// Y el error tiene que ser el del `OpenFile`, sin envolver: es un problema de
-// permisos o de disco, y quien lo lee necesita el errno.
+// The error must surface unwrapped so the reader still gets the errno: it is a permissions or disk problem.
 func TestRunLoggedFallaSiElLogDeSalidaNoSePuedeAbrir(t *testing.T) {
 	dir := t.TempDir()
-	// El directorio existe y se puede recorrer, así que el `MkdirAll` del principio
-	// pasa y el `OpenFile` del log es el primero que falla de verdad. Es lo que pasa
-	// cuando el directorio de logs de un servicio pertenece a otro usuario.
+	// The dir is traversable, so MkdirAll passes and the log's OpenFile is the first real failure, like a logs dir owned by another user.
 	roto := filepath.Join(dir, "logs")
 	if err := os.MkdirAll(roto, 0o755); err != nil {
 		t.Fatal(err)
@@ -90,16 +58,7 @@ func TestRunLoggedFallaSiElLogDeSalidaNoSePuedeAbrir(t *testing.T) {
 	}
 }
 
-// TestRunLoggedFallaSiElBannerNoSePuedeEscribir: el mismo descriptor, sin espacio.
-//
-// El segundo fallo posible es el que sólo aparece con el fichero YA abierto: se
-// abre bien y no se puede escribir en él. Es un disco lleno, una cuota, o una ruta
-// que es un dispositivo que siempre dice ENOSPC.
-//
-// MEDIDO: `/dev/full` es justo eso —abre, escribe y devuelve ENOSPC—, así que la
-// rama se provoca de verdad y no con un permiso imposible de reproducir. Lo que
-// importa es que el comando NO se lance: media salida de un build en un log cortado
-// es peor que un error.
+// MEDIDO: /dev/full opens, writes and returns ENOSPC, so this branch is provoked for real instead of with an unreproducible permission.
 func TestRunLoggedFallaSiElBannerNoSePuedeEscribir(t *testing.T) {
 	const lleno = "/dev/full"
 	if _, err := os.Stat(lleno); err != nil {
@@ -116,22 +75,11 @@ func TestRunLoggedFallaSiElBannerNoSePuedeEscribir(t *testing.T) {
 	}
 }
 
-// TestStopCmdPropagaElFalloDeQuitarElPid: el `ClearPid`.
-//
-// Cuando el servicio ya está parado, quitar el pid es lo único que queda por
-// hacer. Si ese borrado falla, el siguiente arranque se encontraría con un pid
-// guardado de un proceso que ya no existe, y la fuente de verdad quedaría mintiendo
-// sobre lo que está vivo.
-//
-// El fallo se provoca con el directorio del servicio sin permiso de escritura,
-// que es como se ve de verdad cuando el directorio quedó de otro usuario.
 func TestStopCmdPropagaElFalloDeQuitarElPid(t *testing.T) {
 	m, store := newTestModel(t)
 	p := primerProyectoConfigurado(t, m)
 
-	// `ClearPid` quita el fichero del pid con `os.Remove`, así que se sustituye por
-	// un DIRECTORIO NO VACÍO: quitarlo falla con ENOTEMPTY sin depender de
-	// permisos, que el usuario del test sí tiene.
+	// ClearPid uses os.Remove, so the pid path is made a non-empty directory: removal fails with ENOTEMPTY without relying on permissions the test user has.
 	pid := store.PidFile(p.Path)
 	if err := os.MkdirAll(filepath.Join(pid, "bloqueo"), 0o755); err != nil {
 		t.Fatal(err)
@@ -154,17 +102,7 @@ func TestStopCmdPropagaElFalloDeQuitarElPid(t *testing.T) {
 	}
 }
 
-// TestTuiRouteReleaserDevuelveNilFueraDeUnBinarioDeTest: la rama del cliente real.
-//
-// `tuiRouteReleaser` tiene tres salidas: el stub si está instalado, un
-// reclamador inerte si el binario es de test, y nil —el cliente real— en el
-// binario de verdad. Las dos primeras las usa la suite; la tercera es la que
-// decide que vroom habla con portless de verdad, y sin probarla nada garantiza
-// que un `nil` accidental no se confunda con "no hay contrato de ruta".
-//
-// MEDIDO: `IsTestBinary` decide por el sufijo de `os.Args[0]`, así que cambiarlo
-// reproduce exactamente la entrada del binario instalado, sin tocar la función ni
-// su contrato.
+// MEDIDO: IsTestBinary keys off the os.Args[0] suffix, so overriding argv[0] reproduces the installed-binary entry without touching the function's contract.
 func TestTuiRouteReleaserDevuelveNilFueraDeUnBinarioDeTest(t *testing.T) {
 	original := os.Args[0]
 	t.Cleanup(func() { os.Args[0] = original })
@@ -180,15 +118,7 @@ func TestTuiRouteReleaserDevuelveNilFueraDeUnBinarioDeTest(t *testing.T) {
 	}
 }
 
-// TestTermKeyIgnoraUnMensajeDeTeclaQueNoEsUnaPulsacion: la guarda de tipo.
-//
-// El modal de terminal manda a `termKey` todo lo que llega del teclado mientras
-// está abierto, y no todo es una pulsación: bubbletea también entrega
-// repeticiones, relâjamientos y pulsaciones de ratón. Un `KeyReleaseMsg` no es un
-// `KeyPressMsg`, así que el type assertion falla y la tecla se descarta.
-//
-// Lo que importa aquí es que se DESCARTE, no que se mande al PTY: mandar un
-// release al shell lo interpretaría como una tecla más.
+// bubbletea also delivers repeats, releases and mouse events here, and forwarding a release would type it into the shell.
 func TestTermKeyIgnoraUnMensajeDeTeclaQueNoEsUnaPulsacion(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.term = &termSession{}

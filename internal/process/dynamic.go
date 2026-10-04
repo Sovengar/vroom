@@ -1,7 +1,4 @@
-// Package-level reservation of the dynamic port range. Portable on purpose:
-// the TUI, the CLI and the stack engine all need to give a reservation back
-// on stop, and they are not unix-only. The /proc reading that discovers
-// listeners stays in dynamic_unix.go; this file only owns the range policy.
+// Package process owns the dynamic port range policy, kept portable on purpose so the TUI, the CLI and the stack engine can all give a reservation back on stop; the /proc reading that finds listeners stays in dynamic_unix.go (see docs/adr/adr-0012-port-ownership-contract-and-dynamic-ports.md).
 package process
 
 import (
@@ -11,77 +8,35 @@ import (
 	"time"
 )
 
-// DefaultDynamicPortTimeout acota la ventana de arranque→bind.
+// DefaultDynamicPortTimeout bounds the start-to-bind window.
 const DefaultDynamicPortTimeout = 8 * time.Second
 
-// DefaultDynamicUnresolvedGrace is the second window granted when the budget
-// expires. It exists because expiring does not prove absence: a Next.js build
-// that takes 12 s and a UDP-only worker look identical for 12 s. It is the
-// bounded recovery path: if the port shows up here it resolves as usual and
-// nothing is left unresolved.
+// Second window granted when the budget expires, because expiring does not prove absence: a build that takes 12 s and a UDP-only worker look identical for those 12 s.
 const DefaultDynamicUnresolvedGrace = 8 * time.Second
 
-// Dynamic port range. Fixed for now, widenable later: 4000-4999 is the band
-// development backends already use, so a legitimate foreign listener landing
-// in there is unlikely but possible.
+// Fixed for now, widenable later: 4000-4999 is the band development backends already use, so a foreign listener landing there is unlikely but possible.
 const (
 	DynamicPortLow  = 4000
 	DynamicPortHigh = 4999
 )
 
-// ReservePort hands out a free port from the dynamic range and records it as
-// handed out to this process.
-//
-// What it protects: two concurrent reservations INSIDE one vroom process never
-// return the same port. Without the set, every concurrent caller took the
-// first free slot: a keystroke on a group node with two dynamic members
-// (toggleNode returns tea.Batch and bubbletea runs them in parallel) or a
-// stack stage (Launch starts each service in its own goroutine) handed out the
-// same number. Measured before the fix: 99.5% collisions across concurrent
-// pairs.
-//
-// What it does NOT protect: two SEPARATE vroom processes. Each has its own set
-// and both do bind+close against the same kernel pool. That window is the
-// documented TOCTOU below; closing it would need socket passing, which does
-// not fit `sh -c`.
-//
-// The set is process-local and dies with the process, so a crash cannot
-// permanently shrink the range: the next vroom starts with an empty set.
-// Within a process the invariant is the reverse of what a "leak" implies —
-// entries are added on start and given back on stop, so the set size tracks
-// live reservations rather than growing without bound. A stale entry (a
-// reservation whose service is still running) can only cause a free port to
-// be skipped, never a collision, because bind is the ground truth for
-// occupancy.
-//
-// TOCTOU, documented: bind(127.0.0.1:port) + close returns the port to the
-// pool before the child gets to bind. The window exists.
+// Within one process two concurrent reservations never return the same port (measured: 99.5% collisions across concurrent pairs before this set); separate processes keep their own set and so remain exposed to the TOCTOU below.
 func ReservePort() (int, error) {
 	return reserveWith(net.Listen)
 }
 
-// reserveWith es `ReservePort` con la apertura del puerto inyectada.
-//
-// La razón es que el `Close` que hay justo después de abrir sólo puede fallar si el
-// listener ya estaba cerrado, y este se acaba de abrir: la rama era inalcanzable. Con
-// la apertura inyectada, el contrato entero queda comprobable, incluida la parte que
-// más importa y que antes no se podía ver: un puerto que se abre y no se puede
-// devolver NO se marca como reservado.
-//
-// Eso no es un detalle. Si se marcara, el siguiente `ReservePort` lo saltaría
-// para siempre y el rango se encogería un hueco por cada cierre fallido, sin que nadie
-// supiera por qué.
+// The open is injected because the Close right after it can only fail if the listener was already closed, which made the branch untestable, and a port that opens but cannot be returned must NOT be marked reserved or the range loses one hole per failed close.
 func reserveWith(abrir func(network, addr string) (net.Listener, error)) (int, error) {
 	reserveMu.Lock()
 	defer reserveMu.Unlock()
 
 	for port := DynamicPortLow; port <= DynamicPortHigh; port++ {
 		if reservedPorts[port] {
-			continue // already handed out to another start in this process
+			continue
 		}
 		ln, err := abrir("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 		if err != nil {
-			continue // taken or unavailable; try the next in range
+			continue
 		}
 		if err := ln.Close(); err != nil {
 			return 0, fmt.Errorf("could not release the reserved port %d: %w", port, err)
@@ -92,14 +47,7 @@ func reserveWith(abrir func(network, addr string) (net.Listener, error)) (int, e
 	return 0, fmt.Errorf("no free port in range %d-%d", DynamicPortLow, DynamicPortHigh)
 }
 
-// ReleasePort gives a handed-out port back to the set. Every stop path must
-// call it, or the set grows monotonically and a long-lived process eventually
-// reports "no free port in range" for ports that are in fact free.
-//
-// The caller must clear the reservation from its persisted state in the same
-// step. Otherwise a repeated stop re-reads the stale reservation and releases
-// a port that some other service has since taken, dropping a live
-// reservation out of the set — which is the H1 race all over again.
+// Every stop path must call it or the set grows monotonically, and the caller must clear its persisted reservation in the same step or the next stop releases a port some other service now owns (H1 all over again).
 func ReleasePort(port int) {
 	if port <= 0 {
 		return
@@ -109,10 +57,7 @@ func ReleasePort(port int) {
 	delete(reservedPorts, port)
 }
 
-// ReservedPortCount is how many ports this process currently holds. It exists
-// for tests that need to assert on the set rather than on the side effect of a
-// later reserve succeeding, which cannot distinguish "released" from "range
-// exhausted".
+// Exists so the set itself can be observed, which a later failed reserve cannot distinguish from an exhausted range.
 func ReservedPortCount() int {
 	reserveMu.Lock()
 	defer reserveMu.Unlock()

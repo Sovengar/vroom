@@ -16,7 +16,6 @@ func writeMise(t *testing.T, content string) string {
 	return dir
 }
 
-// Parsea [tasks.*] con name/description y salta hide = true.
 func TestTasksParse(t *testing.T) {
 	dir := writeMise(t, `
 [tools]
@@ -45,7 +44,6 @@ run = "go test ./..."
 	if len(tasks) != 3 {
 		t.Fatalf("tasks = %d, want 3 (sin hide): %+v", len(tasks), tasks)
 	}
-	// Orden alfabético.
 	want := []struct{ name, desc string }{
 		{"build", "Build the CLI"},
 		{"test", ""},

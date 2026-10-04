@@ -12,29 +12,11 @@ import (
 	"vroom/internal/state"
 )
 
-// ---------------------------------------------------------------------------
-// Utilidades del harness de comandos.
-//
-// Todo aquí existe para poder ejercer un comando REAL contra un árbol REAL en un
-// disco REAL. No hay dobles de scanner, store ni manager a propósito: el JSON que
-// un agente consume es el efecto de un escaneo de verdad sobre un directorio de
-// verdad, y un doble probaría el doble.
-//
-// Lo que sí se sustituye es el ENTORNO (VROOM_CONFIG, XDG_STATE_HOME, CWD), que
-// no es parte de lo que se quiere verificar sino la Isolation para no tocar el
-// estado del developer. Y donde se toca algo real (un start), se comprueba el
-// efecto real: el proceso existe y el Meta está en disco.
-// ---------------------------------------------------------------------------
+// Commands here run real against a real tree on a real disk with no scanner, store or manager doubles, because a double would only test the double; only the env is substituted so the developer's state is untouched.
 
-// errWrite es el fallo de un destino que no acepta escritura.
 var errWrite = errors.New("no se pudo escribir")
 
-// chdirTree mueve el proceso al árbol y devuelve el store que leería de
-// XDG_STATE_HOME.
-//
-// Devolver el store es lo que permite comprobar el EFECTO sobre disco —el Meta
-// escrito, el log truncado— en vez de sólo lo que el comando afirma. Un comando
-// puede afirmar cualquier cosa sobre sí mismo.
+// Returning the store is what lets a test check the on-disk effect, because a command can claim anything about itself.
 func chdirTree(t *testing.T, root string) *state.Store {
 	t.Helper()
 	t.Chdir(root)
@@ -45,8 +27,6 @@ func chdirTree(t *testing.T, root string) *state.Store {
 	return store
 }
 
-// writeFile escribe un fichero, creando los directorios intermedios, y devuelve
-// su ruta.
 func writeFile(t *testing.T, path, content string) string {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -58,8 +38,7 @@ func writeFile(t *testing.T, path, content string) string {
 	return path
 }
 
-// readFileString lee un fichero devolviendo "" si no existe. Los logs de un
-// servicio que nunca arrancó no existen, y eso no es un fallo del test.
+// A missing file returns "" because the log of a service that never started is absent, which is not a test failure.
 func readFileString(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)
@@ -69,14 +48,11 @@ func readFileString(t *testing.T, path string) string {
 	return string(data)
 }
 
-// writeLines escribe una línea por entrada, con salto de línea final, que es como
-// un proceso real escribe en su log.
 func writeLines(t *testing.T, path string, lines ...string) {
 	t.Helper()
 	writeFile(t, path, strings.Join(lines, "\n")+"\n")
 }
 
-// linesOf parte un texto en líneas sin contar la vacía final.
 func linesOf(s string) []string {
 	if s == "" {
 		return nil
@@ -84,9 +60,7 @@ func linesOf(s string) []string {
 	return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
 }
 
-// processAlive mira /proc, que es el mismo mecanismo que usa el resto del repo
-// para comprobar liveness. Se dice "mira" y no "pregunta al manager" porque la
-// pregunta interesante es si el PID existe de verdad, no qué diría un doble.
+// Reads /proc instead of asking the manager because the interesting question is whether the PID really exists, not what a double would say.
 func processAlive(t *testing.T, pid int) bool {
 	t.Helper()
 	if pid <= 0 {
@@ -95,7 +69,7 @@ func processAlive(t *testing.T, pid int) bool {
 	if _, err := os.Stat(procDir(pid)); err != nil {
 		return false
 	}
-	// Un zombie tiene /proc/<pid> pero ya no es un proceso vivo: su estado es Z.
+	// A zombie still owns /proc/<pid> but its state is Z, so it is not alive.
 	data, err := os.ReadFile(procDir(pid, "stat"))
 	if err != nil {
 		return false
@@ -133,11 +107,7 @@ func itoa(n int) string {
 	return string(buf[i:])
 }
 
-// waitGone espera a que el proceso desaparezca.
-//
-// El timeout no es decorativo: process.Stop mata por SIGTERM y luego por SIGKILL,
-// y el kernels tarda en recoger al zombie. Sin espera, un test que comprueba "el
-// proceso ya no está" falla de forma intermitente y el suite se vuelve ruido.
+// The timeout is not decorative: process.Stop escalates SIGTERM to SIGKILL and the kernel is slow to reap the zombie, so without the wait liveness checks flake.
 func waitGone(t *testing.T, pid int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -150,9 +120,7 @@ func waitGone(t *testing.T, pid int) {
 	t.Errorf("el proceso %d sigue vivo tras el stop: waitGone agotó su plazo", pid)
 }
 
-// stopService baja un servicio con el manager REAL, por el mismo stopCleanup que
-// usa el comando. Los tests que arrancan algo tienen que pararlo: un sleep 30
-// por test son treinta segundos de procesos zombies acumulados en el runner.
+// Tests that start something must stop it, or every sleep 30 leaves a zombie process accumulating on the runner.
 func stopService(t *testing.T, store *state.Store, path string) {
 	t.Helper()
 	if err := stopCleanup(store, process.NewManager(), path); err != nil {
@@ -160,9 +128,7 @@ func stopService(t *testing.T, store *state.Store, path string) {
 	}
 }
 
-// aliveManager es un manager que registra los Stop sin tocar procesos. Existe para
-// los tests que necesitan el contrato de process.Manager sin pagar un kill real,
-// que es un efecto secundario que no tienen nada que ver con lo que verifican.
+// Records Stop specs without touching processes, so a test can assert the Manager contract without paying for a real kill.
 type aliveManager struct {
 	stopped []process.StopSpec
 	warned  int
@@ -178,8 +144,7 @@ func (m *aliveManager) Stop(spec process.StopSpec) error {
 	if m.killErr != nil {
 		return m.killErr
 	}
-	// Emite el mismo aviso que emitiría el kill real, para que el camino que
-	// escribe los avisos en el log quede ejercitado por quien use este doble.
+	// Emits the same warning a real kill would, so the code path writing warnings into the log is exercised by whoever uses this double.
 	if spec.Warn != nil {
 		spec.Warn("stopped pid %d", spec.Pid)
 		m.warned++
@@ -193,17 +158,7 @@ func (m *aliveManager) Evaluate(process.EvalSpec) process.Status {
 
 var _ process.Manager = (*aliveManager)(nil)
 
-// listeningService reescribe el manifiesto de un proyecto del árbol para que
-// declare un puerto que REALMENTE está escuchando, y devuelve ese puerto.
-//
-// Por qué hace falta: el veredicto de "corriendo" de process.Evaluate exige que
-// el puerto declarado esté abierto cuando hay puerto declarado. Un `sleep` con
-// `port = 8081` y nada escuchando NO está corriendo según el contrato —está
-// vivo pero no sirve— y el árbol por defecto es exactamente eso.
-//
-// Poner un listener real de loopback es lo que hace que el test ejercite el
-// camino de "ya corriendo" sin escribir un servidor de mentira: lo que se
-// comprueba es el dial de verdad, no un doble que diga que sí.
+// process.Evaluate demands the declared port be open, so a sleep with a port set and nothing listening is alive but not running; a real loopback listener exercises that verdict without writing a server that lies.
 func listeningService(t *testing.T, root, dir string, extraTOML string) int {
 	t.Helper()
 	port := openPort(t)
@@ -212,16 +167,12 @@ func listeningService(t *testing.T, root, dir string, extraTOML string) int {
 	return port
 }
 
-// failingWriter falla siempre, como un stdout cerrado o un pipe roto.
+// Always fails, standing in for a closed stdout or a broken pipe.
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, errWrite }
 
-// installCLIFailingReleaser apunta la retirada de la CLI a un releaser que
-// siempre falla, para poder observar qué hace stopCleanup con un portless roto.
-//
-// Existe aparte de installCLIReleaser porque los tests que necesitan leer QUÉ
-// se retiró necesitan el doble concreto, y los que sólo necesitan que falle no.
+// Separate from installCLIReleaser because tests that must read what was released need the concrete double, while tests that only need a failure do not.
 func installCLIFailingReleaser(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() { cliReleaseStub, cliReleaseStubInstalled = nil, false })
@@ -229,9 +180,7 @@ func installCLIFailingReleaser(t *testing.T) {
 	cliReleaseStubInstalled = true
 }
 
-// makeDir crea un directorio y devuelve su ruta. Se usa donde el código espera un
-// FICHERO: un OpenFile con O_CREATE sobre un directorio falla con EISDIR, que es
-// un fallo que se puede provocar sin depender del uid.
+// Used where the code expects a file: OpenFile with O_CREATE on a directory fails with EISDIR, which is reproducible without depending on the uid.
 func makeDir(t *testing.T, path string) string {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o755); err != nil {

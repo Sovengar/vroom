@@ -11,16 +11,6 @@ import (
 	"vroom/internal/state"
 )
 
-// ---------------------------------------------------------------------------
-// El stop de los stacks tiene que RETIRAR la ruta.
-//
-// El reviewer comprobó que borrando los tres call sites de Release la suite
-// seguía en verde, así que la decisión 13 del ADR —"se retira en los tres
-// caminos"— no la verificaba nada. Este test cierra el hueco para el motor de
-// stacks, que tiene además el caso del rollback de un arranque fallido.
-// ---------------------------------------------------------------------------
-
-// recordingReleaser registra lo que se le pide retirar.
 type recordingReleaser struct{ removed []string }
 
 func (r *recordingReleaser) RemoveAbsent(name string) error {
@@ -28,7 +18,6 @@ func (r *recordingReleaser) RemoveAbsent(name string) error {
 	return nil
 }
 
-// installEngineReleaser apunta la retirada del engine al doble del test.
 func installEngineReleaser(t *testing.T, rec *recordingReleaser) {
 	t.Helper()
 	t.Cleanup(func() { engineReleaseStub, engineReleaseStubInstalled = nil, false })
@@ -36,14 +25,12 @@ func installEngineReleaser(t *testing.T, rec *recordingReleaser) {
 	engineReleaseStubInstalled = true
 }
 
-// newTestEngine monta un engine con store aislado y un manager inerte: lo que
-// se prueba es la retirada de la ruta, no el kill.
+// The manager is inert on purpose: what is under test is the route removal, not the kill.
 func newTestEngine(t *testing.T) *Engine {
 	t.Helper()
 	return NewEngine(&noKillManager{}, state.NewStoreAt(t.TempDir()))
 }
 
-// noKillManager acepta cualquier Stop sin tocar nada.
 type noKillManager struct{}
 
 func (*noKillManager) Stop(process.StopSpec) error { return nil }
@@ -52,7 +39,6 @@ func (*noKillManager) Start(process.StartSpec) (process.StartResult, error) {
 }
 func (*noKillManager) Evaluate(process.EvalSpec) process.Status { return process.StatusStopped }
 
-// stopProcess retira la ruta del servicio que para.
 func TestEngineStopProcessRemovesTheServiceRoute(t *testing.T) {
 	rec := &recordingReleaser{}
 	installEngineReleaser(t, rec)
@@ -68,9 +54,7 @@ func TestEngineStopProcessRemovesTheServiceRoute(t *testing.T) {
 	}
 }
 
-// El rollback de un arranque fallido también consume la retirada: abortAndCleanup
-// llama a stopProcess, así que abortar una sesión con rutas registradas las
-// retira y no las deja huérfanas.
+// Rollback goes through stopProcess, so aborting a session with registered routes removes them instead of orphaning them.
 func TestEngineAbortCleanupRemovesRoutes(t *testing.T) {
 	rec := &recordingReleaser{}
 	installEngineReleaser(t, rec)
@@ -91,7 +75,6 @@ func TestEngineAbortCleanupRemovesRoutes(t *testing.T) {
 	}
 }
 
-// Sin ruta registrada no se invoca la retirada.
 func TestEngineStopWithoutRouteDoesNotCallRelease(t *testing.T) {
 	rec := &recordingReleaser{}
 	installEngineReleaser(t, rec)
@@ -104,21 +87,7 @@ func TestEngineStopWithoutRouteDoesNotCallRelease(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Las dos ramas del servicio YA MUERTO.
-//
-// stopProcess sólo corre cuando hay algo que matar. Un servicio que ya estaba
-// muerto al pararse (Pid 0, Pgid 0, Port 0) con una ruta heredada en el Meta
-// no pasa por ahí, y sus dos ramas propias se saltaban sin que ningún test las
-// mirara: neutralizarlas dejaba la suite VERDE.
-//
-// El estado es alcanzable: resolveDynamicPort sólo registra ruta cuando
-// State==running && Port>0, pero RouteName/RoutePort heredados siguen
-// persistidos, así que un servicio que tuvo ruta y luego no abre ningún puerto
-// TCP acaba con Pid=0, Pgid=0, Port=0 y RouteName != "".
-// ---------------------------------------------------------------------------
-
-// stopService con el servicio ya muerto retira su ruta.
+// The state is reachable: resolveDynamicPort registers a route only when State==running && Port>0, but inherited RouteName/RoutePort stay persisted, so a service that once had a route and then opens no TCP port ends with Pid=0, Pgid=0, Port=0 and RouteName != "".
 func TestStopServiceDeadServiceRemovesRoute(t *testing.T) {
 	rec := &recordingReleaser{}
 	installEngineReleaser(t, rec)
@@ -149,9 +118,7 @@ func TestStopServiceDeadServiceRemovesRoute(t *testing.T) {
 	}
 }
 
-// abortAndCleanup con el servicio ya muerto también: esta rama era la que
-// llamaba a portless.Release(nil, ...) con el cliente real hardcodeado, así que
-// ningún test podía observarla.
+// This branch used to call portless.Release(nil, ...) with the real client hardcoded, so no test could observe it.
 func TestAbortCleanupDeadServiceRemovesRoute(t *testing.T) {
 	rec := &recordingReleaser{}
 	installEngineReleaser(t, rec)
@@ -184,8 +151,6 @@ func TestAbortCleanupDeadServiceRemovesRoute(t *testing.T) {
 
 var _ portless.Releaser = (*recordingReleaser)(nil)
 
-// El mismo caso en el motor de stacks: handle vivo sin propiedad NO es
-// autoridad para borrar.
 func TestEngineDoesNotRemoveAForeignRoute(t *testing.T) {
 	rec := &recordingReleaser{}
 	installEngineReleaser(t, rec)

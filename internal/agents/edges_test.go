@@ -6,24 +6,9 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// Available y sortStrings: la lista de agentes que la TUI puede ofrecer y el orden
-// en que aparecen.
-//
-// Available filtra por BINARIO INSTALADO, no por lo que el config diga. Eso
-// significa que la lista depende de la máquina, y es la razón de que el filtro
-// sea por el primer token del argv: `npx claude` está disponible si hay npx, y
-// un config con un comando que no existe en esta máquina tiene que desaparecer
-// de la lista en vez de fallar al ejecutarse.
-//
-// Y un agente sin comando NO es un agente disponible: es un config mal escrito,
-// y ofrecerlo produciría un error al pulsarlo.
-// ---------------------------------------------------------------------------
-
-// TestAvailableFiltraPorBinarioInstaladoYNoDaErrores: sólo pasan los agentes
-// cuyo primer token existe en el PATH.
+// Available filters by the INSTALLED BINARY, not by what the config says, which is why the check is on the first argv token: npx claude counts if npx exists; an agent with no command is not available, since offering it would error when pressed.
 func TestAvailableFiltraPorBinarioInstaladoYNoDaErrores(t *testing.T) {
-	// Se usa el propio binario de test, que existe por definición.
+	// The test binary itself serves as the "installed" command, since it exists by definition.
 	self, err := os.Executable()
 	if err != nil {
 		t.Skipf("no se puede resolver el propio binario: %v", err)
@@ -49,17 +34,12 @@ func TestAvailableFiltraPorBinarioInstaladoYNoDaErrores(t *testing.T) {
 		}
 	}
 
-	// Y una lista vacía o nula da vacío, no un error.
 	if got := Available(nil); len(got) != 0 {
 		t.Errorf("Available(nil) = %v, want vacío", names(got))
 	}
 }
 
-// TestAvailableDevuelveUnSliceNuevoNoElDeEntrada: la lista filtrada no puede ser
-// el mismo slice que la de entrada.
-//
-// Es lo que permite que la TUI guarde el resultado y aplique el orden de sus
-// propios criterios sin que se corrompa la lista de la config.
+// A fresh slice is what lets the TUI keep the result and apply its own ordering without corrupting the config's list.
 func TestAvailableDevuelveUnSliceNuevoNoElDeEntrada(t *testing.T) {
 	self, err := os.Executable()
 	if err != nil {
@@ -77,19 +57,12 @@ func TestAvailableDevuelveUnSliceNuevoNoElDeEntrada(t *testing.T) {
 	if len(in) != 2 {
 		t.Errorf("Available modificó la entrada: %d agentes en vez de 2", len(in))
 	}
-	// Y el slice de salida no comparte backing con el de entrada.
 	if &got[0] == &in[0] {
 		t.Error("Available devolvió el mismo elemento que la entrada")
 	}
 }
 
-// TestSortStringsOrdenaInSituSinImportarSort: la ordenación es una burbuja
-// sobre el slice DEL CALLER, y eso es parte del contrato.
-//
-// Se comprueba con tres casos que entre ellos cubren el algoritmo entero: ya
-// ordenado (ningún intercambio), al revés (máximo de intercambios) y con un
-// duplicado. Y que ordena por bytes, que es lo que hace que la lista sea
-// estable entre máquinas.
+// Sorting happens in place on the CALLER's slice, and that is part of the contract.
 func TestSortStringsOrdenaInSituSinImportarSort(t *testing.T) {
 	tests := []struct {
 		name string
@@ -120,8 +93,6 @@ func TestSortStringsOrdenaInSituSinImportarSort(t *testing.T) {
 	}
 }
 
-// TestSortStringsOrdenaElSliceDelCaller: in situ de verdad, que es lo que permite
-// ordenarlo sin reservar un slice nuevo en cada arranque de la TUI.
 func TestSortStringsOrdenaElSliceDelCaller(t *testing.T) {
 	in := []string{"c", "a", "b"}
 	sortStrings(in)

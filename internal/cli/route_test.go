@@ -11,8 +11,7 @@ import (
 	"vroom/internal/state"
 )
 
-// marshalInfo es el JSON que ve un agente. Se marshaliza de verdad —no se
-// inspecciona la struct— porque el contrato que importa es el que se publica.
+// Marshals for real instead of inspecting the struct, because the contract that matters is the published one.
 func marshalInfo(t *testing.T, info ProjectInfo) map[string]any {
 	t.Helper()
 	raw, err := json.Marshal(info)
@@ -26,22 +25,15 @@ func marshalInfo(t *testing.T, info ProjectInfo) map[string]any {
 	return out
 }
 
-// projectWith construye un scanner.Project configurado con el manifiesto dado,
-// en dir: el Meta se persiste por ruta de proyecto, así que ambos tienen que
-// coincidir o buildProjectInfo leería un Meta vacío.
+// Meta is persisted by project path, so the project path and the one the meta was saved under must match or buildProjectInfo reads an empty Meta.
 func projectWith(dir string, m *manifest.Manifest) scanner.Project {
 	return scanner.Project{Path: dir, Name: "proyecto", Configured: true, Manifest: m}
 }
 
-// ---- El JSON distingue INTENCIÓN de RESULTADO ----
-
-// route_mode refleja lo que el manifiesto PIDE; el objeto route refleja lo que
-// vroom CONSIGUIÓ. Confundirlos haría que una ruta degradada pareciera una
-// ruta que el usuario no pidió.
+// route_mode is what the manifest asked for and the route object is what vroom achieved: conflating them makes a degraded route look like the one the user requested.
 func TestJSONSeparatesIntentFromOutcome(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
-	// El manifiesto PIDE named; lo que se consiguió fue degradado.
 	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080,
 		PortMode: manifest.PortModeDynamic, RouteMode: manifest.RouteModeNamed, RouteName: "mi-url"}
 	if err := store.SaveMeta(dir, state.Meta{
@@ -70,8 +62,7 @@ func TestJSONSeparatesIntentFromOutcome(t *testing.T) {
 	}
 }
 
-// El nombre publicado NUNCA es una url: un agente que lo lea como nombre
-// intentaría abrirlo como un host.
+// The published name is never a URL, because an agent reading it as a name would try to open it as a host.
 func TestPublishedRouteNameIsNeverAURL(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
@@ -90,10 +81,7 @@ func TestPublishedRouteNameIsNeverAURL(t *testing.T) {
 	}
 }
 
-// ---- Una ruta no verificada NO publica url ----
-
-// El campo AUSENTE es lo que hace el contrato honesto: un agente que lo lea no
-// puede conectarse a una dirección que nadie comprobó.
+// The ABSENT field is what makes the contract honest: an agent reading it cannot connect to an address nobody checked.
 func TestDegradedRoutePublishesNoURL(t *testing.T) {
 	for _, reason := range []string{
 		portless.ReasonPortlessMissing, portless.ReasonPortlessTimeout,
@@ -107,8 +95,6 @@ func TestDegradedRoutePublishesNoURL(t *testing.T) {
 		if err := store.SaveMeta(dir, state.Meta{
 			Name: "p", Pid: 1, Port: 8080, State: state.StateRunning,
 			RouteName: "p", RouteStatus: portless.StatusDegraded, RouteReason: reason,
-			// Aunque un Meta viejo traiga una url, no se publica: el estado
-			// manda sobre el residuo.
 			RouteURL: "https://p.localhost",
 		}); err != nil {
 			t.Fatal(err)
@@ -130,7 +116,7 @@ func TestDegradedRoutePublishesNoURL(t *testing.T) {
 	}
 }
 
-// Una ruta registrada sí publica su url: el contrato no es tímido, es exacto.
+// A registered route does publish its URL: the contract is exact, not timid.
 func TestRegisteredRoutePublishesItsURL(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
@@ -151,10 +137,7 @@ func TestRegisteredRoutePublishesItsURL(t *testing.T) {
 	}
 }
 
-// ---- Sin contrato de ruta, no hay objeto de ruta ----
-
-// El AUSENTE también es un estado: un manifiesto sin route_mode no afirma ni
-// niega nada. Afirmar "no hay ruta" sería inventar un contrato que nadie pidió.
+// The ABSENT is a state too: a manifest with no route_mode neither affirms nor denies, since claiming "no route" would invent a contract nobody asked for.
 func TestNoRouteContractPublishesNoRouteObject(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
@@ -168,8 +151,7 @@ func TestNoRouteContractPublishesNoRouteObject(t *testing.T) {
 	}
 }
 
-// La puerta de compatibilidad hacia atrás, en el JSON: un manifiesto que nunca
-// oyó hablar de portless produce EXACTAMENTE el mismo JSON que antes.
+// The backwards-compatibility gate, in JSON: a manifest that never heard of portless produces EXACTLY the same JSON as before.
 func TestLegacyManifestJSONIsUnchanged(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
@@ -183,19 +165,16 @@ func TestLegacyManifestJSONIsUnchanged(t *testing.T) {
 			t.Errorf("un manifiesto legacy no debe publicar %q", forbidden)
 		}
 	}
-	// Y los campos de puerto siguen igual.
 	if out["port"].(float64) != 8080 {
 		t.Errorf("el puerto debe seguir publicándose igual: %v", out["port"])
 	}
 }
 
-// El JSON no afirma que exista una ruta sólo porque esté ESCRITA: un Meta con
-// ruta pero sin verificación no la publica.
+// The JSON does not claim a route exists just because it is WRITTEN: a Meta with a route but no verification does not publish it.
 func TestJSONDoesNotAssertRouteJustBecauseItIsWritten(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
 	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080, RouteMode: manifest.RouteModeAuto}
-	// La ruta existe en el estado de portless pero nadie la verificó.
 	if err := store.SaveMeta(dir, state.Meta{
 		Name: "p", Pid: 1, Port: 8080, State: state.StateRunning,
 		RouteName: "p", RouteStatus: "", RouteReason: "",
@@ -208,8 +187,7 @@ func TestJSONDoesNotAssertRouteJustBecauseItIsWritten(t *testing.T) {
 	}
 }
 
-// stubManager es un process.Manager inerte para estas pruebas: la superficie
-// JSON se construye desde el Meta, no desde el proceso.
+// An inert process.Manager for these tests: the JSON surface is built from the Meta, not from the process.
 type stubManager struct{}
 
 func (stubManager) Start(process.StartSpec) (process.StartResult, error) {

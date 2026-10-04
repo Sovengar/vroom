@@ -8,19 +8,9 @@ import (
 	"vroom/internal/state"
 )
 
-// ---------------------------------------------------------------------------
-// El stop de la CLI tiene que RETIRAR la ruta.
-//
-// El reviewer comprobó que borrando los tres call sites de Release la suite
-// seguía en verde, así que la decisión 13 del ADR —"se retira en los tres
-// caminos"— no la verificaba nada. Este test cierra el hueco para la CLI.
-//
-// Y además fija un caso que el guard de proceso dejaba fuera: un servicio que
-// ya estaba MUERTO cuando se paró también deja una ruta detrás, y esa ruta no
-// se retiraba porque la retirada estaba dentro del guard de Pid > 0.
-// ---------------------------------------------------------------------------
+// CLI stop must RELEASE the route: deleting the three Release call sites left the suite green, so ADR decision 13 ("release on all three paths") was verified by nothing, and a service already DEAD at stop time also leaked a route because the release sat inside the Pid > 0 guard.
 
-// recordingReleaser registra lo que se le pide retirar.
+// Records what it was asked to release.
 type recordingReleaser struct{ removed []string }
 
 func (r *recordingReleaser) RemoveAbsent(name string) error {
@@ -28,7 +18,7 @@ func (r *recordingReleaser) RemoveAbsent(name string) error {
 	return nil
 }
 
-// installCLIReleaser apunta la retirada de la CLI al doble del test.
+// installCLIReleaser points the CLI release at the test double.
 func installCLIReleaser(t *testing.T, rec *recordingReleaser) {
 	t.Helper()
 	t.Cleanup(func() { cliReleaseStub, cliReleaseStubInstalled = nil, false })
@@ -36,7 +26,7 @@ func installCLIReleaser(t *testing.T, rec *recordingReleaser) {
 	cliReleaseStubInstalled = true
 }
 
-// Un servicio con proceso vivo retira su ruta al pararse.
+// A service with a live process releases its route on stop.
 func TestCLIStopRemovesTheServiceRoute(t *testing.T) {
 	rec := &recordingReleaser{}
 	installCLIReleaser(t, rec)
@@ -50,8 +40,7 @@ func TestCLIStopRemovesTheServiceRoute(t *testing.T) {
 		t.Errorf("el stop debe retirar la ruta del servicio, got %v", rec.removed)
 	}
 
-	// Y revoca la propiedad: sin esto el Meta seguiría declarando nuestra una
-	// ruta ya retirada, que es exactamente lo que permitía pisar la de otro.
+	// Ownership is revoked too: otherwise the Meta still claims a released route, which is exactly what let vroom overwrite someone else's.
 	meta, err := store.LoadMeta(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -64,11 +53,7 @@ func TestCLIStopRemovesTheServiceRoute(t *testing.T) {
 	}
 }
 
-// El caso que faltaba: un servicio YA MUERTO (Pid 0) también deja una ruta
-// detrás. Con la retirada dentro del guard de proceso, esa ruta se quedaba
-// para siempre y la única que podía limpiarla era la reconciliación del
-// arranque siguiente — que sólo existe para huérfanas, no como sustituto de
-// retirar la propia.
+// With the release inside the process guard an already DEAD service (Pid 0) kept its route forever, and only the next boot's reconciliation could clean it, which exists for orphans and is no substitute for releasing your own.
 func TestCLIStopRemovesRouteEvenWhenAlreadyDead(t *testing.T) {
 	rec := &recordingReleaser{}
 	installCLIReleaser(t, rec)
@@ -83,8 +68,7 @@ func TestCLIStopRemovesRouteEvenWhenAlreadyDead(t *testing.T) {
 	}
 }
 
-// Sin ruta registrada no se invoca la retirada: RouteName vacío es la señal de
-// que no hubo contrato de ruta, y una llamada con nombre vacío sería ruido.
+// An empty RouteName is the signal that there was no route contract, so calling release with an empty name would be noise.
 func TestCLIStopWithoutRouteDoesNotCallRelease(t *testing.T) {
 	rec := &recordingReleaser{}
 	installCLIReleaser(t, rec)
@@ -96,13 +80,7 @@ func TestCLIStopWithoutRouteDoesNotCallRelease(t *testing.T) {
 	}
 }
 
-// stopWithMeta ejerce el MISMO tramo de limpieza que cmdStop ejecuta tras
-// manager.Stop -- stopCleanup, que es la funcion de produccion que el comando
-// llama de verdad.
-//
-// Se llama a esa funcion y no a una reimplementacion: un test que replica la
-// logica pasa aunque la logica se borre, y eso es justo el hueco que dejo la
-// primera version.
+// Calls the production stopCleanup that cmdStop itself runs, not a reimplementation: a test that replicates the logic passes even after the logic is deleted, which is the hole the first version left.
 func stopWithMeta(t *testing.T, meta state.Meta) (string, *state.Store) {
 	t.Helper()
 	store := state.NewStoreAt(t.TempDir())
@@ -119,8 +97,7 @@ func stopWithMeta(t *testing.T, meta state.Meta) (string, *state.Store) {
 	return dir, store
 }
 
-// noKillManager acepta cualquier Stop sin tocar nada: lo que se prueba es la
-// retirada de la ruta, no el kill (que ya cubren los tests de process).
+// Accepts any Stop without touching anything: what is under test is the route release, not the kill, which the process tests already cover.
 type noKillManager struct{}
 
 func (*noKillManager) Stop(process.StopSpec) error { return nil }
@@ -129,24 +106,17 @@ func (*noKillManager) Start(process.StartSpec) (process.StartResult, error) {
 }
 func (*noKillManager) Evaluate(process.EvalSpec) process.Status { return process.StatusStopped }
 
-// El seam de portless debe satisfacer Releaser: es lo que permite observar la
-// retirada sin un binario real.
+// The portless seam must satisfy Releaser, which is what lets the release be observed without a real binary.
 var _ portless.Releaser = (*recordingReleaser)(nil)
 
-// Un alta que CHOCÓ con una ruta ajena deja el handle puesto pero la propiedad
-// revocada. El stop no puede usar ese handle como autoridad de borrado: la ruta
-// que hay en el nombre es de otro, y borrarla es el daño que todo este diseño
-// existe para evitar.
-//
-// Reproducido contra portless real antes de escribir este test: con una ruta
-// ajena en el nombre, el stop la eliminaba.
+// A registration that COLLIDED with a foreign route leaves the handle set but ownership revoked, and stop cannot treat that handle as delete authority: the name holds someone else's route, and deleting it is the damage this whole design exists to prevent (reproduced against real portless before this test was written).
 func TestCLIStopDoesNotRemoveAForeignRoute(t *testing.T) {
 	rec := &recordingReleaser{}
 	installCLIReleaser(t, rec)
 
 	_, _ = stopWithMeta(t, state.Meta{
 		Name: "p", Pid: 424242, Port: 4321, State: state.StateRunning,
-		RouteName: "ajena", RoutePort: 4000, RouteOwned: false, // chocó: no es nuestra
+		RouteName: "ajena", RoutePort: 4000, RouteOwned: false,
 	})
 
 	if len(rec.removed) != 0 {

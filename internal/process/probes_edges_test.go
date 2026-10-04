@@ -16,27 +16,9 @@ import (
 	gopsnet "github.com/shirou/gopsutil/v3/net"
 )
 
-// ---------------------------------------------------------------------------
-// Las cuatro piezas del paquete que hablan con el exterior.
-//
-// Cada una consulta algo fuera del proceso —el árbol de `/proc`, la tabla de
-// conexiones del kernel, la salida de `pgrep`, la apertura de un puerto— y cada una
-// tenía una rama de error que no se podía provocar: son fallos de carrera o de una
-// máquina en un estado que no se puede montar desde un test.
-//
-// La respuesta ha sido inyectar la consulta, no relajar la comprobación. Cada función
-// keeps su veredicto y lo que cambia es de dónde sale el dato; así el contrato entero
-// se puede comprobar, incluidas las ramas que antes eran código muerto.
-// ---------------------------------------------------------------------------
+// Each of these consults something outside the process, so the lookup was injected rather than the check relaxed: the verdict stays, only the source of the datum moves.
 
-// TestGrupoExisteTraduceCadaErrno: la tabla de `kill(-pgid, 0)`.
-//
-// La asimetría entre EPERM y ESRCH es lo único que hay que acertar aquí, y no es
-// evidentemente cierta a simple vista: EPERM significa que el grupo EXISTE pero que
-// el kernel no va a decirnos de quién es, y ESRCH que no hay nadie.
-//
-// Los dos casos que no se pueden provocar sin otro usuario en la máquina, el mapa
-// entero es una tabla, y una tabla merece un test que la fije.
+// EPERM and ESRCH cannot both be provoked without a second user on the machine, so the whole errno map is pinned here as a table.
 func TestGrupoExisteTraduceCadaErrno(t *testing.T) {
 	casos := []struct {
 		err  error
@@ -57,8 +39,6 @@ func TestGrupoExisteTraduceCadaErrno(t *testing.T) {
 		}
 	}
 
-	// Y con un pgid de 0 no se pregunta nada: `kill(0, 0)` señalaría al propio grupo
-	// de vroom, que siempre está vivo, así que la respuesta sería "sí" para siempre.
 	if pgidAlive(0) {
 		t.Error("pgidAlive(0) = true: preguntaría por el grupo de vroom, que siempre existe")
 	}
@@ -67,12 +47,6 @@ func TestGrupoExisteTraduceCadaErrno(t *testing.T) {
 	}
 }
 
-// TestVivoConDistingueLosTresVeredictos: existe, no existe, y no se pudo preguntar.
-//
-// La tercera es la que no se puede provocar contra el proceso real —haría falta que
-// el `/proc/<pid>` desapareciera ENTRE que gopsutil lo acepta y que lee sus campos—
-// y es la que más importa: si se respondiera "vivo" sin haber mirado, vroom declararía
-// vivo un servicio del que nadie sabe nada.
 func TestVivoConDistingueLosTresVeredictos(t *testing.T) {
 	const guardado = 1_700_000_000_000
 
@@ -92,14 +66,7 @@ func TestVivoConDistingueLosTresVeredictos(t *testing.T) {
 	}
 }
 
-// TestDueñosConTrataIgualNoVerYNoSaber: la lectura de `/proc/net` que falla.
-//
-// `killPortHolderWith` mata un proceso basándose en lo que salga de aquí, así que
-// "no hay dueño" y "no pude preguntar" tienen que ser lo mismo: los dos niegan la
-// prueba de propiedad, y los dos dejan el puerto como estaba.
-//
-// Que se devuelva `nil` y no una lista vacía es lo que lo hace explícito: `nil` es
-// "no lo sé", `[]` es "lo sé y no hay nadie".
+// nil and not an empty slice is what makes it explicit: nil is "could not ask", [] is "asked and nobody owns it".
 func TestDueñosConTrataIgualNoVerYNoSaber(t *testing.T) {
 	const puerto = 4321
 
@@ -127,17 +94,6 @@ func TestDueñosConTrataIgualNoVerYNoSaber(t *testing.T) {
 	}
 }
 
-// TestDescendantsFromTerminaConUnCiclo: el guard de `seen`.
-//
-// Este guard NO protege contra un nodo repetido, que en un `/proc` real es imposible
-// —cada proceso tiene un único `ppid`—, sino contra un ciclo: A es hijo de B y B es
-// hijo de A. En un sistema real no pasa, pero `descendantsFrom` recibe un mapa y no
-// puede descartarlo por su cuenta.
-//
-// El coste de que el guard no estuviera es un `Stop` que no termina nunca, en el
-// momento en que el usuario está intentando parar su servicio. Eso se comprueba con un
-// mapa cíclico y un reloj: si el guard falla, el test no vuelve y lo mata el timeout de
-// la suite.
 func TestDescendantsFromTerminaConUnCiclo(t *testing.T) {
 	snap := map[int]procInfo{
 		1: {ppid: 2},
@@ -146,8 +102,7 @@ func TestDescendantsFromTerminaConUnCiclo(t *testing.T) {
 	}
 
 	got := descendantsFrom(snap, 1)
-	// Desde 1: sus hijos son 2 y 3. 2 tiene como hijo 1, que ya se vio, así que se
-	// corta ahí. El resultado ordenado es [2, 3].
+	// From 1 the children are 2 and 3; 2's child is 1, already seen, so the walk stops and the result is [2, 3].
 	if len(got) != 2 {
 		t.Fatalf("descendantsFrom = %v, want [2 3]: el ciclo tiene que cortar en el nodo ya visto", got)
 	}
@@ -158,16 +113,7 @@ func TestDescendantsFromTerminaConUnCiclo(t *testing.T) {
 	}
 }
 
-// TestCaptureLineDegradaSinProcs: el `(0, nil)` de los tres fallos.
-//
-// Sin `/proc` legible, sin el PID, o sin el grupo, `captureLineage` devuelve `(0, nil)`
-// y `Stop` degrada a señalar sólo el grupo. La degradación importa porque la rama
-// "no hay grupo" de `Stop` no hace nada, y la rama "hay grupo" sí: confundir una con
-// otra sería dejar procesos vivos.
-//
-// El caso del snapshot ilegible se provoca con un directorio vacío como raíz de
-// `/proc`, que es exactamente lo que ve un proceso en un contenedor sin el proc
-// montado.
+// An empty directory as the /proc root is exactly what a process in a container without proc mounted sees.
 func TestCaptureLineDegradaSinProcs(t *testing.T) {
 	vacio := t.TempDir() // existe y está vacío: ReadDir funciona, no hay procesos
 
@@ -188,8 +134,7 @@ func TestCaptureLineDegradaSinProcs(t *testing.T) {
 		})
 	}
 
-	// Y con un root que NO es un directorio: `ReadDir` falla con ENOTDIR, que es el
-	// otro camino del mismo error.
+	// A root that is not a directory: ReadDir fails with ENOTDIR, the other path to the same error.
 	fichero := filepath.Join(t.TempDir(), "no-soy-proc")
 	if err := os.WriteFile(fichero, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
@@ -199,14 +144,8 @@ func TestCaptureLineDegradaSinProcs(t *testing.T) {
 	}
 }
 
-// TestReserveWithNoMarcaUnPuertoQueNoSePudoDevolver: el `Close` que falla.
-//
-// Abrir un puerto y cerrarlo es la forma de comprobar que está libre. Si el cierre
-// falla, el puerto puede seguir ocupado por el propio listener, así que marcarlo como
-// reservado sería mentir: el siguiente `ReservePort` lo saltaría y el hueco se
-// acumularía sin que nadie supiera por qué.
 func TestReserveWithNoMarcaUnPuertoQueNoSePudoDevolver(t *testing.T) {
-	// Un listener que ya está cerrado: `Close` sobre él falla con `use of closed`.
+	// An already-closed listener: Close on it fails with "use of closed".
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -216,9 +155,7 @@ func TestReserveWithNoMarcaUnPuertoQueNoSePudoDevolver(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Se fotografía el set antes: el puerto concreto que se intenta es el primero
-	// libre del rango, y con la suite completa puede que ya estén reservados unos
-	// cuantos. Lo que importa es que el set NO CREZCA.
+	// The set is snapshotted first because the exact port attempted depends on what the rest of the suite already reserved; what matters is that the set does not grow.
 	antes := puertosReservados()
 
 	_, err = reserveWith(func(string, string) (net.Listener, error) { return cerrado, nil })
@@ -238,17 +175,7 @@ func TestReserveWithNoMarcaUnPuertoQueNoSePudoDevolver(t *testing.T) {
 	}
 }
 
-// TestPatternMatchToleraUnaSalidaDePgrepQueNoEsSoloPids: el parseo de la salida.
-//
-// `pgrep` imprime un pid por línea, y el recorrido es deliberadamente tolerante: una
-// línea vacía se salta, y una línea que no es un número se salta en vez de abortar
-// todo. La razón es que `pgrep` es una herramienta externa cuyo formato no depende de
-// vroom, y un fallo de parseo devolvería "no está corriendo" para un servicio que sí
-// lo está.
-//
-// MEDIDO: se pone un `pgrep` falso en el PATH. Lo que se controla es la FORMA de la
-// salida, que es lo que esta función promise entender; el resultado —"hay otro
-// proceso"— se produce con un pid real.
+// MEDIDO: a fake pgrep on the PATH controls only the shape of its output, which is what this function promises to understand; the "another process exists" result comes from a real pid.
 func TestPatternMatchToleraUnaSalidaDePgrepQueNoEsSoloPids(t *testing.T) {
 	otro := procesosDePrueba(t, 1) // un `sleep` real con un nombre reconocible
 	pid := strconv.Itoa(otro[0])
@@ -273,19 +200,9 @@ func TestPatternMatchToleraUnaSalidaDePgrepQueNoEsSoloPids(t *testing.T) {
 	}
 }
 
-// TestKillPortHolderAvisaCuandoElPuertoNoSeLibera: el último recurso que no funciona.
-//
-// Cuando el puerto sigue ocupado tras el kill, vroom tiene que decirlo. El aviso es
-// lo único que le queda al usuario para entender por qué su puerto sigue en uso por
-// algo que no es suyo.
-//
-// MEDIDO: el killer de último recurso es `fuser -k`, así que se pone un `fuser` en el
-// PATH que no mata nada. Es el caso real de un contenedor sin `fuser`, y produce el
-// mismo desenlace que un proceso que se resiste: el puerto sigue ahí después de la
-// espera, y hay que avisar.
+// MEDIDO: the last-resort killer is fuser -k, so a fake fuser that kills nothing stands in for a container without fuser; the port outlives the wait and a warning is owed.
 func TestKillPortHolderAvisaCuandoElPuertoNoSeLibera(t *testing.T) {
-	// Un puerto abierto y con dueño conocido, que es lo que hace falta para que
-	// `killPortHolderWith` llegue al último recurso en vez de negarse de entrada.
+	// An open port with a known owner, which is what lets killPortHolderWith reach the last resort instead of refusing outright.
 	ln := escucharEn(t)
 	puerto := puertoDe(t, ln)
 	pid := os.Getpid()
@@ -304,33 +221,18 @@ func TestKillPortHolderAvisaCuandoElPuertoNoSeLibera(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Utilidades
-// ---------------------------------------------------------------------------
-
-// pruebaPatron es el patrón que `pgrep` recibe en los tests de la salida falsa. No
-// importa que no case con nada real: lo que se controla es lo que el falso imprime.
+// It does not have to match anything real: what is controlled is what the fake prints.
 const pruebaPatron = "vroom-test-patterno-que-no-existe"
 
-// conPgrepFalso pone un `pgrep` en el PATH que imprime la salida dada y sale con 0.
-//
-// Sale con 0 a propósito aunque no haya coincidencias, que es justo el caso raro que
-// hace que la salida vacía llegue al parseo.
+// It exits 0 on purpose even with no matches, which is the rare case that lets an empty output reach the parser.
 func conPgrepFalso(t *testing.T, salida string) {
 	t.Helper()
 	dir := t.TempDir()
-	// La salida va en un fichero y el falso lo copia. Escribirla en el script con un
-	// heredoc parecía más bonito y no funcionaba: `cat` lee de su stdin, y con
-	// `exec.Command` el stdin del hijo es /dev/null, no el texto del heredoc.
+	// The output goes in a file the fake cats: a heredoc looked nicer but cat reads stdin, and exec.Command gives the child /dev/null, not the heredoc.
 	if err := os.WriteFile(filepath.Join(dir, "salida.txt"), []byte(salida), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// La ruta del fichero va escrita en el script, no por $2: `pgrep -f patron`
-	// deja el patrón ahí, y `cat` de un patrón no es `cat` de una respuesta.
-	//
-	// Y el PATH se ANADE en vez de sustituirse: con un PATH de un solo directorio,
-	// el propio script no encuentra `cat` y sale con un error por stderr, que es
-	// justo la forma en que un `pgrep` real se comporta cuando algo va mal.
+	// PATH is prepended rather than replaced: with a single-directory PATH the script itself cannot find cat, and that is exactly how a real pgrep fails.
 	if err := os.WriteFile(filepath.Join(dir, "pgrep"),
 		[]byte("#!/bin/sh\ncat "+filepath.Join(dir, "salida.txt")+"\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -338,18 +240,15 @@ func conPgrepFalso(t *testing.T, salida string) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// conFuserFalso pone un `fuser` que no hace nada.
 func conFuserFalso(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "fuser"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// `pgrep` también tiene que existir para que el resto del paquete no se rompa.
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 }
 
-// procesosDePrueba lanza n procesos `sleep` y devuelve sus pids.
 func procesosDePrueba(t *testing.T, n int) []int {
 	t.Helper()
 	var pids []int
@@ -359,14 +258,12 @@ func procesosDePrueba(t *testing.T, n int) []int {
 			t.Fatal(err)
 		}
 		pids = append(pids, cmd.Process.Pid)
-		// Sin `Wait`: se recogen al final del test. Un `sleep` de 5s con el proceso
-		// de test vivo no se solapa con nada.
+		// No Wait: the test cleanup reaps them.
 		t.Cleanup(func() { _ = cmd.Process.Kill() })
 	}
 	return pids
 }
 
-// puertosReservados copia el set de puertos reservados del proceso.
 func puertosReservados() map[int]bool {
 	reserveMu.Lock()
 	defer reserveMu.Unlock()
@@ -377,8 +274,6 @@ func puertosReservados() map[int]bool {
 	return out
 }
 
-// escucharEn abre un listener real en un puerto efímero y lo devuelve abierto hasta
-// que termina el test.
 func escucharEn(t *testing.T) net.Listener {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -389,24 +284,12 @@ func escucharEn(t *testing.T) net.Listener {
 	return ln
 }
 
-// puertoDe devuelve el puerto de un listener.
 func puertoDe(t *testing.T, ln net.Listener) int {
 	t.Helper()
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
-// TestElAvisoDeEscalonDependeDeQueHuboRootYDeQueNoMurio: la decisión de avisar.
-//
-// La escalera de parada es SIGTERM, luego SIGKILL, y si después de eso sigue habiendo
-// alguien `Stop` avisa. Ese aviso sólo se puede provocar con un proceso que no muere
-// ante SIGKILL, y eso exige un proceso de otro usuario: MEDIDO, en esta máquina
-// `setpriv --reuid` falla con EPERM y `unshare -U` deja los hijos con el mismo uid, así
-// que no hay forma de construirlo desde una cuenta normal.
-//
-// Lo que sí es comprobable, y es la parte que decide, es CUÁNDO se avisa. Son dos
-// condiciones y las dos importan: sin proceso raíz no había nada que parar, así que
-// `terminate` ni se llama; y un `Stop` que funcionó no debe dejar ruido en el log de
-// un servicio que se paró bien.
+// MEDIDO: the surviving-SIGKILL case cannot be built here (setpriv --reuid gives EPERM and unshare -U leaves children with the same uid), so what is asserted is WHEN the ladder warns.
 func TestElAvisoDeEscalonDependeDeQueHuboRootYDeQueNoMurio(t *testing.T) {
 	casos := []struct {
 		nombre    string
@@ -449,24 +332,13 @@ func TestElAvisoDeEscalonDependeDeQueHuboRootYDeQueNoMurio(t *testing.T) {
 	}
 }
 
-// TestTerminateDevuelveFalsoConUnProcesoQueNoSePuedeMatar: la escalera agotada.
-//
-// `terminate` responde false cuando, tras SIGTERM y SIGKILL, `waitLineageGone` agota
-// el plazo con alguien todavía en pie. Para verlo basta con un linaje que contenga un
-// proceso al que la escalera no puede matar.
-//
-// MEDIDO: un hilo del kernel —el pid 2 de esta máquina— encaja exactamente.
-// `/proc` lo reporta en estado R, así que `lineageRunning` lo cuenta como vivo, y un
-// usuario normal recibe EPERM al mandarle SIGKILL. Es el mismo motivo por el que el
-// aviso no se puede provocar desde `Stop`: la escalera sí falla, pero contra alguien
-// que no es nuestro.
+// MEDIDO: a kernel thread fits exactly - /proc reports state R so lineageRunning counts it alive, while a normal user gets EPERM on SIGKILL.
 func TestTerminateDevuelveFalsoConUnProcesoQueNoSePuedeMatar(t *testing.T) {
 	kthread := hiloDelKernel()
 	if kthread == 0 {
 		t.Skip("esta máquina no tiene un hilo del kernel legible en /proc")
 	}
-	// Si algún día se pudiera señalar, este test dejaría de estar probando lo que dice
-	// y `terminate` volvería a devolver true.
+	// If signalling ever succeeds the scenario no longer applies and terminate would go back to returning true.
 	if err := syscall.Kill(kthread, syscall.SIGKILL); err == nil {
 		t.Skip("este usuario puede matar hilos del kernel: el escenario de prueba ya no aplica")
 	}
@@ -479,7 +351,7 @@ func TestTerminateDevuelveFalsoConUnProcesoQueNoSePuedeMatar(t *testing.T) {
 	}
 }
 
-// hiloDelKernel devuelve un pid de hilo del kernel (estado vivo, ppid 0 o 2) o 0.
+// Picks a kernel thread: a live state with ppid 0 or 2, or 0 if none is readable.
 func hiloDelKernel() int {
 	entries, err := os.ReadDir(procRoot)
 	if err != nil {
@@ -499,7 +371,6 @@ func hiloDelKernel() int {
 	return 0
 }
 
-// lanzar arranca un comando y devuelve su pid, sin esperar a que termine.
 func lanzar(t *testing.T, name string, args ...string) int {
 	t.Helper()
 	cmd := exec.Command(name, args...)

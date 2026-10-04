@@ -282,7 +282,6 @@ primary_group = "g3"
 		t.Fatal(err)
 	}
 
-	// Formato simple: nombre único
 	s, err := cf.FindStack("a")
 	if err != nil {
 		t.Fatal(err)
@@ -291,7 +290,7 @@ primary_group = "g3"
 		t.Errorf("found wrong stack: %+v", s)
 	}
 
-	// Formato compuesto: group/name
+	// The composite group/name form reaches a stack a bare name cannot.
 	s, err = cf.FindStack("g2/b")
 	if err != nil {
 		t.Fatal(err)
@@ -300,19 +299,17 @@ primary_group = "g3"
 		t.Errorf("found wrong stack: %+v", s)
 	}
 
-	// Formato simple ambiguo: mismo nombre en dos groups → error
+	// A bare name present in two groups must error rather than pick one.
 	_, err = cf.FindStack("b")
 	if err == nil {
 		t.Fatal("expected ambiguity error for stack 'b' in two groups")
 	}
 
-	// Formato compuesto inexistente
 	_, err = cf.FindStack("g99/x")
 	if err == nil {
 		t.Fatal("expected error for missing stack")
 	}
 
-	// Formato simple inexistente
 	_, err = cf.FindStack("c")
 	if err == nil {
 		t.Fatal("expected error for missing stack")

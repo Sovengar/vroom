@@ -1,11 +1,4 @@
-// Package launcher despacha la acción de ask AI según la configuración
-// global: herdr (pane/tab nuevo del multiplexer),
-// inline (suspende vroom y corre el agente en primer plano, patrón wt)
-// o custom (plantilla de shell). El launcher "auto" usa herdr si vroom
-// corre dentro de una sesión herdr y cae a inline si no.
-//
-// El despacho es EXTERNO y configurable sin recompilar: mañana puede
-// ser tmux con ask.launcher = "custom".
+// Package launcher dispatches the ask AI action to herdr, inline or a custom shell template, resolved from config so the multiplexer can be swapped without recompiling.
 package launcher
 
 import (
@@ -18,31 +11,26 @@ import (
 	"vroom/internal/config"
 )
 
-// Request describe el despacho de un ask AI.
 type Request struct {
-	Agent string   // nombre del agente (mensajes y plantillas)
-	Args  []string // argv del agente con el prompt ya expandido
-	Dir   string   // directorio del proyecto (cwd del agente)
+	Agent string
+	Args  []string
+	Dir   string
 }
 
-// Estrategias válidas.
 const (
 	StrategyHerdr  = "herdr"
 	StrategyInline = "inline"
 	StrategyCustom = "custom"
 )
 
-// Launcher resuelve y ejecuta la estrategia configurada. Los campos
-// env/look/run son inyectables para tests.
 type Launcher struct {
 	cfg config.AskConfig
 
 	env  func(string) string
 	look func(string) (string, error)
-	run  func(name string, args ...string) (string, error) // CombinedOutput
+	run  func(name string, args ...string) (string, error)
 }
 
-// New construye el launcher con las implementaciones reales.
 func New(cfg config.AskConfig) *Launcher {
 	return &Launcher{
 		cfg:  cfg,
@@ -55,8 +43,6 @@ func New(cfg config.AskConfig) *Launcher {
 	}
 }
 
-// herdrAvailable reporta si vroom corre dentro de una sesión herdr y
-// el binario está en PATH.
 func (l *Launcher) herdrAvailable() bool {
 	if l.env("HERDR_ENV") != "1" {
 		return false
@@ -65,8 +51,7 @@ func (l *Launcher) herdrAvailable() bool {
 	return err == nil
 }
 
-// Resolve decide la estrategia efectiva. warn != "" indica un fallback
-// que la TUI debe notificar (config explícita herdr sin sesión herdr).
+// A non-empty warn means an explicit herdr config fell back and the TUI must notify.
 func (l *Launcher) Resolve() (strategy, warn string) {
 	switch l.cfg.Launcher {
 	case "herdr":
@@ -86,17 +71,13 @@ func (l *Launcher) Resolve() (strategy, warn string) {
 	}
 }
 
-// InlineCmd construye el exec.Cmd del agente para tea.ExecProcess
-// (estrategia inline: vroom se suspende mientras el agente corre).
 func (l *Launcher) InlineCmd(req Request) *exec.Cmd {
 	cmd := exec.Command(req.Args[0], req.Args[1:]...)
 	cmd.Dir = req.Dir
 	return cmd
 }
 
-// Launch ejecuta una estrategia en background (herdr o custom): se
-// llama dentro de una goroutine (tea.Cmd) y devuelve el mensaje de
-// éxito. Inline NO pasa por aquí.
+// Inline must never reach here: it suspends vroom, so only herdr and custom run in the background.
 func (l *Launcher) Launch(strategy string, req Request) (string, error) {
 	switch strategy {
 	case StrategyHerdr:
@@ -108,7 +89,6 @@ func (l *Launcher) Launch(strategy string, req Request) (string, error) {
 	}
 }
 
-// launchHerdr abre un pane/tab de herdr y lanza el agente dentro.
 func (l *Launcher) launchHerdr(req Request) (string, error) {
 	var paneID string
 	if l.cfg.Target == "tab" {
@@ -139,9 +119,7 @@ func (l *Launcher) launchHerdr(req Request) (string, error) {
 	return fmt.Sprintf("%s → herdr %s %s", req.Agent, l.cfg.Target, paneID), nil
 }
 
-// launchCustom expande la plantilla del config y la corre con sh -c.
-// Los placeholders se insertan shell-quoteados para que la plantilla
-// sea texto de shell seguro de componer.
+// Placeholders are shell-quoted so a prompt with spaces or quotes cannot inject shell syntax.
 func (l *Launcher) launchCustom(req Request) (string, error) {
 	tpl := l.cfg.LauncherCmd
 	repl := strings.NewReplacer(
@@ -156,8 +134,6 @@ func (l *Launcher) launchCustom(req Request) (string, error) {
 	return fmt.Sprintf("%s launched (custom)", req.Agent), nil
 }
 
-// parsePaneID extrae una ruta JSON punteada ("result.pane.pane_id")
-// de la salida de herdr.
 func parsePaneID(out, path string) string {
 	var doc map[string]any
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
@@ -178,8 +154,6 @@ func parsePaneID(out, path string) string {
 	return s
 }
 
-// shellQuote compone los argv en una línea de shell POSIX segura:
-// cada argumento entre comillas simples con escape de comillas.
 func shellQuote(args []string) string {
 	var b strings.Builder
 	for i, a := range args {

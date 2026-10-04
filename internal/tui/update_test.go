@@ -18,22 +18,7 @@ import (
 	"vroom/internal/state"
 )
 
-// ---------------------------------------------------------------------------
-// El bucle de Update, mensaje por mensaje.
-//
-// Update es un switch sobre tipos de msg, y cada case es una regla de la TUI que
-// sólo se verifica si el msg LLEGA. Bubbletea entrega lo que los Cmd devuelven,
-// así que un case mal escrito —un aviso que no sale, un estado que no se
-// actualiza— no falla: la TUI simplemente muestra otra cosa.
-//
-// Por eso estos tests construyen el msg a mano y comprueban el efecto sobre el
-// modelo, que es lo que la vista va a renderizar. No usan teatest porque no hace
-// falta un Bubbletea corriendo: Update es una función pura de (modelo, msg) a
-// (modelo, cmd), y eso es exactamente lo que se puede comprobar directamente.
-// ---------------------------------------------------------------------------
-
-// updateMsg aplica un msg al modelo y devuelve el modelo resultante. Es el
-// CICLO de Bubbletea sin Bubbletea.
+// updateMsg is the Bubbletea loop without Bubbletea: Update is a pure function of (model, msg), so it is called directly.
 func updateMsg(t *testing.T, m Model, msg tea.Msg) Model {
 	t.Helper()
 	next, _ := m.Update(msg)
@@ -44,13 +29,7 @@ func updateMsg(t *testing.T, m Model, msg tea.Msg) Model {
 	return got
 }
 
-// TestUpdateRefreshedIgnoraLoQueNoEstabaEnElArbol: el polling puede devolver un
-// servicio que ya no está en el modelo (borrado del disco entremedias), y eso no
-// puede recrear la fila.
-//
-// Si lo recreara, el modelo crecería en cada pollsolto con filas de servicios que
-// ya no existen, y el árbol de la TUI mostraría proyectos fantasma. Es un caso
-// real porque el escaneo y el poll no están sincronizados.
+// Scan and poll are not synchronized, so a path deleted from disk may come back; recreating the row would grow the tree with phantom services.
 func TestUpdateRefreshedIgnoraLoQueNoEstabaEnElArbol(t *testing.T) {
 	m, _ := newTestModel(t)
 	before := len(m.services)
@@ -67,13 +46,7 @@ func TestUpdateRefreshedIgnoraLoQueNoEstabaEnElArbol(t *testing.T) {
 	}
 }
 
-// TestUpdateRefreshedIgnoraLosTransitoriosYPropagaLaRama: los estados starting y
-// stopping los resuelven startedMsg/stoppedMsg, no el poll.
-//
-// Si el poll los sobrescribiera, un servicio que está arrancando aparecería como
-// parado durante todo el arranque — y el usuario vería el servicio "apagado"
-// mientras se levanta—, y uno que se está parando aparecería como vivo. La regla
-// es que el poll no pisa lo transitorio.
+// starting/stopping are owned by startedMsg/stoppedMsg: the poll must not overwrite them or a booting service reads as stopped.
 func TestUpdateRefreshedIgnoraLosTransitoriosYPropagaLaRama(t *testing.T) {
 	m, _ := newTestModel(t)
 	path := projectPath(t, m, "tienda-api")
@@ -86,19 +59,12 @@ func TestUpdateRefreshedIgnoraLosTransitoriosYPropagaLaRama(t *testing.T) {
 	if got.services[path].Status != statusStarting {
 		t.Errorf("el poll pisó un estado transitorio: %q -> %q", statusStarting, got.services[path].Status)
 	}
-	// La rama sí se propaga siempre: un `git branch -m` tiene que notarse aunque
-	// el servicio esté arrancando.
 	if got.branches[path] != "feature/nueva" {
 		t.Errorf("branches[%s] = %q, want feature/nueva: la rama se propaga aunque el estado sea transitorio", path, got.branches[path])
 	}
 }
 
-// TestUpdateRefreshedMuestraSoloElPrimerAviso: el poll trae un aviso por servicio
-// ilegible, y la barra de estado sólo tiene sitio para uno.
-//
-// Se muestra el primero y se corta, a propósito: cinco avisos a la vez empujarían
-// el que más importa (el de más arriba) fuera de la barra. El orden del mapa es
-// aleatorio, así que lo que se afirma es el COMPORTAMIENTO —uno solo— y no cuál.
+// Only one warning is shown because map order is random: the assertion is the behaviour, not which warning wins.
 func TestUpdateRefreshedMuestraSoloElPrimerAviso(t *testing.T) {
 	m, _ := newTestModel(t)
 	paths := []string{
@@ -124,12 +90,6 @@ func TestUpdateRefreshedMuestraSoloElPrimerAviso(t *testing.T) {
 	}
 }
 
-// TestUpdateStartedConErrorDejaElServicioParadoYLoDice: un arranque fallido deja
-// la fila en parado y un aviso que nombra el error.
-//
-// Las dos mitades: el estado, para no seguir mostrando un servicio vivo que no
-// existe, y el aviso, para que el error no se pierda. Un estado sin aviso deja al
-// usuario con un servicio que no arranca y sin explicación.
 func TestUpdateStartedConErrorDejaElServicioParadoYLoDice(t *testing.T) {
 	m, _ := newTestModel(t)
 	path := projectPath(t, m, "tienda-api")
@@ -145,19 +105,12 @@ func TestUpdateStartedConErrorDejaElServicioParadoYLoDice(t *testing.T) {
 	}
 }
 
-// TestUpdateStartedConExitoFijaElEstadoYLimpiaLaConsola: un arranque OK fija el
-// estado desde el Meta, registra el evento y TRUNCA la consola en memoria.
-//
-// La limpieza de la consola es lo que evita que se vea contenido viejo: los logs
-// se truncan en el arranque, y si el buffer en memoria no se limpia, la primera
-// línea que se ve después de arrancar es la del servicio anterior. Es un bug de
-// lectura, no de escritura, y sólo se nota si se mira el buffer.
+// A read bug, not a write bug: the log is truncated on start, so the in-memory buffer must be cleared or the previous service's lines show first.
 func TestUpdateStartedConExitoFijaElEstadoYLimpiaLaConsola(t *testing.T) {
 	m, _ := newTestModel(t)
 	path := projectPath(t, m, "tienda-api")
 	m.services[path].Status = statusStarting
 
-	// Contenido viejo en la consola, y un log en disco de la ejecución previa.
 	cs := m.consoleStateFor(path)
 	cs.stdout = "SALIDA DEL SERVICIO ANTERIOR\n"
 	cs.stderr = "ERROR DEL SERVICIO ANTERIOR\n"
@@ -176,8 +129,6 @@ func TestUpdateStartedConExitoFijaElEstadoYLimpiaLaConsola(t *testing.T) {
 		t.Errorf("Meta.Pid = %d, want 4242", got.services[path].Meta.Pid)
 	}
 
-	// Los offsets vuelven a lo que hay REALMENTE en el log, que tras el truncado
-	// del arranque es 0.
 	gotCS := got.consoleStateFor(path)
 	if gotCS.stdout != "" || gotCS.stderr != "" || gotCS.merged != "" {
 		t.Errorf("la consola en memoria no se limpió: %q / %q", gotCS.stdout, gotCS.stderr)
@@ -186,23 +137,12 @@ func TestUpdateStartedConExitoFijaElEstadoYLimpiaLaConsola(t *testing.T) {
 		t.Errorf("los offsets quedaron en %d/%d: con el log truncado hay que releer desde 0", gotCS.off[0], gotCS.off[1])
 	}
 
-	// Y se registró el evento, que es lo que aparece en la lista de actividad.
 	if len(got.events[path]) == 0 {
 		t.Error("un arranque correcto no dejó evento: el usuario no ve que arrancó nada")
 	}
 }
 
-// TestUpdateStartedConAvisosNoBloqueanElServicio: los warnings del arranque son
-// visibles pero NO bloqueantes, y sale el ÚLTIMO.
-//
-// MEDIDO: notify sobrescribe, así que de varios avisos sólo queda el último. Se
-// fija el comportamiento real y no el ideal a propósito: cambiarlo a "concatenar"
-// metería un texto de tres líneas en una barra de una línea, y el primero —que
-// suele ser la causa— desaparecería igual. El resto de avisos no se pierde: van al
-// log de stderr del servicio, que es donde se leen los avisos de un arranque largo.
-//
-// Lo que NO se negocia es el estado: con la ruta degradada el servicio OPERA, y
-// dejarlo en un estado de error haría que el usuario creyera que no arrancó.
+// MEDIDO: notify overwrites, so only the last warning shows; concatenating would bury the first (usually the cause) and the rest already goes to the service's stderr log.
 func TestUpdateStartedConAvisosNoBloqueanElServicio(t *testing.T) {
 	m, _ := newTestModel(t)
 	path := projectPath(t, m, "tienda-api")
@@ -224,13 +164,7 @@ func TestUpdateStartedConAvisosNoBloqueanElServicio(t *testing.T) {
 	}
 }
 
-// TestUpdateStoppedConErrorNoRelanzaNiBorraElPendiente: un stop fallido deja el
-// servicio en parado, avisa, y NO borra el pendingRestart.
-//
-// El pendingRestart es lo que encadena stop → start. Si un stop fallido lo
-// borrara, el reinicio se perdería en silencio: el usuario pidió reiniciar y la
-// TUI aceptaría y no haría nada. Es el peor resultado, porque parece que el
-// reinicio ocurrió.
+// A failed stop must keep pendingRestart: clearing it loses the restart silently, looking exactly like it succeeded.
 func TestUpdateStoppedConErrorNoRelanzaNiBorreElPendiente(t *testing.T) {
 	m, _ := newTestModel(t)
 	path := projectPath(t, m, "tienda-api")
@@ -250,13 +184,7 @@ func TestUpdateStoppedConErrorNoRelanzaNiBorreElPendiente(t *testing.T) {
 	}
 }
 
-// TestUpdateStoppedDisparaElReinicioCuandoEstabaPendiente: el encadenado
-// stop → start, que es lo que hace "reiniciar".
-//
-// Y lo que se comprueba es el estado INTERMEDIO que existe de verdad: el
-// servicio pasa por starting, que es lo que muestra el spinner de arranque. Un
-// estado intermedio mal puesto hace que el usuario vea "corriendo" mientras se
-// está arrancando, y para eso existe el spinner.
+// The intermediate starting state is what the start spinner shows: reporting running here would hide the boot.
 func TestUpdateStoppedDisparaElReinicioCuandoEstabaPendiente(t *testing.T) {
 	m, _ := newTestModel(t)
 	path := projectPath(t, m, "tienda-api")
@@ -280,11 +208,7 @@ func TestUpdateStoppedDisparaElReinicioCuandoEstabaPendiente(t *testing.T) {
 	}
 }
 
-// TestUpdateStoppedSinPendienteSoloMarcaParado: sin reinicio pendiente, un stop
-// limpio es sólo un stop.
-//
-// Y no devuelve Cmd: nada que arrancar. Un Cmd aquí arrancaría el servicio que
-// el usuario acaba de parar, que es el peor bug posible en este camino.
+// No Cmd here: it would start the service the user just stopped.
 func TestUpdateStoppedSinPendienteSoloMarcaParado(t *testing.T) {
 	m, _ := newTestModel(t)
 	path := projectPath(t, m, "tienda-api")
@@ -301,12 +225,7 @@ func TestUpdateStoppedSinPendienteSoloMarcaParado(t *testing.T) {
 	}
 }
 
-// TestUpdateJobResultNotificaElCodigoReal: el resultado de un one-shot se refleja
-// en la barra con el código que salió, no con un "algo falló".
-//
-// Los tres casos producen tres textos distintos a propósito: un ok con el tiempo,
-// un exit≠0 con el código, y un error de lanzamiento sin código. Fundir el
-// segundo y el tercero haría que un fallo de disco pareciera un build roto.
+// A launch error and a non-zero exit stay distinct: fusing them makes a disk failure look like a broken build.
 func TestUpdateJobResultNotificaElCodigoReal(t *testing.T) {
 	tests := []struct {
 		name string
@@ -332,7 +251,7 @@ func TestUpdateJobResultNotificaElCodigoReal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m, _ := newJobsTestModel(t)
-			m.jobs[tt.msg.path] = "build" // el proyecto estaba bloqueado
+			m.jobs[tt.msg.path] = "build"
 
 			got := updateMsg(t, m, tt.msg)
 
@@ -341,13 +260,10 @@ func TestUpdateJobResultNotificaElCodigoReal(t *testing.T) {
 					t.Errorf("el aviso %q no menciona %q", got.message, want)
 				}
 			}
-			// Y el bloqueo se libera SIEMPRE: si no, el proyecto queda con el
-			// candado puesto y no se puede volver a arrancar.
+			// The lock is always released, or the project stays latched and cannot be started again.
 			if _, still := got.jobs[tt.msg.path]; still {
 				t.Error("el proyecto sigue bloqueado tras el job: no se puede volver a arrancar")
 			}
-			// Y se registró el evento con el resultado, para que la lista de
-			// actividad distinga un build ok de uno fallido.
 			if len(got.events) == 0 {
 				t.Error("el job no dejó evento")
 			}
@@ -355,20 +271,14 @@ func TestUpdateJobResultNotificaElCodigoReal(t *testing.T) {
 	}
 }
 
-// TestUpdateJobResultRegistraElFallidoConSuCodigo: la actividad distingue el
-// éxito del fallo, y guarda el código.
-//
-// Un historial donde un build fallido aparece igual que uno correcto es peor que
-// no tener historial: el usuario lo lee como que todo va bien.
+// A history where a failed build reads like a successful one is worse than no history at all.
 func TestUpdateJobResultRegistraElFallidoConSuCodigo(t *testing.T) {
 	m, _ := newJobsTestModel(t)
 	path := projectPath(t, m, "tienda-api")
 
 	ok := updateMsg(t, m, jobMsg{path: path, kind: "build", command: "make", elapsed: time.Second})
 
-	// OJO: los mapas de Model se COMPARTEN entre copias del valor receptor, así
-	// que hay que copiar el slice antes del segundo update. Sin esta copia los dos
-	// lados ven los dos eventos y el test pasa sin comprobar nada.
+	// Model's maps are shared across copies of the value receiver, so the slice is copied before the second update or both sides see both events.
 	okEvents := append([]timelineEvent(nil), ok.events[path]...)
 	if len(okEvents) != 1 {
 		t.Fatalf("hay %d eventos tras un build, want 1", len(okEvents))
@@ -390,11 +300,7 @@ func TestUpdateJobResultRegistraElFallidoConSuCodigo(t *testing.T) {
 	}
 }
 
-// TestUpdateStatusMsgSoloMuestraElMensaje: statusMsg es el canal de avisos que
-// usan el editor de logs y el resto de comandos sin estado propio.
-//
-// Lo que se comprueba es que no cambia NADA más: si un statusMsg tocase el estado
-// de un servicio, un "editor closed" podría parar un servicio.
+// statusMsg must touch nothing else: an "editor closed" notice that changed state could stop a service.
 func TestUpdateStatusMsgSoloMuestraElMensaje(t *testing.T) {
 	m, _ := newTestModel(t)
 	path := projectPath(t, m, "tienda-api")
@@ -410,13 +316,7 @@ func TestUpdateStatusMsgSoloMuestraElMensaje(t *testing.T) {
 	}
 }
 
-// TestUpdateThreadsMsgAplicaAlServicioYToleraElError: el muestreo de hilos se
-// atribuye a UN servicio y su error no rompe nada.
-//
-// El error es routine: threadsCmd se lanza desde el tick para cualquier servicio
-// que el poll acaba de dar por vivo, y el proceso puede morir entre medias. Si eso
-// fuera un error visible, la TUI parpadearía con avisos de servicios que se
-// paran solos.
+// A sampling error is routine (the process can die between poll and read); surfacing it would make the TUI blink with phantom warnings.
 func TestUpdateThreadsMsgAplicaAlServicioYToleraElError(t *testing.T) {
 	m, _ := newTestModel(t)
 	path := projectPath(t, m, "tienda-api")
@@ -430,18 +330,13 @@ func TestUpdateThreadsMsgAplicaAlServicioYToleraElError(t *testing.T) {
 		t.Errorf("los hilos no se atribuyeron a su servicio: %v", got.threads[path])
 	}
 
-	// Con error: no hay hilos, y el modelo sigue usable.
 	got = updateMsg(t, got, threadsMsg{path: path, err: errors.New("no such process")})
 	if len(got.threads[path]) != 0 {
 		t.Errorf("un muestreo fallido dejó hilos: %v", got.threads[path])
 	}
 }
 
-// TestUpdateHealthMsgGuardaElResultadoPorServicio: el resultado de health se
-// guarda por path, y no se mezcla entre servicios.
-//
-// Mezclarlos sería un bug de lectura primero: la salud de `web` aparecería en la
-// fila de `api`, y el usuario leería "sano" de un servicio que no lo está.
+// Mixing results would show web's health on api's row, and the user would read "healthy" from a service that is not.
 func TestUpdateHealthMsgGuardaElResultadoPorServicio(t *testing.T) {
 	m, _ := newTestModel(t)
 	path := projectPath(t, m, "tienda-api")
@@ -455,16 +350,11 @@ func TestUpdateHealthMsgGuardaElResultadoPorServicio(t *testing.T) {
 	}
 }
 
-// TestUpdateTickProgramaElSiguienteYRespetaElExpirado: el tick re-arma el reloj y
-// LIMPIA el mensaje cuando ha caducado.
-//
-// La caducidad es lo que evita que un aviso se quede pegado encima del árbol. Y
-// un mensaje sin caducidad no se limpia nunca, porque `IsZero()` es la condición
-// del if — un mensaje con caducidad cero se queda para siempre.
+// A message with a zero expiry is never cleared, because IsZero() is the branch condition: every notice needs an expiry.
 func TestUpdateTickProgramaElSiguienteYRespetaElExpirado(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.message = "aviso viejo"
-	m.messageExpiresAt = time.Now().Add(-time.Second) // ya caducado
+	m.messageExpiresAt = time.Now().Add(-time.Second)
 
 	out, cmd := m.Update(tickMsg(time.Now()))
 	got := out.(Model)
@@ -479,8 +369,7 @@ func TestUpdateTickProgramaElSiguienteYRespetaElExpirado(t *testing.T) {
 		t.Error("el mensaje caducado dejó su caducidad puesta")
 	}
 
-	// Y uno que aún no ha caducado NO se limpia: el polling corre cada 2s y un
-	// aviso de 3s tiene que sobrevivir a dos o tres ticks.
+	// A 3s notice must survive the 2s polling tick instead of being cleared with the expired one.
 	m2, _ := newTestModel(t)
 	m2.message = "aviso nuevo"
 	m2.messageExpiresAt = time.Now().Add(3 * time.Second)
@@ -490,23 +379,16 @@ func TestUpdateTickProgramaElSiguienteYRespetaElExpirado(t *testing.T) {
 	}
 }
 
-// TestUpdateConsoleTickReArmaElTailSoloConServicioEnConsola: el tick de consola
-// re-arma el reloj siempre, y pide tail sólo con un servicio seleccionado.
-//
-// Re-armarlo siempre es lo que mantiene vivo el reloj. Pedir tail sin selección
-// sería leer un log que nadie está mirando.
+// The clock is re-armed even with nothing selected: a dead clock freezes the console, and tailing an unwatched log is wasted work.
 func TestUpdateConsoleTickReArmaElTailSoloConServicioEnConsola(t *testing.T) {
 	m, _ := newTestModel(t)
 
-	// Con un proyecto configurado seleccionado en la pestaña de consola: tail.
 	sel := moveCursorTo(t, m, "tienda-api")
 	sel.activeTab = tabConsole
 	_, cmd := sel.Update(consoleTickMsg(time.Now()))
 	if cmd == nil {
 		t.Error("el tick de consola no devolvió Cmd: sin re-armar el reloj la consola se congela")
 	}
-	// Y con la pestaña de consola y un servicio seleccionado, el batch pide el
-	// tail además de re-armar el reloj.
 	var sawTail bool
 	for _, msg := range collectBatch(t, cmd) {
 		if _, ok := msg.(consoleDeltaMsg); ok {
@@ -517,7 +399,6 @@ func TestUpdateConsoleTickReArmaElTailSoloConServicioEnConsola(t *testing.T) {
 		t.Error("con la pestaña de consola no se pidió el tail: el log no avanzaría solo")
 	}
 
-	// Sin selección (cursor en un header): no hay tail, pero tampoco reloj muerto.
 	onHeader := m
 	onHeader.cursor = findPrimary(onHeader, "tienda")
 	if _, cmd := onHeader.Update(consoleTickMsg(time.Now())); cmd == nil {
@@ -525,13 +406,7 @@ func TestUpdateConsoleTickReArmaElTailSoloConServicioEnConsola(t *testing.T) {
 	}
 }
 
-// TestUpdateConsoleDeltaSoloAvanzaElOffsetDelFlujoQueSeLeyo: el delta de consola
-// avanza los offsets SÓLO de los flujos que se pudieron leer.
-//
-// Si un offset avanzara con su flujo en error, los bytes de ese flujo se
-// perderían para siempre: el siguiente tick leería desde más allá y el usuario no
-// vería nunca esas líneas. Es la asymmetrical del error que hace que "no se puede
-// leer" deba significar "no se avanza".
+// A stream whose read failed must not advance its offset: those bytes would be lost forever, skipped by every later tick.
 func TestUpdateConsoleDeltaSoloAvanzaElOffsetDelFlujoQueSeLeyo(t *testing.T) {
 	m, _ := newTestModel(t)
 	path := projectPath(t, m, "tienda-api")
@@ -558,22 +433,15 @@ func TestUpdateConsoleDeltaSoloAvanzaElOffsetDelFlujoQueSeLeyo(t *testing.T) {
 		t.Errorf("el stderr leído no llegó al buffer: %q", newCS.stderr)
 	}
 
-	// Y un delta con salida para un servicio que no está en el modelo no crea
-	// estado: no hay fila a la que pegárselo.
 	got = updateMsg(t, m, consoleDeltaMsg{path: "/no/existe", stdout: "x", offS: 1})
 	if len(got.services) != len(m.services) {
 		t.Error("un delta de consola creó una fila de servicio nueva")
 	}
 }
 
-// TestUpdateWindowSizeReajustaElArbolYLaTerminal: al cambiar de tamaño hay que
-// reajustar tres cosas, y las tresImportan.
-//
-// El cursor fuera de la ventana es el peor de los tres: el usuario ve el árbol y
-// no ve dónde está, y las teclas van al servicio equivocado.
+// A cursor outside the visible window is the worst case: keys would act on the wrong service.
 func TestUpdateWindowSizeReajustaElArbolYLaTerminal(t *testing.T) {
 	m, _ := newTestModel(t)
-	// Cursor en el final del árbol, con ventana minúscula: fuera de pantalla.
 	m.cursor = len(m.tree) - 1
 
 	got := updateMsg(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
@@ -590,19 +458,7 @@ func TestUpdateWindowSizeReajustaElArbolYLaTerminal(t *testing.T) {
 	}
 }
 
-// TestUpdateSpinnerTickReArmaSoloElSpinnerQueCorresponde: un tick de spinner
-// re-arma exactamente un spinner, el que le pone el id.
-//
-// MEDIDO: Update pasa el MISMO msg a los dos spinners, y el segundo lo ignora
-// porque su id no casa. Y es lo correcto: los dos spinners tienen ids distintos
-// precisamente para eso, y el de arranque sólo debe avanzar cuando hay un
-// servicio arrancándose. Si el Update los moviera a los dos, el spinner de
-// arranque consumiría frames sin ningún servicio en él.
-//
-// No se compara el frame porque es un campo privado del paquete spinner: lo que
-// se comprueba es el contrato observable —un tick de vuelta por cada tick
-// recibido, y nunca dos— que es lo que mantiene la animación viva sin saltarse
-// frames.
+// MEDIDO: both spinners get the same msg and the non-matching id ignores it, so the observable contract is one tick back per tick received, never two.
 func TestUpdateSpinnerTickReArmaSoloElSpinnerQueCorresponde(t *testing.T) {
 	t.Run("el tick del spinner de estado re-arma uno", func(t *testing.T) {
 		m, _ := newTestModel(t)
@@ -641,18 +497,12 @@ func TestUpdateSpinnerTickReArmaSoloElSpinnerQueCorresponde(t *testing.T) {
 	})
 }
 
-// tickOf adapta un getter de TickMsg al tipo concreto que Update hace switch.
 func tickOf(fn func() tea.Msg) spinner.TickMsg {
 	tick, _ := fn().(spinner.TickMsg)
 	return tick
 }
 
-// TestUpdateTickPideThreadsYMetricsParaUnServicioVivo: el tick de estado lanza el
-// muestreo de hilos de un servicio vivo, y las métricas sólo en su pestaña.
-//
-// La pestaña importa: pedir métricas en la pestaña de consola es trabajo que se
-// tira a la basura, y en un workspace con veinte servicios son veinte lecturas de
-// /proc por segundo que nadie ve.
+// Metrics are requested only on their tab: on a large workspace that is /proc reads per second thrown away.
 func TestUpdateTickPideThreadsYMetricsParaUnServicioVivo(t *testing.T) {
 	t.Run("servicio vivo", func(t *testing.T) {
 		m, _ := newTestModel(t)
@@ -720,24 +570,17 @@ func TestUpdateTickPideThreadsYMetricsParaUnServicioVivo(t *testing.T) {
 	})
 }
 
-// TestFindComposeFileSubeHastaElRootSinSalir: el compose file vive al nivel de
-// los proyectos que orquesta, que no siempre es el root.
-//
-// Y hay dos reglas: busca SUBIENDO, y no sale del root. La segunda es la que
-// importa para la seguridad: si saliera, un compose file de un directorio
-// (por ejemplo de la home) orquestaría los proyectos de otro.
+// Leaving the root is a safety rule, not a layout one: a compose file from the home directory would orchestrate another workspace's projects.
 func TestFindComposeFileSubeHastaElRootSinSalir(t *testing.T) {
 	isolateConfig(t)
 	root := writeTestTree(t, false)
 
-	// Sin compose file: error que lo dice, y el nombre del fichero.
 	if _, err := findComposeFile(root, nil); err == nil {
 		t.Error("sin compose file debería dar error")
 	} else if !strings.Contains(err.Error(), orchestrate.ComposeFileName) {
 		t.Errorf("el error no nombra el fichero que falta: %q", err)
 	}
 
-	// Con compose en el root: lo encuentra.
 	writeStr(t, filepath.Join(root, orchestrate.ComposeFileName), "primary_group = \"tienda\"\n")
 	projects := []scanner.Project{{Path: filepath.Join(root, "tienda-api"), Configured: true}}
 	cf, err := findComposeFile(root, projects)
@@ -748,8 +591,6 @@ func TestFindComposeFileSubeHastaElRootSinSalir(t *testing.T) {
 		t.Errorf("PrimaryGroup = %q", cf.PrimaryGroup)
 	}
 
-	// Y con compose en un nivel INTERMEDIO (el padre del proyecto, que es como
-	// se organiza en la vida real: el compose va junto al grupo de proyectos).
 	sub := filepath.Join(root, "grupo")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)

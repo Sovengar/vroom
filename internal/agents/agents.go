@@ -1,10 +1,4 @@
-// Package agents define los agentes de IA disponibles para la acción
-// de ask AI: los built-in (opencode, pi, hermes) pueden
-// reemplazarse desde el config global con [ask.agents.*].
-//
-// La plantilla de comando usa {prompt} como placeholder que ocupa un
-// argumento argv completo (los prompts con espacios/comillas viajan
-// como un solo argumento, sin interpretación de shell).
+// Package agents resolves the agent list for the ask AI action; {prompt} expands to exactly one argv element so prompts with spaces or quotes need no shell.
 package agents
 
 import (
@@ -14,19 +8,14 @@ import (
 	"vroom/internal/config"
 )
 
-// Agent es un agente de IA ejecutable.
 type Agent struct {
-	Name string   // identificador mostrado en el picker
-	Cmd  []string // argv de la plantilla con {prompt} pendiente de expandir
+	Name string
+	Cmd  []string
 }
 
-// promptPlaceholder ocupa un argumento argv completo al expandir.
 const promptPlaceholder = "{prompt}"
 
-// Builtins devuelve los agentes por defecto con las invocaciones
-// verificadas para "chat nuevo + prompt inicial". jcode no acepta prompt
-// inicial en su TUI interactiva, así que usa `run` (one-shot: responde
-// y termina).
+// jcode uses run because its interactive TUI rejects an initial prompt.
 func Builtins() []Agent {
 	return []Agent{
 		{Name: "opencode", Cmd: []string{"opencode", "--prompt", promptPlaceholder}},
@@ -36,13 +25,11 @@ func Builtins() []Agent {
 	}
 }
 
-// Resolve devuelve la lista final de agentes: los del config si la
-// sección [ask.agents] tiene entradas; si no, los built-in.
 func Resolve(overrides map[string]config.AgentConfig) []Agent {
 	if len(overrides) == 0 {
 		return Builtins()
 	}
-	// Orden alfabético por nombre para un picker determinista.
+	// Sorted so the picker order is stable across runs.
 	names := make([]string, 0, len(overrides))
 	for name := range overrides {
 		names = append(names, name)
@@ -55,8 +42,6 @@ func Resolve(overrides map[string]config.AgentConfig) []Agent {
 	return out
 }
 
-// Available filtra los agentes cuyo binario (primer token del argv)
-// está instalado en PATH.
 func Available(list []Agent) []Agent {
 	var out []Agent
 	for _, a := range list {
@@ -70,17 +55,13 @@ func Available(list []Agent) []Agent {
 	return out
 }
 
-// BuildArgs expande la plantilla del agente con el prompt. El
-// placeholder {prompt} se sustituye por el prompt completo como un
-// único argumento; si el prompt está vacío el placeholder se elimina
-// junto con el flag precedente (p.ej. "--prompt") para no dejar
-// argumentos colgando.
+// An empty prompt drops the preceding flag too, else the agent gets a dangling flag.
 func (a Agent) BuildArgs(prompt string) []string {
 	args := make([]string, 0, len(a.Cmd))
 	for _, part := range a.Cmd {
 		if part == promptPlaceholder {
 			if prompt == "" && len(args) > 0 && strings.HasPrefix(args[len(args)-1], "-") {
-				args = args[:len(args)-1] // flag sin valor: fuera
+				args = args[:len(args)-1]
 			}
 			if prompt != "" {
 				args = append(args, prompt)
@@ -92,7 +73,7 @@ func (a Agent) BuildArgs(prompt string) []string {
 	return args
 }
 
-// sortStrings ordena in situ (evita importar sort por tres líneas).
+// Insertion sort instead of sort.Slice, to keep the import list empty.
 func sortStrings(s []string) {
 	for i := 1; i < len(s); i++ {
 		for j := i; j > 0 && s[j] < s[j-1]; j-- {

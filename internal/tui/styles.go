@@ -2,17 +2,12 @@ package tui
 
 import "charm.land/lipgloss/v2"
 
-// Paleta en hex fija (Catppuccin Mocha, misma que dbx) para el gris de texto
-// secundario y el azul de etiquetas: los colores ANSI 8/4 los resuelve la
-// paleta del terminal, y en temas oscuros (HyDE) el 8+Faint dejaba
-// ilegibles los commits de la tab Git y el ruido de consola.
+// Fixed hex palette, not ANSI 8/4: the terminal resolves those, and on dark themes 8+Faint made git commits and console noise unreadable.
 var (
-	mutedFg  = lipgloss.Color("#6c7086") // dbx TextMuted
-	accentFg = lipgloss.Color("#89b4fa") // dbx Primary
+	mutedFg  = lipgloss.Color("#6c7086")
+	accentFg = lipgloss.Color("#89b4fa")
 )
 
-// Estilos Lipgloss: running=verde, stopped=gris,
-// unknown=amarillo, sin configurar=gris atenuado.
 var (
 	styleTitle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
 
@@ -21,10 +16,7 @@ var (
 	styleRunning = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
 	styleStopped = lipgloss.NewStyle().Foreground(mutedFg)
 
-	// Badge +N de worktrees en ejecución bajo una fila de repo:
-	// cyan (6) para distinguirlo del verde del servicio propio (10), del
-	// magenta de stopping (13) y del cyan brillante/negrita del header de
-	// grupo (14), que además nunca comparte fila con el badge.
+	// Cyan 6, chosen to stay distinguishable from running green 10, stopping magenta 13 and the bold group header 14.
 	styleWorktreeRunning = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
 	styleUnknown         = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
 	styleStarting        = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
@@ -37,29 +29,17 @@ var (
 	styleMsg   = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	styleLabel = lipgloss.NewStyle().Foreground(accentFg)
 
-	// Pestañas del panel Output: la activa se pinta con fondo
-	// invertido; la inactiva en gris claro legible (no el ANSI 8, que en
-	// temas oscuros la hacía casi invisible).
 	styleTabActive   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("12"))
 	styleTabInactive = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
 
-	// Color del borde de las cajas de sección (gris ANSI 8), mismo criterio
-	// que tsk. Lo consume el compositor bordered, que recibe el color.
 	borderFg = lipgloss.Color("8")
 
-	// Modal del picker de tasks: fila del cursor con el
-	// mismo estilo invertido que la pestaña activa.
 	stylePickerCursor = styleTabActive
 
-	// Cursor de la terminal embebida: bloque invertido.
 	styleTermCursor = lipgloss.NewStyle().Reverse(true)
 
-	// Resaltado de consola estilo IntelliJ: línea con ERROR→rojo vivo,
-	// WARN→amarillo; el ruido (debug/trace, stack traces, [INFO] Maven)
-	// reutiliza styleDim.
 	styleLineError = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	styleLineWarn  = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
 
-	// Estilo de stacks: magenta para distinguir de apps.
 	styleStack = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
 )

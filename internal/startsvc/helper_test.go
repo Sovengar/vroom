@@ -15,17 +15,11 @@ import (
 	"vroom/internal/state"
 )
 
-// ---- helper process ----
-//
-// El servicio bajo prueba es el propio binario de test lanzado como
-// descendiente: ningún mock puede probar ni la inyección de PORT ni que el
-// discovery cruce /proc con el linaje real.
+// The service under test is this same test binary re-executed as a child: no mock can prove PORT injection or that discovery walks /proc across the real lineage.
 
 const helperEnv = "VROOM_START_HELPER"
 
-// TestHelperService no es un test: es el servicio que vroom arranca. El
-// guard exige que -test.run lo haya seleccionado, así que el proceso padre
-// nunca se cuela en el modo helper aunque las variables estén puestas.
+// Not a test: this is the service vroom starts, and the -test.run guard keeps the parent process out of helper mode even with the env set.
 func TestHelperService(t *testing.T) {
 	mode := os.Getenv(helperEnv)
 	if mode == "" || flag.Lookup("test.run").Value.String() != "^TestHelperService$" {
@@ -37,8 +31,7 @@ func TestHelperService(t *testing.T) {
 	report("PATH_SEEN", os.Getenv("PATH"))
 	report("HOME_SEEN", os.Getenv("HOME"))
 
-	// Si el hijo puede resolver sh por su PATH es que el entorno no se
-	// truncó al inyectar PORT.
+	// SH_RESOLVED means the child still resolves sh through its PATH, i.e. injecting PORT did not truncate the environment.
 	report("SH_RESOLVED", map[bool]string{true: "ok", false: "unavailable"}[shResolvable()])
 
 	if delay, err := time.ParseDuration(os.Getenv("VROOM_HELPER_DELAY")); err == nil && delay > 0 {
@@ -46,19 +39,19 @@ func TestHelperService(t *testing.T) {
 	}
 
 	switch mode {
-	case "fixed-port": // ignora PORT y hace bind a su propio número
+	case "fixed-port":
 		hold(mustAtoi(os.Getenv("VROOM_HELPER_PORT")))
-	case "udp-only": // no abre ningún puerto TCP
+	case "udp-only":
 		time.Sleep(60 * time.Second)
-	case "two-http-ports": // ignora PORT: metrics (404) y main (200 en health_path)
+	case "two-http-ports":
 		startTwoHTTPListeners()
-	case "two-raw-ports": // sockets crudos: ningún health_path responde
+	case "two-raw-ports":
 		startTwoRawListeners()
-	case "churn": // abre listeners sin parar: el conjunto nunca se estabiliza
+	case "churn":
 		startChurningListeners()
-	case "die": // muere antes de hacer bind
+	case "die":
 		os.Exit(1)
-	default: // honra PORT
+	default:
 		port, err := strconv.Atoi(os.Getenv("PORT"))
 		if err != nil || port == 0 {
 			os.Exit(2)
@@ -67,10 +60,7 @@ func TestHelperService(t *testing.T) {
 	}
 }
 
-// startChurningListeners abre un listener nuevo cada 100ms y cierra el
-// anterior. El conjunto de listeners del linaje no para de cambiar, así que
-// nunca se estabiliza y el discovery no puede decidir cuál es el principal:
-// es el caso "unresolved" de verdad, distinto de "no tiene puertos".
+// The listener set never stabilises, so discovery cannot pick a primary: a true "port unresolved" case, distinct from "has no ports".
 func startChurningListeners() {
 	var prev net.Listener
 	defer func() {
@@ -88,8 +78,7 @@ func startChurningListeners() {
 	}
 }
 
-// report deja en el fichero de salida lo que el hijo vio. Lo leen los
-// asserts; el hijo no puede volver por otro canal.
+// The child can report back only through this file, so the assertions have to read it.
 func report(k, v string) {
 	f, err := os.OpenFile(os.Getenv("VROOM_HELPER_OUT"),
 		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
@@ -100,7 +89,6 @@ func report(k, v string) {
 	_, _ = f.WriteString(k + "=" + v + "\n")
 }
 
-// hold escucha en 127.0.0.1:port hasta que le maten.
 func hold(port int) {
 	ln, err := listen(port)
 	if err != nil {
@@ -116,9 +104,7 @@ func hold(port int) {
 	}
 }
 
-// startTwoHTTPListeners abre el listener de métricas primero (404 en
-// cualquier ruta) y el principal después (200 en /health). Es la app que
-// ignora PORT y expone dos endpoints.
+// Metrics (404 everywhere) binds first and main (200 on /health) 150ms later, so discovery sees a half-built port set.
 func startTwoHTTPListeners() {
 	metrics := mustListen(mustAtoi(os.Getenv("VROOM_HELPER_PORT_A")))
 	go serve(metrics, func(w http.ResponseWriter, _ *http.Request) {
@@ -138,8 +124,7 @@ func startTwoHTTPListeners() {
 	time.Sleep(120 * time.Second)
 }
 
-// startTwoRawListeners abre dos sockets que aceptan y no responden: ningún
-// health_path obtiene nada, que es el caso no-HTTP.
+// Both listeners accept but never answer, so no health_path can get a response: the non-HTTP case.
 func startTwoRawListeners() {
 	a := mustListen(mustAtoi(os.Getenv("VROOM_HELPER_PORT_A")))
 	report("PORT_A", strconv.Itoa(a.Addr().(*net.TCPAddr).Port))
@@ -148,7 +133,6 @@ func startTwoRawListeners() {
 	time.Sleep(120 * time.Second)
 }
 
-// serve corre un handler HTTP sin que su error de cierre moleste al linter.
 func serve(ln net.Listener, h func(http.ResponseWriter, *http.Request)) {
 	_ = http.Serve(ln, http.HandlerFunc(h))
 }
@@ -174,8 +158,6 @@ func mustAtoi(s string) int {
 	return n
 }
 
-// ---- harness ----
-
 type fixture struct {
 	store    *state.Store
 	dir      string
@@ -194,9 +176,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 }
 
-// command apunta el manifiesto al binario de test en modo helper. Las
-// variables viajan por el entorno del padre a propósito: si el merge del
-// entorno se rompe, el helper ni siquiera arranca y el test lo nota.
+// Variables travel through the parent environment on purpose, so a broken env merge stops the helper from starting and the test notices.
 func (f *fixture) command(t *testing.T, mode string, extraEnv ...string) {
 	t.Helper()
 	t.Setenv(helperEnv, mode)
@@ -221,8 +201,7 @@ func (f *fixture) start(t *testing.T, timeout time.Duration) (Result, error) {
 	})
 }
 
-// startWithRoutes arranca con el seam de portless inyectado. nil = sin seam,
-// que es exactamente lo que pasa con route_mode = "off".
+// A nil routes means no seam at all, which is exactly what route_mode = "off" produces.
 func (f *fixture) startWithRoutes(t *testing.T, timeout time.Duration, routes RouteRegistrar) (Result, error) {
 	t.Helper()
 	return f.startWithRoutesBranch(t, timeout, routes, "")
@@ -243,7 +222,6 @@ func (f *fixture) startWithRoutesBranch(t *testing.T, timeout time.Duration, rou
 	})
 }
 
-// cleanup mata el proceso vivo de un arranque.
 func (f *fixture) cleanup(t *testing.T, out Result) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -253,9 +231,7 @@ func (f *fixture) cleanup(t *testing.T, out Result) {
 	})
 }
 
-// helperEnv lee lo que el hijo reportó de su entorno. El arranque no
-// espera al helper (en fixed y none no hay discovery que esperar), así que
-// hay que darle un margen a que arranque.
+// Start does not wait for the helper, so this polls the report file until the child has written.
 func (f *fixture) helperEnv(t *testing.T) map[string]string {
 	t.Helper()
 	var data []byte
@@ -278,7 +254,6 @@ func (f *fixture) helperEnv(t *testing.T) map[string]string {
 	return out
 }
 
-// freePort pide un puerto efímero libre.
 func freePort(t *testing.T) int {
 	t.Helper()
 	ln, err := listen(0)
@@ -292,7 +267,6 @@ func freePort(t *testing.T) int {
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-// mustAtoiT es mustAtoi con el salto de test que da el helper real.
 func mustAtoiT(t *testing.T, s string) int {
 	t.Helper()
 	n, err := strconv.Atoi(s)

@@ -15,21 +15,7 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------------
-// Los ultimos huecos de Apply y verify, que son los caminos donde la RUTA se
-// escribe pero no se puede publicar.
-//
-// verify es donde se decide si se afirma una URL, y esa afirmacion es lo que el
-// usuario copia al navegador. Un "degradado" aqui no es un detalle: es la
-// diferencia entre una direccion que funciona y una que no. Por eso estos tests
-// distinguen los cuatro finales posibles de verify, que comparten el mismo
-// codigo de entrada y solo se separan en lo que se midio del proxy.
-// ---------------------------------------------------------------------------
-
-// newHTTPServer levanta un servidor HTTP de verdad en un puerto libre de loopback
-// y devuelve el manejador con su puerto. Se usa el httpProbe REAL (no un doble)
-// porque lo que estos tests verifican es si verify DISTINGUE 404 de 502, y eso
-// depende de leer el status de verdad.
+// A real server, not a double: what these tests check is whether verify tells 404 from 502, which needs a real status.
 func newHTTPServer(t *testing.T, status int) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -39,15 +25,12 @@ func newHTTPServer(t *testing.T, status int) *httptest.Server {
 	return srv
 }
 
-// writeFileIn escribe un fichero dentro de dir.
 func writeFileIn(t *testing.T, dir, name, content string) error {
 	t.Helper()
 	return os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644)
 }
 
-// newClientWithProxy construye un cliente con un state dir que declara
-// proxyPort, un exec inyectado y la sonda real (httpProbe): se quiere el
-// COMPORTAMIENTO de verify, no un doble que lo decida por el test.
+// Declares proxyPort in a real state dir and keeps the real httpProbe: the behaviour of verify, not a double the test decides.
 func newClientWithProxy(t *testing.T, proxyPort int, exec func(context.Context, string, ...string) (string, int, error)) *Client {
 	t.Helper()
 	dir := t.TempDir()
@@ -64,21 +47,12 @@ func newClientWithProxy(t *testing.T, proxyPort int, exec func(context.Context, 
 	)
 }
 
-// okExec responde como lo haria un portless sano: alias sale 0 y list devuelve
-// la tabla con la ruta ya escrita.
 func okExec(t *testing.T) func(context.Context, string, ...string) (string, int, error) {
 	t.Helper()
 	f := newFake()
 	return f.exec
 }
 
-// TestVerifyPublicaCuandoElProxyEnrutaDeVerdad: el camino feliz de verify con la
-// sonda REAL contra un servidor HTTP de verdad. El https falla (no hay TLS), el
-// http responde, y lo que se publica es el que respondio.
-//
-// Importa que el esquema se determine PROBANDO: con solo http en la URL, un
-// proxy TLS se declararia inalcanzable cuando si lo es.
-// srvPort extrae el puerto de un httptest.Server.
 func srvPort(t *testing.T, srv *httptest.Server) int {
 	t.Helper()
 	u, err := url.Parse(srv.URL)
@@ -109,14 +83,12 @@ func TestVerifyPublicaCuandoElProxyEnrutaDeVerdad(t *testing.T) {
 	}
 }
 
-// TestVerifyNoSondeaConProxyParadoSinProxyPort: si proxy.port no existe, verify
-// degrada ANTES de sondear (M6). Sondear sin proxy seria una peticion a un
-// puerto supuesto, que es justo la constante que este seam no debe introducir.
+// verify must degrade BEFORE probing (M6): probing without a proxy means a request to an assumed port, the very constant this seam must not introduce.
 func TestVerifyNoSondeaConProxyParado(t *testing.T) {
 	f := newFake()
 	c := New(
 		WithBinary("/fake/portless"),
-		WithStateDir(t.TempDir()), // sin proxy.port
+		WithStateDir(t.TempDir()),
 		WithExec(f.exec),
 		WithProbe(f.probe),
 		WithTimeout(2*time.Second),
@@ -141,10 +113,7 @@ func TestVerifyNoSondeaConProxyParado(t *testing.T) {
 	}
 }
 
-// TestVerifyDegradaSinPublicarURLCuandoElProxyNoSirveLaRuta: el proxy responde
-// 404 al host. Es lo MEDIDO: 404 significa "no conozco este host", que es lo
-// CONTRARIO de enrutado. Publicar la URL ahí afirmaria una direccion que el proxy
-// no sirve, que es justo el fallo que este diseno existe para evitar.
+// MEASURED: 404 means "I do not know this host", the opposite of routed, so publishing there asserts an address the proxy does not serve.
 func TestVerifyDegradaSinPublicarURLCuandoElProxyNoSirveLaRuta(t *testing.T) {
 	srv := newHTTPServer(t, http.StatusNotFound)
 	c := newClientWithProxy(t, srvPort(t, srv), okExec(t))
@@ -162,10 +131,6 @@ func TestVerifyDegradaSinPublicarURLCuandoElProxyNoSirveLaRuta(t *testing.T) {
 	}
 }
 
-// TestVerifyAceptaEl502ComoPruebaDeEnrutado: el caso inverso y el que mas
-// confunde. Un 502 dice "el proxy ENRUTA la ruta y el servicio de detras no
-// responde". Eso PRUEBA el enrutado, y el servicio puede estar arrancando. Un
-// 502 no es un fallo de la ruta: es informacion de que la ruta existe.
 func TestVerifyAceptaEl502ComoPruebaDeEnrutado(t *testing.T) {
 	srv := newHTTPServer(t, http.StatusBadGateway)
 	c := newClientWithProxy(t, srvPort(t, srv), okExec(t))
@@ -180,12 +145,8 @@ func TestVerifyAceptaEl502ComoPruebaDeEnrutado(t *testing.T) {
 	}
 }
 
-// TestVerifyDegradaCuandoElPuertoDeclaradoNoAceptaConexiones: proxy.port
-// declara un puerto donde no hay nadie. verify distingue ese caso del de "el
-// proxy responde y no conoce la ruta", y degradan con motivos distintos: el
-// primero es un puerto muerto, el segundo una ruta que no existe.
+// A declared port nobody listens on is a different failure from "the proxy answers and does not know the route", so they degrade with different reasons.
 func TestVerifyDegradaCuandoElPuertoDeclaradoNoAceptaConexiones(t *testing.T) {
-	// Puerto que se abre y se cierra: nadie escucha.
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -194,7 +155,7 @@ func TestVerifyDegradaCuandoElPuertoDeclaradoNoAceptaConexiones(t *testing.T) {
 	_ = l.Close()
 
 	f := newFake()
-	f.noProxy = true // ninguna sonda recibe respuesta
+	f.noProxy = true
 	c := newClientWithProxy(t, deadPort, f.exec)
 
 	r := c.Apply("svc", 8080, Ownership{})
@@ -210,24 +171,17 @@ func TestVerifyDegradaCuandoElPuertoDeclaradoNoAceptaConexiones(t *testing.T) {
 	}
 }
 
-// TestVerifyDistingueProxyVivoQueNoSirveDePuertoMuerto: los dos casos comparten
-// el mismo "ningun esquema respondio" y se separan SOLO por acceptsConnections.
-// Si esa comprobacion se quitara, ambos degradarian con el mismo motivo y el
-// usuario perderia la pista de si portless esta parado o la ruta no existe.
+// Both cases end in "no scheme answered" and are separated only by acceptsConnections; without it the user cannot tell a stopped portless from a missing route.
 func TestVerifyDistingueProxyVivoQueNoSirveDePuertoMuerto(t *testing.T) {
-	// Proxy vivo que responde 404 a todo: acceptsConnections da true, asi que
-	// el motivo es "no sirve la ruta", no "puerto muerto".
 	srv := newHTTPServer(t, http.StatusNotFound)
 
 	f := newFake()
-	f.serve404[Hostname("svc")] = true // el proxy no enruta este host
+	f.serve404[Hostname("svc")] = true
 	c := newClientWithProxy(t, srvPort(t, srv), f.exec)
 
 	r := c.Apply("svc", 8080, Ownership{})
 
-	// Con 404 la ruta no se enruta, y por eso el motivo es RouteNotServed: no
-	// hace falta llegar a acceptsConnections, que solo se consulta cuando NINGUN
-	// esquema respondio.
+	// acceptsConnections is only consulted when no scheme answered, so a 404 never reaches it.
 	if r.Reason != ReasonRouteNotServed {
 		t.Errorf("Reason = %q, want %q", r.Reason, ReasonRouteNotServed)
 	}
@@ -236,17 +190,11 @@ func TestVerifyDistingueProxyVivoQueNoSirveDePuertoMuerto(t *testing.T) {
 	}
 }
 
-// TestApplyReportaConflictoCuandoElNombreLoTieneOtroPuerto: el estado que hace
-// alcanzable M8 en silencio. Dos vrooms, o un vroom y otra app, con el mismo
-// nombre en puertos distintos: escribir encima seria perder la ruta del otro.
-//
-// La condicion es que prev NO autorice ese puerto: si lo autorizara, es que la
-// ruta es nuestra y se puede reescribir (M1).
+// prev not authorising that port is what makes M8 observable: if it did authorise it, the route is ours and rewriting it is legitimate.
 func TestApplyReportaConflictoCuandoElNombreLoTieneOtroPuerto(t *testing.T) {
 	t.Run("sin autorizacion previa: conflicto y no se escribe", func(t *testing.T) {
 		f := newFake()
 		c := f.client(t)
-		// Otro dueño ya tiene el nombre en el puerto 9999.
 		if err := c.Register("svc", 9999); err != nil {
 			t.Fatal(err)
 		}
@@ -266,9 +214,6 @@ func TestApplyReportaConflictoCuandoElNombreLoTieneOtroPuerto(t *testing.T) {
 	})
 
 	t.Run("con autorizacion previa del mismo puerto: se reescribe", func(t *testing.T) {
-		// prev.Owned con prev.Port == 8080: es nuestra, se puede reaffirmar. Sin
-		// esta rama, un reinicio legitimo del servicio se declararia conflicto
-		// consigo mismo.
 		f := newFake()
 		c := f.client(t)
 		if err := c.Register("svc", 8080); err != nil {
@@ -286,15 +231,10 @@ func TestApplyReportaConflictoCuandoElNombreLoTieneOtroPuerto(t *testing.T) {
 	})
 }
 
-// TestApplyNoEscribeSiNoSePuedeLeerElEstadoPrevio: la consulta PREVIA es la que
-// decide si el alta es legitima. Si no se puede ni leer, escribir seria
-// exactamente el dano que M8 permite: tomar el nombre de otro sin saberlo.
-//
-// La propiedad de esto es la que se prueba: el estado del otro queda intacto.
+// The prior lookup decides whether the write is legitimate: writing without it is exactly the harm M8 allows, taking another owner's name unknowingly.
 func TestApplyNoEscribeSiNoSePuedeLeerElEstadoPrevio(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
-	// El otro dueño tiene el nombre.
 	if err := c.Register("svc", 9999); err != nil {
 		t.Fatal(err)
 	}
@@ -318,26 +258,14 @@ func TestApplyNoEscribeSiNoSePuedeLeerElEstadoPrevio(t *testing.T) {
 	}
 }
 
-// TestApplyDetectaElCambioDeDueñoEntreLaConsultaYElAlta: M8 en vivo. La consulta
-// previa ve un puerto libre, y entre medias OTRO actor toma el nombre. La lectura
-// de vuelta lo ve distinto, y es la unica que lo detecta.
-//
-// Es la ventana que obliga a la lectura de vuelta: consultar despues de
-// escribir seria una tautologia.
-// TestApplyDegradaSiLaLecturaDeVueltaNoLaVe: el alta sale 0 pero la ruta no
-// aparece en la tabla. Es un portless que acepto la escritura y no la publico:
-// M8 otra vez, y la lectura de vuelta es lo unico que lo detecta.
-//
-// No se puede con el fake fiel, porque su list SI ve lo que su alias escribio
-// —que es la conducta medida. Se fuerza con un exec que escribe pero lista otra
-// cosa, que es exactamente el fallo real que se quiere cazar.
+// The faithful fake cannot express this, its list sees what its alias wrote, so the exec writes but lists something else: the real failure to catch.
 func TestApplyDegradaSiLaLecturaDeVueltaNoLaVe(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
 	realExec := f.exec
 	c.exec = func(ctx context.Context, bin string, args ...string) (string, int, error) {
 		if args[0] == "list" {
-			return "\nActive routes:\n\n", 0, nil // libre antes y despues del alta
+			return "\nActive routes:\n\n", 0, nil
 		}
 		return realExec(ctx, bin, args...)
 	}
@@ -355,6 +283,7 @@ func TestApplyDegradaSiLaLecturaDeVueltaNoLaVe(t *testing.T) {
 	}
 }
 
+// M8 live: the prior lookup sees a free name, another actor takes it in between, and reading back after writing would be a tautology.
 func TestApplyDetectaElCambioDeDueñoEntreLaConsultaYElAlta(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
@@ -364,10 +293,10 @@ func TestApplyDetectaElCambioDeDueñoEntreLaConsultaYElAlta(t *testing.T) {
 		if args[0] == "list" {
 			calls++
 			if calls == 1 {
-				// Consulta previa: el nombre esta libre.
+				// Prior lookup: the name is free.
 				return "\nActive routes:\n\n", 0, nil
 			}
-			// Lectura de vuelta: otro actor lo tomo.
+			// Read-back: another actor took it.
 			host := Hostname("svc")
 			return "  http://" + host + ":1355  ->  localhost:9999  (alias)\n", 0, nil
 		}
@@ -382,23 +311,17 @@ func TestApplyDetectaElCambioDeDueñoEntreLaConsultaYElAlta(t *testing.T) {
 	if r.Url != "" {
 		t.Errorf("Url = %q con un conflicto sin resolver", r.Url)
 	}
-	// El hecho se conserva: la escritura SI ocurrio, y sin ese dato la
-	// reconciliacion no sabria que limpiar.
+	// Degrading the status cannot undo the write: without Registered the route stays orphan and reconciliation cannot clean it.
 	if !r.Registered {
 		t.Error("Registered se perdio: el alta ocurrio (upsert incondicional, M8)")
 	}
 }
 
-// TestApplyPropagaElFalloDelAltaSinAfirmarNada: Register falla, y no hay
-// escritura que conservar. Degradar aqui tiene que ser honesto en las dos
-// direcciones: Registered false, porque no se escribio.
 func TestApplyPropagaElFalloDelAltaSinAfirmarNada(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
 	realExec := f.exec
-	// list pasa (el nombre esta libre) y alias es lo que falla: si el exec
-	// fallara en todo, el fallo seria de la consulta previa y no se llegaria al
-	// alta, y este test no probaria lo que dice probar.
+	// Only alias fails: if exec failed everywhere the failure would belong to the prior lookup and the test would never reach the write.
 	c.exec = func(ctx context.Context, bin string, args ...string) (string, int, error) {
 		if args[0] == "alias" {
 			return "", 1, errors.New("Error: requires Node >= 24")
@@ -422,34 +345,25 @@ func TestApplyPropagaElFalloDelAltaSinAfirmarNada(t *testing.T) {
 	}
 }
 
-// TestReleaseConReleaserNilConstruyeElClienteReal: r nil significa "construye el
-// cliente real", que es lo que usan los caminos de stop en produccion. La rama
-// tiene que existir para que esos caminos no hagan panic, y no se puede ejercitar
-// contra portless real, asi que se verifica con un entorno sin binario: es lo
-// que un runner de CI ve, y tiene que devolver sin tocar nada.
+// The r-nil branch builds the real client, which production stop paths use and cannot be exercised against a real portless, so it is checked with no resolvable binary.
 func TestReleaseConReleaserNilConstruyeElClienteReal(t *testing.T) {
-	// Sin portless resoluble: la rama construye un cliente degradado y RemoveAbsent
-	// sale bien sin haber invocado nada.
 	t.Setenv("PORTLESS_BIN", "")
 	t.Setenv("PATH", "")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PORTLESS_STATE_DIR", t.TempDir())
 
-	// Con nombre vacio no llega a construir nada: sale por el guard de antes.
 	if !Release(nil, "") {
 		t.Error("nombre vacio debe revocar sin construir cliente")
 	}
 
-	// Con nombre y sin portless, RemoveAbsent del cliente real dice nil (no hay
-	// ruta que retirar), luego revoca. Lo que se verifica es que NO revienta.
+	// With a name but no portless, all that matters is that the real client does not blow up.
 	got := Release(nil, "mi-ruta")
 	if !got {
 		t.Log("sin portless no se puede afirmar nada sobre la ruta: no revoca, y el handle se conserva para reconciliar")
 	}
 }
 
-// srvCalls devuelve una descripcion de un Result para el mensaje de error: los
-// tests de este archivo fallan con el motivo, no con un "want registered".
+// The Result as text for the failure message: tests in this file must fail with the reason, not with a bare "want registered".
 func srvCalls(r Result) string {
 	return "motivo=" + r.Reason + " url=" + r.Url
 }

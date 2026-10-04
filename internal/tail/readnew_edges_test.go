@@ -8,23 +8,7 @@ import (
 	"testing"
 )
 
-// TestReadNewDevuelveElErrorCuandoElLogEsIlegible: el `Open` que no es "no existe".
-//
-// `ReadNew` tiene dos salidas distintas para un log que no se puede leer, y
-// confundirlas es un fallo de verdad:
-//
-//   - "todavía no está" → vacío sin error, porque un servicio que no ha arrancado
-//     no tiene log todavía y eso es normal.
-//   - "está y no se puede leer" → error, porque un directorio de logs con permisos
-//     cambiados o un montaje caído es un problema que el usuario tiene que ver.
-//
-// La primera se prueba con un path inexistente, que es el caso normal. Esta es la
-// segunda, y se provoca con una ruta debajo de un FICHERO: `open` devuelve ENOTDIR,
-// que no es `ENOENT`.
-//
-// El contrato es que el offset se devuelve tal cual: quien llama decide si eso es un
-// fallo terminal o sólo un tick perdido, y devolver 0 haría que el siguiente tick
-// releyera el log entero desde el principio.
+// A path under a regular file yields ENOTDIR, which is "there but unreadable" rather than NotExist; the offset comes back untouched because the caller decides whether that is terminal.
 func TestReadNewDevuelveElErrorCuandoElLogEsIlegible(t *testing.T) {
 	fichero := filepath.Join(t.TempDir(), "soy-un-fichero")
 	if err := os.WriteFile(fichero, []byte("no soy un directorio"), 0o644); err != nil {
@@ -46,15 +30,7 @@ func TestReadNewDevuelveElErrorCuandoElLogEsIlegible(t *testing.T) {
 	}
 }
 
-// TestReadNewSobreUnLogQueCambiaDebajoDevuelveLoQuePudoLeer: el `ReadAt` a medias.
-//
-// El caso real es un reinicio de servicio: entre que el tail pregunta cuánto tiene
-// el fichero y que lo lee, el log se trunca a cero. Lo que se lee entonces es menos
-// de lo pedido, y lo que se devuelve es lo que hubo.
-//
-// Lo que NO debe pasar es un error: el log se movió, el servicio no está fallando, y
-// un error aquí dejaría la consola en blanco un tick. Con el siguiente tick el
-// buffer vuelve a estar bien, y eso es lo que se comprueba.
+// A short read is not a failure: the log moved, the service is fine, and an error here would blank the console for one tick.
 func TestReadNewSobreUnLogQueCambiaDebajoDevuelveLoQuePudoLeer(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stdout.log")
 	if err := os.WriteFile(path, []byte("primera linea\n"), 0o644); err != nil {
@@ -69,13 +45,10 @@ func TestReadNewSobreUnLogQueCambiaDebajoDevuelveLoQuePudoLeer(t *testing.T) {
 		t.Fatalf("primera lectura = %q, want %q", primero, "primera linea\n")
 	}
 
-	// El log se trunca mientras el tail cree que tiene 14 bytes.
 	if err := os.Truncate(path, 0); err != nil {
 		t.Fatal(err)
 	}
 
-	// Pedir desde más allá del final es la rotación: `ReadNew` tiene que releer desde
-	// cero, no devolver un error ni un buffer vacío.
 	trasRotacion, nuevo2, err := ReadNew(path, nuevo)
 	if err != nil {
 		t.Errorf("ReadNew tras truncar el log = %v, want nil: un log que se movió no es un fallo "+
@@ -90,15 +63,6 @@ func TestReadNewSobreUnLogQueCambiaDebajoDevuelveLoQuePudoLeer(t *testing.T) {
 	}
 }
 
-// TestReadNewNoDevuelveMasDeLoQueHay: la lectura posicional.
-//
-// El tail lee desde el offset con `ReadAt`, que no mueve el descriptor. Antes se
-// leía con `Read` después de un `Seek`, y el `Read` exigía que el descriptor
-// estuviera positioned: con el `Seek(0, io.SeekEnd)` de "cuánto tiene" el `Read`
-// se habría quedado al final y no habría devuelto nada.
-//
-// Este test es el que distingue una cosa de la otra: lee un fichero con contenido
-// desde el offset 0 y espera TODO el contenido, no cero bytes.
 func TestReadNewNoDevuelveMasDeLoQueHay(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stdout.log")
 	const contenido = "linea uno\nlinea dos\n"
@@ -118,7 +82,6 @@ func TestReadNewNoDevuelveMasDeLoQueHay(t *testing.T) {
 		t.Errorf("offset = %d, want %d", nuevo, len(contenido))
 	}
 
-	// Y desde un offset intermedio, sólo la cola.
 	cola, nuevo2, err := ReadNew(path, 9)
 	if err != nil {
 		t.Fatal(err)
@@ -131,32 +94,7 @@ func TestReadNewNoDevuelveMasDeLoQueHay(t *testing.T) {
 	}
 }
 
-// TestReadNewNoRevientaConUnLogQueEsUnDirectorio: la regresión de CI.
-//
-// Este test existe porque el código la introdujo. Preguntar el tamaño con
-// `f.Seek(0, io.SeekEnd)` en vez de con `f.Stat()` parece más elegante —hace de una
-// vez lo que ambos hacían— pero sobre un descriptor de DIRECTORIO `Seek` al final
-// devuelve un valor enorme en ext4, del orden de 2^63, y `make([]byte, tamano-offset)`
-// revienta con "len out of range".
-//
-// Que un log acabe siendo un directorio no es una hipótesis: el servicio escribe su
-// log, alguien lo borra y crea un directorio en su sitio —una migración, un script de
-// despliegue, un `mkdir` a ciegas— y el siguiente tick de la consola lo lee.
-//
-// Lo que se comprueba es lo que es INVARIANTE entre sistemas de ficheros: que no
-// reviente, y que una lectura inválida no deje el offset por encima de donde estaba.
-//
-// Y hay que decirlo porque es la parte que no era evidente: el ERROR depende del
-// sistema de ficheros y de dónde caiga el offset. MEDIDO, con un directorio de 4096
-// bytes en ext4, `ReadAt` devuelve EISDIR si tiene bytes que pedir y `nil` si el
-// buffer sale vacío —porque una lectura de cero bytes ni toca el disco—.
-//
-//	offset dentro del tamaño   ->  EISDIR: el log no es un log, y hay que decirlo.
-//	offset en el tamaño        ->  vacío sin error: no ha Reads nada nuevo.
-//
-// Lo segundo no es un fallo: es exactamente lo que se le pide a un tail cuando el
-// fichero no ha crecido. Por eso este test no afirma que todo offset dé error, sino
-// que ninguno reviente y que ninguno avance el offset.
+// The log becoming a directory is not hypothetical: it gets deleted and something makes a directory in its place, and the next console tick reads it. MEDIDO: on ext4 ReadAt returns EISDIR when it has bytes to ask for and nil when the buffer comes out empty, because a zero-byte read never reaches the disk; an offset at the exact size is not a failure but exactly what a tail is asked for when the log has not grown, so only "never panics, never leaves the offset above" is asserted.
 func TestReadNewNoRevientaConUnLogQueEsUnDirectorio(t *testing.T) {
 	asDir := filepath.Join(t.TempDir(), "log-es-un-directorio")
 	if err := os.MkdirAll(filepath.Join(asDir, "con-contenido"), 0o755); err != nil {
@@ -175,9 +113,6 @@ func TestReadNewNoRevientaConUnLogQueEsUnDirectorio(t *testing.T) {
 		}
 	}()
 
-	// Los cuatro casos que importan: dentro del directorio, en su primer byte, en su
-	// tamaño exacto —donde el buffer sale vacío— y muy por encima, que es donde el
-	// `make` reventaba.
 	for _, off := range []int64{0, 1, tam, tam + 4096} {
 		data, nuevo, err := ReadNew(asDir, off)
 		if data != "" {
@@ -187,8 +122,6 @@ func TestReadNewNoRevientaConUnLogQueEsUnDirectorio(t *testing.T) {
 			t.Errorf("ReadNew(%d) dejó el offset en %d: avanzar sobre una lectura que no ha leído "+
 				"nada perdería los bytes que no se leyeron", off, nuevo)
 		}
-		// Y el error sólo es obligatorio cuando había algo que pedir. Con el buffer
-		// vacío la lectura no llega al disco, así que nil es lo correcto.
 		if off < tam && err == nil {
 			t.Errorf("ReadNew(%d) = nil con un directorio y %d bytes que pedir, want EISDIR: un log "+
 				"que es un directorio tiene que decir algo, o el servicio parecerá callado", off, tam)
@@ -196,14 +129,6 @@ func TestReadNewNoRevientaConUnLogQueEsUnDirectorio(t *testing.T) {
 	}
 }
 
-// TestReadNewPropagaElFalloDePreguntarElTamaño: la rama que hace que exista
-// `readNew`.
-//
-// Preguntar el tamaño por el descriptor puede fallar aunque el `Open` haya tenido
-// éxito: entre los dos, el log se rota o se borra, y `Stat` devuelve ENOENT. Ese
-// error tiene que salir como error y dejar el offset intacto, igual que cualquier otro
-// fallo de lectura —si no, el siguiente tick leería desde más allá y esas líneas no se
-// verían nunca más—.
 func TestReadNewPropagaElFalloDePreguntarElTamaño(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stdout.log")
 	if err := os.WriteFile(path, []byte("contenido\n"), 0o644); err != nil {
@@ -226,16 +151,7 @@ func TestReadNewPropagaElFalloDePreguntarElTamaño(t *testing.T) {
 	}
 }
 
-// TestReadNewConUnOffsetNegativoNoRevienta: el suelo que evita el desbordamiento.
-//
-// Nadie produce hoy un offset negativo —el que entra es la vuelta anterior de esta
-// misma función—, pero un entero con signo que se cuele por un desbordamiento en la
-// suma `offset + n` haría que `size - offset` fuera enorme. Sin el suelo, eso no es un
-// log vacío: es un `make` de exabytes, y por tanto un panic en la TUI.
-//
-// El suelo tiene que existir aunque el test sea hipotético: es la diferencia entre
-// "un caso raro da un error" y "un caso raro mata la sesión de quien está mirando la
-// consola".
+// Nobody produces a negative offset today, but a signed overflow in offset+n would make size-offset enormous, so the floor must exist even for a hypothetical case.
 func TestReadNewConUnOffsetNegativoNoRevienta(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stdout.log")
 	const contenido = "linea\n"
@@ -262,15 +178,7 @@ func TestReadNewConUnOffsetNegativoNoRevienta(t *testing.T) {
 	}
 }
 
-// TestTamanoDeFallaCuandoElDescriptorYaNoSirve: el error de `f.Stat()`.
-//
-// `readNew` existe para poder inyectar la pregunta por el tamaño, y esta es la razón:
-// `f.Stat()` sobre un descriptor que ya no vale devuelve error, y sin el seam esa
-// comprobación era una línea que nadie podía ejecutar.
-//
-// MEDIDO: cerrar el descriptor por debajo del `Stat` lo hace fallar con EBADF, que es
-// exactamente el estado en el que queda un descriptor si el fichero se borra y el
-// sistema lo recicla. Es un caso real en una máquina con churn de inodos.
+// MEDIDO: closing the descriptor under Stat makes it fail with EBADF, the state a descriptor is in when its file is deleted and the fd recycled, which happens on a machine with inode churn.
 func TestTamanoDeFallaCuandoElDescriptorYaNoSirve(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stdout.log")
 	if err := os.WriteFile(path, []byte("contenido\n"), 0o644); err != nil {

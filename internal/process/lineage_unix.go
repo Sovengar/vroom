@@ -11,10 +11,7 @@ import (
 	"strings"
 )
 
-// procInfo es la identidad mínima que necesita el linaje: quién es el padre
-// y en qué process group vive el proceso. El pgid es precisamente lo que un
-// descendiente que hizo setsid deja de compartir con su padre, y por eso
-// kill(-pgid) no lo alcanza.
+// procInfo carries the pgid because a descendant that called setsid no longer shares it, which is exactly what makes kill(-pgid) miss it.
 type procInfo struct {
 	pid   int
 	ppid  int
@@ -22,15 +19,10 @@ type procInfo struct {
 	state string
 }
 
-// running reports whether the process is actually running. A zombie has
-// exited: its /proc entry lingers until its parent reaps it, which must not
-// be read as "still alive".
+// A zombie has exited: its /proc entry lingers until the parent reaps it, so it must not read as alive.
 func (p procInfo) running() bool { return p.pid > 0 && p.state != "Z" }
 
-// procStatAt parses /proc/<pid>/stat, where dir is the process directory.
-//
-// The comm field (2) can contain spaces and parentheses ("Web Content
-// (tab)"), so the fields are recovered from the last ')'.
+// comm may contain spaces and parentheses ("Web Content (tab)"), so the fields are recovered from the last ')'.
 func procStatAt(dir string) (procInfo, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "stat"))
 	if err != nil {
@@ -42,7 +34,7 @@ func procStatAt(dir string) (procInfo, error) {
 	if lparen < 0 || rparen <= lparen || rparen+2 > len(s) {
 		return procInfo{}, fmt.Errorf("stat malformado en %s", dir)
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(s[:lparen])) // campo 1
+	pid, err := strconv.Atoi(strings.TrimSpace(s[:lparen])) // stat field 1
 	if err != nil {
 		return procInfo{}, fmt.Errorf("pid inválido en %s: %w", dir, err)
 	}
@@ -50,20 +42,18 @@ func procStatAt(dir string) (procInfo, error) {
 	if len(f) < 3 {
 		return procInfo{}, fmt.Errorf("stat incompleto en %s", dir)
 	}
-	ppid, err := strconv.Atoi(f[1]) // campo 4
+	ppid, err := strconv.Atoi(f[1]) // stat field 4
 	if err != nil {
 		return procInfo{}, fmt.Errorf("ppid inválido en %s: %w", dir, err)
 	}
-	pgid, err := strconv.Atoi(f[2]) // campo 5 (pgrp)
+	pgid, err := strconv.Atoi(f[2]) // stat field 5 (pgrp)
 	if err != nil {
 		return procInfo{}, fmt.Errorf("pgrp inválido en %s: %w", dir, err)
 	}
 	return procInfo{pid: pid, state: f[0], ppid: ppid, pgid: pgid}, nil
 }
 
-// procSnapshotAt reads the pid -> procInfo tree of a /proc root. Injecting
-// the root is what makes this testable with synthetic fixtures instead of
-// the real /proc.
+// The /proc root is injected so the tree can be read from synthetic fixtures instead of the real /proc.
 func procSnapshotAt(root string) (map[int]procInfo, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -77,18 +67,13 @@ func procSnapshotAt(root string) (map[int]procInfo, error) {
 		}
 		info, err := procStatAt(filepath.Join(root, e.Name()))
 		if err != nil {
-			continue // el proceso se está muriendo
+			continue // the process is dying
 		}
 		out[pid] = info
 	}
 	return out, nil
 }
 
-// descendantsAt returns the transitive descendants of pid, sorted ascending.
-// Processes from other lineages and init are excluded.
-//
-// It must be captured BEFORE signalling anything: once the root dies its
-// descendants are reparented to init and the relationship is lost.
 func descendantsAt(root string, pid int) []int {
 	snap, err := procSnapshotAt(root)
 	if err != nil {
@@ -101,7 +86,7 @@ func descendantsFrom(snap map[int]procInfo, pid int) []int {
 	children := make(map[int][]int, len(snap))
 	for p, info := range snap {
 		if info.ppid == p {
-			continue // padre de sí mismo: no cuelga de nadie
+			continue // hangs off nobody
 		}
 		children[info.ppid] = append(children[info.ppid], p)
 	}
@@ -113,15 +98,7 @@ func descendantsFrom(snap map[int]procInfo, pid int) []int {
 		cur := queue[0]
 		queue = queue[1:]
 		for _, kid := range children[cur] {
-			// El guard de `seen` NO es un guard de nodo repetido: cada proceso tiene
-			// un único `ppid`, así que un mismo hijo no puede aparecer dos veces bajo
-			// el mismo padre y el diametro es imposible por construcción.
-			//
-			// Lo único que lo dispara es un CICLO —a aparece como hijo de b y b como
-			// hijo de a—, que en un `/proc` real no ocurre pero que este recorrido, que
-			// sólo recibe un mapa, no puede descartar por su cuenta. Sin este `continue`
-			// el bucle no pararía nunca, y un `Stop` colgado mata la sesión de quien
-			// intenta parar su servicio.
+			// seen guards against a ppid cycle, impossible in a real /proc but not discardable from a bare map: without it a hung Stop wedges the session.
 			if seen[kid] {
 				continue
 			}
@@ -134,29 +111,12 @@ func descendantsFrom(snap map[int]procInfo, pid int) []int {
 	return out
 }
 
-// captureLineage resolves the root of the service lineage and every pid
-// below it, as seen in /proc at this instant.
-//
-// root resolution order: the recorded pid when it is still alive and still
-// in the recorded process group; otherwise the process group leader, whose
-// pid equals the pgid by construction of setsid. Returns (0, nil) when the
-// process tree cannot be read or the service is not running: Stop then
-// degrades to signalling the group alone, which is the pre-existing
-// behaviour.
+// Root is the recorded pid only while it is alive and still in the recorded group, otherwise the group leader, whose pid equals the pgid by construction of setsid.
 func captureLineage(spec StopSpec) (int, []int) {
 	return captureLineageWith(spec, procRoot)
 }
 
-// captureLineageWith es `captureLineage` con la raíz de `/proc` inyectada.
-//
-// El motivo es el mismo que en `descendantsAt`: `captureLineage` degrada a
-// `(0, nil)` cuando no puede leer el árbol de procesos, y ese `if err != nil` sólo se
-// dispara con un `/proc` ilegible, que no se puede montar en un test sin tocar el
-// sistema entero. Con la raíz por parámetro, la degradación se prueba con un
-// directorio vacío.
-//
-// Y esa degradación es un contrato, no un detalle: `Stop` pasa entonces a señalar
-// sólo el grupo, que es el único camino que le queda, y no se equivoca de servicio.
+// The root is injected so the (0, nil) degradation is testable with an empty directory; it is a contract, not a detail, because Stop then falls back to signalling the group alone and must not hit the wrong service.
 func captureLineageWith(spec StopSpec, root string) (int, []int) {
 	if spec.Pgid <= 0 && spec.Pid <= 0 {
 		return 0, nil
@@ -178,8 +138,7 @@ func captureLineageWith(spec StopSpec, root string) (int, []int) {
 	return root0, append([]int{root0}, lineage...)
 }
 
-// lineageRunning reports whether any pid of the captured lineage is still
-// running. Zombies count as gone: they no longer hold a port.
+// Zombies count as gone: they no longer hold a port.
 func lineageRunning(lineage []int) bool {
 	for _, pid := range lineage {
 		if pid <= 0 {

@@ -9,14 +9,9 @@ import (
 	"vroom/internal/process"
 )
 
-// WaitForPort espera a que el puerto esté abierto, sondeando cada 500ms.
-// Si port es 0 (servicio sin puerto), espera el timeout y asume sano.
-//
-// Esta es la ruta legacy y no cambia: la conservan los llamadores que no
-// conocen port_mode. Para los que sí, usar AwaitPort.
+// WaitForPort is the unchanged legacy path for callers without port_mode (fixed mode falls back to it), where port 0 means "assume healthy".
 func WaitForPort(port int, timeout time.Duration) error {
 	if port == 0 {
-		// Servicio sin puerto configurado: asumir que arranca rápido
 		time.Sleep(time.Second)
 		return nil
 	}
@@ -30,57 +25,34 @@ func WaitForPort(port int, timeout time.Duration) error {
 	return fmt.Errorf("port %d not open after %s", port, timeout)
 }
 
-// PortWait describe qué debe esperar una etapa antes de darse por sana.
-// El modo decide, no el número: port == 0 sigue siendo ambiguo entre "sin
-// puerto por diseño" y "el puerto aún no se ha resuelto", y confundirlos es
-// exactamente lo que hace que un gate pase sin verificar nada.
+// The mode decides, never the port number: port == 0 is ambiguous between "no port by design" and "not resolved yet", and conflating them lets a gate pass unchecked.
 type PortWait struct {
 	Port int
 	Mode string // manifest.PortMode*
-	// PortPending indica que el puerto está reservado y el discovery sigue
-	// en vuelo.
+	// PortPending means the port is reserved and discovery is still in flight.
 	PortPending bool
-	// NoPort indica que el proceso vive y no tiene puerto TCP, y que eso
-	// es su estado y no una espera.
+	// NoPort is a terminal state, not a wait: the process is alive and has no TCP port.
 	NoPort bool
-	// Unresolved indica que el proceso vive y su puerto no se pudo decidir:
-	// el discovery terminó y no va a mirar más. No es lo mismo que NoPort
-	// (sí tiene listeners) ni lo mismo que pending (esto ya no va a cambiar
-	// solo).
+	// Unresolved means discovery already ended and will not look again, unlike NoPort (it does have listeners) and unlike PortPending (still in flight).
 	Unresolved bool
 }
 
-// ErrNoPort marca "el servicio está vivo y no tiene puerto TCP": no es un
-// fallo de arranque y no debe abortar el stack como si lo fuera.
+// ErrNoPort marks "the service is alive and has no TCP port": not a start failure, so it must never abort the stack as one.
 var ErrNoPort = errors.New("service has no TCP port")
 
-// ErrPortPending marca que se agotó el presupuesto con el discovery en
-// vuelo. Distinto de un timeout de puerto: la causa es "nadie ha hecho
-// bind todavía", no "el puerto no abrió".
+// ErrPortPending means the budget ran out with discovery still in flight (nobody bound yet), which is why it must stay distinct from a port that failed to open.
 var ErrPortPending = errors.New("service port still pending")
 
-// ErrPortUnresolved marca que el discovery terminó sin poder decidir el
-// puerto principal. Es terminal, no transitorio: el discovery ya acabó. Por
-// eso NO es ErrPortPending — el discovery en vuelo sigue siendo un gate
-// real, mientras que "no lo sabemos y ya no vamos a mirar" no puede hacer
-// fracasar una etapa ni apagar a sus hermanos.
+// ErrPortUnresolved is terminal, not transient: discovery stopped looking, so unlike ErrPortPending it can never fail a stage nor take its siblings down.
 var ErrPortUnresolved = errors.New("service port unresolved")
 
-// AwaitPort gatea la salud de una etapa respetando port_mode.
-//
-// El alcance del modo nuevo es deliberadamente estrecho: fixed conserva
-// literalmente el comportamiento anterior (incluido port == 0, que duerme un
-// segundo y avanza), y none avanza sin espera porque lo declara. Sólo
-// dynamic cambia, y sólo cuando hay un puerto realmente reservado.
+// AwaitPort changes only dynamic mode: fixed keeps the legacy path verbatim (including port 0 sleeping a second) and none skips waiting because it declares it.
 func AwaitPort(w PortWait, timeout time.Duration) error {
 	switch w.Mode {
 	case manifest.PortModeNone:
 		return nil
 	case manifest.PortModeDynamic:
-		// El orden importa. Unresolved se comprueba ANTES del genérico
-		// `Port <= 0`, que devuelve ErrPortPending: si no, un puerto sin
-		// resolver se reportaba como "pending" y fallaba la etapa, cuando
-		// su verdad es que el discovery ya terminó.
+		// Unresolved is checked before the generic Port <= 0, which reports ErrPortPending and would fail a stage whose discovery had already ended.
 		if w.Unresolved {
 			return ErrPortUnresolved
 		}
@@ -96,9 +68,7 @@ func AwaitPort(w PortWait, timeout time.Duration) error {
 				return nil
 			}
 			if w.PortPending {
-				// El discovery sigue en vuelo: sondear fino. El puerto
-				// puede abrir en cualquier momento y saltarse 500ms
-				// desperdicia presupuesto.
+				// Poll fine while discovery is in flight: a 500ms sleep can skip the moment the port opens and wastes the budget.
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
@@ -108,7 +78,7 @@ func AwaitPort(w PortWait, timeout time.Duration) error {
 			return fmt.Errorf("%w: port %d", ErrPortPending, w.Port)
 		}
 		return fmt.Errorf("port %d not open after %s", w.Port, timeout)
-	default: // fixed, o "" (manifiesto sin port_mode): la ruta de siempre
+	default:
 		return WaitForPort(w.Port, timeout)
 	}
 }

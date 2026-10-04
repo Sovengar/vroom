@@ -6,10 +6,7 @@ import (
 	"os/exec"
 )
 
-// setSessionLeader es no-op en Windows: ConPTY maneja la consola del
-// proceso y Close del ConPTY lo termina.
+// No-op on Windows: ConPTY owns the process console and closing it terminates the shell.
 func setSessionLeader(cmd *exec.Cmd) {}
 
-// killSessionGroup es no-op en Windows: cerrar el ConPTY mata el
-// proceso adjunto.
 func killSessionGroup(pgid int) {}

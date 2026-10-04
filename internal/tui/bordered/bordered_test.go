@@ -8,8 +8,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// TestRenderWithTitlesBottomRight verifica que el footer se incruste en la
-// línea del borde inferior, alineado a la derecha.
 func TestRenderWithTitlesBottomRight(t *testing.T) {
 	const width = 40
 	out := RenderWithTitlesEx(
@@ -44,8 +42,6 @@ func TestRenderWithTitlesBottomRight(t *testing.T) {
 	}
 }
 
-// TestRenderWithTitleExKeepsEmptyBottom asegura que la API previa no dibuje
-// ningún texto en el borde inferior.
 func TestRenderWithTitleExKeepsEmptyBottom(t *testing.T) {
 	const width = 20
 	out := RenderWithTitleEx(lipgloss.RoundedBorder(), nil, AlignLeft, " X ", "body", width)

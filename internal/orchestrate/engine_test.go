@@ -12,7 +12,6 @@ import (
 	"vroom/internal/state"
 )
 
-// mockManager es un manager mock para tests.
 type mockManager struct {
 	startFunc func(spec process.StartSpec) (process.StartResult, error)
 	stopFunc  func(spec process.StopSpec) error
@@ -130,7 +129,7 @@ func TestLaunchSuccess(t *testing.T) {
 		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{
 			Name:    "api",
 			Command: "go run .",
-			Port:    0, // sin puerto: health check rápido
+			Port:    0, // no port: fast health check
 		}},
 	}
 
@@ -153,7 +152,6 @@ func TestLaunchAlreadyRunning(t *testing.T) {
 	dir := t.TempDir()
 	store := state.NewStoreAt(dir)
 
-	// Pre-create service dir and meta
 	p := scanner.Project{
 		Path: "/dev/api", Name: "api", Configured: true,
 		Manifest: &manifest.Manifest{Name: "api", Command: "go run .", Port: 0},
@@ -265,7 +263,6 @@ func TestLaunchSequentialStages(t *testing.T) {
 	if len(result.Stages) != 2 {
 		t.Fatalf("stages = %d, want 2", len(result.Stages))
 	}
-	// Verificar que api se arrancó antes que web
 	if len(order) != 2 || order[0] != "/dev/api" || order[1] != "/dev/web" {
 		t.Errorf("start order = %v, want [/dev/api /dev/web]", order)
 	}
@@ -312,8 +309,6 @@ func TestStackStatus(t *testing.T) {
 	}
 }
 
-// ---- Resolución determinista ante Manifest.Name duplicado ----
-
 func duplicateProjects() []scanner.Project {
 	return []scanner.Project{
 		{Path: "/repo-wt/b", Name: "b", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "echo"}},
@@ -321,7 +316,6 @@ func duplicateProjects() []scanner.Project {
 	}
 }
 
-// Un stack con nombre duplicado falla explícitamente, sin last-wins.
 func TestResolveServicesDuplicate(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	engine := NewEngine(&mockManager{}, store)
@@ -333,13 +327,11 @@ func TestResolveServicesDuplicate(t *testing.T) {
 	if !strings.Contains(err.Error(), "ambiguous service") {
 		t.Errorf("mensaje inesperado: %v", err)
 	}
-	// Los paths van en orden estable (a antes que b).
 	if !strings.Contains(err.Error(), "/repo-wt/a, /repo-wt/b") {
 		t.Errorf("paths no ordenados de forma estable: %v", err)
 	}
 }
 
-// Un nombre único resuelve determinísticamente.
 func TestResolveServicesUnique(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	engine := NewEngine(&mockManager{}, store)
@@ -356,8 +348,7 @@ func TestResolveServicesUnique(t *testing.T) {
 	}
 }
 
-// validateServices itera en orden estable (ordenado), independiente del
-// orden de las etapas y de la iteración de mapas.
+// The order must be stable across calls, independent of stage order and of map iteration.
 func TestValidateServicesDeterministicOrder(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	engine := NewEngine(&mockManager{}, store)
@@ -391,7 +382,6 @@ func TestValidateServicesDeterministicOrder(t *testing.T) {
 	}
 }
 
-// StackStatus reporta el mismo conflicto que el CLI.
 func TestStackStatusConflict(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	engine := NewEngine(&mockManager{}, store)
@@ -406,7 +396,6 @@ func TestStackStatusConflict(t *testing.T) {
 	}
 }
 
-// StopStack no para un proyecto arbitrario ante duplicados.
 func TestStopStackDuplicate(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	engine := NewEngine(&mockManager{}, store)

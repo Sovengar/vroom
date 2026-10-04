@@ -1,10 +1,4 @@
-// Package bordered dibuja cajas con borde (redondeado por defecto) y
-// título opcional sobre la propia línea del borde, superior e inferior,
-// con alineación independiente.
-//
-// Lipgloss no expone títulos sobre el borde, así que la caja se compone a
-// mano: se mide en celdas (ANSI-aware), se rellena el contenido al ancho
-// interior y se coloca el título dentro de la línea del borde.
+// Package bordered draws boxes with a title inside the top and bottom border lines, composed by hand because lipgloss cannot draw a title on the border.
 package bordered
 
 import (
@@ -21,8 +15,7 @@ const (
 	AlignRight
 )
 
-// isResetStyle reporta si una secuencia SGR es un reset (parámetros vacíos o
-// "0"). Cubre tanto "\x1b[0m" como "\x1b[m", que es lo que emite lipgloss.
+// Lipgloss emits "\x1b[m", not only "\x1b[0m", so both empty and "0" params count as a reset.
 func isResetStyle(sgr string) bool {
 	if len(sgr) < 3 || sgr[0] != '\033' || sgr[1] != '[' {
 		return false
@@ -31,15 +24,10 @@ func isResetStyle(sgr string) bool {
 	return params == "" || params == "0"
 }
 
-// RenderWithTitleEx dibuja una caja con un único título en la línea
-// superior, alineado según align.
 func RenderWithTitleEx(border lipgloss.Border, borderFg color.Color, align int, title, content string, width int) string {
 	return RenderWithTitlesEx(border, borderFg, title, align, "", AlignLeft, content, width)
 }
 
-// RenderWithTitlesEx renderiza un borde con un título en la línea superior y
-// otro texto en la línea inferior, cada uno con su propia alineación. Un título
-// vacío no se dibuja (la línea queda rellena por completo).
 func RenderWithTitlesEx(border lipgloss.Border, borderFg color.Color, topTitle string, topAlign int, bottomTitle string, bottomAlign int, content string, width int) string {
 	if width < 2 {
 		width = 2
@@ -121,8 +109,7 @@ func buildBorderLine(style *ansi.Style, left, fill, right string, innerWidth, al
 
 	if titleWidth > innerWidth {
 		title = ansi.Truncate(title, innerWidth, "")
-		// ansi.Truncate no parte clústeres anchos: puede devolver menos
-		// celdas de las pedidas, así que se remide en vez de asumir innerWidth.
+		// ansi.Truncate may return fewer cells than asked for wide clusters, so the title is re-measured instead of assuming innerWidth.
 		titleWidth = ansi.StringWidth(ansi.Strip(title))
 	}
 
@@ -173,14 +160,6 @@ func buildContentLines(style *ansi.Style, leftChar, rightChar, content string, i
 		}
 	}
 
-	// Sin guarda de "result vacío": result NO puede quedar vacío. El bucle
-	// corre sobre strings.Split, que nunca devuelve un slice vacío (con ""
-	// devuelve un elemento), y cada iteración añade al menos una línea — la
-	// rama de ajuste directo siempre añade una, y wrapLine garantiza al menos
-	// un chunk incluso cuando la línea es "" o el ancho no es positivo. La
-	// guarda era inalcanzable y, por tanto, intestable: ningún test podía
-	// cubrirla, y un test que la cubra tendría que inventar un estado que el
-	// llamador no puede producir.
 	return result
 }
 

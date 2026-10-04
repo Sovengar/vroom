@@ -1,5 +1,4 @@
-// Package scanner descubre proyectos desde un directorio raíz buscando
-// ficheros .vroom.toml. Usa fd si está disponible; fallback a WalkDir.
+// Package scanner finds .vroom.toml projects under a root, via fd when it is present and filepath.WalkDir otherwise, and both paths must yield identical results.
 package scanner
 
 import (
@@ -16,58 +15,36 @@ import (
 	"vroom/internal/worktree"
 )
 
-// Project es un proyecto detectado en el escaneo.
 type Project struct {
-	Path string // ruta absoluta del directorio del proyecto
-	Name string // nombre del directorio
+	Path string
+	Name string
 
-	Configured  bool               // .vroom.toml parseado con éxito
-	Manifest    *manifest.Manifest // nil si no configurado
-	ManifestErr string             // error de parseo si .vroom.toml malformado
+	Configured  bool
+	Manifest    *manifest.Manifest
+	ManifestErr string
 
-	// Relación repo/worktree: anotaciones aditivas sobre el slice
-	// plano. Nunca se construye una estructura anidada.
-	RepoRoot        string // ruta del main checkout del repo (solo worktrees)
-	IsWorktree      bool   // true si es un worktree linkeado
-	IsBareContainer bool   // true si es la fila contenedora de un bare repo
-	WorktreeErr     string // error de topología (git ausente/fallo) del repo
+	// Repo/worktree facts stay flat annotations on this slice; a nested tree was rejected.
+	RepoRoot        string
+	IsWorktree      bool
+	IsBareContainer bool
+	WorktreeErr     string
 }
 
-// IsNestedRow reporta si el proyecto no es un miembro de grupo de primer
-// nivel: o es un worktree linkeado (se renderiza indentado bajo su fila de
-// repo) o es una fila contenedora (bare repo / main checkout fuera del
-// scan root). La agregación de grupos (conteos, toggle, detalles) debe
-// excluirlos para que el primary_group propio de un worktree siga siendo
-// inerte (option B).
+// IsNestedRow marks the rows that group aggregation must skip, so a worktree's own primary_group stays inert (option B).
 func (p Project) IsNestedRow() bool {
 	return p.IsWorktree || p.IsBareContainer
 }
 
-// ScanResult contiene los proyectos y el método usado para encontrarlos.
 type ScanResult struct {
 	Projects []Project
-	UsedFD   bool // true si se usó fd, false si WalkDir
+	UsedFD   bool
 }
 
-// Scan busca .vroom.toml desde root con la profundidad dada.
-// Usa fd si está disponible; si no, WalkDir.
 func Scan(root string, depth int) (ScanResult, error) {
 	return scanWith(root, depth, fdPath())
 }
 
-// scanWith es Scan con la resolución de fd ya hecha, y recibe "" para forzar la
-// ruta de WalkDir.
-//
-// Existe porque la elección de herramienta se tomaba DENTRO del escaneo, lo que
-// hacía que la mitad del código fuera inalcanzable desde un test: fdPath mira el
-// PATH y dos rutas absolutas del sistema, y en cualquier máquina con fd instalado
-// la ruta de WalkDir no se ejecutaba nunca. Un `t.Setenv("PATH", "")` no basta
-// porque las dos rutas absolutas siguen ahí.
-//
-// El tradeoff de esto es una ruta de entrada más, y a cambio las dos rutas
-// --fd y WalkDir-- se ejecutan en la suite entera y se puede exigir que den EL
-// MISMO resultado. Sin eso, "el runner de CI no tiene fd" es un hecho del que
-// nadie sabe nada: la suite pasa con la ruta que esté en la máquina que corre.
+// scanWith takes the resolved fd ("" forces WalkDir) because resolving the tool inside the scan made half the code unreachable from tests: clearing PATH is not enough, the absolute fallbacks remain.
 func scanWith(root string, depth int, fd string) (ScanResult, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -95,12 +72,6 @@ func scanWith(root string, depth int, fd string) (ScanResult, error) {
 	return ScanResult{Projects: finalize(projects, bare, absRoot), UsedFD: false}, nil
 }
 
-// finalize completa el scan: agrega las filas contenedoras de bare repos
-// (que no tienen .vroom.toml y por eso no las encuentra el escaneo por
-// manifiestos), anota la topología repo/worktree y ordena por ruta. Los
-// bare repos llegan de la propia enumeración del scan (sin walk extra).
-// El merge deduplica por ruta: una fila contenedora no se duplica si ya
-// existe un proyecto con esa ruta (ni si aparece por más de un camino).
 func finalize(projects, bare []Project, root string) []Project {
 	seen := make(map[string]bool, len(projects)+len(bare))
 	merged := make([]Project, 0, len(projects)+len(bare))
@@ -125,15 +96,7 @@ func finalize(projects, bare []Project, root string) []Project {
 	return merged
 }
 
-// fdPath busca fd en el PATH y, si no está, en las rutas absolutas conocidas.
-//
-// Las dos rutas absolutas son el caso del runner de CI y de los sistemas donde fd
-// se instala por paquete pero no entra en el PATH del servicio. Son DATOS, no
-// lógica: por eso viven en `defaultFDFallbacks` y la búsqueda vive en
-// `fdInPaths`, que se puede probar con rutas que no existen. La alternativa —un
-// `var` global que un test cambia para simular que `/usr/bin/fd` no está— sería un
-// seam: contaminaría a los tests que corren en paralelo y no probaría nada del
-// sistema de ficheros.
+// fdPath searches PATH and then the absolute fallbacks (the CI runner, and systems where fd is packaged but off the service PATH); the fallbacks are data in defaultFDFallbacks, not a mutable global, so tests pass nonexistent paths without contaminating parallel runs.
 func fdPath() string {
 	if p, err := exec.LookPath("fd"); err == nil {
 		return p
@@ -141,12 +104,8 @@ func fdPath() string {
 	return fdInPaths(defaultFDFallbacks)
 }
 
-// defaultFDFallbacks son las rutas donde se busca fd cuando el PATH no lo tiene.
 var defaultFDFallbacks = []string{"/usr/bin/fd", "/usr/local/bin/fd"}
 
-// fdInPaths devuelve la primera de las rutas que exista y sea ejecutable, o "" si
-// ninguna. Es el `return ""` del escaneo por `fd`: sin él, `Scan` intentaría
-// ejecutar un binario que no existe.
 func fdInPaths(candidatos []string) string {
 	for _, p := range candidatos {
 		if info, err := os.Stat(p); err == nil && !info.IsDir() {
@@ -156,13 +115,9 @@ func fdInPaths(candidatos []string) string {
 	return ""
 }
 
-// walkDir es filepath.WalkDir; variable para que los tests puedan contar
-// las invocaciones y verificar que el scan no hace walks extra.
+// A var so tests can count walks and assert the scan does no extra traversal.
 var walkDir = filepath.WalkDir
 
-// scanWithFD ejecuta fd para encontrar .vroom.toml y, en una segunda
-// invocación acotada, enumera directorios para detectar bare repos (que
-// no tienen manifiesto). No usa WalkDir.
 func scanWithFD(fd string, root string, depth int) (projects, bare []Project, err error) {
 	args := []string{
 		"--type", "f",
@@ -190,7 +145,7 @@ func scanWithFD(fd string, root string, depth int) (projects, bare []Project, er
 		}
 	}
 
-	// Bare repos: best-effort, no rompe el scan si la enumeración falla.
+	// Best-effort: a failed bare-repo enumeration must not fail the scan.
 	bare, _ = scanBareReposWithFD(fd, root, depth)
 
 	sort.Slice(projects, func(i, j int) bool {
@@ -199,9 +154,6 @@ func scanWithFD(fd string, root string, depth int) (projects, bare []Project, er
 	return projects, bare, nil
 }
 
-// scanBareReposWithFD enumera directorios con fd (una sola invocación,
-// sin WalkDir) y valida la heurística de bare repo. Respeta depth y salta
-// hidden dirs y skipDirs igual que el camino WalkDir.
 func scanBareReposWithFD(fd string, root string, depth int) ([]Project, error) {
 	args := []string{"--type", "d", "--hidden", "--max-depth", strconv.Itoa(depth)}
 	for name := range skipDirs {
@@ -236,7 +188,6 @@ func scanBareReposWithFD(fd string, root string, depth int) ([]Project, error) {
 	return bare, nil
 }
 
-// skipDirs evita descender en directorios pesados.
 var skipDirs = map[string]bool{
 	"node_modules": true,
 	"vendor":       true,
@@ -245,8 +196,7 @@ var skipDirs = map[string]bool{
 	"build":        true,
 }
 
-// scanWithWalk usa filepath.WalkDir como fallback y detecta bare repos en
-// el mismo recorrido: un único walk, sin una segunda pasada.
+// Bare repos are detected in the same walk: one pass, no second traversal.
 func scanWithWalk(root string, depth int) (projects, bare []Project, err error) {
 	walkErr := walkDir(root, func(path string, d fs.DirEntry, werr error) error {
 		if werr != nil {
@@ -255,11 +205,7 @@ func scanWithWalk(root string, depth int) (projects, bare []Project, err error) 
 		if !d.IsDir() {
 			return nil
 		}
-		// NO hay guarda de error aquí, y es a propósito: path viene del recorrido
-		// de root, así que Rel entre root y cualquiera de sus descendientes no
-		// puede fallar. Una guarda ahí era código muerto que además daba la
-		// impresión de que el recorrido podía perder directorios por un error de
-		// rutas, que es lo que un escaneo NO puede hacer.
+		// No error guard on Rel on purpose: path comes from the walk of root, so Rel cannot fail, and a guard there would imply the walk can lose directories.
 		rel, _ := filepath.Rel(root, path)
 		depthLevel := 0
 		if rel != "." {
@@ -270,16 +216,7 @@ func scanWithWalk(root string, depth int) (projects, bare []Project, err error) 
 			if isHidden(d.Name()) || skipDirs[d.Name()] {
 				return fs.SkipDir
 			}
-			// El corte por profundidad NO va aquí. Estaba aquí antes, como
-			// `depthLevel > depth`, y es código muerto por construcción: un
-			// hijo sólo se visita si el callback del padre devolvió nil, y el
-			// padre sale por el `depthLevel >= depth` del final de su callback.
-			// Para que un hijo tuviera depthLevel > depth, el padre tendría que
-			// tener depthLevel >= depth — y entonces ya habría cortado.
-			//
-			// Verificado sobre un árbol de tres niveles con depth de 0 a 6: el
-			// nivel más profundo encontrado es siempre min(depth, 3), y la
-			// rama nunca se toma.
+			// No depthLevel > depth check here by construction: a child is only visited if its parent returned nil, and the parent already cut at depthLevel >= depth (verified over a three-level tree, depth 0 to 6).
 		}
 
 		if worktree.IsBareRepo(path) {
@@ -310,7 +247,6 @@ func scanWithWalk(root string, depth int) (projects, bare []Project, err error) 
 	return projects, bare, nil
 }
 
-// inspectDir devuelve un proyecto si el directorio tiene .vroom.toml, nil si no.
 func inspectDir(dir string) *Project {
 	if !manifest.Exists(dir) {
 		return nil
@@ -335,17 +271,14 @@ func isHidden(name string) bool {
 	return strings.HasPrefix(name, ".")
 }
 
-// repoKey devuelve una clave estable para agrupar proyectos por repo: el
-// common git dir de un repo normal o de un worktree, o la ruta de un bare
-// repo. Devuelve "" si dir no es un repo git consultable. Permite invocar
-// git una sola vez por repo en vez de una por proyecto (N+1).
+// repoKey is the grouping key that lets git be queried once per repo instead of once per project (N+1); "" means dir is not a consultable git repo.
 func repoKey(dir string) string {
 	git := filepath.Join(dir, ".git")
 	info, err := os.Stat(git)
 	if err == nil {
 		if info.IsDir() {
 			if _, err := os.Stat(filepath.Join(git, "config")); err != nil {
-				return "" // .git a medio construir: no es repo
+				return "" // a half-built .git is not a repo yet
 			}
 			return filepath.Clean(git)
 		}
@@ -361,8 +294,6 @@ func repoKey(dir string) string {
 	return ""
 }
 
-// readGitDir resuelve el gitdir apuntado por un fichero .git (worktree o
-// submodule): "gitdir: <ruta>", relativa al propio dir si no es absoluta.
 func readGitDir(dir, gitFile string) (string, bool) {
 	raw, err := os.ReadFile(gitFile)
 	if err != nil {
@@ -382,8 +313,7 @@ func readGitDir(dir, gitFile string) (string, bool) {
 	return filepath.Clean(gd), true
 }
 
-// commonDir devuelve el common git dir de un gitdir: para un worktree,
-// <main>/.git (vía el fichero commondir); si no existe, el propio gitdir.
+// For a worktree this is the main checkout's .git, which is what lets a worktree group with its repo.
 func commonDir(gitdir string) string {
 	raw, err := os.ReadFile(filepath.Join(gitdir, "commondir"))
 	if err != nil {
@@ -399,16 +329,12 @@ func commonDir(gitdir string) string {
 	return filepath.Clean(c)
 }
 
-// repoRelation es la relación de un worktree con su repo.
 type repoRelation struct {
-	main       string // ruta del main checkout
-	isWorktree bool   // false si el propio path es el main checkout
+	main       string
+	isWorktree bool
 }
 
-// annotateTopology consulta la topología git de cada proyecto con repo y
-// anota las relaciones repo/worktree; además sintetiza filas para
-// worktrees in-root que no tienen manifiesto propio (se listan como no
-// configurados). Nunca construye una estructura anidada.
+// Worktrees inside root that have no manifest of their own are synthesized as unconfigured rows.
 func annotateTopology(projects []Project, root string) []Project {
 	info := queryWorktreeRelations(projects)
 
@@ -439,12 +365,7 @@ func annotateTopology(projects []Project, root string) []Project {
 	return append(projects, synth...)
 }
 
-// queryWorktreeRelations consulta `git worktree list` una sola vez por
-// repo (agrupando los proyectos por su common git dir / bare path, no una
-// vez por proyecto) y devuelve el mapa path→relación, saltando los
-// prunable y registrando el error de topología en todos los proyectos del
-// repo cuando git falla. Los bare repos no tienen .git, así que se
-// detectan con la heurística para poder descubrir sus worktrees.
+// Bare repos have no .git, so repoKey falls back to the heuristic: without it their worktrees would be undiscoverable.
 func queryWorktreeRelations(projects []Project) map[string]repoRelation {
 	byRepo := make(map[string][]*Project)
 	for i := range projects {
@@ -460,35 +381,33 @@ func queryWorktreeRelations(projects []Project) map[string]repoRelation {
 	for key := range byRepo {
 		keys = append(keys, key)
 	}
-	sort.Strings(keys) // orden estable de consultas
+	sort.Strings(keys) // stable order keeps the query sequence reproducible
 
 	info := make(map[string]repoRelation)
 	for _, key := range keys {
 		members := byRepo[key]
 		sort.Slice(members, func(i, j int) bool { return members[i].Path < members[j].Path })
-		wts, err := worktree.List(members[0].Path) // una consulta por repo
+		wts, err := worktree.List(members[0].Path)
 		if err != nil {
 			for _, p := range members {
-				p.WorktreeErr = err.Error() // degradación por repo
+				p.WorktreeErr = err.Error()
 			}
 			continue
 		}
 		if len(wts) == 0 {
 			continue
 		}
-		main := wts[0].Path // git lista el main checkout primero
+		main := wts[0].Path // git lists the main checkout first
 		for _, wt := range wts {
 			if wt.Prunable {
-				// Prunable con directorio existente: git lo marca
-				// obsoleto pero el worktree sigue en disco, así que se
-				// trata como normal. Solo se omite si ya no existe.
+				// Git marks a worktree prunable but it may still be on disk, so only a missing directory skips it.
 				if _, err := os.Stat(wt.Path); err != nil {
 					continue
 				}
 			}
 			rel := repoRelation{main: main, isWorktree: wt.Path != main}
 			if prev, ok := info[wt.Path]; ok && prev.isWorktree {
-				rel = prev // no degradar una relación ya establecida
+				rel = prev // never downgrade a relation already established
 			}
 			info[wt.Path] = rel
 		}
@@ -496,7 +415,6 @@ func queryWorktreeRelations(projects []Project) map[string]repoRelation {
 	return info
 }
 
-// withinRoot reporta si path está dentro de root.
 func withinRoot(root, path string) bool {
 	rel, err := filepath.Rel(root, path)
 	if err != nil {

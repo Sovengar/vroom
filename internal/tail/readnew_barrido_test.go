@@ -8,17 +8,7 @@ import (
 	"testing"
 )
 
-// TestReadNewSobreviveAlBarridoDeOffsets: que no haya panic, para NINGÚN offset.
-//
-// El panic que había en CI venía de `make([]byte, size-offset)` con un `size` que no
-// era un tamaño. Los tests de al lado lo fijan con cuatro offsets, y cuatro son los que
-// se me ocurren mientras escribo un test; un barrido es la forma barata de comprobar
-// que la invariante se sostiene para todos, incluidos `math.MinInt64` y los que salen
-// de un desbordamiento.
-//
-// Los offsets son aleatorios A PROPÓSITO y la semilla es fija: un `rand` sin semilla
-// haría que un fallo sólo apareciera a veces en CI, que es la peor forma de test que
-// existe.
+// A sweep is the cheap proof that the invariant holds for every offset, including math.MinInt64 and overflow results, where a handful of fixed offsets proves nothing; the offsets are random on purpose and the seed is fixed, because an unseeded rand would make a failure show up only sometimes in CI.
 func TestReadNewSobreviveAlBarridoDeOffsets(t *testing.T) {
 	dir := t.TempDir()
 
@@ -44,15 +34,7 @@ func TestReadNewSobreviveAlBarridoDeOffsets(t *testing.T) {
 	for _, ruta := range casos {
 		for _, off := range offsets {
 			data, nuevo, err := ReadNew(ruta, off)
-			// El barrido comprueba UNA cosa: que no hay panic. El contrato del offset
-			// lo fija `TestReadNewNoAvanzaElOffsetSiNoPuedeLeer` y el del directorio
-			// el test de al lado, y aquí ninguna de las dos cosas podría expresarse sin
-			// volverse confuso: tras una rotación el offset baja a propósito, y con un
-			// offset negativo el suelo a 0 lo mueve otra vez.
-			//
-			// Lo único que sí es invariante aquí es que el offset nunca sea negativo y
-			// que no se devuelva más de lo que el fichero tiene, porque eso lo decide
-			// el `size` que preguntamos por `Stat`.
+			// The sweep asserts only "no panic" plus the two universal invariants below; the offset contract lives in the focused tests, since a rotation deliberately lowers it and a negative offset is clamped back to 0.
 			if nuevo < 0 {
 				t.Errorf("ReadNew(%q, %d) devolvió un offset NEGATIVO (%d)", ruta, off, nuevo)
 			}

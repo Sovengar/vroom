@@ -1,9 +1,4 @@
-// Package orchestrate implementa el motor de orquestación de arranque
-// de stacks de servicios definidos en .vroom-compose.toml.
-//
-// Un compose file contiene múltiples stacks, cada uno con etapas
-// secuenciales y servicios paralelos. Los servicios se resuelven contra
-// los proyectos escaneados por el scanner.
+// Package orchestrate turns .vroom-compose.toml stacks into sequential stages of parallel services, resolving every name against the scanned projects and failing on ambiguity instead of guessing.
 package orchestrate
 
 import (
@@ -18,50 +13,43 @@ import (
 
 const ComposeFileName = ".vroom-compose.toml"
 
-// ComposeFile representa un fichero .vroom-compose.toml parseado.
 type ComposeFile struct {
-	PrimaryGroup string  // default para todos los stacks (puede ser sobrescrito)
+	PrimaryGroup string  // file-level fallback, required at one of the two levels
 	Stacks       []Stack `toml:"stack"`
 }
 
-// Stack es un grupo de etapas de orquestación.
 type Stack struct {
 	Name         string  `toml:"name"`
-	PrimaryGroup string  `toml:"primary_group"` // override del top-level
+	PrimaryGroup string  `toml:"primary_group"` // overrides the file-level default
 	Stages       []Stage `toml:"stage"`
 }
 
-// Stage es una etapa con servicios que arrancan en paralelo.
 type Stage struct {
 	Name     string        `toml:"name"`
 	Services []string      `toml:"services"`
 	Timeout  time.Duration `toml:"timeout"`
 }
 
-// StageRaw se usa para el parsing con timeout como string.
+// StageRaw parses the timeout as a string because TOML durations need an explicit time.ParseDuration.
 type StageRaw struct {
 	Name     string   `toml:"name"`
 	Services []string `toml:"services"`
 	Timeout  string   `toml:"timeout"`
 }
 
-// StackRaw se usa para el parsing con stages como raw.
 type StackRaw struct {
 	Name         string     `toml:"name"`
 	PrimaryGroup string     `toml:"primary_group"`
 	Stages       []StageRaw `toml:"stage"`
 }
 
-// ComposeFileRaw se usa para el parsing intermedio.
 type ComposeFileRaw struct {
 	PrimaryGroup string     `toml:"primary_group"`
 	Stacks       []StackRaw `toml:"stack"`
 }
 
-// DefaultStageTimeout es el timeout por defecto para health checks.
 const DefaultStageTimeout = 30 * time.Second
 
-// ParseComposeFile lee y valida un .vroom-compose.toml en dir.
 func ParseComposeFile(dir string) (*ComposeFile, error) {
 	path := filepath.Join(dir, ComposeFileName)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -81,7 +69,6 @@ func ParseComposeFile(dir string) (*ComposeFile, error) {
 		if rs.Name == "" {
 			return nil, fmt.Errorf("missing required field: name (stack #%d)", i+1)
 		}
-		// Resolver primary_group: stack override → top-level default → error
 		pg := rs.PrimaryGroup
 		if pg == "" {
 			pg = cf.PrimaryGroup
@@ -119,11 +106,8 @@ func ParseComposeFile(dir string) (*ComposeFile, error) {
 	return cf, nil
 }
 
-// FindStack busca un stack por "primary_group/name" o solo por nombre.
-// Si se pasa solo el nombre y hay ambigüedad (mismo nombre en dos
-// groups), devuelve error.
+// FindStack accepts "group/name" or a bare name, but a bare name that repeats across groups is an error, never a silent pick of one.
 func (cf *ComposeFile) FindStack(ref string) (*Stack, error) {
-	// Formato compuesto: "group/name"
 	if i := strings.IndexByte(ref, '/'); i >= 0 {
 		primary := ref[:i]
 		name := ref[i+1:]
@@ -135,7 +119,6 @@ func (cf *ComposeFile) FindStack(ref string) (*Stack, error) {
 		return nil, fmt.Errorf("stack %q not found in group %q", name, primary)
 	}
 
-	// Formato simple: solo nombre (backward compatible)
 	var match *Stack
 	for idx := range cf.Stacks {
 		if cf.Stacks[idx].Name == ref {

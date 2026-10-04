@@ -11,31 +11,11 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------------
-// El cliente (Register, Remove, RemoveAbsent, Lookup, ProxyPort, execCommand) se
-// ejercitaba hasta ahora solo a través de Apply, y Apply nunca llega a varias de
-// estas ramas: sin binario resuelve antes, y con exito todo sale por el camino
-// feliz.
-//
-// Estos tests van directos al cliente. Cada uno falla por una razon DISTINTA que
-// el usuario ve de forma distinta, y confundirlas es lo que hace que una
-// retirada que fallo se decLARE cerrada (MEDIUM-C), o que una lectura de estado
-// se tome por una confirmacion.
-//
-// El exec se inyecta con el seam real (WithExec), igual que en portless_test.go:
-// un doble que devuelve lo que quiere probaría el doble.
-// ---------------------------------------------------------------------------
-
-// newClientFor construye un cliente con el exec inyectado, sin state dir real
-// (para lo que no toca disco).
 func newClientFor(t *testing.T, exec func(context.Context, string, ...string) (string, int, error)) *Client {
 	t.Helper()
 	return New(WithBinary("/fake/portless"), WithStateDir(t.TempDir()), WithExec(exec))
 }
 
-// TestRegisterSinBinarioFalla: no hay portless, luego no hay ruta. Distinguir
-// "no hay binario" de "el binario fallo" importa porque el primero no se arregla
-// tocando vroom.
 func TestRegisterSinBinarioFalla(t *testing.T) {
 	err := New(WithBinary("")).Register("svc", 8080)
 
@@ -47,9 +27,6 @@ func TestRegisterSinBinarioFalla(t *testing.T) {
 	}
 }
 
-// TestRegisterPropagaElErrorDelBinario: si el binario falla, el error tiene que
-// llegar al llamador con su mensaje. Apply lo degrada, pero quien llama
-// directamente necesita saber que fallo.
 func TestRegisterPropagaElErrorDelBinario(t *testing.T) {
 	c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 		return "", 1, errors.New("requires Node >= 24")
@@ -65,13 +42,9 @@ func TestRegisterPropagaElErrorDelBinario(t *testing.T) {
 	}
 }
 
-// TestRegisterConExitDistintoDeCero: el caso medido M8 — upsert incondicional
-// que sale 0 y ejecuta con exito. Y el contrario: sale con codigo sin error de
-// transporte, que es un fallo que hay que distinguir del exito.
+// MEASURED (M8): `alias` is an unconditional upsert that exits 0, so its exit code proves nothing about a name held on another port.
 func TestRegisterConExitDistintoDeCero(t *testing.T) {
 	t.Run("exit 1 sin error de transporte", func(t *testing.T) {
-		// El fake de portless_test devuelve (out, code, err); un binario real
-		// sale con 1 y stderr, sin que exec devuelva error.
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			return "Error: requires Node >= 24", 1, nil
 		})
@@ -96,8 +69,6 @@ func TestRegisterConExitDistintoDeCero(t *testing.T) {
 		if err := c.Register("svc", 8080); err != nil {
 			t.Fatalf("Register con exit 0 fallo: %v", err)
 		}
-		// Los argumentos importan: es un UPSERT incondicional, asi que el puerto
-		// tiene que viajar o se registraria otra ruta.
 		joined := strings.Join(sawArgs, " ")
 		if !strings.Contains(joined, "svc") || !strings.Contains(joined, "8080") {
 			t.Errorf("Register invoco %q, faltan el nombre o el puerto", joined)
@@ -105,10 +76,7 @@ func TestRegisterConExitDistintoDeCero(t *testing.T) {
 	})
 }
 
-// TestRemoveEsBenignoPorContrato: Remove NO puede propagar "no existia" porque su
-// contrato es "no romper el stop", y un stop repetido no es un error. Es
-// deliberadamente distinto de RemoveAbsent, y confundirlos seria reintroducir
-// MEDIUM-C.
+// Remove deliberately differs from RemoveAbsent: swallowing absence is its contract, RemoveAbsent must still tell it from a real failure.
 func TestRemoveEsBenignoPorContrato(t *testing.T) {
 	t.Run("nombre vacio: no hace nada", func(t *testing.T) {
 		called := false
@@ -150,9 +118,7 @@ func TestRemoveEsBenignoPorContrato(t *testing.T) {
 	})
 
 	t.Run("fallo real con code 0: propaga", func(t *testing.T) {
-		// code 0 con err es el perfil de un timeout: el deadline mato el proceso
-		// y exec no vio un exit propio. Retirar asi podria dejar la ruta viva,
-		// asi que Remove lo dice.
+		// code 0 with an error is the timeout profile: the deadline killed the process, so removing that way could leave the route live.
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			return "", 0, context.DeadlineExceeded
 		})
@@ -166,13 +132,6 @@ func TestRemoveEsBenignoPorContrato(t *testing.T) {
 	})
 }
 
-// TestRemoveAbsentSoloRevocaEnExitoYAusencia: la misma matriz que ya se prueba
-// en removeabsent_test.go, pero MIRANDO LAS TRES SALIDAS DE LA FUNCION y no el
-// efecto en Release. Los tres casos tienen que ser distinguibles entre si:
-// nil (retirada efectiva), ErrRouteAbsent (no estaba) y el fallo (propaga).
-//
-// Es la funcion que decide si la propiedad se revoca, asi que la distincion
-// entre los tres es lo que separa "cerrado" de "fallo abierto disfrazado".
 func TestRemoveAbsentSoloRevocaEnExitoYAusencia(t *testing.T) {
 	t.Run("nombre vacio", func(t *testing.T) {
 		c := New(WithBinary(""))
@@ -207,8 +166,7 @@ func TestRemoveAbsentSoloRevocaEnExitoYAusencia(t *testing.T) {
 	})
 
 	t.Run("exit 1 que NO es M10: fallo, no revoca", func(t *testing.T) {
-		// Estos cuatro son exit 1 y SI son fallo real. El `default -> nil`
-		// original los revocaba todos.
+		// All exit 1 but real failures: the original default->nil revoked every one of them.
 		for _, msg := range []string{
 			"requires Node >= 24",
 			"EACCES: permission denied",
@@ -228,8 +186,7 @@ func TestRemoveAbsentSoloRevocaEnExitoYAusencia(t *testing.T) {
 	})
 
 	t.Run("exit != 1 sin error: construye el error con el codigo", func(t *testing.T) {
-		// El fallo sin mensaje de exec: si no se construyera un error aqui, el
-		// llamador recibiria nil y revocaria sobre un exit 2.
+		// Without an error built here the caller gets nil and revokes on an exit 2.
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			return "", 2, nil
 		})
@@ -243,9 +200,7 @@ func TestRemoveAbsentSoloRevocaEnExitoYAusencia(t *testing.T) {
 	})
 }
 
-// TestIsRouteAbsentNoConfundeLosSimilares: la funcion que decide si un exit 1 es
-// el benigno o un fallo. Reconoce por texto, porque no hay mas señal — asi que
-// lo que hay que fijar es que NO reconoce lo que no es.
+// isRouteAbsent matches on text, not errors.Is, since there is no other signal, so what must be pinned is that nothing else matches, wrapping included.
 func TestIsRouteAbsentNoConfundeLosSimilares(t *testing.T) {
 	tests := []struct {
 		name string
@@ -271,10 +226,7 @@ func TestIsRouteAbsentNoConfundeLosSimilares(t *testing.T) {
 	}
 }
 
-// TestLookupSinBinarioYFalloDeLectura: Lookup es la lectura de vuelta que hace
-// alcanzable el estado de conflicto. Sus tres fallos significan cosas distintas y
-// los tres tienen que ser errores: un "no encontrado" disfrazado de fallo
-// haria que Apply creyera que la ruta no esta y escribiera encima de la de otro.
+// Its three failures are all errors: a "not found" disguised as a failure makes Apply write over another owner's route.
 func TestLookup(t *testing.T) {
 	t.Run("sin binario", func(t *testing.T) {
 		_, found, err := New(WithBinary("")).Lookup("svc")
@@ -312,10 +264,7 @@ func TestLookup(t *testing.T) {
 	})
 
 	t.Run("puerto ilegible en la salida", func(t *testing.T) {
-		// La regexp solo captura digitos, asi que esta rama necesita una linea
-		// que SI casee por el host pero traiga un puerto no numerico. Se
-		// construye a mano porque portless real no la emite: el punto es que si
-		// la encontrara, no debe inventarse un puerto.
+		// Hand-written because real portless never emits it: a host that matches with an unreadable port must not get an invented one.
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			out := "  http://" + Hostname("svc") + ":1355  ->  localhost:99999999999999999999999  (alias)\n"
 			return out, 0, nil
@@ -324,8 +273,7 @@ func TestLookup(t *testing.T) {
 		if found {
 			t.Error("found=true con un puerto ilegible: se afirmaria un puerto que no es")
 		}
-		// Con un puerto de 20 digitos, Atoi falla por desbordamiento: eso es un
-		// error real y no un "no encontrado".
+		// A 20-digit port overflows Atoi, which is a real error and not a "not found".
 		if err == nil {
 			t.Error("un puerto desbordado deberia ser error, no ausencia")
 		}
@@ -366,10 +314,7 @@ func TestLookup(t *testing.T) {
 	})
 }
 
-// TestProxyPort: la ausencia de proxy.port ES la señal de que no hay proxy (M6),
-// y por eso devuelve ErrProxyNotRunning en vez de un puerto supuesto. Un
-// proxy.port corrupto es indistinguible de un proxy parado a efectos de esta
-// decision, y degradar es lo seguro.
+// MEASURED (M6): proxy.port exists only while the proxy runs, so its absence IS the no-proxy signal; a corrupt file is indistinguishable from a stopped one.
 func TestProxyPort(t *testing.T) {
 	t.Run("sin state dir", func(t *testing.T) {
 		c := New(WithBinary("/fake/portless"))
@@ -400,7 +345,7 @@ func TestProxyPort(t *testing.T) {
 
 	t.Run("el puerto valido se lee", func(t *testing.T) {
 		dir := t.TempDir()
-		// MEDIDO: 4 bytes, sin salto de linea final.
+		// MEASURED: 4 bytes with no trailing newline.
 		if err := os.WriteFile(filepath.Join(dir, proxyPortFile), []byte("1399"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -415,9 +360,7 @@ func TestProxyPort(t *testing.T) {
 	})
 
 	t.Run("proxy.port es un directorio", func(t *testing.T) {
-		// Un error de lectura que NO es NotExist tiene que propagarse como
-		// error de lectura, no disfrazarse de "no hay proxy": son causas
-		// distintas para quien depura.
+		// A read error that is not NotExist must propagate: it is a different cause for whoever debugs it.
 		dir := t.TempDir()
 		if err := os.MkdirAll(filepath.Join(dir, proxyPortFile), 0o755); err != nil {
 			t.Fatal(err)
@@ -433,14 +376,9 @@ func TestProxyPort(t *testing.T) {
 	})
 }
 
-// TestExecCommandAcotaConElDeadline: el WaitDelay es lo que hace que el timeout
-// acote el tiempo de RELOJ de verdad; sin el, un descendiente vivo con los pipes
-// abiertos cuelga Wait() mas alla del deadline, y un arranque se queda colgado.
+// WaitDelay is what bounds wall-clock time: without it a surviving child holding the pipes hangs Wait past the deadline.
 func TestExecCommandAcotaConElDeadline(t *testing.T) {
 	t.Run("un hijo que ignora la muerte no cuelga Wait", func(t *testing.T) {
-		// El hijo ignora SIGTERM y sigue vivo. Sin WaitDelay, Wait() no
-		// volveria nunca aunque el contexto caducara, porque los pipes siguen
-		// abiertos. Este test es el que demuestra que WaitDelay esta.
 		dir := t.TempDir()
 		script := filepath.Join(dir, "colgado")
 		if err := os.WriteFile(script, []byte("#!/bin/sh\ntrap '' TERM\nsleep 30\n"), 0o755); err != nil {
@@ -508,8 +446,6 @@ func TestExecCommandAcotaConElDeadline(t *testing.T) {
 		if code != 1 {
 			t.Errorf("code = %d, want 1", code)
 		}
-		// El stderr es lo que distingue "Node viejo" de "no existe el binario",
-		// y sin el el aviso seria generico.
 		if !strings.Contains(err.Error(), "Node") {
 			t.Errorf("el error no incluye stderr: %q", err)
 		}
@@ -536,9 +472,7 @@ func TestExecCommandAcotaConElDeadline(t *testing.T) {
 	})
 }
 
-// TestMiseShimDirsNoDevuelveLiterales: los shims se derivan del HOME del proceso
-// que corre, nunca de un literal. Un literal seria el bug de "vroom corre bajo un
-// gestor de servicios cuyo entorno no es el shell de login".
+// A literal path here is the bug of vroom running under a service manager whose env is not the login shell.
 func TestMiseShimDirsNoDevuelveLiterales(t *testing.T) {
 	t.Run("con HOME, ambos son derivados", func(t *testing.T) {
 		home := t.TempDir()
@@ -564,9 +498,6 @@ func TestMiseShimDirsNoDevuelveLiterales(t *testing.T) {
 	})
 }
 
-// wrappedRouteAbsentText envuelve el mensaje benigno de M10. El reconocimiento
-// de isRouteAbsent es por TEXTO, no por errors.Is, asi que hay que comprobar
-// que sobrevive al envoltorio.
 func wrappedRouteAbsentText() error {
 	return fmt.Errorf("retirando la ruta: %s", `Error: No alias found for "svc.localhost".`)
 }

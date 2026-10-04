@@ -13,13 +13,10 @@ import (
 
 const procRoot = "/proc"
 
-// ListThreads lista los hilos del PID leyendo /proc/<pid>/task.
-// Si el proceso ya no existe devuelve error (la UI muestra placeholder).
 func ListThreads(pid int) ([]ThreadInfo, error) {
 	return listThreadsAt(procRoot, pid)
 }
 
-// listThreadsAt permite inyectar la raíz de /proc para los tests.
 func listThreadsAt(root string, pid int) ([]ThreadInfo, error) {
 	taskDir := filepath.Join(root, strconv.Itoa(pid), "task")
 	entries, err := os.ReadDir(taskDir)
@@ -31,7 +28,7 @@ func listThreadsAt(root string, pid int) ([]ThreadInfo, error) {
 	for _, e := range entries {
 		tid, err := strconv.Atoi(e.Name())
 		if err != nil {
-			continue // no es un tid numérico
+			continue
 		}
 		ti := ThreadInfo{TID: tid}
 		if comm, err := os.ReadFile(filepath.Join(taskDir, e.Name(), "comm")); err == nil {
@@ -46,7 +43,7 @@ func listThreadsAt(root string, pid int) ([]ThreadInfo, error) {
 			ti.State = state
 			ti.Ticks = ticks
 		} else {
-			continue // sin stat legible el hilo está muriendo; omitir
+			continue // unreadable stat means the thread is dying; omit it
 		}
 		out = append(out, ti)
 	}
@@ -54,9 +51,7 @@ func listThreadsAt(root string, pid int) ([]ThreadInfo, error) {
 	return out, nil
 }
 
-// parseThreadStat extrae el estado (campo 3) y utime+stime (campos 14+15)
-// de /proc/<pid>/task/<tid>/stat. El campo comm (2) puede contener espacios
-// y paréntesis, por lo que se recorta desde el último ')'.
+// comm may contain spaces and parentheses, so the fields are read after the last ')'.
 func parseThreadStat(path string) (state string, ticks uint64, err error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -67,23 +62,21 @@ func parseThreadStat(path string) (state string, ticks uint64, err error) {
 	if rparen < 0 || rparen+2 > len(s) {
 		return "", 0, fmt.Errorf("stat malformado: %s", path)
 	}
-	rest := strings.Fields(s[rparen+2:]) // rest[0] = campo 3 (state)
+	rest := strings.Fields(s[rparen+2:]) // rest[0] = stat field 3 (state)
 	if len(rest) < 13 {
 		return "", 0, fmt.Errorf("stat incompleto: %s", path)
 	}
-	utime, err := strconv.ParseUint(rest[11], 10, 64) // campo 14
+	utime, err := strconv.ParseUint(rest[11], 10, 64) // stat field 14
 	if err != nil {
 		return "", 0, err
 	}
-	stime, err := strconv.ParseUint(rest[12], 10, 64) // campo 15
+	stime, err := strconv.ParseUint(rest[12], 10, 64) // stat field 15
 	if err != nil {
 		return "", 0, err
 	}
 	return rest[0], utime + stime, nil
 }
 
-// threadNameFromStat recupera el nombre del hilo desde stat (fallback si
-// comm no está disponible).
 func threadNameFromStat(path string) (string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {

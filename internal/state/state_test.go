@@ -134,7 +134,6 @@ func TestRegisterAndClearPid(t *testing.T) {
 	if _, err := os.Stat(s.PidFile(path)); !os.IsNotExist(err) {
 		t.Errorf("pid file debería eliminarse, got %v", err)
 	}
-	// ClearPid idempotente
 	if err := s.ClearPid(path); err != nil {
 		t.Errorf("ClearPid no idempotente: %v", err)
 	}
@@ -198,7 +197,6 @@ func TestCollapsedAtomicWrite(t *testing.T) {
 	if err := s.SaveCollapsed(groups); err != nil {
 		t.Fatal(err)
 	}
-	// El fichero temporal no debe quedar residuo.
 	if _, err := os.Stat(s.CollapsedFile() + ".tmp"); !os.IsNotExist(err) {
 		t.Error("fichero .tmp residual tras escritura atómica")
 	}

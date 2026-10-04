@@ -18,8 +18,6 @@ func listen(port int) (net.Listener, error) {
 	return net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
 }
 
-// ---- Escenario: arranque dynamic con la app honrando PORT ----
-
 func TestDynamicStartResolvesRealPort(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honors-port")
@@ -43,7 +41,6 @@ func TestDynamicStartResolvesRealPort(t *testing.T) {
 	}
 }
 
-// El puerto real se persiste ANTES de que el arranque devuelva el control.
 func TestDynamicStartPersistsBeforeReturning(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honors-port")
@@ -71,8 +68,6 @@ func TestDynamicStartPersistsBeforeReturning(t *testing.T) {
 	}
 }
 
-// Coherencia: display, JSON y sonda de salud usan el MISMO número. Aquí se
-// comprueba la verdad única (meta.Port) y que el declarado no aparece.
 func TestDynamicPortIsTheSingleSourceOfTruth(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honors-port")
@@ -89,7 +84,7 @@ func TestDynamicPortIsTheSingleSourceOfTruth(t *testing.T) {
 	if meta.Port == f.manifest.Port {
 		t.Fatal("el puerto real debe diferir del declarado para que la prueba signifique algo")
 	}
-	// La sonda de salud gatea contra meta.Port, no contra el manifiesto.
+	// The health probe must gate on meta.Port, never on the manifest.
 	if !process.PortOpen(meta.Port) {
 		t.Errorf("la sonda debe apuntar a %d, que está abierto", meta.Port)
 	}
@@ -97,8 +92,6 @@ func TestDynamicPortIsTheSingleSourceOfTruth(t *testing.T) {
 		t.Error("nadie debería estar escuchando en el puerto declarado")
 	}
 }
-
-// ---- Escenario: el entorno del hijo NO se trunca ----
 
 func TestChildEnvIsNotTruncated(t *testing.T) {
 	f := newFixture(t)
@@ -125,8 +118,6 @@ func TestChildEnvIsNotTruncated(t *testing.T) {
 	}
 }
 
-// El hijo resuelve comandos por su PATH: la prueba no puede caer por un PATH
-// truncado.
 func TestChildResolvesCommandsByPath(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honors-port")
@@ -140,8 +131,6 @@ func TestChildResolvesCommandsByPath(t *testing.T) {
 		t.Errorf("el hijo no pudo resolver sh por su PATH: %q", got)
 	}
 }
-
-// ---- Escenario: la app ignora el puerto reservado (aviso, no error) ----
 
 func TestAppIgnoringPortIsWarningNotError(t *testing.T) {
 	f := newFixture(t)
@@ -167,8 +156,6 @@ func TestAppIgnoringPortIsWarningNotError(t *testing.T) {
 	}
 }
 
-// ---- Escenario: un servicio lento conserva su puerto ----
-
 func TestSlowBindKeepsItsPort(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honors-port", "VROOM_HELPER_DELAY=3s")
@@ -189,14 +176,11 @@ func TestSlowBindKeepsItsPort(t *testing.T) {
 	}
 }
 
-// ---- Escenario: servicio sin puerto TCP no cuelga el arranque ----
-
 func TestNoTCPPortIsRecordedNotHung(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "udp-only")
 
 	start := time.Now()
-	// 700ms de plazo + la ventana de gracia acotada.
 	out, err := f.start(t, 700*time.Millisecond)
 	elapsed := time.Since(start)
 
@@ -222,8 +206,6 @@ func TestNoTCPPortIsRecordedNotHung(t *testing.T) {
 	}
 }
 
-// ---- Escenario: un servicio que muere al arrancar se detecta rápido ----
-
 func TestDeadAtStartupFailsFast(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "die")
@@ -238,19 +220,15 @@ func TestDeadAtStartupFailsFast(t *testing.T) {
 	if elapsed > 5*time.Second {
 		t.Errorf("el fallo debe ser del orden de 1s, tardó %s (agotó el timeout del discovery)", elapsed)
 	}
-	// El helper se muere él solo (exit 1), así que no hay nada que parar y por
-	// eso no hay cleanup. Que quede dicho explícitamente: el guard de higiene
-	// de este paquete es quien verifica esa suposición al final.
+	// The helper exits 1 on its own, so there is nothing to stop and no cleanup; the package hygiene guard verifies that assumption at the end.
 	if out.Pid != 0 {
 		t.Errorf("un arranque fallido no debe devolver un proceso que alguien tenga que parar: %d", out.Pid)
 	}
 }
 
-// ---- Retrocompatibilidad: sin port_mode nada cambia ----
-
 func TestFixedModeBehavesExactlyAsBefore(t *testing.T) {
 	f := newFixture(t)
-	f.manifest.PortMode = "" // manifiesto existente, sin el campo nuevo
+	f.manifest.PortMode = "" // an existing manifest, without the new field
 	own := freePort(t)
 	f.command(t, "fixed-port", "VROOM_HELPER_PORT="+strconv.Itoa(own))
 
@@ -295,13 +273,10 @@ func TestNoneModeStartsWithoutPort(t *testing.T) {
 	}
 }
 
-// La ventana de arranque nunca reporta un proceso vivo como detenido: el
-// intento queda persistido como pendiente ANTES del discovery.
 func TestStartWindowNeverReportsDeadProcessAsStopped(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honors-port", "VROOM_HELPER_DELAY=2s")
 
-	// Arrancamos en paralelo y observamos el disco durante la ventana.
 	done := make(chan Result, 1)
 	go func() {
 		out, err := f.start(t, 10*time.Second)
@@ -334,20 +309,13 @@ func TestStartWindowNeverReportsDeadProcessAsStopped(t *testing.T) {
 	}
 }
 
-// H1: dos arranques CONCURRENTES en el mismo proceso nunca comparten
-// puerto. El test secuencial de abajo no lo podía cazar por construcción:
-// arrancaba A, esperaba su resolución completa y sólo entonces pedía B, con
-// el puerto de A ya ocupado por un listener real.
-//
-// Este es el camino real de producción: toggleNode devuelve tea.Batch y
-// bubbletea corre los comandos en paralelo, y Launch arranca cada servicio
-// de una etapa en su propia goroutine.
+// H1: the sequential test below cannot catch this by construction, since it waits for A to resolve while A's listener holds the port; production starts in parallel via tea.Batch.
 func TestConcurrentDynamicStartsGetDistinctPorts(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
 	}
 
-	const n = 6 // > el número de helpers concurrentes que caben sin flakiness
+	const n = 6 // above the number of concurrent helpers that runs without flakiness
 	fixtures := make([]*fixture, n)
 	for i := range fixtures {
 		fixtures[i] = newFixture(t)
@@ -362,7 +330,7 @@ func TestConcurrentDynamicStartsGetDistinctPorts(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			<-start // todos a la vez: es la carrera, no la secuencia
+			<-start // all at once: the race is the point, not the sequence
 			results[i], errs[i] = fixtures[i].start(t, 8*time.Second)
 		}(i)
 	}
@@ -388,9 +356,7 @@ func TestConcurrentDynamicStartsGetDistinctPorts(t *testing.T) {
 	}
 }
 
-// Dos arranques SECUENCIALES reciben puertos distintos: es la premisa del
-// feature (dos worktrees a la vez) y la sigue cubriendo el set, porque el
-// puerto de A no se devuelve al set mientras su proceso viva.
+// Sequential is the feature premise (two worktrees at once) and holds because A's port is not returned to the set while its process lives.
 func TestTwoDynamicStartsGetDistinctPorts(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -415,21 +381,16 @@ func TestTwoDynamicStartsGetDistinctPorts(t *testing.T) {
 	}
 }
 
-// Un intento fallido devuelve su puerto al set, y el aserto es sobre el
-// tamaño del set. La versión anterior solo comprobaba que el arranque fallara
-// 40 veces, lo cual se cumple igual si el rango se agota: el comentario
-// prometía detectar una fuga que el test no podía detectar.
+// The old version only asserted 40 failed starts, which still holds once the range is exhausted, so the assertion is on set size instead.
 func TestFailedAttemptReleasesItsReservedPort(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
 	}
 	f := newFixture(t)
-	f.command(t, "die") // muere antes de hacer bind
+	f.command(t, "die") // dies before binding
 
 	for i := 0; i < 40; i++ {
 		baseline := process.ReservedPortCount()
-		// El helper muere por sí solo, así que no hay nada que parar; el
-		// guard de higiene del paquete lo comprueba al terminar.
 		out, err := f.start(t, 5*time.Second)
 		if err == nil {
 			t.Fatal("un servicio que muere debe fallar el arranque")
@@ -443,10 +404,7 @@ func TestFailedAttemptReleasesItsReservedPort(t *testing.T) {
 	}
 }
 
-// M-B: detener un servicio devuelve su reserva. El servicio arranca y ocupa
-// su puerto; al pararlo el set tiene que volver a su tamaño previo. Sin
-// esto el set crece con cada ciclo start/stop y un proceso de larga vida
-// acaba sin puertos que ofrecer.
+// M-B: without this the set grows every start/stop cycle until a long-lived process has no ports left to offer.
 func TestStopReleasesTheReservation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -462,8 +420,7 @@ func TestStopReleasesTheReservation(t *testing.T) {
 	}
 	f.cleanup(t, out)
 
-	// El puerto reservado se persiste aparte del real: es lo que permite al
-	// stop saber qué reserva devolver.
+	// ReservedPort is persisted apart from the real port, which is what lets stop know which reservation to return.
 	meta, err := f.store.LoadMeta(f.dir)
 	if err != nil {
 		t.Fatal(err)
@@ -475,7 +432,6 @@ func TestStopReleasesTheReservation(t *testing.T) {
 		t.Fatalf("el set mide %d tras arrancar, want %d", got, baseline+1)
 	}
 
-	// Parar el servicio, como haría cualquier call site de stop.
 	if err := process.NewManager().Stop(process.StopSpec{
 		Pid: out.Pid, Pgid: out.Meta.Pgid, Port: out.Meta.Port, Timeout: 2 * time.Second,
 	}); err != nil {
@@ -488,8 +444,7 @@ func TestStopReleasesTheReservation(t *testing.T) {
 	}
 }
 
-// Dynamic necesita un puerto por defecto: es el PORT=${PORT:-N} de la app,
-// y sin él el contrato con la app no existe.
+// dynamic needs a default port because the app contract is PORT=${PORT:-N}.
 func TestDynamicRequiresDefaultPort(t *testing.T) {
 	m := &manifest.Manifest{Name: "x", Command: "true", PortMode: manifest.PortModeDynamic}
 	if err := m.Validate(); err == nil {
@@ -497,10 +452,6 @@ func TestDynamicRequiresDefaultPort(t *testing.T) {
 	}
 }
 
-// ---- Slice 3: desambiguación multi-puerto (R2 / R3) ----
-
-// R2 en el arranque completo: la app ignora PORT, abre dos listeners y sólo
-// uno responde bien en health_path. Gana ese, y el puerto queda verificado.
 func TestR2HealthPathDecidesMainPort(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -527,9 +478,6 @@ func TestR2HealthPathDecidesMainPort(t *testing.T) {
 	}
 }
 
-// R3 en el arranque completo: dos listeners que no son HTTP. Gana el menor,
-// de forma determinista, y el servicio se marca como puerto NO verificado con
-// un aviso que lo dice.
 func TestR3NonHTTPPicksLowestAndMarksUnverified(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -564,7 +512,7 @@ func TestR3NonHTTPPicksLowestAndMarksUnverified(t *testing.T) {
 		t.Errorf("debe declararse que no se puede saber cuál es el principal: %v", out.Warnings)
 	}
 
-	// Determinista entre corridas con el mismo conjunto de listeners.
+	// Deterministic across runs given the same set of listeners.
 	again := newFixture(t)
 	again.manifest.HealthPath = "/health"
 	again.command(t, "two-raw-ports",
@@ -582,18 +530,13 @@ func TestR3NonHTTPPicksLowestAndMarksUnverified(t *testing.T) {
 	}
 }
 
-// M2, en el limite: un servicio que hace bind DESPUES del plazo de
-// discovery no puede acabar etiquetado "sin puerto". El vencimiento del
-// plazo no prueba ausencia —un Next.js de 12s y un worker solo-UDP lucen
-// igual durante 12s—, asi que hay una segunda ventana acotada que es la
-// via de recuperacion. TestSlowBindKeepsItsPort usa 3s contra 8s de
-// presupuesto y solo probaba el camino feliz dentro de un margen comodo.
+// M2: deadline expiry does not prove absence (a 12s Next.js and a UDP-only worker look alike for 12s), hence the second recovery window; TestSlowBindKeepsItsPort only covered the happy path.
 func TestBindsAfterDeadlineIsRecoveredNotNoPort(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
 	}
 	f := newFixture(t)
-	// El bind llega 3s después; el discovery se rinde a los 700ms.
+	// the bind lands 3s in, discovery gives up at 700ms.
 	f.command(t, "honors-port", "VROOM_HELPER_DELAY=3s")
 
 	out, err := f.start(t, 700*time.Millisecond)
@@ -619,14 +562,12 @@ func TestBindsAfterDeadlineIsRecoveredNotNoPort(t *testing.T) {
 	}
 }
 
-// El caso genuinamente sin puerto TCP conserva su propio estado: los dos
-// hechos no pueden acabar en el mismo cubo.
 func TestGenuinelyNoPortIsStillNoPort(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
 	}
 	f := newFixture(t)
-	f.command(t, "udp-only") // vive y nunca abre un puerto TCP
+	f.command(t, "udp-only") // alive and never opens a TCP port
 
 	out, err := f.start(t, 700*time.Millisecond)
 	if err != nil {
@@ -642,15 +583,13 @@ func TestGenuinelyNoPortIsStillNoPort(t *testing.T) {
 	}
 }
 
-// El tercer hecho: hay listeners pero ninguno se puede declarar principal.
-// No es "sin puerto" y no es "todo bien": se nombra sin decidir y el puerto
-// NO se inventa.
+// A third case distinct from both no_port and all-fine: listeners exist but none can be called main, so it is named without deciding and no port is invented.
 func TestChurningListenersEndUnresolved(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
 	}
 	f := newFixture(t)
-	f.command(t, "churn") // listeners nuevos cada 100ms, conjunto inestable
+	f.command(t, "churn") // new listeners every 100ms, an unstable set
 
 	out, err := f.start(t, 700*time.Millisecond)
 	if err != nil {

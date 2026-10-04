@@ -23,32 +23,7 @@ import (
 	"vroom/internal/tail"
 )
 
-// ---------------------------------------------------------------------------
-// El armado del modelo, la geometría del layout y los caminos de `Update` que
-// ninguna otra suite pisa.
-//
-// Las tres cosas que seumped aquí comparten una razón: son las que decides al
-// arrancar. Un `New` mal armado hace que la TUI arranque con un árbol equivocado,
-// un `updateLayout` mal clavado hace que las cajas se salgan de la pantalla, y un
-// `Update` sin cubrir deja mensajes sin procesar que se acumulan en silencio.
-//
-// Y hay un detalle que aparece en varios sitios: los mensajes de la TUI son
-// structs internos, no hay forma de inyectarlos desde fuera del paquete. Así que
-// "probar un mensaje de la TUI" es llamar a la rama desde dentro, y por eso varios
-// tests de aquí se parecen más a tests de funciones que a tests de la interfaz.
-// ---------------------------------------------------------------------------
-
-// TestFindComposeFileEmpiezaEnCadaProyectoYNoSeSaleDelRoot: dónde se busca el
-// compose.
-//
-// El recorrido es hacia ARRIBA y arranca en el directorio de CADA proyecto, no en
-// el root: por eso un compose en el medio del árbol —el de un grupo de stacks que
-// no llega al root— también se encuentra. Y para en el root: seguir subiría al
-// directorio padre del usuario y encontraría el compose de OTRO workspace.
-//
-// El `seen` es lo que evita el bucle infinito cuando el directorio padre de un
-// proyecto es el mismo que el de otro: sin él, con veinte proyectos del mismo grupo
-// se subiría veinte veces por la misma rama.
+// The walk starts at each project and goes up, never above the root: a compose above it belongs to another workspace.
 func TestFindComposeFileEmpiezaEnCadaProyectoYNoSeSaleDelRoot(t *testing.T) {
 	compose := func(nombreStack string) string {
 		return `
@@ -79,9 +54,6 @@ services = ["api"]
 	})
 
 	t.Run("encuentra uno intermedio que no está en el root", func(t *testing.T) {
-		// El caso por el que el recorrido empieza en el proyecto y no en el root:
-		// un compose en medio del árbol organiza a los proyectos de debajo sin
-		// tocar el resto del workspace.
 		root := t.TempDir()
 		writeStr(t, filepath.Join(root, orchestrate.ComposeFileName), compose("del-root"))
 		grupo := filepath.Join(root, "grupo")
@@ -115,10 +87,7 @@ services = ["api"]
 	})
 
 	t.Run("no se sale del root", func(t *testing.T) {
-		// El compose del padre del root es de OTRO workspace y no puede usarse.
-		// Este caso no se puede provocar con t.TempDir porque todo el árbol temporal
-		// cuelga de /tmp; se comprueba con un root que no existe hacia arriba y un
-		// compose en un directorio padre REAL.
+		// t.TempDir cannot raise this case because the tree hangs off /tmp: the root is pushed deeper so the compose above it is real.
 		dir := t.TempDir()
 		writeStr(t, filepath.Join(dir, orchestrate.ComposeFileName), compose("fuera"))
 
@@ -126,7 +95,6 @@ services = ["api"]
 		if err := os.MkdirAll(hondo, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		// El root es hondo: el compose de dir queda por encima y no debe aparecer.
 		if _, err := findComposeFile(hondo, []scanner.Project{{Path: hondo}}); err == nil {
 			t.Error("se encontró un compose POR ENCIMA del root: es el de otro workspace")
 		}
@@ -138,8 +106,6 @@ services = ["api"]
 		if err == nil {
 			t.Fatal("sin compose tiene que dar error")
 		}
-		// Y el mensaje tiene que decir qué no se encontró y dónde se buscó: es la
-		// diferencia entre "no tienes stacks" y "el compose está mal puesto".
 		if !strings.Contains(err.Error(), orchestrate.ComposeFileName) {
 			t.Errorf("err = %q, want que nombre el fichero que falta", err)
 		}
@@ -151,8 +117,6 @@ services = ["api"]
 	t.Run("sin proyectos no hay nada que buscar", func(t *testing.T) {
 		root := t.TempDir()
 		writeStr(t, filepath.Join(root, orchestrate.ComposeFileName), compose("x"))
-		// Sin proyectos el recorrido no arranca de ningún sitio: no puede inventarse
-		// un directorio donde buscar.
 		if _, err := findComposeFile(root, nil); err == nil {
 			t.Error("sin proyectos no puede haber compose: la búsqueda parte de los proyectos")
 		}
@@ -167,15 +131,7 @@ services = ["api"]
 	})
 }
 
-// TestNewUsaElRootDelConfigYExpandeElTilde: la única parte de New que decide DÓNDE
-// se mira.
-//
-// El CWD es el default por contrato —vroom se ejecuta donde el usuario quiere
-// mirar— y el config es la excepción explícita. Por eso `scanner.root` gana.
-//
-// Y el `~` se expande porque es la forma que la gente escribe de verdad en un
-// config, y un `~/proyectos` sin expandir haría que el escaneo mirara un
-// directorio llamado "~" que no existe: cero proyectos, sin error.
+// The CWD is the contract default and config root is the explicit exception, so scanner.root wins; "~" is expanded because people write it.
 func TestNewUsaElRootDelConfigYExpandeElTilde(t *testing.T) {
 	t.Run("sin root en el config: el CWD", func(t *testing.T) {
 		root := writeTestTree(t, false)
@@ -196,9 +152,7 @@ func TestNewUsaElRootDelConfigYExpandeElTilde(t *testing.T) {
 		t.Setenv("VROOM_CONFIG", cfgPath)
 
 		m := New(state.NewStoreAt(t.TempDir()), &stubManager{}, root)
-		// MEDIDO: Project.Name es el nombre del DIRECTORIO, no el del manifiesto. Lo
-		// que se comprueba es el conjunto de rutas, que es lo único que el root
-		// decide de verdad.
+		// MEDIDO: Project.Name is the directory name, so only the path set proves what the root decided.
 		var rutas []string
 		for _, p := range m.projects {
 			rutas = append(rutas, p.Path)
@@ -213,8 +167,7 @@ func TestNewUsaElRootDelConfigYExpandeElTilde(t *testing.T) {
 		real := filepath.Join(home, "workspace")
 		writeStr(t, filepath.Join(real, "api", ".vroom.toml"), "name = \"api-del-home\"\ncommand_start = \"./x\"\n")
 
-		// El tilde se expande con el HOME del proceso, y t.Setenv sí lo cambia para
-		// os.UserHomeDir (a diferencia de /proc/self/environ).
+		// The tilde resolves through the process HOME, which t.Setenv does change for os.UserHomeDir unlike /proc/self/environ.
 		t.Setenv("HOME", home)
 		t.Setenv("VROOM_CONFIG", filepath.Join(t.TempDir(), "config.toml"))
 		writeStr(t, os.Getenv("VROOM_CONFIG"), "[scanner]\nroot = \"~/workspace\"\n")
@@ -230,17 +183,11 @@ func TestNewUsaElRootDelConfigYExpandeElTilde(t *testing.T) {
 	})
 }
 
-// TestNewReportaUnEscaneoQueFallaYUnConfigInvalido: los dos avisos de arranque.
-//
-// Los dos son "arranca igual y avisa" a propósito: un config con un typo o un
-// directorio que no se puede leer no pueden dejar al usuario sin TUI. Pero tampoco
-// pueden arrancar callados, porque el usuario creería que su configuración se está
-// aplicando.
+// Both boot errors are "start anyway and warn": a typo in the config cannot leave the user without a TUI.
 func TestNewReportaUnEscaneoQueFallaYUnConfigInvalido(t *testing.T) {
 	t.Run("config inválido: defaults más aviso", func(t *testing.T) {
 		isolateConfig(t)
 		root := writeTestTree(t, false)
-		// Un config malformado.
 		cfgPath := filepath.Join(t.TempDir(), "config.toml")
 		writeStr(t, cfgPath, "[ask]\nlauncher = \"inexistente\"\n")
 		t.Setenv("VROOM_CONFIG", cfgPath)
@@ -249,11 +196,9 @@ func TestNewReportaUnEscaneoQueFallaYUnConfigInvalido(t *testing.T) {
 		if m.message == "" {
 			t.Error("un config inválido tiene que avisar: si no, el usuario cree que se aplica")
 		}
-		// Y arranca igual: el árbol está.
 		if len(m.projects) == 0 {
 			t.Error("un config inválido no puede impedir el escaneo: vroom tiene que arrancar con los defaults")
 		}
-		// Con el default aplicado, no con el valor inválido.
 		if m.cfg.Ask.Launcher != "auto" {
 			t.Errorf("Ask.Launcher = %q, want auto: el launcher inválido se descartó", m.cfg.Ask.Launcher)
 		}
@@ -262,7 +207,6 @@ func TestNewReportaUnEscaneoQueFallaYUnConfigInvalido(t *testing.T) {
 	t.Run("los proyectos sin manifiesto salen como no configurados", func(t *testing.T) {
 		isolateConfig(t)
 		root := writeTestTree(t, false)
-		// Un directorio sin manifiesto dentro del root.
 		if err := os.MkdirAll(filepath.Join(root, "sin-manifiesto"), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -291,22 +235,13 @@ func TestNewReportaUnEscaneoQueFallaYUnConfigInvalido(t *testing.T) {
 		if !m.collapsed["tienda"] {
 			t.Error("el plegado persistido no se restauró: el usuario pierde el árbol que tenía la última vez")
 		}
-		// Y un plegado que no está persistido no se inventa.
 		if m.collapsed["no-existe"] {
 			t.Error("se inventó un estado de plegado que nadie guardó")
 		}
 	})
 }
 
-// TestUpdateLayoutNoDejaQueNingunaCajaSeSalga: la geometría, en todos los tamaños.
-//
-// La invariante es una: la suma de los anchos que se dibujan tiene que caber en el
-// terminal, y ninguna altura puede quedar negativa. Un margen negativo es lo que
-// hace que bordered entre en un bucle o que el compositor dibuje una caja al revés,
-// que es el peor tipo de bug de TUI: no falla, se ve raro.
-//
-// Se barre desde un terminal diminuto hasta uno grande, porque el layout degradado
-// —sin caja de detalles, con la consola mínima— es donde los márgenes se van.
+// A negative margin is what makes bordered misbehave, so no height may go below zero at any terminal size.
 func TestUpdateLayoutNoDejaQueNingunaCajaSeSalga(t *testing.T) {
 	m, _ := newTestModel(t)
 
@@ -328,22 +263,16 @@ func TestUpdateLayoutNoDejaQueNingunaCajaSeSalga(t *testing.T) {
 		ctx("contentH", m.contentH)
 		ctx("treeVis", m.treeVis())
 
-		// La suma de anchos: árbol + marco + columna derecha + marco.
 		if total := treeWidth + boxFrame + m.rightW + boxFrame; total > dims[0] && dims[0] > 40 {
 			t.Errorf("%dx%d: las columnas suman %d, want <= %d", dims[0], dims[1], total, dims[0])
 		}
-		// Y las alturas: cabecera + cuerpo + caja de keybinds.
 		if m.detailsShown && m.contentH+detailsHeight+boxFrame+4 > dims[1] && dims[1] > 20 {
 			t.Errorf("%dx%d: los paneles suman %d, want <= %d", dims[0], dims[1], m.contentH+detailsHeight+boxFrame+4, dims[1])
 		}
 	}
 }
 
-// TestLaCajaDeDetallesSeOcultaCuandoNoCabe: el comportamiento responsive del panel.
-//
-// ConDetails y consola no caben a la vez en un terminal estrecho, y lo que decide el
-// layout es esconder Details —que es informativo— antes que la consola, que es lo
-// que el usuario está mirando para trabajar.
+// Layout drops Details before the console: Details is informative, the console is what the user is working in.
 func TestLaCajaDeDetallesSeOcultaCuandoNoCabe(t *testing.T) {
 	m, _ := newTestModel(t)
 
@@ -360,7 +289,6 @@ func TestLaCajaDeDetallesSeOcultaCuandoNoCabe(t *testing.T) {
 	if estrecho.detailsShown {
 		t.Error("en una pantalla estrecha hay que esconder Details antes que la consola")
 	}
-	// Y con Details escondido la consola sigue habiendo.
 	if estrecho.contentH <= 0 {
 		t.Errorf("contentH = %d con la pantalla más estrecha: la consola desaparece y no queda nada", estrecho.contentH)
 	}
@@ -368,22 +296,12 @@ func TestLaCajaDeDetallesSeOcultaCuandoNoCabe(t *testing.T) {
 	_ = m
 }
 
-// TestUpdateConMensajeDeConsolaRestableceLosOffsetsAlEOF: al arrancar, la consola
-// no debe enseñar el log viejo.
-//
-// Un servicio que se reinicia tiene un log anterior que no quiere ver: el usuario
-// acaba de pulsar start y lo primero que aparece es la traza de hace una hora. Los
-// offsets saltan al EOF y los buffers se vacían, que es lo que hace que el primer
-// tick traiga sólo lo nuevo.
-//
-// Y si el servicio NO es el seleccionado, no se toca la vista: el usuario está
-// mirando otro servicio y no puede verle parpadear la consola.
+// Offsets jump to EOF rather than zero, or the first read reinserts the whole previous run's log.
 func TestUpdateConMensajeDeConsolaRestableceLosOffsetsAlEOF(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
 
-	// Se escribe en los dos logs del servicio.
 	if _, err := m.store.EnsureServiceDir(path); err != nil {
 		t.Fatal(err)
 	}
@@ -401,15 +319,12 @@ func TestUpdateConMensajeDeConsolaRestableceLosOffsetsAlEOF(t *testing.T) {
 	if nuevo.stdout != "" || nuevo.stderr != "" || nuevo.merged != "" {
 		t.Errorf("los buffers en memoria no se vaciaron: %q / %q / %q", nuevo.stdout, nuevo.stderr, nuevo.merged)
 	}
-	// Y los offsets quedan al final del fichero, no a cero: a cero reinsertaría el
-	// log viejo entero en la primera lectura.
 	for i, off := range nuevo.off {
 		if off == 0 {
 			t.Errorf("el offset %d quedó a 0: el siguiente tail reinsertaría el log viejo", i)
 		}
 	}
 
-	// Con otro servicio seleccionado, la vista no se toca.
 	otro := moveCursorTo(t, m, "suelto")
 	antes := otro.consoleView.View()
 	got = updateMsg(t, otro, startedMsg{path: path, res: process.StartResult{Pid: 4321}})
@@ -418,23 +333,15 @@ func TestUpdateConMensajeDeConsolaRestableceLosOffsetsAlEOF(t *testing.T) {
 	}
 }
 
-// TestUpdateConElTickDelSpinnerReLoSincronizaYConElTickDeEstadoHaceLoMismo: los
-// dos relojes.
-//
-// El tick de estado (el de 2 s) es el que refresca la tabla y vuelve a pedir
-// hilos; el del spinner es el de la animación. Que se confundieran sería visible:
-// la tabla parpadearía y el spinner se congelaría.
 func TestUpdateConElTickDeSpinnerReLoSincronizaYConElTickDeEstadoHaceLoMismo(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 
-	// El tick del spinner re-arma sólo su propio reloj.
 	got, cmd := m.Update(spinnerTick())
 	if cmd == nil {
 		t.Fatal("el tick del spinner tiene que re-armarse o la animación se congela")
 	}
 
-	// El tick de estado pide el refresco Y la pestaña activa.
 	model := got.(Model)
 	markRunning(&model, pathOfSelected(t, model), livePID(t))
 	_, cmd2 := model.Update(tickMsg(time.Now()))
@@ -443,12 +350,7 @@ func TestUpdateConElTickDeSpinnerReLoSincronizaYConElTickDeEstadoHaceLoMismo(t *
 	}
 }
 
-// TestUpdateConElMensajeDeSalidaDelPtyLoEscribeYReArmaLaLectura: la otra mitad
-// del pump.
-//
-// Cada `ptyDataMsg` tiene que re-armar la lectura, porque el PTY no emite nada
-// solo: sin el re-armado la terminal muestra lo que el shell escribió en el primer
-// segundo y luego se queda muda mientras el usuario sigue escribiendo.
+// Every ptyDataMsg must re-arm the read: the PTY emits nothing on its own and the terminal would go mute.
 func TestUpdateConElMensajeDeSalidaDelPtyLoEscribeYReArmaLaLectura(t *testing.T) {
 	s := newStubSession(40, 10, &stubPty{})
 	defer s.shutdown()
@@ -465,7 +367,7 @@ func TestUpdateConElMensajeDeSalidaDelPtyLoEscribeYReArmaLaLectura(t *testing.T)
 		t.Errorf("la salida del shell no llegó al emulador: %q", s.screen())
 	}
 
-	// Y el EOF no hace nada por sí mismo: el reaper es el que limpia.
+	// EOF must not release the session: the PTY master does not emit EOF when the shell dies.
 	antes := m.term
 	got2, _ := m.Update(ptyEOFMsg{})
 	if got2.(Model).term != antes {
@@ -476,11 +378,7 @@ func TestUpdateConElMensajeDeSalidaDelPtyLoEscribeYReArmaLaLectura(t *testing.T)
 	}
 }
 
-// TestUpdateConLaSalidaDelProcesoCierraElModalYAvisa: el final de una terminal.
-//
-// El aviso tiene que decir SI el código fue 0. Con un `exit 1` dentro del shell, el
-// usuario cerró su propia terminal a propósito y un "terminal closed" normal lo
-// haría pensar que vroom se la cerró.
+// The notice must report the exit code: with a deliberate `exit 1` the user closed their own terminal and a plain "closed" would blame vroom.
 func TestUpdateConLaSalidaDelProcesoCierraElModalYAvisa(t *testing.T) {
 	for _, tt := range []struct {
 		nombre   string
@@ -515,12 +413,6 @@ func TestUpdateConLaSalidaDelProcesoCierraElModalYAvisa(t *testing.T) {
 	}
 }
 
-// TestUpdateConElResultadoDeStacksDiceLoQuePasó: los tres resultados posibles de un
-// stack.
-//
-// Y el registro en el timeline va en los dos casos de fallo: un stack que se lanzó
-// y falló es el evento que el usuario va a buscar después ("¿qué pasó la última vez
-// que arranqué?"). Perderlo deja el timeline mudo justo cuando tiene contenido.
 func TestUpdateConElResultadoDeStacksDiceLoQuePasó(t *testing.T) {
 	tests := []struct {
 		nombre      string
@@ -551,10 +443,7 @@ func TestUpdateConElResultadoDeStacksDiceLoQuePasó(t *testing.T) {
 			if !strings.Contains(got.message, tt.quiere) {
 				t.Errorf("aviso = %q, want que contenga %q", got.message, tt.quiere)
 			}
-			// Y el timeline del servicio registra el evento. MEDIDO: sólo en los dos
-			// caminos con nombre de stack —el error de lanzamiento no sabe qué stack
-			// es, y sin nombre no hay a qué servicio colgarlo. Se fija el
-			// comportamiento real en vez de inventar un stack vacío en el timeline.
+			// MEDIDO: only the paths with a stack name reach the timeline; a launch error has no service to attach to.
 			var registrado bool
 			for path := range got.events {
 				if len(got.events[path]) > 0 {
@@ -571,11 +460,7 @@ func TestUpdateConElResultadoDeStacksDiceLoQuePasó(t *testing.T) {
 	}
 }
 
-// TestUpdateConElResultadoDeComposersCuentaLosFallidos: varios stacks en una tecla.
-//
-// El recuento de fallos es lo que hace útil el aviso. "all stacks launched" cuando
-// uno de los tres falló es la forma más fácil de que el usuario crea que tiene su
-// entorno cuando no lo tiene.
+// Reporting "all stacks launched" when one of them failed is what makes the notice useless.
 func TestUpdateConElResultadoDeComposersCuentaLosFallidos(t *testing.T) {
 	tests := []struct {
 		nombre  string
@@ -609,15 +494,9 @@ func TestUpdateConElResultadoDeComposersCuentaLosFallidos(t *testing.T) {
 	}
 }
 
-// TestToggleStackYComposersDicenQueNoHayEngineONoHayStacks: los rechazos de la
-// orquestación.
-//
-// El caso de "no hay engine" es real: `New` lo construye siempre, pero un test que
-// inyecta un modelo a mano no, y un camino que no reventara en ese caso terminaría
-// con un nil-deref en un sitio mucho menos obvio.
+// The no-engine case is real for a hand-built model, so this path must not nil-deref somewhere less obvious.
 func TestToggleStackYComposersDicenQueNoHayEngineONoHayStacks(t *testing.T) {
 	t.Run("sin stacks en el grupo", func(t *testing.T) {
-		// Con compose file hay engine; el grupo que se pide no tiene stacks.
 		m := newStackModel(t)
 		next, cmd := m.toggleComposers("grupo-que-no-existe")
 		got := next.(Model)
@@ -646,15 +525,9 @@ func TestToggleStackYComposersDicenQueNoHayEngineONoHayStacks(t *testing.T) {
 	}
 }
 
-// TestToggleNodeArrancaLosParadosYNoTocaLosVivos: la acción de grupo.
-//
-// La regla es "si hay alguno parado, arranca los parados; si no, para los vivos".
-// Lo que no puede pasar es arrancar los que ya estaban corriendo: con `s` sobre un
-// grupo donde tres están vivos y uno parado, arrancar los cuatro dejaría tres
-// procesos nuevos compitiendo por el mismo puerto.
+// Group toggle starts the stopped ones only: restarting the live ones would leave duplicate processes fighting for the same port.
 func TestToggleNodeArrancaLosParadosYNoTocaLosVivos(t *testing.T) {
 	m, _ := newTestModel(t)
-	// "s" sobre el header primario de tienda.
 	cursorEn(t, &m, "tienda")
 
 	api, web := projectPath(t, m, "tienda-api"), projectPath(t, m, "tienda-web")
@@ -672,10 +545,6 @@ func TestToggleNodeArrancaLosParadosYNoTocaLosVivos(t *testing.T) {
 	}
 	got := next.(Model)
 
-	// MEDIDO: con alguno parado, toggleNode arranca SÓLO los parados y deja los
-	// vivos como estaban. No los para: la acción de grupo es "dejar el grupo en
-	// marcha", no "reiniciar el grupo". Relanzar los vivos dejaría procesos nuevos
-	// compitiendo por el mismo puerto.
 	if got.services[api].Status != statusRunning {
 		t.Errorf("el servicio vivo quedó en %q, want running intacto: no se relanza lo que ya corre", got.services[api].Status)
 	}
@@ -687,11 +556,7 @@ func TestToggleNodeArrancaLosParadosYNoTocaLosVivos(t *testing.T) {
 	}
 }
 
-// TestToggleNodeSinMiembrosNoHaceNada: un nodo vacío.
-//
-// Sucede con un grupo que sólo tiene stacks plegados, o con un primario que ya no
-// tiene proyectos después de un refresh. La acción tiene que ser un no-op silencioso
-// y no un índice fuera de rango.
+// A node with no members must be a silent no-op, not an out-of-range index.
 func TestToggleNodeSinMiembrosNoHaceNada(t *testing.T) {
 	m, _ := newTestModel(t)
 
@@ -700,20 +565,10 @@ func TestToggleNodeSinMiembrosNoHaceNada(t *testing.T) {
 		t.Error("un nodo sin miembros no puede lanzar nada")
 	}
 
-	// Con un primario real pero un secundario que no existe.
 	_, cmd2 := m.toggleNode("tienda", "secundario-inventado")
 	_ = cmd2
 }
 
-// TestEnterSelectionNoHaceNadaSobreUnStackNiSobreUnProyectoInline: las dos filas
-// que no se pliegan.
-//
-// Un stack no tiene hijos que plegar y un proyecto inline (sin primario) no tiene
-// contenedor. En los dos casos `enter` no puede reconstruir el árbol, y si lo hiciera
-// con un cambio vacío perdería la posición del cursor.
-//
-// Y en los que sí pliega, la posición se conserva: es lo que hace que `enter` sea
-// usable para plegar una rama entera sin perder el sitio.
 func TestEnterSelectionNoHaceNadaSobreUnStackNiSobreUnProyectoInline(t *testing.T) {
 	t.Run("sobre un stack no reconstruye el árbol", func(t *testing.T) {
 		m := newStackModel(t)
@@ -732,7 +587,7 @@ func TestEnterSelectionNoHaceNadaSobreUnStackNiSobreUnProyectoInline(t *testing.
 
 	t.Run("sobre un proyecto sin contenedor no hace nada", func(t *testing.T) {
 		m, _ := newTestModel(t)
-		// "suelto" no tiene primary_group en su manifiesto.
+		// "suelto" has no primary_group
 		m = moveCursorTo(t, m, "suelto")
 		it, ok := m.selectedItem()
 		if !ok || it.primary != "" {
@@ -755,7 +610,6 @@ func TestEnterSelectionNoHaceNadaSobreUnStackNiSobreUnProyectoInline(t *testing.
 		if len(got.tree) >= arbolAntes {
 			t.Errorf("enter no plegó nada: el árbol pasó de %d a %d filas", arbolAntes, len(got.tree))
 		}
-		// Y el estado persistido guarda el plegado.
 		if !m.store.LoadCollapsed()[it0(m).primary] && !got.collapsed[it0(m).primary] {
 			t.Error("el plegado no quedó en el modelo: enter no persistió nada")
 		}
@@ -771,13 +625,7 @@ func TestEnterSelectionNoHaceNadaSobreUnStackNiSobreUnProyectoInline(t *testing.
 	})
 }
 
-// TestOnSelectNoPideRefrescoParaLoQueNoTieneNadaQueRefrescar: el ahorro que hace
-// que el cursor sea fluido.
-//
-// Mover el cursor por el árbol dispara un refresco por cada fila. Si se pidiera
-// para un grupo o un proyecto sin manifiesto, moverse por un workspace grande
-// lanzaría un `git` por fila y la interfaz se iría detrás. Sólo se pide para lo que
-// de verdad tiene datos.
+// No refresh for nodes with nothing to fetch: cursor movement would spawn a git per row on a large workspace.
 func TestOnSelectNoPideRefrescoParaLoQueNoTieneNadaQueRefrescar(t *testing.T) {
 	t.Run("sobre un header no pide nada", func(t *testing.T) {
 		m := sinSeleccion(t)
@@ -786,7 +634,6 @@ func TestOnSelectNoPideRefrescoParaLoQueNoTieneNadaQueRefrescar(t *testing.T) {
 		if cmd != nil {
 			t.Error("un header no tiene logs que traer: pedir un refresco sería un git por fila")
 		}
-		// Y la consola sí muestra qué hacer.
 		if !strings.Contains(tail.StripANSI(got.consoleView.View()), "pick a service") {
 			t.Errorf("consola = %q, want la pista de grupo", tail.StripANSI(got.consoleView.View()))
 		}
@@ -808,43 +655,31 @@ func TestOnSelectNoPideRefrescoParaLoQueNoTieneNadaQueRefrescar(t *testing.T) {
 	})
 }
 
-// TestRefreshThreadsNoPideNadaSinUnServicioVivo: el muestreo de hilos.
-//
-// Pedir el muestreo de un servicio parado es un `cat /proc/<pid>/task/*/stat` sobre
-// un PID muerto, cuatro veces por segundo, por cada servicio parado visible. Es el
-// gasto que hace que una TUI abierta mucho rato sea caliente sin que nada lo explique.
+// Sampling a stopped service is a /proc walk on a dead PID, four times a second, per visible stopped service.
 func TestRefreshThreadsNoPideNadaSinUnServicioVivo(t *testing.T) {
 	m, _ := newTestModel(t)
 
-	// Sin selección.
 	if cmd := m.refreshThreads(); cmd != nil {
 		t.Error("sin proyecto no hay hilos que muestrear")
 	}
 
-	// Con un proyecto pero sin manifiesto.
 	sinManif := sinManifiesto(t)
 	if cmd := sinManif.refreshThreads(); cmd != nil {
 		t.Error("sin manifiesto no hay proceso que muestrear")
 	}
 
-	// Con manifiesto pero parado.
 	m = moveCursorTo(t, m, "tienda-api")
 	if cmd := m.refreshThreads(); cmd != nil {
 		t.Error("un servicio parado no tiene hilos: muestrearlo es un /proc sobre un PID muerto")
 	}
 
-	// Vivo: ahora sí.
 	markRunning(&m, projectPath(t, m, "tienda-api"), livePID(t))
 	if cmd := m.refreshThreads(); cmd == nil {
 		t.Error("un servicio vivo sí tiene hilos que muestrear")
 	}
 }
 
-// TestRefreshThreadsConPidCeroNoMuestrea: vivo en la UI pero sin PID.
-//
-// Puede pasar si el estado se fijó a mano o si un refresh dejó el estado vivo y el
-// meta vacío. `/proc/0/task` no existe y `threadsCmd` devolvería un error en cada
-// tick.
+// /proc/0/task does not exist, so a live-looking service with Pid 0 would error on every tick.
 func TestRefreshThreadsConPidCeroNoMuestrea(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -857,32 +692,20 @@ func TestRefreshThreadsConPidCeroNoMuestrea(t *testing.T) {
 	}
 }
 
-// TestEditLogsCmdTraeElEditorDevueltoYElError: el puente con el editor.
-//
-// Lo que no se puede probar aquí es el `tea.ExecProcess` en sí —suspende el
-// programa— así que se prueba lo que sí: que el comando existe y que el mensaje de
-// error nombra al editor. Un editor que sale con error sin decírselo al usuario
-// deja la TUI como si nada y él sin saber por qué se le cierra el programa.
+// tea.ExecProcess itself cannot be tested here (it suspends the program), so only the command's existence is asserted.
 func TestEditLogsCmdTraeElEditorDevueltoYElError(t *testing.T) {
 	if _, err := os.Stat("/bin/sh"); err != nil {
 		t.Skip("no hay /bin/sh")
 	}
-	// El comando existe y es el del editor que se le pasó.
 	cmd := editLogsCmd("/bin/sh -c true", "/l/out.log", "/l/err.log", false)
 	if cmd == nil {
 		t.Fatal("editLogsCmd devolvió nil")
 	}
-	// Y el mensaje del editor cerrado es el que el usuario ve al volver.
 	m, _ := newTestModel(t)
 	_ = m
 }
 
-// TestHandleKeyConEscLimpiaElFiltroAntesDeSalir: esc tiene dos comportamientos.
-//
-// Con un filtro aplicado, esc limpia el filtro y NO sale. Sin filtro, sale. La
-// diferencia importa porque un usuario filtrando por error que pulsa esc esperando
-// quitar el filtro se encontraría fuera del programa, y perder el trabajo de
-// liquidar un stack a medio hacer es caro.
+// esc with a filter applied clears it and stays: quitting there would lose a half-finished stack teardown.
 func TestHandleKeyConEscLimpiaElFiltroAntesDeSalir(t *testing.T) {
 	t.Run("con filtro aplicado: limpia y no sale", func(t *testing.T) {
 		m, _ := newTestModel(t)
@@ -897,8 +720,6 @@ func TestHandleKeyConEscLimpiaElFiltroAntesDeSalir(t *testing.T) {
 		if model.filterText != "" {
 			t.Errorf("esc no limpió el filtro: %q", model.filterText)
 		}
-		// esc con filtro NO sale: no hay comando de salida, sólo el árbol
-		// reconstruido. Lo que importa es que el filtro se limpió.
 		if model.filterText != "" {
 			t.Errorf("el filtro sigue en %q", model.filterText)
 		}
@@ -914,12 +735,7 @@ func TestHandleKeyConEscLimpiaElFiltroAntesDeSalir(t *testing.T) {
 	})
 }
 
-// TestFilterKeyCierraElBoxSinLimpiarConEnter: enter aplica, esc limpia.
-//
-// Es la asimetría de los dos caminos de salida del filtro, y cada uno tiene su
-// motivo: enter es "he terminado de escribir" y el filtro en vivo ya está aplicado;
-// esc es "me he arrepentido" y limpia. Con un solo comportamiento, esc dejaría un
-// filtro que el usuario cree haber quitado y seguiría viendo una lista recortada.
+// enter means "done typing" (live filtering already applied it); esc means "changed my mind" and clears.
 func TestFilterKeyCierraElBoxSinLimpiarConEnter(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.filterOpen = true
@@ -957,12 +773,7 @@ func TestFilterKeyCierraElBoxSinLimpiarConEnter(t *testing.T) {
 	})
 }
 
-// TestLaunchAskCmdTraeElMensajeDelLauncherYSuError: el camino en background del ask.
-//
-// La estrategia inline suspende el programa y no pasa por aquí; herdr y custom
-// despachan en goroutine y vuelven con un `statusMsg`. Lo que importa es que el
-// error del launcher llegue al usuario: un `herdr pane split` fallido sin aviso
-// deja al usuario creyendo que su agente arrancó.
+// Only the background strategies return here, and their error must reach the user: a failed `herdr pane split` would look like a started agent.
 func TestLaunchAskCmdTraeElMensajeDelLauncherYSuError(t *testing.T) {
 	l := nuevoLauncherEnBackground(t)
 
@@ -977,12 +788,7 @@ func TestLaunchAskCmdTraeElMensajeDelLauncherYSuError(t *testing.T) {
 	}
 }
 
-// TestDispatchAskConEstrategiaNoInlineDespachaEnBackground: la decisión de
-// estrategia.
-//
-// Inline suspende el programa y herdr/custom despachan sin bloquear. Confundirlas
-// significa que el ask con herdr configured se quedaría esperando a que el agente
-// cierre, que es exactamente lo que el launcher evita.
+// Non-inline strategies must dispatch without blocking: waiting for the agent to exit is what the launcher exists to avoid.
 func TestDispatchAskConEstrategiaNoInlineDespachaEnBackground(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -1000,18 +806,12 @@ func TestDispatchAskConEstrategiaNoInlineDespachaEnBackground(t *testing.T) {
 	if got.askPromptOpen {
 		t.Error("el modal tiene que cerrarse al despachar: si no, se solapa con la salida del agente")
 	}
-	// Y el mensaje del launcher no aparece hasta que el comando corra.
 	if got.message != "" {
 		t.Errorf("aviso = %q antes de despachar: el resultado llega después", got.message)
 	}
 }
 
-// TestViewPoneAltScreenYRueda: las dos banderas de la vista.
-//
-// AltScreen porque el dashboard es de altura completa y puede no encajar en la
-// altura que queda; y el modo de ratón porque la rueda es lo único que hace falta
-// y el modo de arrastre activaría la selección de texto, que en un dashboard con
-// bordes es más molesto que útil.
+// MouseMode is CellMotion, not drag: the wheel is all that is needed and drag would enable text selection inside a bordered dashboard.
 func TestViewPoneAltScreenYRueda(t *testing.T) {
 	m, _ := newTestModel(t)
 	v := m.View()
@@ -1022,16 +822,11 @@ func TestViewPoneAltScreenYRueda(t *testing.T) {
 	if v.MouseMode != tea.MouseModeCellMotion {
 		t.Errorf("MouseMode = %v, want CellMotion: lo que hace falta es la rueda", v.MouseMode)
 	}
-	// Y el contenido no está vacío: una vista en blanco con las banderas puestas es
-	// un programa que se queda en alt screen sin dibujar nada.
 	if strings.TrimSpace(v.Content) == "" {
 		t.Error("la vista no trae contenido: alt screen en blanco es un programa colgado")
 	}
 }
 
-// helpers --------------------------------------------------------------------
-
-// it0 devuelve el item bajo el cursor. Asume que hay uno.
 func it0(m Model) treeItem {
 	it, ok := m.selectedItem()
 	if !ok {
@@ -1040,14 +835,11 @@ func it0(m Model) treeItem {
 	return it
 }
 
-// spinnerTick construye el tick del spinner.
 func spinnerTick() tea.Msg {
 	return spinner.TickMsg{}
 }
 
-// exitReal produce el error de un comando que sale con código, de verdad: exitCode
-// sólo reconoce *exec.ExitError, así que un error de mentira devolvería 0 y el test
-// comprobaría el caso equivocado.
+// A fake error would make exitCode return 0 and the test would check the wrong case, so a real exiting command runs.
 func exitReal(t *testing.T, code int) error {
 	t.Helper()
 	err := exec.Command("sh", "-c", "exit "+strconv.Itoa(code)).Run()
@@ -1057,12 +849,10 @@ func exitReal(t *testing.T, code int) error {
 	return err
 }
 
-// errLaunch es un fallo de lanzamiento de stack, sin código de salida detrás.
+// a stack launch failure with no exit code behind it.
 var errLaunch = errors.New("no se pudo lanzar")
 
-// nuevoLauncherEnBackground devuelve un launcher con estrategia custom apuntando a
-// un script de mentira en el PATH: el camino en background del ask, que no suspende
-// el programa.
+// A custom-strategy launcher over a fake script on PATH: the background ask path that does not suspend the program.
 func nuevoLauncherEnBackground(t *testing.T) *launcher.Launcher {
 	t.Helper()
 	bin := t.TempDir()
@@ -1074,12 +864,10 @@ func nuevoLauncherEnBackground(t *testing.T) *launcher.Launcher {
 	return launcher.New(config.AskConfig{Launcher: "custom", LauncherCmd: "agente-falso"})
 }
 
-// reqAsk es la petición mínima de un ask.
 func reqAsk() launcher.Request {
 	return launcher.Request{Agent: "agente-falso", Args: []string{"agente-falso"}, Dir: "/tmp"}
 }
 
-// agenteFalso es el agente que el modal de ask tiene seleccionado.
 func agenteFalso() agents.Agent {
 	return agents.Agent{Name: "agente-falso", Cmd: []string{"agente-falso"}}
 }

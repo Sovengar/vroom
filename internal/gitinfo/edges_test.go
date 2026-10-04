@@ -6,17 +6,6 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// readHEAD y parseHEAD: la rama que la TUI enseña en la cabecera de cada
-// proyecto.
-//
-// La rama no es decorativa: en route_mode auto decide el NOMBRE de la ruta de
-// portless, así que un error aquí produce direcciones distintas para el mismo
-// servicio. Y todo lo que hacen es leer dos ficheros, de modo que los bordes se
-// provocan con un árbol de ficheros a mano en vez de con repos reales.
-// ---------------------------------------------------------------------------
-
-// TestReadHEADEnUnRepoNormal: .git como DIRECTORIO, que es el caso normal.
 func TestReadHEADEnUnRepoNormal(t *testing.T) {
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, ".git", "HEAD"), "ref: refs/heads/main\n")
@@ -30,12 +19,7 @@ func TestReadHEADEnUnRepoNormal(t *testing.T) {
 	}
 }
 
-// TestReadHEADEnUnWorktreeConGitirRelativo: .git como FICHERO con un puntero
-// RELATIVO, que es lo que escribe `git worktree add`.
-//
-// Es el caso que hace que readHEAD tenga dos ramas: si no resolviera el puntero,
-// la rama de un worktree saldría vacía y la ruta de portless caería al nombre
-// del proyecto — que es justo la colisión que el modo auto existe para evitar.
+// Without resolving the relative pointer the worktree branch would be empty and the portless route would fall back to the project name, the collision auto mode exists to prevent.
 func TestReadHEADEnUnWorktreeConGitirRelativo(t *testing.T) {
 	dir := t.TempDir()
 	main := t.TempDir()
@@ -53,8 +37,6 @@ func TestReadHEADEnUnWorktreeConGitirRelativo(t *testing.T) {
 	}
 }
 
-// TestReadHEADEnUnWorktreeConGitirAbsoluto: el puntero también puede ser
-// absoluto, y es el caso de un worktree enlazado desde otro directorio.
 func TestReadHEADEnUnWorktreeConGitirAbsoluto(t *testing.T) {
 	dir := t.TempDir()
 	wt := t.TempDir()
@@ -70,12 +52,7 @@ func TestReadHEADEnUnWorktreeConGitirAbsoluto(t *testing.T) {
 	}
 }
 
-// TestReadHEADRechazaLoQueNoEsUnPunteroAGit: los cuatro rechazos, y cada uno
-// importa porque aceptarlo daría una rama inventada.
-//
-// Y una rama inventada es peor que ninguna: en route_mode auto, la rama se
-// concatena al nombre del proyecto para formar el nombre de la ruta. Una rama
-// equivocada significa una ruta que colisiona con la de otro worktree.
+// An invented branch is worse than none, because route_mode auto concatenates the branch onto the project name to build the route name.
 func TestReadHEADRechazaLoQueNoEsUnPunteroAGit(t *testing.T) {
 	t.Run("sin .git", func(t *testing.T) {
 		if _, ok := readHEAD(t.TempDir()); ok {
@@ -93,7 +70,7 @@ func TestReadHEADRechazaLoQueNoEsUnPunteroAGit(t *testing.T) {
 
 	t.Run("puntero a un gitdir sin HEAD", func(t *testing.T) {
 		dir := t.TempDir()
-		// El gitdir existe pero no tiene HEAD: un worktree a medio crear.
+		// The gitdir exists but has no HEAD, which is a half-created worktree.
 		empty := t.TempDir()
 		write(t, filepath.Join(dir, ".git"), "gitdir: "+empty+"\n")
 		if _, ok := readHEAD(dir); ok {
@@ -102,8 +79,7 @@ func TestReadHEADRechazaLoQueNoEsUnPunteroAGit(t *testing.T) {
 	})
 
 	t.Run(".git como directorio sin HEAD", func(t *testing.T) {
-		// `git init` crea el directorio antes de escribir HEAD. Until entonces no
-		// hay rama, y decir que la hay sería inventar.
+		// git init creates the directory before writing HEAD, so claiming a branch until then would be inventing one.
 		dir := t.TempDir()
 		if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
 			t.Fatal(err)
@@ -114,11 +90,7 @@ func TestReadHEADRechazaLoQueNoEsUnPunteroAGit(t *testing.T) {
 	})
 }
 
-// TestParseHEADInterpretaLasTresFormasYRechazaElResto: ref, sha detached y basura.
-//
-// La forma detached importa porque `git checkout <sha>` deja el repo ahí, y la
-// TUI tiene que distinguir "está en una rama" de "está suelto": son estados de
-// trabajo distintos y el usuario necesita verlo.
+// The detached form matters because git checkout <sha> leaves the repo there, and the TUI must show that as different from being on a branch.
 func TestParseHEADInterpretaLasTresFormasYRechazaElResto(t *testing.T) {
 	tests := []struct {
 		name string
@@ -146,15 +118,11 @@ func TestParseHEADInterpretaLasTresFormasYRechazaElResto(t *testing.T) {
 	}
 }
 
-// TestBranchConEntradaRaraNoRevienta: la TUI llama a Branch por cada fila del
-// escaneo, incluidos proyectos que no son repos.
+// The TUI calls Branch for every scanned row, including non-repos and paths that just disappeared from the tree.
 func TestBranchConEntradaRaraNoRevienta(t *testing.T) {
-	// Un directorio que no existe en absoluto: la TUI lo llama igual mientras el
-	// árbol cambia.
 	if got := Branch(filepath.Join(t.TempDir(), "nada")); got != "" {
 		t.Errorf("Branch de un path inexistente = %q, want cadena vacía", got)
 	}
-	// Un .git que es un directorio vacío.
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
 		t.Fatal(err)
@@ -174,8 +142,6 @@ func write(t *testing.T, path, content string) {
 	}
 }
 
-// relativeTo devuelve target relativo a base, para escribir el puntero como lo
-// escribiría git.
 func relativeTo(base, target string) string {
 	rel, err := filepath.Rel(base, target)
 	if err != nil {
@@ -184,15 +150,7 @@ func relativeTo(base, target string) string {
 	return rel
 }
 
-// TestReadHEADConUnGitFileIlegible: un `.git` que es un FICHERO pero no se puede
-// leer no es un repo.
-//
-// Es la diferencia entre "no hay repo" y "hay algo que no se puede leer", y aquí
-// las dos dan lo mismo porque el contrato de readHEAD es un bool: o hay rama, o
-// no la hay. Aceptarlo sin leer sería inventar la rama, que es lo que produce la
-// colisión de rutas en portless auto.
-//
-// Se salta como root, que puede leer cualquier fichero.
+// readHEAD's contract is a bool, so an unreadable .git and a missing .git are the same case; accepting it would invent the branch.
 func TestReadHEADConUnGitFileIlegible(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root puede leer un fichero sin permiso: el caso no se puede provocar")

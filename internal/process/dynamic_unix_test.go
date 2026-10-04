@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-// La reserva cae dentro de la banda dynamic y devuelve un puerto usable.
 func TestReservePortInRange(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		port, err := ReservePort()
@@ -25,17 +24,15 @@ func TestReservePortInRange(t *testing.T) {
 	}
 }
 
-// cmd.Env no-nil reemplaza os.Environ() por completo: fusionar es
-// obligatorio, no cosmético.
 func TestMergeEnvKeepsParent(t *testing.T) {
 	parent := []string{"PATH=/usr/bin", "HOME=/home/u", "PORT=8080"}
 
 	merged := mergeEnv(parent, []string{"PORT=41501", "HOST=127.0.0.1"})
 
 	want := map[string]string{
-		"PATH": "/usr/bin", // el padre sobrevive
+		"PATH": "/usr/bin", // the parent survives
 		"HOME": "/home/u",
-		"PORT": "41501", // el spec pisa
+		"PORT": "41501", // the spec overrides
 		"HOST": "127.0.0.1",
 	}
 	got := map[string]string{}
@@ -53,20 +50,16 @@ func TestMergeEnvKeepsParent(t *testing.T) {
 	}
 }
 
-// Sin nada que inyectar se devuelve nil, para que exec aplique la herencia
-// normal en vez de una copia congelada del entorno.
 func TestMergeEnvNilWhenNothingToInject(t *testing.T) {
 	if got := mergeEnv([]string{"PATH=/usr/bin"}, nil); got != nil {
 		t.Errorf("sin spec.Env debe quedar nil (herencia), got %v", got)
 	}
 }
 
-// Un listener ajeno NO se atribuye al linaje del servicio: se cruza el
-// inodo del socket con los fd del linaje.
 func TestLineageListenersExcludesForeignSockets(t *testing.T) {
 	requireProc(t)
 
-	// El proceso de test es el dueño de este listener.
+	// The test process owns this listener.
 	port := freePortForHelper(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
 	if err != nil {
@@ -74,7 +67,6 @@ func TestLineageListenersExcludesForeignSockets(t *testing.T) {
 	}
 	defer func() { _ = ln.Close() }()
 
-	// Un linaje ajeno (sleep) no puede tener listeners: no debe aparecer.
 	res := startSleep(t, newTestManager(t), StartSpec{
 		Command:    "sleep 60",
 		WorkDir:    t.TempDir(),
@@ -91,8 +83,6 @@ func TestLineageListenersExcludesForeignSockets(t *testing.T) {
 	}
 }
 
-// Un helper que sí escucha aparece en su propio linaje y en el de su padre
-// (es descendiente suyo), pero no en el de un árbol ajeno.
 func TestDiscoverPortFindsListenerInLineage(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -124,15 +114,13 @@ func TestDiscoverPortFindsListenerInLineage(t *testing.T) {
 	}
 }
 
-// Un linaje muerto se reporta de inmediato en vez de agotar el timeout:
-// arrancar un servicio que muere no debe costar segundos.
 func TestDiscoverPortFailsFastOnDeadLineage(t *testing.T) {
 	requireProc(t)
 
 	m := newTestManager(t)
 	dir := t.TempDir()
 	res := startSleep(t, m, StartSpec{
-		Command:    "true", // muere inmediatamente
+		Command:    "true", // dies immediately
 		WorkDir:    dir,
 		StdoutPath: dir + "/out.log",
 		StderrPath: dir + "/err.log",
@@ -150,8 +138,6 @@ func TestDiscoverPortFailsFastOnDeadLineage(t *testing.T) {
 	}
 }
 
-// Un linaje vivo que nunca abre puerto TCP termina acotado y sin puertos:
-// "sin puerto" es un estado, no un cuelgue.
 func TestDiscoverPortNoPortIsBounded(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -181,16 +167,12 @@ func TestDiscoverPortNoPortIsBounded(t *testing.T) {
 	if d.Unresolved {
 		t.Error("sin un solo listener en toda la ventana no es 'sin resolver', es 'sin puerto'")
 	}
-	// El presupuesto es plazo + gracia: la gracia existe porque el
-	// vencimiento del plazo no prueba ausencia. Acotado sigue siendo
-	// acotado, que es lo que importa.
 	budget := 1*time.Second + DefaultDynamicUnresolvedGrace
 	if elapsed > budget+3*time.Second {
 		t.Errorf("el discovery debe respetar plazo+gracia (%s): tardó %s", budget, elapsed)
 	}
 }
 
-// socketInode sólo acepta enlaces de socket reales.
 func TestSocketInode(t *testing.T) {
 	if ino, ok := socketInode("socket:[4242]"); !ok || ino != "4242" {
 		t.Errorf("socketInode = %q, %v", ino, ok)
@@ -203,13 +185,7 @@ func TestSocketInode(t *testing.T) {
 	}
 }
 
-// H1: reservas concurrentes en un mismo proceso nunca devuelven el mismo
-// puerto. Antes del set en memoria, todas las goroutines entraban por el
-// primer hueco libre del rango y salían con el mismo número.
-//
-// Aserta sobre len(reservedPorts), no sobre que "una reserva posterior tenga
-// éxito": eso no distingue "no hubo colisión" de "se agotó el rango", que es
-// justo el fallo que un test honesto tiene que cazar.
+// Asserts on the set size, not on a later reservation succeeding, because that cannot tell "no collision" from "the range ran out".
 func TestReservePortIsConcurrencySafe(t *testing.T) {
 	const workers = 400
 
@@ -250,8 +226,7 @@ func TestReservePortIsConcurrencySafe(t *testing.T) {
 			got, workers)
 	}
 
-	// Devolverlas todas deja el set como estaba. Este es el assert que
-	// importa de verdad: el set tiene que ser devuelto, no solo escrito.
+	// Returning them all must leave the set as it was: the set has to be given back, not only written to.
 	ports := make([]int, 0, workers)
 	for port := range seen {
 		ports = append(ports, port)
@@ -264,9 +239,7 @@ func TestReservePortIsConcurrencySafe(t *testing.T) {
 	}
 }
 
-// M-B: el set tiene que devolver lo que se le entrega. La versión anterior
-// de este test no tenía aserto en el cuerpo del bucle y pasaba aunque
-// ReleasePort fuese un no-op.
+// M-B: an earlier version of this test had no assertion in the loop body and passed even if ReleasePort was a no-op.
 func TestReleasePortShrinksTheSet(t *testing.T) {
 	baseline := ReservedPortCount()
 
@@ -286,7 +259,6 @@ func TestReleasePortShrinksTheSet(t *testing.T) {
 	}
 }
 
-// Liberar un puerto que nunca se reservó no debe tocar el set.
 func TestReleasePortIgnoresUnreservedAndNonPositive(t *testing.T) {
 	baseline := ReservedPortCount()
 

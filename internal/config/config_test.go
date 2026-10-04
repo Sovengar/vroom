@@ -19,7 +19,6 @@ func withConfig(t *testing.T, content string) Config {
 	return Load()
 }
 
-// Sin fichero: defaults limpios, sin error.
 func TestLoadDefaults(t *testing.T) {
 	cfg := withConfig(t, "")
 	if cfg.Ask.Launcher != "auto" || cfg.Ask.Direction != "right" || cfg.Ask.Target != "pane" || cfg.Ask.Focus {
@@ -36,7 +35,6 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
-// Parse completo de la sección [ask].
 func TestLoadFull(t *testing.T) {
 	cfg := withConfig(t, `
 [ask]
@@ -69,7 +67,6 @@ func TestLoadMalformed(t *testing.T) {
 	if cfg.Err == nil || !strings.Contains(cfg.Err.Error(), "invalid config") {
 		t.Errorf("Err = %v, want invalid config", cfg.Err)
 	}
-	// Con defaults aplicados a pesar del error.
 	if cfg.Ask.Launcher != "auto" {
 		t.Errorf("malformado debe devolver defaults, got %+v", cfg.Ask)
 	}
@@ -93,8 +90,7 @@ func TestLoadInvalidEnums(t *testing.T) {
 	}
 }
 
-// prompt = "" explícito desactiva el prefill; un template custom se
-// respeta tal cual.
+// An explicit prompt = "" disables the prefill, so it must not fall back to the default template.
 func TestLoadPromptTemplate(t *testing.T) {
 	custom := withConfig(t, `[ask]
 prompt = "About {name} in {dir}, logs {logs}: "
@@ -122,7 +118,6 @@ prompt = ""
 	}
 }
 
-// Path respeta $VROOM_CONFIG sobre $XDG_CONFIG_HOME.
 func TestPathPriority(t *testing.T) {
 	t.Setenv("VROOM_CONFIG", "/tmp/vroom-custom.toml")
 	t.Setenv("XDG_CONFIG_HOME", "/xdg")
@@ -137,9 +132,6 @@ func TestPathPriority(t *testing.T) {
 	}
 }
 
-// ---- [keybindings] ----
-
-// Sin [keybindings], las 12 acciones tienen sus defaults.
 func TestKeybindingsDefaults(t *testing.T) {
 	cfg := withConfig(t, "")
 	if cfg.Err != nil {
@@ -163,8 +155,6 @@ func TestKeybindingsDefaults(t *testing.T) {
 	}
 }
 
-// Override parcial — solo cambia lo declarado, el resto conserva
-// default.
 func TestKeybindingsOverridePartial(t *testing.T) {
 	cfg := withConfig(t, "[keybindings]\nstart_stop = \"x\"\n")
 	if cfg.Err != nil {
@@ -181,7 +171,6 @@ func TestKeybindingsOverridePartial(t *testing.T) {
 	}
 }
 
-// Tecla reservada → config inválida, defaults restaurados.
 func TestKeybindingsReserved(t *testing.T) {
 	cfg := withConfig(t, "[keybindings]\nask = \"q\"\n")
 	if cfg.Err == nil || !strings.Contains(cfg.Err.Error(), "reservada") {
@@ -192,7 +181,6 @@ func TestKeybindingsReserved(t *testing.T) {
 	}
 }
 
-// Dos acciones con la misma tecla → config inválida.
 func TestKeybindingsCollision(t *testing.T) {
 	cfg := withConfig(t, "[keybindings]\nbuild = \"x\"\ninstall = \"x\"\n")
 	if cfg.Err == nil || !strings.Contains(cfg.Err.Error(), "duplicada") {
@@ -203,7 +191,6 @@ func TestKeybindingsCollision(t *testing.T) {
 	}
 }
 
-// Formato de tecla válida e inválida.
 func TestKeybindingsFormat(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -237,8 +224,6 @@ func TestKeybindingsFormat(t *testing.T) {
 	}
 }
 
-// Acción desconocida (typo o permanente como filter/shell) →
-// config inválida.
 func TestKeybindingsUnknownAction(t *testing.T) {
 	for _, action := range []string{"filter", "shell", "fiilter"} {
 		cfg := withConfig(t, "[keybindings]\n"+action+" = \"f\"\n")

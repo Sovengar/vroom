@@ -7,20 +7,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// ---------------------------------------------------------------------------
-// wrapLine y parseAnsiSegments son el corazon del renderer y los dos tenian
-// CERO cobertura: solo se llegaban a ellos cuando el contenido era mas ancho
-// que la caja, y ningun test del repo lo era.
-//
-// Un fallo aqui no se ve como un fallo de test, se ve como una caja con el
-// texto desbordado, partido a mitad de palabra, o con el color corrido hacia
-// la linea siguiente. Es la clase de bug mas cara de esta TUI porque solo es
-// visible en pantalla, donde nadie la mira hasta que ya no se lee.
-// ---------------------------------------------------------------------------
-
-// TestWrapLineSinANSIPartePorAnchoDePantalla: el caso base. Sin escapes, el
-// wrap tiene que respectar maxDisplayWidth medido en celdas, no en bytes ni en
-// runes: por eso el ancho es 5 y la palabra mide 7.
 func TestWrapLineSinANSIPartePorAnchoDePantalla(t *testing.T) {
 	got := wrapLine("abcdefghij", 5)
 
@@ -35,12 +21,8 @@ func TestWrapLineSinANSIPartePorAnchoDePantalla(t *testing.T) {
 	}
 }
 
-// TestWrapLineRespetaAnchoEnCeldasNoEnRunes es el test que distingue una
-// implementacion correcta de una que cuenta caracteres. "áé" son 2 runes pero 2
-// celdas; los emojis de casa son 4 bytes, 1 rune y 2 celdas. Un wrap que
-// cuenta runes desborda la caja.
+// A rune-counting implementation would also pass here, because the house emoji is 4 bytes, 1 rune and 2 cells.
 func TestWrapLineRespetaAnchoEnCeldasNoEnRunes(t *testing.T) {
-	// 4 emojis de 2 celdas cada uno = 8 celdas de ancho real.
 	got := wrapLine("🏠🏠🏠🏠", 4)
 
 	for i, chunk := range got {
@@ -53,10 +35,7 @@ func TestWrapLineRespetaAnchoEnCeldasNoEnRunes(t *testing.T) {
 	}
 }
 
-// TestWrapLineReparteElSobranteEnLaPrimeraLinea: cuando el ancho no divide la
-// cadena, el resto va a la primera linea y NO a la ultima. Es la convencion
-// que espera el resto de la UI, y al invertirla el detalle de un servicio
-// aparece descuadrado un caracter respecto a su borde.
+// The remainder goes to the first line, not the last: inverting that shifts a service detail one cell off its border.
 func TestWrapLineReparteElSobranteEnLaPrimeraLinea(t *testing.T) {
 	got := wrapLine("abcdefg", 3)
 
@@ -66,10 +45,7 @@ func TestWrapLineReparteElSobranteEnLaPrimeraLinea(t *testing.T) {
 	}
 }
 
-// TestWrapLineConAnchoNoPositivoNoPierdeTexto: con maxDisplayWidth <= 0 no hay
-// por donde partir, asi que se devuelve la linea intacta. Perder texto aqui
-// seria peor que no respectar el ancho: el usuario veria contenido que ya no
-// esta.
+// With no positive width there is nowhere to split, so the line comes back intact: losing text is worse than overflowing.
 func TestWrapLineConAnchoNoPositivoNoPierdeTexto(t *testing.T) {
 	for _, width := range []int{0, -1, -100} {
 		got := wrapLine("texto que no cabe", width)
@@ -79,9 +55,7 @@ func TestWrapLineConAnchoNoPositivoNoPierdeTexto(t *testing.T) {
 	}
 }
 
-// TestWrapLineExactoEnElAnchoNoParte: una linea que ya cabe exactamente no se
-// parte. Si se partiera, apareceria un chunk de ancho cero y la caja ganaria
-// una linea en blanco espuria.
+// An exact fit must not split, or a zero-width chunk appears and the box gains a spurious blank line.
 func TestWrapLineExactoEnElAnchoNoParte(t *testing.T) {
 	got := wrapLine("abcde", 5)
 
@@ -90,10 +64,7 @@ func TestWrapLineExactoEnElAnchoNoParte(t *testing.T) {
 	}
 }
 
-// TestWrapLineCierraElEstiloEnCadaChunk: al partir una linea con color hay que
-// cerrar el SGR al final de cada trozo. Si no, el color se fuga a la linea
-// siguiente y a todo lo que se dibuje despues — el sintoma clasico de "el
-// borde de la caja sale del color del texto".
+// Each chunk must close its SGR, otherwise the colour leaks into the next line and everything drawn after it.
 func TestWrapLineCierraElEstiloEnCadaChunk(t *testing.T) {
 	const sgr = "\033[31m"
 	got := wrapLine(sgr+"abcdef", 3)
@@ -114,11 +85,8 @@ func TestWrapLineCierraElEstiloEnCadaChunk(t *testing.T) {
 	}
 }
 
-// TestWrapLineTrasUnResetNoArrastraElEstilo: "rojo resets, luego azul" no puede
-// salir con el segundo tramo en rojo. El reset tiene que cerrar el estilo
-// activo aunque todavia queden caracteres por delante.
+// "ab" in red, reset, "cd" in blue, and "cd" does not fit in 2, so it splits.
 func TestWrapLineTrasUnResetNoArrastraElEstilo(t *testing.T) {
-	// "ab" en rojo, reset, "cd" en azul, y "cd" no cabe en 2 -> se parte.
 	got := wrapLine("\033[31mab\033[0m\033[34mcd", 2)
 
 	if len(got) != 2 {
@@ -132,8 +100,6 @@ func TestWrapLineTrasUnResetNoArrastraElEstilo(t *testing.T) {
 	}
 }
 
-// TestWrapLineSinEstiloNoInyectaReset: una linea sin ANSI no puede ganar un
-// "\033[0m" del nada, o el terminal recibiria resets espurios.
 func TestWrapLineSinEstiloNoInyectaReset(t *testing.T) {
 	got := wrapLine("abcdef", 2)
 
@@ -144,9 +110,7 @@ func TestWrapLineSinEstiloNoInyectaReset(t *testing.T) {
 	}
 }
 
-// TestWrapLineDeVaciaDevuelveUnChunkVacio: la cadena vacia debe dar UN chunk
-// vacio, no cero chunks. El consumidor (buildContentLines) cuenta los chunks
-// para saber cuantas lineas dibujo; cero chunks haria desaparecer la fila.
+// One empty chunk, not zero: buildContentLines counts chunks to decide how many rows to draw, so zero would erase the row.
 func TestWrapLineDeVaciaDevuelveUnChunkVacio(t *testing.T) {
 	got := wrapLine("", 5)
 
@@ -155,10 +119,7 @@ func TestWrapLineDeVaciaDevuelveUnChunkVacio(t *testing.T) {
 	}
 }
 
-// TestIsResetStyle: el reset se escribe de dos formas y ambas son legitimas
-// ("\x1b[0m" explicito y "\x1b[m" corto, que es lo que emite lipgloss). Si
-// isResetStyle no reconociera la forma corta, el estilo activo nunca se
-// limpiaria y un texto sin color heredaria el color del anterior.
+// lipgloss emits the short "\x1b[m" form, so isResetStyle must recognise both or a style-less text inherits the previous colour.
 func TestIsResetStyle(t *testing.T) {
 	tests := []struct {
 		name string
@@ -186,8 +147,6 @@ func TestIsResetStyle(t *testing.T) {
 	}
 }
 
-// TestParseAnsiSegments: el segmentador tiene que separar estilo y texto de
-// forma que wrapLine pueda decidir cuando abrir y cerrar el estilo activo.
 func TestParseAnsiSegments(t *testing.T) {
 	tests := []struct {
 		name string
@@ -215,16 +174,13 @@ func TestParseAnsiSegments(t *testing.T) {
 			want: []ansiSegment{{style: "\033[0m", text: ""}},
 		},
 		{
-			// Un ESC al final sin '[' no es una secuencia: es texto. Si se
-			// tratara como secuencia malformada, se perderia el caracter.
+			// A trailing ESC with no '[' is text, not a malformed sequence, so treating it as one would drop the character.
 			name: "ESC suelto al final es texto",
 			in:   "ab\033",
 			want: []ansiSegment{{style: "", text: "ab\033"}},
 		},
 		{
-			// CSI sin byte final: la secuencia no se cierra y el resto se
-			// consume como parte de ella. Es lo que hace el codigo, y el test
-			// lo fija para que un cambio futuro sea deliberado.
+			// A CSI with no final byte is consumed whole; the test pins today's behaviour so any change has to be deliberate.
 			name: "CSI sin terminador se consume entero",
 			in:   "\033[38;5",
 			want: []ansiSegment{{style: "\033[38;5", text: ""}},
@@ -246,10 +202,7 @@ func TestParseAnsiSegments(t *testing.T) {
 	}
 }
 
-// TestParseAnsiSegmentsReconstruyeLaEntrada: property test de ida y vuelta. Lo
-// que el segmentador saca tiene que volver a dar la cadena original. Es la
-// invariante que sostiene todo wrapLine: si un caracter se pierde aqui, el
-// texto de un log desaparece de la caja sin que nada falle.
+// Round-trip: losing a character here silently drops log text from the box, which is the invariant that holds all of wrapLine up.
 func TestParseAnsiSegmentsReconstruyeLaEntrada(t *testing.T) {
 	inputs := []string{
 		"",

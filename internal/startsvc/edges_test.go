@@ -14,23 +14,7 @@ import (
 	"vroom/internal/state"
 )
 
-// ---------------------------------------------------------------------------
-// Los caminos de error de Start y de la capa de rutas.
-//
-// Start es el camino que ejecuta un comando del usuario, y cada uno de sus
-// errores dice algo distinto: no se pudo reservar un puerto, no se pudo escribir
-// el intento en disco, el servicio murió antes de resolver su puerto, el nombre de
-// ruta no es utilizable. Confundirlos hace que el agente pruebe a arreglar lo que
-// no está roto.
-//
-// Y hay un caso que merece nombre propio: cuando el servicio muere durante el
-// arranque, hay que DEVOLVER el puerto reservado. No hacerlo no es una fuga
-// pequeña —el set de puertos dinámicos crece hasta agotarse y el siguiente
-// arranque falla con "no free port in range" para puertos que están libres—.
-// ---------------------------------------------------------------------------
-
-// failingManager falla en Start, para provocar el fallo del arranque sin tocar
-// disco ni procesos.
+// failingManager is a pure double that fails Start, so the failure path runs without touching disk or spawning a process.
 type failingManager struct {
 	process.Manager
 	err error
@@ -40,8 +24,7 @@ func (m failingManager) Start(process.StartSpec) (process.StartResult, error) {
 	return process.StartResult{}, m.err
 }
 
-// degradingRegistrar devuelve un alta que se ESCRIBIÓ pero que no se ha podido
-// comprobar: el caso del proxy parado, que es el más común de los degradados.
+// degradingRegistrar is an Apply that was written but never verified (stopped proxy), so Registered and Succeeded stay distinct.
 type degradingRegistrar struct{ reconciled []string }
 
 func (r *degradingRegistrar) Apply(name string, port int, own portless.Ownership) portless.Result {
@@ -59,19 +42,10 @@ func (r *degradingRegistrar) Reconcile(prev string, own portless.Ownership, now 
 	return nil
 }
 
-// TestStartDevuelveElPuertoReservadoSiElHijoNuncaLlego: la reserva se devuelve
-// al set cuando el proceso no arranca.
-//
-// Es una fuga silenciosa si no se devuelve: el puerto queda marcado como
-// reservado para siempre, y tras suficientes arranques fallidos el set se agota
-// y `vroom start` falla con "no free port in range" para puertos que están
-// libres de verdad.
 func TestStartDevuelveElPuertoReservadoSiElHijoNuncaLlego(t *testing.T) {
 	root := t.TempDir()
 	store := state.NewStoreAt(t.TempDir())
 
-	// Con port_mode dynamic el intento reserva un puerto; si el spawn falla, ese
-	// puerto tiene que volver al set.
 	m := failingManager{err: errors.New("no such file or directory")}
 	_, err := Start(Request{
 		Manifest:   &manifest.Manifest{Name: "svc", Command: "./no-existe", PortMode: manifest.PortModeDynamic},
@@ -85,9 +59,7 @@ func TestStartDevuelveElPuertoReservadoSiElHijoNuncaLlego(t *testing.T) {
 		t.Fatal("un comando que no se puede lanzar debería fallar el arranque")
 	}
 
-	// La prueba de que el puerto volvió: el mismo puerto tiene que poder
-	// reservarse otra vez. No se mira el set por dentro (eso probaría la
-	// implementación); se reserva y se compara.
+	// Proves the release by re-reserving rather than by inspecting the pool: peeking would test the implementation.
 	again, rerr := process.ReservePort()
 	if rerr != nil {
 		t.Fatalf("no se pudo reservar un puerto después del fallo: %v", rerr)
@@ -95,12 +67,7 @@ func TestStartDevuelveElPuertoReservadoSiElHijoNuncaLlego(t *testing.T) {
 	process.ReleasePort(again)
 }
 
-// TestStartSinPuertoReservadoNoFiltraNadaSinReserva: en port_mode fixed no hay
-// reserva que devolver, y el fallo del spawn no puede tocar el set de puertos.
-//
-// El caso contrario del anterior: si `ReleasePort(0)` se llamara, el set
-// conservaría un 0 que luego `samePorts` y `containsPid` tratan como "puerto
-// desconocido".
+// A fixed-port start has no reservation to release, and feeding back a 0 would poison the pool: samePorts and containsPid read 0 as "unknown port".
 func TestStartSinPuertoReservadoNoFiltraNadaSinReserva(t *testing.T) {
 	root := t.TempDir()
 	store := state.NewStoreAt(t.TempDir())
@@ -117,8 +84,6 @@ func TestStartSinPuertoReservadoNoFiltraNadaSinReserva(t *testing.T) {
 	if err == nil {
 		t.Fatal("el fallo del spawn tiene que propagarse")
 	}
-	// El pool sigue usable: si se hubiera metido un 0, el siguiente ReservePort
-	// podría devolver algo raro.
 	p, rerr := process.ReservePort()
 	if rerr != nil || p <= 0 {
 		t.Errorf("el set de puertos quedó dañado: ReservePort = %d, %v", p, rerr)
@@ -127,18 +92,7 @@ func TestStartSinPuertoReservadoNoFiltraNadaSinReserva(t *testing.T) {
 	}
 }
 
-// TestStartPropagaElFalloDeGuardarElIntentoConPuertoReservado: si el intento no se
-// puede escribir en disco, el arranque falla Y el puerto NO se devuelve.
-//
-// La segunda mitad va contra la intuición y es la importante. El hijo ya está
-// vivo y usando ese puerto; devolverlo al set reabre la carrera por el mismo
-// puerto, y otro servicio podría ocuparlo mientras este sigue vivo —quedando dos
-// procesos con un puerto—. La reserva se queda hasta el stop, como cualquier
-// otra, y el usuario recibe un arranque fallido que puede reintentar.
-//
-// El fallo se provoca con services/<hash> ocupado por un FICHERO: SaveMeta hace
-// MkdirAll de ese directorio y falla. Es un fallo que no depende del uid, así que
-// no hace falta saltarse como con los permisos.
+// Counter-intuitive on purpose: when SaveMeta fails the child already holds the port, so releasing it would race another service onto that port while this one is still alive.
 func TestStartPropagaElFalloDeGuardarElIntentoConPuertoReservado(t *testing.T) {
 	root := t.TempDir()
 	store := state.NewStoreAt(t.TempDir())
@@ -164,8 +118,6 @@ func TestStartPropagaElFalloDeGuardarElIntentoConPuertoReservado(t *testing.T) {
 		t.Logf("el error no nombra el directorio de servicio: %q", err)
 	}
 
-	// Y el pool sigue sano: si la reserva se hubiera devuelto dos veces o con un
-	// 0, el siguiente ReservePort podría devolver algo raro.
 	p, rerr := process.ReservePort()
 	if rerr != nil || p <= 0 {
 		t.Errorf("el set de puertos quedó dañado: ReservePort = %d, %v", p, rerr)
@@ -174,23 +126,15 @@ func TestStartPropagaElFalloDeGuardarElIntentoConPuertoReservado(t *testing.T) {
 	}
 }
 
-// TestApplyRouteConNombreNoUtilizableAvisaYNoPropagaElError: un nombre de ruta
-// que portless no acepta es un AVISO, y el servicio sigue arrancado.
-//
-// Es el contrato de la ruta: una ruta es una dirección, no una dependencia. Si el
-// nombre no vale, el servicio se queda en su puerto y el usuario recibe un aviso;
-// si fuera un error duro, `vroom start` no arrancaría nada por un detalle del
-// nombre de la ruta.
+// A route is an address, not a dependency: an unusable name must only warn, or one bad name would block the whole start.
 func TestApplyRouteConNombreNoUtilizableAvisaYNoPropagaElError(t *testing.T) {
 	req := Request{
 		Manifest: &manifest.Manifest{
 			Name: "svc", RouteMode: manifest.RouteModeNamed,
-			RouteName: "!!!", // no es un hostname utilizable
+			RouteName: "!!!", // not a usable hostname
 		},
 		Branch: "main",
-		// Routes NO puede ser nil: sin él applyRoute sale antes de derivar el
-		// nombre, y este test comprobaría el guard de route_mode = "off" en vez
-		// del nombre inválido.
+		// Routes must not be nil: without it applyRoute exits before deriving the name and this would test the route_mode="off" guard instead.
 		Routes: verifiedRegistrar{},
 	}
 	meta := state.Meta{Name: "svc", Port: 8081}
@@ -204,24 +148,16 @@ func TestApplyRouteConNombreNoUtilizableAvisaYNoPropagaElError(t *testing.T) {
 	if !strings.Contains(out.Warnings[0], "portless route") {
 		t.Errorf("el aviso no explica que el problema es el nombre: %q", out.Warnings[0])
 	}
-	// Y el Meta NO se toca: sin ruta declarada no puede haber handle ni
-	// propiedad, y escribir uno haría que el stop intentara retirar algo
-	// que nunca se registró.
+	// Meta must stay untouched: with no accepted name there is no handle or ownership, or stop would try to revoke a route that was never registered.
 	if meta.RouteName != "" || meta.RouteOwned {
 		t.Errorf("el Meta se modificó sin ruta válida: %+v", meta)
 	}
 }
 
-// TestApplyRouteSinRegistrarNoAbrePortless: route_mode = off no habla con
-// portless en absoluto.
-//
-// Es la puerta de compatibilidad hacia atrás: un manifiesto que no declara ruta
-// tiene que comportarse exactamente como antes de que existiera el código de
-// rutas, y eso incluye no buscar el binario ni el state dir del desarrollador.
 func TestApplyRouteSinRegistrarNoAbrePortless(t *testing.T) {
 	req := Request{
 		Manifest: &manifest.Manifest{Name: "svc", Port: 8081},
-		// Routes == nil, que es lo que hace ClientFor cuando no hay contrato.
+		// Routes nil is what ClientFor yields when there is no route contract.
 	}
 	meta := state.Meta{Name: "svc", Port: 8081}
 	out := Result{}
@@ -236,13 +172,7 @@ func TestApplyRouteSinRegistrarNoAbrePortless(t *testing.T) {
 	}
 }
 
-// TestApplyRouteEscribeLaUrlSoloSiLaVerifico: una ruta registrada pero no
-// verificada NO persiste URL.
-//
-// Es la misma lección del campo `port_verified` del JSON, aplicada al Meta: una
-// URL que nadie ha visto funcionar es peor que ninguna, porque quien la lea se
-// conecta a otra cosa. Un Meta en disco con la URL puesta se lo lee alguien más
-// —el TUI, un `vroom list` posterior, la reconciliación del siguiente arranque—.
+// Same rule as the port_verified JSON field: a URL nobody saw working is worse than none, because a later reader (TUI, vroom list, next reconcile) connects to something else.
 func TestApplyRouteEscribeLaUrlSoloSiLaVerifico(t *testing.T) {
 	t.Run("registrada sin verificar", func(t *testing.T) {
 		reg := &degradingRegistrar{}
@@ -259,26 +189,21 @@ func TestApplyRouteEscribeLaUrlSoloSiLaVerifico(t *testing.T) {
 		if meta.RouteURL != "" {
 			t.Errorf("RouteURL = %q sin verificación: publicaría una dirección falsa", meta.RouteURL)
 		}
-		// Pero el handle y el estado SÍ se guardan: la ruta se escribió aunque no
-		// se haya podido comprobar, y sin handle el stop no podría retirarla.
+		// The handle and status are still recorded: the route was written, so without a handle stop could never revoke it.
 		if meta.RouteName != "svc" {
 			t.Errorf("RouteName = %q: sin handle el stop no puede retirar la ruta", meta.RouteName)
 		}
 		if meta.RouteStatus == "" {
 			t.Error("RouteStatus vacío: el Meta no afirma nada del resultado de la ruta")
 		}
-		// Y la propiedad SÍ se concede: el alta ocurrió (Registered), y conceder
-		// sólo con Succeeded() sería el error opuesto — una ruta escrita con el
-		// proxy parado es nuestra de verdad, y perder su handle haría que un
-		// reinicio con el puerto movido chocara contra su propia ruta.
+		// Ownership is granted too: gating it on Succeeded() is the opposite bug, since a route written with the proxy down is ours and its handle must survive a port move.
 		if !meta.RouteOwned {
 			t.Error("RouteOwned = false con un alta que ocurrió: sin propiedad el stop no podría retirar la ruta")
 		}
-		// Y hay un aviso, porque el usuario tiene que saber que no tiene URL.
 		if len(out.Warnings) == 0 {
 			t.Error("una ruta degradada sin aviso deja al usuario sin saber por qué no tiene URL")
 		}
-		// Y la reconciliación se ejecutó ANTES del alta, con el handle anterior.
+		// Reconcile must run before Apply and carry the previous handle, or a renamed branch leaves the old route aimed at a dead port forever.
 		if len(reg.reconciled) == 0 {
 			t.Error("no se reconcilió nada: una rama renombrada dejaría la ruta vieja apuntando a un puerto muerto para siempre")
 		}
@@ -307,7 +232,7 @@ func TestApplyRouteEscribeLaUrlSoloSiLaVerifico(t *testing.T) {
 	})
 }
 
-// verifiedRegistrar devuelve un alta que se ha escrito Y se ha visto funcionar.
+// verifiedRegistrar is an Apply that was written and then seen working, so its result carries a URL.
 type verifiedRegistrar struct{}
 
 func (verifiedRegistrar) Apply(name string, port int, own portless.Ownership) portless.Result {
@@ -322,12 +247,7 @@ func (verifiedRegistrar) Apply(name string, port int, own portless.Ownership) po
 
 func (verifiedRegistrar) Reconcile(string, portless.Ownership, string) []string { return nil }
 
-// TestRouteNameDerivaDeLaRamaEnAutoYDelNombreEnNamed: los dos modos de derivar
-// el nombre, que es la función que decide qué URL tiene el servicio.
-//
-// En auto manda la RAMA, porque es lo que separa dos worktrees del mismo repo. En
-// named manda el nombre del manifiesto, porque es lo que separa dos servicios que
-// no pueden depender de en qué rama están.
+// auto keys on the branch because that is what separates two worktrees of one repo; named keys on the manifest name because two services cannot depend on their branch.
 func TestRouteNameDerivaDeLaRamaEnAutoYDelNombreEnNamed(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -366,7 +286,6 @@ func TestRouteNameDerivaDeLaRamaEnAutoYDelNombreEnNamed(t *testing.T) {
 		})
 	}
 
-	// Y un modo inválido es un error, no un nombre inventado.
 	if _, err := routeName(Request{
 		Manifest: &manifest.Manifest{Name: "api", RouteMode: "inventado"},
 		Branch:   "main",
@@ -375,12 +294,7 @@ func TestRouteNameDerivaDeLaRamaEnAutoYDelNombreEnNamed(t *testing.T) {
 	}
 }
 
-// TestDiscoveryTimeoutPorDefectoCuandoNoSeDaUno: un timeout cero o negativo usa el
-// del paquete, no el cero.
-//
-// Con timeout 0 el descubrimiento no esperaría nada y todo servicio dynamic
-// saldría `port_pending` para siempre, aunque tardase dos segundos en abrir el
-// puerto.
+// A zero or negative timeout must fall back to the package default, or every slow dynamic service would stay port_pending forever.
 func TestDiscoveryTimeoutPorDefectoCuandoNoSeDaUno(t *testing.T) {
 	root := t.TempDir()
 	store := state.NewStoreAt(t.TempDir())
@@ -390,11 +304,7 @@ func TestDiscoveryTimeoutPorDefectoCuandoNoSeDaUno(t *testing.T) {
 		Path:     root,
 		Store:    store,
 		Manager:  process.NewManager(),
-		// DiscoveryTimeout a cero a propósito: el comando es `sleep`, que no abre
-		// ningún puerto, así que el descubrimiento agota su ventana y declara
-		// no_port. Con timeout cero el bucle ni siquiera espera, y el estado
-		// seguiría siendo no_port —lo que no se distingue de "el servicio abre el
-		// puerto un segundo después".
+		// sleep opens no port, so no_port is the only possible outcome; 2s just keeps the test quick and a zero window would look identical.
 		DiscoveryTimeout: 2 * time.Second,
 		StdoutPath:       filepath.Join(root, "o.log"),
 		StderrPath:       filepath.Join(root, "e.log"),
@@ -403,10 +313,7 @@ func TestDiscoveryTimeoutPorDefectoCuandoNoSeDaUno(t *testing.T) {
 		t.Skipf("el arranque dynamic necesita un entorno con puerto disponible: %v", err)
 	}
 
-	// Un servicio que no expone puerto tiene que salir con Port 0 y un estado que
-	// lo diga. Lo que NO puede es salir con el puerto RESERVADO: sería una
-	// dirección que nadie comprobó, y es el mismo daño que publicar una URL sin
-	// verificar.
+	// Never report the reserved port as the real one: nobody probed it, the same harm as publishing an unverified URL.
 	if res.Port != 0 {
 		t.Errorf("Port = %d con un servicio que no escucha: no se puede afirmar un puerto que nadie confirmó", res.Port)
 	}
@@ -416,16 +323,14 @@ func TestDiscoveryTimeoutPorDefectoCuandoNoSeDaUno(t *testing.T) {
 	if res.Meta.PortVerified {
 		t.Error("PortVerified = true con Port 0: no se verificó ningún puerto")
 	}
-	// Y el servicio SIGUE vivo: no_port es un hecho sobre el puerto, no una
-	// declaración de que el servicio está parado.
+	// no_port is a fact about the port, not a statement that the service is down, so the pid must still be alive.
 	if res.Pid <= 0 {
 		t.Error("Pid = 0: un no_port no significa que el servicio no arranque")
 	}
 	stopOne(t, store, root)
 }
 
-// stopOne para el servicio de un root y lolimpia el Meta, para que un test que
-// arranca algo no deje procesos vivos ni puertos reservados.
+// stopOne stops whatever the test started and releases its reserved port, so a process-spawning test leaks neither.
 func stopOne(t *testing.T, store *state.Store, path string) {
 	t.Helper()
 	meta, err := store.LoadMeta(path)

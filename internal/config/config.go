@@ -1,9 +1,4 @@
-// Package config carga la configuración global de vroom desde
-// $XDG_CONFIG_HOME/vroom/config.toml (default ~/.config/vroom/config.toml),
-// con override vía $VROOM_CONFIG.
-//
-// Sin fichero se aplican los defaults; un fichero malformado devuelve
-// defaults + error (la TUI lo notifica al arrancar).
+// Package config loads vroom's global config from $VROOM_CONFIG or $XDG_CONFIG_HOME/vroom/config.toml; a missing file is not an error but a malformed one yields defaults plus Config.Err so the TUI can report it.
 package config
 
 import (
@@ -16,66 +11,39 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// FileName es el nombre del fichero de configuración global.
 const FileName = "config.toml"
 
-// defaultAskPrompt es el template con el que se prellena el input del
-// prompt de ask AI. Placeholders: {name} (nombre del
-// proyecto), {dir} (ruta del proyecto) y {logs} (directorio del servicio
-// con stdout.log/stderr.log). Vacío desactiva el prefill.
+// {name}, {dir} and {logs} are substituted; empty disables the prefill.
 const defaultAskPrompt = "Given the app {name} with logs in {logs}, "
 
-// AgentConfig define un agente de IA ejecutable:
-// plantilla de comando donde {prompt} ocupa un argumento argv completo.
 type AgentConfig struct {
 	Cmd string `toml:"cmd"`
 }
 
-// AskConfig configura la acción de ask AI (tecla a).
 type AskConfig struct {
-	// Launcher: auto | herdr | inline | custom.
-	Launcher string `toml:"launcher"`
-	// Direction del split de herdr: right | down.
-	Direction string `toml:"direction"`
-	// Target de herdr: pane | tab.
-	Target string `toml:"target"`
-	// Focus: si false, el split usa --no-focus (vroom conserva el foco).
-	Focus bool `toml:"focus"`
-	// LauncherCmd es la plantilla para launcher = "custom".
-	// Placeholders: {dir} (proyecto, quoteado), {agent} (nombre),
-	// {cmd} (comando del agente, quoteado).
+	Launcher    string `toml:"launcher"`
+	Direction   string `toml:"direction"`
+	Target      string `toml:"target"`
+	Focus       bool   `toml:"focus"`
 	LauncherCmd string `toml:"launcher_cmd"`
-	// Prompt es el template con el que se prellena el input del prompt
-	// Vacío desactiva el prefill.
-	Prompt string `toml:"prompt"`
+	Prompt      string `toml:"prompt"`
 
-	// Agents reemplaza los agentes built-in si tiene entradas.
 	Agents map[string]AgentConfig `toml:"agents"`
 }
 
-// ScannerConfig configura la búsqueda de proyectos.
 type ScannerConfig struct {
-	// Root es la ruta raíz donde buscar .vroom.toml. Vacío = CWD.
-	// Rutas relativas se resuelven respecto al CWD.
-	Root string `toml:"root"`
-	// Depth es la profundidad máxima de recursión (default 4).
-	Depth int `toml:"depth"`
+	Root  string `toml:"root"`
+	Depth int    `toml:"depth"`
 }
 
-// Config es la configuración global de vroom.
 type Config struct {
 	Ask         AskConfig         `toml:"ask"`
 	Scanner     ScannerConfig     `toml:"scanner"`
 	Keybindings map[string]string `toml:"keybindings"`
 
-	// Err acumula el error de parseo, si lo hubo (defaults aplicados).
 	Err error
 }
 
-// defaultKeybindings son las 12 acciones remapeables de la TUI con sus
-// teclas por defecto. Las teclas universales (navegación,
-// especiales) y las permanentes "/" (filter) y "!" (shell futuro) no
-// aparecen: no son remapeables.
 func DefaultKeybindings() map[string]string {
 	return map[string]string{
 		"start_stop": "s",
@@ -93,8 +61,6 @@ func DefaultKeybindings() map[string]string {
 	}
 }
 
-// reservedKeys son las teclas universales de la TUI, no remapeables
-// Navegación, especiales y las permanentes "/" y "!".
 var reservedKeys = map[string]bool{
 	"q": true, "ctrl+c": true, "esc": true, "enter": true, "tab": true,
 	"j": true, "k": true, "up": true, "down": true,
@@ -102,15 +68,11 @@ var reservedKeys = map[string]bool{
 	"/": true, "!": true,
 }
 
-// specialKeyNames son los nombres de tecla no imprimible admitidos como
-// valor de un keybinding.
 var specialKeyNames = map[string]bool{
 	"space": true, "home": true, "end": true,
 	"delete": true, "backspace": true, "left": true, "right": true,
 }
 
-// validKey reporta si key tiene el formato admitido: una
-// sola rune, ctrl+<rune> (≠ ctrl+c, reservada) o un nombre especial.
 func validKey(key string) bool {
 	if specialKeyNames[key] {
 		return true
@@ -121,8 +83,6 @@ func validKey(key string) bool {
 	return utf8.RuneCountInString(key) == 1
 }
 
-// KeyFor devuelve la tecla activa para una acción, o su default si la
-// acción no está en el mapa.
 func (c Config) KeyFor(action string) string {
 	if k, ok := c.Keybindings[action]; ok && k != "" {
 		return k
@@ -130,9 +90,7 @@ func (c Config) KeyFor(action string) string {
 	return DefaultKeybindings()[action]
 }
 
-// KeyByAction construye el mapa inverso tecla → acción a partir de los
-// bindings activos. La TUI lo precalcula al arrancar:
-// la resolución por tecla es O(1) y determinista.
+// The TUI builds this once at startup because iterating the map is not deterministic.
 func (c Config) KeyByAction() map[string]string {
 	inv := make(map[string]string, len(c.Keybindings))
 	for action, key := range c.Keybindings {
@@ -141,7 +99,6 @@ func (c Config) KeyByAction() map[string]string {
 	return inv
 }
 
-// Defaults devuelve la configuración por defecto.
 func Defaults() Config {
 	return Config{
 		Ask: AskConfig{
@@ -158,8 +115,6 @@ func Defaults() Config {
 	}
 }
 
-// Path resuelve la ruta del fichero de configuración: $VROOM_CONFIG,
-// si no $XDG_CONFIG_HOME/vroom/config.toml, si no ~/.config/vroom/config.toml.
 func Path() (string, error) {
 	if p := os.Getenv("VROOM_CONFIG"); p != "" {
 		return p, nil
@@ -174,8 +129,6 @@ func Path() (string, error) {
 	return filepath.Join(home, ".config", "vroom", FileName), nil
 }
 
-// Load lee el fichero de configuración (si existe) sobre los defaults.
-// Un fichero ausente NO es error; uno malformado sí (Config.Err).
 func Load() Config {
 	cfg := Defaults()
 	path, err := Path()
@@ -184,7 +137,7 @@ func Load() Config {
 		return cfg
 	}
 	if _, err := os.Stat(path); err != nil {
-		return cfg // sin fichero: defaults limpios
+		return cfg
 	}
 	if _, err := toml.DecodeFile(path, &cfg); err != nil {
 		return withDefaults(Config{Err: fmt.Errorf("invalid config %s: %w", path, err)})
@@ -195,7 +148,6 @@ func Load() Config {
 	return cfg
 }
 
-// Defaults rellena los campos vacíos de cfg con los valores por defecto.
 func withDefaults(cfg Config) Config {
 	if cfg.Ask.Launcher == "" {
 		cfg.Ask.Launcher = "auto"
@@ -218,7 +170,6 @@ func withDefaults(cfg Config) Config {
 	return cfg
 }
 
-// Validate aplica los enums válidos de la sección [ask].
 func (c *Config) Validate() error {
 	switch c.Ask.Launcher {
 	case "auto", "herdr", "inline", "custom":
@@ -246,10 +197,6 @@ func (c *Config) Validate() error {
 	return validateKeybindings(c.Keybindings)
 }
 
-// validateKeybindings aplica las reglas de [keybindings]: acción conocida
-// (los typos no pasan), valor con formato
-// válido, teclas reservadas no remapeables y sin colisiones entre
-// acciones.
 func validateKeybindings(kb map[string]string) error {
 	defaults := DefaultKeybindings()
 	seen := make(map[string]string, len(defaults))

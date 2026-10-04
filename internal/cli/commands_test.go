@@ -12,35 +12,9 @@ import (
 	"vroom/internal/state"
 )
 
-// ---------------------------------------------------------------------------
-// Los nueve comandos del CLI son la superficie que los agentes consumen, y antes
-// de este fichero NO SE PODÍAN PROBAR: cada uno escribía en os.Stdout y
-// llamaba a os.Exit(1) en caso de error, así que ejecutarlos en proceso mataba
-// el binario de test.
-//
-// El arreglo no fue un harness de subproceso sino devolver valores: los comandos
-// Devuelven (payload, error) y Run es el único que emite. Eso significa que
-// estos tests exerted el comando REAL contra un árbol REAL en un disco REAL, con
-// procesos reales cuando el comando arranca algo. No hay doble de scanner, ni de
-// store, ni de manager: lo que se verifica es lo que hace vroom.
-//
-// Y lo que se verifica es el JSON MARSHALLEADO, no las estructuras internas,
-// porque el JSON es el contrato. Un test que leyera campos de ProjectInfo no
-// detectaría una etiqueta mal puesta ni un campo omitido.
-// ---------------------------------------------------------------------------
+// Commands return (payload, error) with Run as the only emitter, so these tests drive the real command in-process against a real tree: no subprocess harness and no scanner, store or manager doubles.
 
-// cliEnv aísla el CLI del entorno del desarrollador y devuelve el árbol de
-// proyectos.
-//
-// El aislamiento es TOTAL y en las tres variables que el paquete lee, porque
-// las tres importan: VROOM_CONFIG evita leer la config real (que trae
-// launcher y dirección de ask), XDG_STATE_HOME evita escribir el estado real
-// (que es donde viven los PIDs) y Chdir evita escanear el directorio de trabajo
-// del developer.
-//
-// Chdir y no un --root inyectado porque `vroom` escanea el CWD por contrato:
-// un seam para la raíz haría que los tests probaran un root que ningún usuario
-// tiene.
+// Chdir rather than an injected --root because vroom scans the CWD by contract: a root seam would make the tests exercise a root no user has.
 func cliEnv(t *testing.T) string {
 	t.Helper()
 	t.Setenv("VROOM_CONFIG", filepath.Join(t.TempDir(), "ausente.toml"))
@@ -48,12 +22,7 @@ func cliEnv(t *testing.T) string {
 	return cliTree(t)
 }
 
-// cliTree crea un árbol con dos proyectos configurados y uno sin manifiesto.
-//
-// Los dos configurados son deliberadamente distintos en lo que los comandos
-// necesitan: `api` tiene command_build/command_install (para los one-shot) y
-// `web` no (para el caso de "no hay comando definido", que es un error DISTINTO
-// del de "no está configurado" y un agente los tiene que poder separar).
+// web declares no command_build/command_install so tests get the "no command defined" error, which is distinct from "not configured".
 func cliTree(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -80,27 +49,13 @@ command_install = "echo installed"
 command_start = "sleep 30"
 port = 5173
 `)
-	// Un manifiesto MALFORMADO: el directorio aparece pero no es gestionable.
-	//
-	// Y el caso que NO se puede escribir aquí es el directorio sin manifiesto:
-	// el escaneo busca .vroom.toml, así que un directorio sin él no sale. No es
-	// un límite del CLI sino del escaneo, y por eso la fila "no configurada" se
-	// produce con un manifiesto roto y no con uno ausente.
+	// A broken manifest is the only way to produce an unconfigured row: the scan only reports directories that hold a .vroom.toml, so a manifest-less directory never shows up.
 	write("roto/go.mod", "module roto\n")
 	write("roto/.vroom.toml", "name = \"roto\"\ncommand_start = [\n") // TOML roto a propósito
 	return root
 }
 
-// mustJSON marshalla v y falla el test si el comando falló o si el JSON no
-// tiene la forma esperada, devolviendo el mapa genérico.
-//
-// El error del comando se come aquí a propósito: si el comando falla, el test
-// tiene que morir en la línea de la llamada y decir qué comando era, no veinte
-// líneas más abajo con un tipo raro.
-//
-// Comparar sobre el mapa y no sobre la estructura es lo que hace que una
-// etiqueta mal puesta sea un fallo del test: una etiqueta mal puesta se ve
-// comparando el JSON, no el campo.
+// Comparing the marshalled map instead of the struct is what makes a mis-set json tag fail the test, because a tag bug shows up in the JSON and not in the field.
 func mustJSON(t *testing.T, v any, err error) map[string]any {
 	t.Helper()
 	if err != nil {
@@ -117,13 +72,7 @@ func mustJSON(t *testing.T, v any, err error) map[string]any {
 	return out
 }
 
-// actionResult es la forma de todo comando de acción (start/stop/build/install).
-//
-// Con etiquetas json DELIBERADAMENTE, y no sin ellas: sin etiqueta, encoding/json
-// empareja por nombre de campo y `exit_code` no casa con `ExitCode`, así que el
-// ExitCode de un build fallido llegaba al test como cero. Un tipo que replica el
-// de producción tiene que llevar las mismas etiquetas, o está probando otra
-// cosa.
+// The json tags are deliberate: untagged, encoding/json matches by field name, exit_code misses ExitCode, and a failed build's exit code reaches the test as zero.
 type actionResult struct {
 	OK       bool   `json:"ok"`
 	Project  string `json:"project"`
@@ -150,8 +99,6 @@ func mustAction(t *testing.T, v any, err error) actionResult {
 	return out
 }
 
-// logsPayload es LogsResult en forma de struct, para no repetir el cast en cada
-// test de logs.
 type logsPayload struct {
 	Project string `json:"project"`
 	Stdout  string `json:"stdout"`
@@ -174,7 +121,6 @@ func mustLogs(t *testing.T, v any, err error) logsPayload {
 	return out
 }
 
-// namesOfStacks devuelve los nombres de los stacks, para los mensajes de fallo.
 func namesOfStacks(stacks []orchestrate.Stack) []string {
 	out := make([]string, 0, len(stacks))
 	for _, s := range stacks {
@@ -183,16 +129,6 @@ func namesOfStacks(stacks []orchestrate.Stack) []string {
 	return out
 }
 
-// ---- dispatch: el reparto y su contrato de errores ----
-
-// TestDispatchReparteCadaComando: cada subcomando tiene que llegar a su comando.
-//
-// El reparto se prueba con la ARMA que importa —el error de --path y el de uso—
-// en todos los comandos que los comparten, porque antes el parseo estaba
-// copiado nueve veces y un fix aplicado a uno dejaba a los otros ocho con el
-// bug sin que nada lo notara. La tabla de dispatch es lo que evita esa
-// divergencia: ahora hay un solo bloque que decide, y un solo sitio donde un
-// subcomando nuevo se puede colar sin parsear.
 func TestDispatchReparteCadaComando(t *testing.T) {
 	root := cliEnv(t)
 	_ = chdirTree(t, root)
@@ -205,8 +141,7 @@ func TestDispatchReparteCadaComando(t *testing.T) {
 		{[]string{"stop", "api"}, "stopped"},
 		{[]string{"build", "api"}, "build"},
 		{[]string{"install", "api"}, "install"},
-		// logs no devuelve ActionResult: es un comando de consulta y su forma
-		// se comprueba en su propio test.
+		// logs is a query command with no ActionResult, hence the empty action.
 		{[]string{"logs", "api"}, ""},
 	}
 	for _, tt := range tests {
@@ -231,13 +166,7 @@ func TestDispatchReparteCadaComando(t *testing.T) {
 	}
 }
 
-// TestDispatchUsageYPathPorSubcomando: los dos errores de FORMA, para los cinco
-// subcomandos que comparten flags.
-//
-// El mensaje nombra el subcomando, y eso es parte del contrato: un mensaje de
-// `vroom build` que dijera "usage: vroom stop" Costaría un agente un intento
-// entero de adivinar. Por eso la tabla compose el texto y no lo repite nueve
-// veces.
+// The usage message must name the real subcommand: an agent reading "usage: vroom stop" out of a build would burn a whole guess attempt.
 func TestDispatchUsageYPathPorSubcomando(t *testing.T) {
 	root := cliEnv(t)
 	_ = chdirTree(t, root)
@@ -278,9 +207,6 @@ func TestDispatchUsageYPathPorSubcomando(t *testing.T) {
 	}
 }
 
-// TestDispatchNoArgumentsYDesconocidoVanALaTUI: los dos casos que NO son error.
-// Devolver false aquí es lo que hace que `vroom` a secas abra la TUI y que un
-// comando mal escrito no se troubleshooting como un error del CLI.
 func TestDispatchNoArgumentsYDesconocidoVanALaTUI(t *testing.T) {
 	for _, args := range [][]string{{}, {"inventado"}, {"--verbose"}, {"list2"}} {
 		payload, handled, err := dispatch(args)
@@ -296,9 +222,6 @@ func TestDispatchNoArgumentsYDesconocidoVanALaTUI(t *testing.T) {
 	}
 }
 
-// TestDispatchListaYEstadoSonElMismo: `status` es alias de `list`, y lo es por
-// el mismo case. Se fija porque un alias que un día se separe hace que dos
-// comandos que un agente cree iguales devuelvan filas distintas.
 func TestDispatchListaYEstadoSonElMismo(t *testing.T) {
 	root := cliEnv(t)
 	_ = chdirTree(t, root)
@@ -317,9 +240,6 @@ func TestDispatchListaYEstadoSonElMismo(t *testing.T) {
 	}
 }
 
-// TestDispatchAyudaSinArgsYConAlias: las tres formas de pedir la ayuda producen
-// lo mismo. Las tres están en el switch y las tres eran el mismo cuerpo, así que
-// una podría haber derivado sin que nada lo notara.
 func TestDispatchAyudaSinArgsYConAlias(t *testing.T) {
 	for _, args := range [][]string{{"help"}, {"--help"}, {"-h"}} {
 		payload, handled, err := dispatch(args)
@@ -331,8 +251,6 @@ func TestDispatchAyudaSinArgsYConAlias(t *testing.T) {
 		if !ok {
 			t.Fatalf("la ayuda no trae la tabla de comandos: %v", doc)
 		}
-		// La ayuda tiene que mencionar los comandos que existen, o un agente no
-		// puede descubrir la superficie.
 		for _, want := range []string{"vroom list", "vroom start <name|path> [--path <path>]", "vroom launch <name> --dry"} {
 			if _, ok := commands[want]; !ok {
 				t.Errorf("la ayuda no documenta %q", want)
@@ -344,15 +262,6 @@ func TestDispatchAyudaSinArgsYConAlias(t *testing.T) {
 	}
 }
 
-// ---- list ----
-
-// TestCmdListPublicaCadaFilaDelEscaneo: list tiene que publicar TODAS las filas
-// del escaneo, y cada una con su forma.
-//
-// Las tres filas del árbol son los tres casos: configurada, configurada sin
-// comandos, y presente pero sin manifiesto. Que la tercera salga es lo que
-// distingue "list" de "list de lo que se puede arrancar", y un agente que
-// saca un proyecto de la lista no puede volver a encontrarlo por nombre.
 func TestCmdListPublicaCadaFilaDelEscaneo(t *testing.T) {
 	root := cliEnv(t)
 	_ = chdirTree(t, root)
@@ -375,8 +284,6 @@ func TestCmdListPublicaCadaFilaDelEscaneo(t *testing.T) {
 		byName[p.Name] = mustJSON(t, p, nil)
 	}
 
-	// Configurada: publica comando y puerto declarado, y nada más que no haya
-	// confirmado.
 	api := byName["api"]
 	if api == nil {
 		t.Fatal("api no está en la lista")
@@ -390,12 +297,10 @@ func TestCmdListPublicaCadaFilaDelEscaneo(t *testing.T) {
 	if api["declared_port"] != float64(8081) {
 		t.Errorf("declared_port = %v, want 8081", api["declared_port"])
 	}
-	// Y no puede afirmar un puerto real si no hay meta.
 	if _, ok := api["port_verified"]; ok {
 		t.Error("un servicio sin meta no puede afirmar port_verified: eso sería un contrato que el JSON no cumple")
 	}
 
-	// Configurada sin one-shot: los campos ausentes, no cadenas vacías.
 	web := byName["web"]
 	if web == nil {
 		t.Fatal("web no está en la lista")
@@ -406,12 +311,7 @@ func TestCmdListPublicaCadaFilaDelEscaneo(t *testing.T) {
 		}
 	}
 
-	// Manifiesto roto: sale con el error del parseo y SIN contrato de puerto.
-	//
-	// Publicarla es lo que permite al agente ver que el directorio existe y no
-	// es gestionable, en vez de no verlo y deducir que no existe. Y el error de
-	// parseo es lo que le dice POR QUÉ: sin él, la fila sería indistinguible de
-	// una que se olvidó de configurar.
+	// Publishing the unmanageable row is the point: without manifest_error it would be indistinguishable from a project nobody configured.
 	roto := byName["roto"]
 	if roto == nil {
 		t.Fatal("el directorio con manifiesto roto no aparece en la lista")
@@ -429,16 +329,8 @@ func TestCmdListPublicaCadaFilaDelEscaneo(t *testing.T) {
 	}
 }
 
-// TestCmdListRespetaElRootDeLaConfig: la raíz de escaneo sale de la CONFIG, no
-// del CWD, y es lo que permite a un agente con varios roots escanear el suyo.
-//
-// Y los tres casos que hacen que esto sea una función y no una línea: un root
-// ABSOLUTO manda sobre el CWD, uno RELATIVO se resuelve contra el CWD, y uno con
-// `~` se expande contra el HOME. Los tres se equivocarían si se concatenaran a
-// ciegas, y en dos de ellos el fallo es silencioso: el escaneo simplemente
-// devuelve menos proyectos de los que hay.
+// Two of the three root forms fail silently when mishandled: the scan just returns fewer projects, so an agent reads a broken root as an empty workspace.
 func TestCmdListRespetaElRootDeLaConfig(t *testing.T) {
-	// rootTree crea un directorio con UN proyecto y devuelve su ruta.
 	rootTree := func(t *testing.T, dir, name string) {
 		t.Helper()
 		writeFile(t, filepath.Join(dir, ".vroom.toml"),
@@ -484,10 +376,7 @@ func TestCmdListRespetaElRootDeLaConfig(t *testing.T) {
 		root := cliEnv(t)
 		home := t.TempDir()
 		t.Setenv("HOME", home)
-		// Si la tilde no se expandiera, el escaneo buscaría un directorio
-		// llamado "~" relativo al CWD y no encontraría nada: cero proyectos.
-		// Un resultado de cero NO distingue "no expandí" de "no hay", así que el
-		// test exige el proyecto que sí existe bajo el HOME.
+		// Assert the project that exists, not a zero count: zero cannot distinguish a missing tilde expansion from an empty home.
 		dir := filepath.Join(home, "vroom-test-root")
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
@@ -510,9 +399,7 @@ func TestCmdListRespetaElRootDeLaConfig(t *testing.T) {
 		writeConfigScannerRoot(t, "~/no-existe-este-root")
 		t.Chdir(root)
 
-		// La diferencia es la que un agente necesita: "no hay proyectos" y "no
-		// pude mirar" son dos respuestas, y confundirlas haría que un root mal
-		// escrito pareciera un workspace vacío.
+		// A missing root must be an error, not an empty list: "no projects" and "could not look" are different answers for an agent.
 		_, err := cmdList()
 		if err == nil {
 			t.Fatal("un root inexistente debería fallar, no devolver una lista vacía")
@@ -523,10 +410,7 @@ func TestCmdListRespetaElRootDeLaConfig(t *testing.T) {
 	})
 }
 
-// writeConfigScannerRoot escribe una config con sólo [scanner]. root y depth.
-//
-// depth va explícito porque el default puede cambiar y un test que dependa del
-// default se rompe sin que nadie toque este fichero.
+// depth is explicit on purpose: a test depending on the shipped default breaks when the default changes without anyone touching this file.
 func writeConfigScannerRoot(t *testing.T, root string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "vroom.toml")
@@ -537,7 +421,6 @@ func writeConfigScannerRoot(t *testing.T, root string) {
 	t.Setenv("VROOM_CONFIG", path)
 }
 
-// mustProjects ejecuta cmdList y devuelve sus proyectos.
 func mustProjects(t *testing.T, v any, err error) []ProjectInfo {
 	t.Helper()
 	if err != nil {
@@ -558,23 +441,10 @@ func namesOf(projects []ProjectInfo) []string {
 	return out
 }
 
-// ---- errores de resolución de proyecto ----
-
-// TestComandosNoEncontradoYNoConfiguradoSonErroresDistintos: los dos fallos de
-// resolución significan cosas distintas para el agente y por eso NO pueden
-// compartir mensaje.
-//
-// "No existe" → el nombre está mal escrito o hay que usar --path.
-// "No está configurado" → el proyecto existe pero no tiene .vroom.toml válido.
-//
-// Fusionarlos obligaría al agente a listar para distinguir los dos casos, que es
-// justo lo que el mensaje existe para evitar.
 func TestComandosNoEncontradoYNoConfiguradoSonErroresDistintos(t *testing.T) {
 	root := cliEnv(t)
 	_ = chdirTree(t, root)
 
-	// Mismo error para todos los comandos que resuelven proyecto: el mensaje lo
-	// redacta findProject y es uno solo.
 	for _, name := range []string{"start", "stop", "build", "install", "logs"} {
 		_, _, err := dispatch([]string{name, "no-existe"})
 		if err == nil {
@@ -583,16 +453,13 @@ func TestComandosNoEncontradoYNoConfiguradoSonErroresDistintos(t *testing.T) {
 		if !strings.Contains(err.Error(), "project not found: no-existe") {
 			t.Errorf("%s: %q no dice que no existe el proyecto", name, err)
 		}
-		// Y el error de resolución NO lleva el prefijo de scan: son causas
-		// distintas y un agente las cuenta por separado.
+		// Resolution failures must not carry the scan prefix: an agent counts the two causes separately.
 		if strings.Contains(err.Error(), "scan error") {
 			t.Errorf("%s: un proyecto inexistente no es un fallo de escaneo: %q", name, err)
 		}
 	}
 
-	// El directorio existe pero no hay manifiesto: el mensaje lo dice, y lo dice
-	// nombrando la causa concreta, porque "no configurado" sin más no le dice al
-	// usuario que le falta crear el fichero.
+	// The message must name .vroom.toml: "not configured" alone does not tell the user which file to create.
 	_, _, err := dispatch([]string{"start", "roto"})
 	if err == nil {
 		t.Fatal("arrancar un directorio sin manifiesto debería fallar")
@@ -604,24 +471,13 @@ func TestComandosNoEncontradoYNoConfiguradoSonErroresDistintos(t *testing.T) {
 		t.Errorf("err = %q no dice QUÉ falta", err)
 	}
 
-	// build/install omiten el "missing or invalid": su mensaje histórico era más
-	// corto y es el que un agente puede tener cacheado.
+	// build/install keep the shorter message on purpose: agents may already match on it, so unifying the wording would break them.
 	_, _, err = dispatch([]string{"build", "roto"})
 	if err == nil || strings.Contains(err.Error(), ".vroom.toml") {
 		t.Errorf("build de un proyecto no configurado = %q, want el mensaje corto", err)
 	}
 }
 
-// ---- start ----
-
-// TestCmdStartArrancaYEscribeElMeta: el camino de éxito completo, verificado por
-// DOS vías independientes.
-//
-// La vía pública es el payload. La segunda es el disco: el Meta del proyecto
-// tiene que existir y llevar el PID. Importa la segunda porque un `started` con
-// el PID en el JSON y sin Meta en disco deja al siguiente `vroom list` affirmations
-// un servicio parado: el contrato se rompería en el comando SIGUIENTE, y sólo
-// se ve mirando el estado.
 func TestCmdStartArrancaYEscribeElMeta(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
@@ -657,26 +513,16 @@ func TestCmdStartArrancaYEscribeElMeta(t *testing.T) {
 		t.Errorf("meta.State = %q, want running", meta.State)
 	}
 
-	// Y hay que dejar el proceso vivo: un start que devuelve un PID ya muerto
-	// sería un start que no arrancó nada.
 	if !processAlive(t, res.Pid) {
 		t.Errorf("el PID %d ya no existe: el arranque no ocurrió", res.Pid)
 	}
 	stopService(t, store, apiPath)
 }
 
-// TestCmdStartDeUnServicioYaCorriendoEsIdempotente: un start repetido no
-// arranca un segundo proceso.
-//
-// El `action` distinto es lo que permite a un agente distinguir "lo arranqué yo"
-// de "ya estaba", y la ausencia de un PID nuevo es lo que evita duplicar.
 func TestCmdStartDeUnServicioYaCorriendoEsIdempotente(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
-	// El puerto declarado tiene que estar ABIERTO: Evaluate sólo dice "corriendo"
-	// cuando, además del PID vivo, el puerto declarado acepta. Un proceso que
-	// declara un puerto y no lo abre está vivo pero no sirviendo, y el
-	// contrato lo trata como desconocido a propósito.
+	// The declared port must be really listening: a live PID with a closed port evaluates as unknown, not running.
 	listeningService(t, root, "api", `name = "api"
 `)
 
@@ -698,7 +544,6 @@ func TestCmdStartDeUnServicioYaCorriendoEsIdempotente(t *testing.T) {
 		t.Fatal("el primer arranque no devolvió PID")
 	}
 
-	// Y sigue habiendo UN solo proceso para el proyecto.
 	meta, err := store.LoadMeta(filepath.Join(root, "api"))
 	if err != nil {
 		t.Fatal(err)
@@ -709,16 +554,10 @@ func TestCmdStartDeUnServicioYaCorriendoEsIdempotente(t *testing.T) {
 	stopService(t, store, filepath.Join(root, "api"))
 }
 
-// TestCmdStartPorPathDesambigua: dos proyectos con el MISMO nombre de manifiesto
-// se distinguen por --path, y sin él el error lo dice.
-//
-// Es el caso que hace que --path exista, y por eso se prueba por los dos lados:
-// con --path funciona, y sin él el error NOMBRA los candidatos.
 func TestCmdStartPorPathDesambigua(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
 
-	// Dos worktrees con el mismo nombre de manifiesto.
 	for _, sub := range []string{"wt-a", "wt-b"} {
 		dir := filepath.Join(root, sub)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -730,7 +569,6 @@ func TestCmdStartPorPathDesambigua(t *testing.T) {
 		}
 	}
 
-	// Sin --path: ambigüedad, con los dos paths en el mensaje.
 	_, _, err := dispatch([]string{"start", "dup"})
 	if err == nil {
 		t.Fatal("un nombre duplicado sin --path debería fallar")
@@ -748,7 +586,6 @@ func TestCmdStartPorPathDesambigua(t *testing.T) {
 		t.Errorf("el mensaje no sugiere la salida: %q", msg)
 	}
 
-	// Con --path: arranca el elegido, y el otro NO arranca.
 	payload, _, err := dispatch([]string{"start", "dup", "--path", filepath.Join(root, "wt-a")})
 	if err != nil {
 		t.Fatal(err)
@@ -773,13 +610,7 @@ func TestCmdStartPorPathDesambigua(t *testing.T) {
 	}
 }
 
-// TestCmdStartNoPublicaWarningDeportlessEnElPayload: los warnings del arranque
-// van al log de stderr del SERVICIO, no al payload.
-//
-// Es una decisión de contrato: el payload de un start es "arrancado, con este
-// PID", y mezclarle avisos de degradación haría que un agente no pudiera
-// distinguir un servicio sano de uno que arrancó con la ruta caída. El aviso
-// sigue llegando al sitio donde un humano lo lee.
+// Start warnings go to the service stderr log, never to the payload: an agent must be able to tell a healthy start from a degraded one.
 func TestCmdStartNoPublicaWarningDeportlessEnElPayload(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
@@ -790,7 +621,6 @@ func TestCmdStartNoPublicaWarningDeportlessEnElPayload(t *testing.T) {
 		t.Errorf("un arranque sin degradación no debe traer error: %q", payload.Error)
 	}
 
-	// El log de stderr del servicio existe y es un fichero real.
 	logPath := store.StderrLog(filepath.Join(root, "api"))
 	if _, err := os.Stat(logPath); err != nil {
 		t.Fatalf("no hay log de stderr del servicio: %v", err)
@@ -798,15 +628,6 @@ func TestCmdStartNoPublicaWarningDeportlessEnElPayload(t *testing.T) {
 	stopService(t, store, filepath.Join(root, "api"))
 }
 
-// ---- stop ----
-
-// TestCmdStopParaElProcesoYDejaElMetaParado: el stop tiene que hacer las DOS
-// cosas, y por separado.
-//
-// Que el proceso muera y que el Meta deje de afirmar un PID. Lo segundo es lo que
-// hace que el `list` siguiente no afirme un servicio corriendo: si el Meta se
-// queda con el PID de un proceso ya muerto, el estado evaluado sería "unknown" y
-// un agente vería un servicio que ya no existe.
 func TestCmdStopParaElProcesoYDejaElMetaParado(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
@@ -843,14 +664,7 @@ func TestCmdStopParaElProcesoYDejaElMetaParado(t *testing.T) {
 	}
 }
 
-// TestCmdStopDeUnServicioQueNoArrancoSigueSiendoExitoso: parar algo que no está
-// parado no es un error.
-//
-// Es el contrato benigno de stop: un agente que para en un bucle, o que repite
-// la orden tras un timeout en el que el servicio quizá sí arrancó, tiene que
-// poder hacerlo sin tratar un "ya estaba parado" como fallo. Y la comprobación es
-// que sale OK y con el MISMO action, para que el agente pueda cerrar el bucle sin
-// distinguir casos.
+// Stop is deliberately idempotent: an agent retrying after a timeout must not read "was already stopped" as a failure.
 func TestCmdStopDeUnServicioQueNoArrancoSigueSiendoExitoso(t *testing.T) {
 	root := cliEnv(t)
 	_ = chdirTree(t, root)
@@ -867,19 +681,7 @@ func TestCmdStopDeUnServicioQueNoArrancoSigueSiendoExitoso(t *testing.T) {
 	}
 }
 
-// TestCmdStopEjecutaElCommandStopEnElDirectorioDelProyecto: command_stop es la
-// parada GRACIOSA y se ejecuta en el directorio del PROYECTO.
-//
-// Ese directorio es lo que lo hace útil: el comando de parada de una app real
-// (volcar un fichero de estado, cerrar un socket, avisar a otro servicio) usa
-// rutas relativas, y ejecutarlo en otro sitio lo haría fallar. Se verifica por
-// el efecto —el fichero aparece junto al .vroom.toml— porque un command_stop que
-// se ejecutara pero escribiera en el directorio equivocado pasaría un test que
-// sólo comprobara el código de salida.
-//
-// Y command_stop falla con exit 7 a propósito: su fallo NO puede impedir el
-// cleanup, porque un servicio vivo con su Meta ya limpiado es peor que un
-// comando de parada que no funcionó.
+// Verified by the file that appears next to .vroom.toml, not by exit code: a stop command run in the wrong directory would still exit 0.
 func TestCmdStopEjecutaElCommandStopEnElDirectorioDelProyecto(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
@@ -901,12 +703,10 @@ command_stop = "echo parada-graciosa > parada.txt; exit 7"
 		t.Fatal("no se paró")
 	}
 
-	// El comando corrió en el directorio del proyecto.
 	if got := strings.TrimSpace(readFileString(t, filepath.Join(root, "api", "parada.txt"))); got != "parada-graciosa" {
 		t.Errorf("command_stop no escribió en el directorio del proyecto: %q", got)
 	}
 
-	// Y el proceso murió igualmente, pese al exit 7.
 	waitGone(t, started.Pid)
 	meta, err := store.LoadMeta(filepath.Join(root, "api"))
 	if err != nil {
@@ -917,8 +717,6 @@ command_stop = "echo parada-graciosa > parada.txt; exit 7"
 	}
 }
 
-// TestCmdStopDeUnProyectoSinCommandStopNoFalla: el campo es opcional, y su
-// ausencia no puede hacer fallar el stop.
 func TestCmdStopDeUnProyectoSinCommandStopNoFalla(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
@@ -938,20 +736,10 @@ func TestCmdStopDeUnProyectoSinCommandStopNoFalla(t *testing.T) {
 	}
 }
 
-// ---- one-shot: build / install ----
-
-// TestCmdOneShotEjecutaYReportaElCodigoDeSalida: build e install son
-// SÍNCRONOS, y su resultado tiene que ser el del comando, no el de vroom.
-//
-// El caso que importa es el de fallo: un `command_build` que sale 1 es un build
-// que NO se hizo, y el JSON tiene que decirlo con ok=false y exit_code=1. Un ok
-// true con el comando fallando sería el peor resultado posible: el agente
-// construiría y publicaría sin haber construido nada.
 func TestCmdOneShotEjecutaYReportaElCodigoDeSalida(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
 
-	// Fallo: exit 3 y stderr.
 	manPath := filepath.Join(root, "api", ".vroom.toml")
 	if err := os.WriteFile(manPath, []byte(`name = "api"
 command_start = "sleep 30"
@@ -979,7 +767,6 @@ command_install = "echo instalando"
 		t.Error("Elapsed vacío: el coste del comando es parte del resultado")
 	}
 
-	// El stdout del comando está en el log del servicio, mezclado con su salida.
 	out := readFileString(t, store.StdoutLog(filepath.Join(root, "api")))
 	if !strings.Contains(out, "salida-build") {
 		t.Errorf("el stdout del comando_build no llegó al log del servicio:\n%s", out)
@@ -988,13 +775,10 @@ command_install = "echo instalando"
 	if !strings.Contains(errLog, "error-build") {
 		t.Errorf("el stderr del comando_build no llegó al log del servicio:\n%s", errLog)
 	}
-	// Y el banner del comando está, que es lo que permite a un humano atribuir
-	// esa línea a un build y no al servicio.
 	if !strings.Contains(out, "vroom ▶ build") {
 		t.Errorf("falta el banner del comando en el log:\n%s", out)
 	}
 
-	// Éxito: install sale 0.
 	install_v, install_e := cmdInstall("api", "")
 	install := mustAction(t, install_v, install_e)
 	if !install.OK {
@@ -1005,12 +789,6 @@ command_install = "echo instalando"
 	}
 }
 
-// TestCmdOneShotSinComandoDefinidoEsError: un manifiesto sin command_build no es
-// un build vacío, es un error.
-//
-// La distinción importa porque un `ok:true` aquí diría "construido" de algo que
-// no tiene ni siquiera el comando. Y el mensaje Nombra el kind, porque `build` y
-// `install` son campos distintos y el agente tiene que saber cuál falta.
 func TestCmdOneShotSinComandoDefinidoEsError(t *testing.T) {
 	root := cliEnv(t)
 	_ = chdirTree(t, root)
@@ -1035,13 +813,7 @@ func TestCmdOneShotSinComandoDefinidoEsError(t *testing.T) {
 	}
 }
 
-// TestCmdOneShotRechazaUnKindDesconocido: el switch de kind es exhaustivo y este
-// es su default.
-//
-// El default no es decorativo: cmdOneShot es interno, pero el contrato de no
-// publicar un ActionResult sin comando es lo que impide que un kind nuevo
-// emita un `ok:true` sin haber ejecutado nada. El fallo tiene que ser un error,
-// nunca un resultado vacío.
+// An unknown kind must be an error, never an empty ActionResult: a new kind must not be able to emit ok:true without running a command.
 func TestCmdOneShotRechazaUnKindDesconocido(t *testing.T) {
 	root := cliEnv(t)
 	_ = chdirTree(t, root)
@@ -1055,15 +827,7 @@ func TestCmdOneShotRechazaUnKindDesconocido(t *testing.T) {
 	}
 }
 
-// ---- logs ----
-
-// TestCmdLogsLeeLosDosFlujosYLosRecorta: `logs` sin flags lee stdout y stderr;
-// con --tail recorta por LÍNEAS, no por bytes.
-//
-// Recortar por líneas es lo que evita partir una línea por la mitad, que es
-// justo lo que un agente no puede usar. Y el recorte se aplica a cada flujo por
-// separado: mezclarlos antes de recortar haría que las últimas N líneas fuesen
-// del último flujo que escribió, no las últimas N de cada uno.
+// Tail is applied per stream: merging first would make the last N lines come from whichever stream wrote last.
 func TestCmdLogsLeeLosDosFlujosYLosRecorta(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
@@ -1094,13 +858,7 @@ func TestCmdLogsLeeLosDosFlujosYLosRecorta(t *testing.T) {
 	}
 }
 
-// TestCmdLogsStreamEligeElFlujo: --stream stdout y --stream stderr devuelven UN
-// flujo y el otro vacío.
-//
-// El vacío es parte del contrato: un campo `stderr` ausente o con contenido en
-// un `vroom logs --stream stdout` haría que un agente creyera que hay errores.
-// Y un valor de stream desconocido cae en merged, que es el comportamiento
-// neutro: no se pierde nada.
+// An unknown --stream value falls back to merged, the neutral choice that loses nothing.
 func TestCmdLogsStreamEligeElFlujo(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
@@ -1139,12 +897,7 @@ func TestCmdLogsStreamEligeElFlujo(t *testing.T) {
 	}
 }
 
-// TestCmdLogsDeUnServicioSinLogsNoFalla: logs es una consulta informativa, así
-// que un log ausente o ilegible devuelve vacío y NO es un error.
-//
-// La razón es de contrato: si `vroom logs` fallara porque el servicio nunca
-// escribió nada, un agente no podría ni distinguir "no hay logs" de "el servicio
-// está mal". El proyecto sigue siendo el mismo y el estado se lee en `list`.
+// A missing or unreadable log is not an error: an agent must be able to tell "no logs" from "the service is broken".
 func TestCmdLogsDeUnServicioSinLogsNoFalla(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
@@ -1162,7 +915,6 @@ func TestCmdLogsDeUnServicioSinLogsNoFalla(t *testing.T) {
 		t.Errorf("Project = %q, want api: el nombre viene del pedido, no del log", got.Project)
 	}
 
-	// Y con el log como DIRECTORIO: tampoco es un error.
 	if err := os.MkdirAll(store.StdoutLog(apiPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1171,14 +923,7 @@ func TestCmdLogsDeUnServicioSinLogsNoFalla(t *testing.T) {
 	}
 }
 
-// TestParseLogFlagsEsPredecible: los flags mal formados degradan en vez de
-// fallar.
-//
-// `--tail` sin valor y `--stream` sin valor se ignoran; un `--tail` no numérico
-// se trata como 0. Es deliberado: el contrato es "lo que pediste, o el log
-// entero", y un error por un flag mal escrito dejaría al usuario SIN logs, que es
-// peor que darle logs de más. Y un flag desconocido se ignora, para que añadir
-// una opción no rompa las invocaciones viejas.
+// Malformed flags degrade to the whole log instead of erroring: no logs at all is worse than too many, and ignoring unknown flags keeps old invocations working.
 func TestParseLogFlagsEsPredecible(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -1210,12 +955,6 @@ func TestParseLogFlagsEsPredecible(t *testing.T) {
 	}
 }
 
-// TestLastNLinesNoParteLineasNiRompeElCasoDeTodo: la función que recorta, con
-// sus tres casos límite.
-//
-// - n <= 0 devuelve el texto entero: `tail 0` significa "todo".
-// - Más líneas de las que hay devuelve el texto entero, no un recorte parcial.
-// - Cortar recorta por línea completa, y el separador no se pierde.
 func TestLastNLinesNoParteLineasNiRompeElCasoDeTodo(t *testing.T) {
 	const doc = "uno\ndos\ntres\ncuatro"
 	tests := []struct {
@@ -1228,9 +967,7 @@ func TestLastNLinesNoParteLineasNiRompeElCasoDeTodo(t *testing.T) {
 		{"negativo es todo", doc, -1, doc},
 		{"más de las que hay", doc, 99, doc},
 		{"exactamente todas", doc, 4, doc},
-		// Sin salto final en la entrada, el recorte lo pone: el consumidor
-		// cuenta líneas por saltos, y un "cuatro" sin terminar sería media
-		// línea para quien lo lea.
+		// The trailing newline is added on purpose: consumers count lines by newlines, so an unterminated last line reads as half a line.
 		{"las dos últimas", doc, 2, "tres\ncuatro\n"},
 		{"una sola", doc, 1, "cuatro\n"},
 		{"vacío con 0", "", 5, ""},
@@ -1244,30 +981,17 @@ func TestLastNLinesNoParteLineasNiRompeElCasoDeTodo(t *testing.T) {
 		})
 	}
 
-	// Y el texto vacío entre medias no se convierte en una línea fantasma: un
-	// log con líneas en blanco conserva su conteo.
 	if got := lastNLines("a\n\n\nb", 2); got != "\nb\n" {
 		t.Errorf("lastNLines con líneas vacías = %q, want %q", got, "\nb\n")
 	}
 
-	// El caso que motiva la corrección: un log terminado en salto tiene una
-	// línea menos de la que se cree al contar. Sin el descarte del elemento
-	// final, `--tail 2` de un log de tres devolvía UNA línea —la más antigua
-	// pedida se perdía siempre—, que es un bug silencioso y del tipo que sólo
-	// aparece cuando el log tiene más de N líneas.
+	// Regression: a log ending in a newline has one line fewer than a naive count, so --tail 2 of three lines returned a single line.
 	if got := lastNLines("a\nb\nc\n", 2); got != "b\nc\n" {
 		t.Errorf("lastNLines(%q, 2) = %q, want %q", "a\nb\nc\n", got, "b\nc\n")
 	}
 }
 
-// ---- launch ----
-
-// composeStack escribe un compose file con UN stack y las etapas dadas.
-//
-// El TOML anidado ([[stack.stage]], no `stages = [...]`) es el formato que
-// ParseComposeFile acepta; la forma compacta no parsea, y el error que devuelve
-// es "must have at least one stage", que es el que hizo pensar que el bug era
-// del CLI cuando era del fichero de test.
+// The nested [[stack.stage]] TOML is what ParseComposeFile accepts; the compact stages = [...] form fails with "must have at least one stage".
 func composeStack(t *testing.T, dir, stackName string, stages ...[2]string) {
 	t.Helper()
 	var b strings.Builder
@@ -1278,19 +1002,11 @@ func composeStack(t *testing.T, dir, stackName string, stages ...[2]string) {
 	writeFile(t, filepath.Join(dir, orchestrate.ComposeFileName), b.String())
 }
 
-// TestCmdLaunchListNoEscaneaElDisco: `launch --list` sólo necesita el compose
-// file, y no el resto del disco.
-//
-// Que no escanee es una decisión: su contrato es el compose, y hacerlo depender
-// de un escaneo haría que fallara por razones que no tienen que ver con los
-// stacks. Se comprueba con dos cosas: el plan sale bien y el File del resultado
-// es la ruta ABSOLUTA, porque un agente necesita saber dónde se leyó y no puede
-// deducirlo de un cwd que no conoce.
+// File must be absolute: an agent cannot deduce where the compose was read from a cwd it never set.
 func TestCmdLaunchListNoEscaneaElDisco(t *testing.T) {
 	root := cliEnv(t)
 	t.Chdir(root)
 	composeStack(t, root, "web-tier", [2]string{"front", `"web"`})
-	// Un segundo stack, añadido al fichero aparte para no perder el helper simple.
 	appendCompose(t, root, `
 [[stack]]
 name = "todo"
@@ -1325,8 +1041,6 @@ primary_group = "tienda"
 	if filepath.Base(res.File) != orchestrate.ComposeFileName {
 		t.Errorf("File = %q no termina en el nombre del compose", res.File)
 	}
-	// Y los proyectos del árbol NO aparecen: --list no escanea. Si los añadiera,
-	// un stack vacío y un workspace vacío serían la misma respuesta.
 	for _, s := range res.Stacks {
 		if len(s.Stages) == 0 {
 			t.Errorf("el stack %q no trae etapas: se parseó a medias", s.Name)
@@ -1334,11 +1048,6 @@ primary_group = "tienda"
 	}
 }
 
-// TestCmdLaunchSinComposeDiceQueFalta: sin compose file el error lo NOMBRA.
-//
-// Un agente que recibe "not found" sin más no puede distinguir "no hay stacks" de
-// "estás en el directorio equivocado", y son dos cosas con arreglos distintos. El
-// nombre del fichero va en el mensaje porque es lo que hay que crear.
 func TestCmdLaunchSinComposeDiceQueFalta(t *testing.T) {
 	root := cliEnv(t)
 	t.Chdir(root)
@@ -1352,8 +1061,7 @@ func TestCmdLaunchSinComposeDiceQueFalta(t *testing.T) {
 	}
 }
 
-// TestCmdLaunchSinArgsDaElUso: y aquí el mensaje SÍ tiene que ser completo,
-// porque no hay ningún otro canal por el que descubrir la forma del comando.
+// Here the usage message must be complete because it is the only channel an agent has to learn the command's shape.
 func TestCmdLaunchSinArgsDaElUso(t *testing.T) {
 	root := cliEnv(t)
 	t.Chdir(root)
@@ -1369,9 +1077,6 @@ func TestCmdLaunchSinArgsDaElUso(t *testing.T) {
 	}
 }
 
-// TestCmdLaunchStackDesconocidoLoDice: FindStack redacta el error y aquí no se
-// reescribe. Lo que se comprueba es que el nombre del stack pedido aparece,
-// porque si no el agente no sabe qué está buscando.
 func TestCmdLaunchStackDesconocidoLoDice(t *testing.T) {
 	root := cliEnv(t)
 	t.Chdir(root)
@@ -1386,12 +1091,6 @@ func TestCmdLaunchStackDesconocidoLoDice(t *testing.T) {
 	}
 }
 
-// TestCmdLaunchDryNoArrancaNada: --dry devuelve el plan y NO arranca.
-//
-// Es la propiedad de la que vive --dry: un agente puede preguntar qué pasaría sin
-// cambiar nada. Se comprueba por las DOS vías, porque un payload que dijera "dry
-// run" mientras arranca el servicio sería la peor de las dos posibilidades: el
-// agente creería no haber tocado nada.
 func TestCmdLaunchDryNoArrancaNada(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
@@ -1406,7 +1105,6 @@ func TestCmdLaunchDryNoArrancaNada(t *testing.T) {
 		t.Fatal("el plan está vacío")
 	}
 
-	// Ningún servicio arrancó: sin Meta, sin PID, sin proceso.
 	webPath := filepath.Join(root, "web")
 	meta, err := store.LoadMeta(webPath)
 	if err == nil && meta.Pid != 0 {
@@ -1417,19 +1115,10 @@ func TestCmdLaunchDryNoArrancaNada(t *testing.T) {
 	}
 }
 
-// TestCmdLaunchRealArrancaLosServiciosDelStack: el camino de verdad, y la
-// diferencia con --dry es que ahora sí hay Meta y sí hay PID.
-//
-// El plan del stack es el de una etapa con dos servicios, que es lo que obliga a
-// arrancar en paralelo. Y lo que se verifica del JSON es que trae algo: un
-// `ok` sin PIDs dejaría al agente sin forma de verificar nada.
 func TestCmdLaunchRealArrancaLosServiciosDelStack(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
-	// Los dos servicios del stack declaran un puerto ABIERTO. Es lo que evita
-	// que el motor pase una ventana entera de espera por puerto que nadie va a
-	// abrir, y lo que hace que el test termine en milisegundos en vez de en el
-	// timeout del stack.
+	// Both services hold a really listening port, otherwise the engine burns a whole port-wait window and the test ends in the stack timeout.
 	listeningService(t, root, "web", "name = \"web\"\n")
 	listeningService(t, root, "api", "name = \"api\"\n")
 	composeStack(t, root, "front", [2]string{"front", `"web", "api"`})
@@ -1459,20 +1148,11 @@ func TestCmdLaunchRealArrancaLosServiciosDelStack(t *testing.T) {
 	}
 }
 
-// TestCmdLaunchConflictoDeNombresEsErrorYNoDejaProcesos: un stack que pide un
-// nombre ambiguo NO puede arrancar, y un conflicto tiene que ser un ERROR, no un
-// "ok con menos servicios".
-//
-// La mitad importante es la del no-dejar-procesos: si arrancara el primero y
-// fallara con el segundo, dejaría un proceso que nadie pidió y que nada va a
-// parar, que es exactamente el daño que el motor de orquestación existe para
-// evitar.
+// A name conflict must be an error, never an "ok with fewer services": a partial start would leave a process nobody asked for and nothing will stop it.
 func TestCmdLaunchConflictoDeNombresEsErrorYNoDejaProcesos(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
 
-	// Dos directorios con el mismo nombre de manifiesto: el stack lo pide y no
-	// hay forma de saber cuál de los dos es.
 	for _, sub := range []string{"a", "b"} {
 		writeFile(t, filepath.Join(root, sub, ".vroom.toml"),
 			"name = \"dup\"\ncommand_start = \"sleep 30\"\nport = 9001\n")
@@ -1493,7 +1173,6 @@ func TestCmdLaunchConflictoDeNombresEsErrorYNoDejaProcesos(t *testing.T) {
 	}
 }
 
-// appendCompose añade texto al compose file del directorio.
 func appendCompose(t *testing.T, dir, extra string) {
 	t.Helper()
 	path := filepath.Join(dir, orchestrate.ComposeFileName)
@@ -1501,15 +1180,8 @@ func appendCompose(t *testing.T, dir, extra string) {
 	writeFile(t, path, cur+extra)
 }
 
-// TestRunEscribeElContratoEnStdoutYElErrorEnStderr: la separación de los dos
-// flujos es el contrato entero.
-//
-// stdout es la RESPUESTA y stderr es el DIAGNÓSTICO. Un agente parsea stdout y no
-// puede parsear stderr; si el error fuera a stdout, un `vroom list` de un árbol
-// con un proyecto roto no se podría leer. Y el código 1 dice que no hay respuesta
-// que leer.
+// stdout is the response and stderr the diagnostic: an agent parses stdout only, so an error there would make a list of a tree with a broken project unreadable.
 func TestRunEscribeElContratoEnStdoutYElErrorEnStderr(t *testing.T) {
-	// El contrato, medido sobre un `Run` de verdad.
 	root := cliEnv(t)
 	_ = chdirTree(t, root)
 
@@ -1545,8 +1217,7 @@ func TestRunEscribeElContratoEnStdoutYElErrorEnStderr(t *testing.T) {
 		t.Errorf("stderr no lleva el error: %q", errBuf.String())
 	}
 
-	// Y la TUI sigue siendo el camino por defecto: sin subcomando no se emite
-	// NADA, porque lo que va a stdout cuando no hay comando es la TUI.
+	// With no subcommand nothing is emitted: stdout belongs to the TUI in that case.
 	out.Reset()
 	errBuf.Reset()
 	if handled, code := runInto(&out, &errBuf, nil); handled || code != 0 {
@@ -1557,13 +1228,8 @@ func TestRunEscribeElContratoEnStdoutYElErrorEnStderr(t *testing.T) {
 	}
 }
 
-// TestRunDelegaYNoSaleDeRangeDeErrores: Run es el shell que aplica el código. No
-// se puede ejecutar en un test cuando el comando falla —mata el proceso—, y por
-// eso lo que se fija aquí es que lo DELEGA: runInto decide y Run no lo cambia.
+// Run cannot be exercised here because it exits the process on failure and would kill the test binary, so only its delegation to runInto is pinned.
 func TestRunAplicaElCodigoDeSalida(t *testing.T) {
-	// El contrato observable sin morir: runInto devuelve 1 y Run lo aplicaría.
-	// Ejecutar Run de verdad con un fallo terminaría el binario de test, así que
-	// la parte verificable es la decisión, y la aplicación es una línea.
 	root := cliEnv(t)
 	_ = chdirTree(t, root)
 
@@ -1576,34 +1242,17 @@ func TestRunAplicaElCodigoDeSalida(t *testing.T) {
 	}
 }
 
-// TestCmdStartConElDirectorioDeServiciosInservibleNoArrancaNadaYLoDice: el fallo
-// justo antes del spawn.
-//
-// El directorio de servicio tiene que existir antes de arrancar, porque es donde van
-// los logs y el meta. Un servicio arrancado sin él deja al usuario sin nada que leer
-// cuando se rompe, que es justo cuando lo necesita.
-//
-// El provocarlo es más difícil de lo que parece: `state.NewStore()` crea
-// `base/services`, así que un store del todo inservible falla ANTES, al construir la
-// sesión, y no llega a este punto. Lo que hace falta es un store que se pueda crear
-// pero cuyo subdirectorio `services` sea un fichero —lo que pasa cuando alguien lo
-// crea a mano, o cuando un `mkdir -p` de otra cosa lo ocupa—.
 func TestCmdStartConElDirectorioDeServiciosInservibleNoArrancaNadaYLoDice(t *testing.T) {
 	root := cliEnv(t)
 	chdirTree(t, root)
 
-	// MEDIDO, y es la parte que costó encontrar: `state.NewStore()` ya crea
-	// `base/services`, así que ocupar el store entero hace fallar la SESIÓN, no este
-	// punto. Para llegar a `EnsureServiceDir` hay que ocupar el subdirectorio concreto
-	// del servicio —`<services>/<hash del path>`— con un fichero. El hash es
-	// `state.PathKey`, que es exportado justamente para poder calcularlo.
+	// MEDIDO: state.NewStore() already creates base/services, so occupying the whole store fails the session and not this point; reaching EnsureServiceDir needs a file at <services>/<hash of the path>, whose hash is state.PathKey.
 	base := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(base, "vroom", "services"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("XDG_STATE_HOME", base)
 
-	// El directorio del servicio de `api` es un fichero.
 	apiPath := filepath.Join(root, "api")
 	if err := os.WriteFile(
 		filepath.Join(base, "vroom", "services", state.PathKey(apiPath)),
@@ -1616,13 +1265,10 @@ func TestCmdStartConElDirectorioDeServiciosInservibleNoArrancaNadaYLoDice(t *tes
 	if err == nil {
 		t.Fatal("con `services` ocupado por un fichero el arranque tiene que fallar")
 	}
-	// Y el mensaje tiene que ser accionable: el usuario necesita saber qué revisar.
 	if !strings.Contains(err.Error(), "service dir") {
 		t.Errorf("err = %q, want que diga que no se pudo crear el directorio del servicio", err)
 	}
 
-	// Y no se escribió meta: si lo hubiera, el servicio constaría como arrancado y el
-	// siguiente `vroom list` lo mostraría vivo.
 	store := state.NewStoreAt(filepath.Join(base, "vroom"))
 	if _, err := store.LoadMeta(apiPath); err == nil {
 		t.Error("se escribió meta pese a no poder crear el directorio del servicio")

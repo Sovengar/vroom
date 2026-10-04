@@ -10,8 +10,6 @@ import (
 	"vroom/internal/config"
 )
 
-// newTestLauncher construye un Launcher con herdr fake: el binario
-// graba sus argv en un fichero y emite el JSON que herdr devolvería.
 func newTestLauncher(t *testing.T, cfg config.AskConfig) (*Launcher, string) {
 	t.Helper()
 	bin := t.TempDir()
@@ -45,7 +43,6 @@ func readCalls(t *testing.T, log string) []string {
 	return strings.Split(strings.TrimSpace(string(data)), "\n")
 }
 
-// auto dentro de herdr → estrategia herdr.
 func TestResolveAutoInsideHerdr(t *testing.T) {
 	l, _ := newTestLauncher(t, config.Defaults().Ask)
 	strategy, warn := l.Resolve()
@@ -54,7 +51,6 @@ func TestResolveAutoInsideHerdr(t *testing.T) {
 	}
 }
 
-// herdr explícito sin sesión → inline con warn.
 func TestResolveExplicitHerdrFallback(t *testing.T) {
 	cfg := config.Defaults().Ask
 	cfg.Launcher = "herdr"
@@ -69,7 +65,6 @@ func TestResolveExplicitHerdrFallback(t *testing.T) {
 	}
 }
 
-// Launch herdr con target=pane: split + pane run con comando quoteado.
 func TestLaunchHerdrPane(t *testing.T) {
 	l, log := newTestLauncher(t, config.Defaults().Ask)
 	msg, err := l.Launch(StrategyHerdr, req())
@@ -91,7 +86,6 @@ func TestLaunchHerdrPane(t *testing.T) {
 	}
 }
 
-// Target=tab: tab create + run en el root pane; focus=true omite --no-focus.
 func TestLaunchHerdrTab(t *testing.T) {
 	cfg := config.Defaults().Ask
 	cfg.Target = "tab"
@@ -116,7 +110,6 @@ func TestLaunchHerdrTab(t *testing.T) {
 	}
 }
 
-// Direction=down se propaga al split.
 func TestLaunchHerdrDirectionDown(t *testing.T) {
 	cfg := config.Defaults().Ask
 	cfg.Direction = "down"
@@ -129,7 +122,6 @@ func TestLaunchHerdrDirectionDown(t *testing.T) {
 	}
 }
 
-// El prompt con comillas sobrevive el shell-quoting de pane run.
 func TestShellQuote(t *testing.T) {
 	got := shellQuote([]string{"pi", "it's a 'test'"})
 	if got != `'pi' 'it'\''s a '\''test'\'''` {
@@ -137,7 +129,6 @@ func TestShellQuote(t *testing.T) {
 	}
 }
 
-// Inline: el cmd lleva el cwd del proyecto.
 func TestInlineCmd(t *testing.T) {
 	l := New(config.Defaults().Ask)
 	cmd := l.InlineCmd(req())
@@ -149,7 +140,6 @@ func TestInlineCmd(t *testing.T) {
 	}
 }
 
-// Custom: plantilla con placeholders quoteados, corre vía sh -c.
 func TestLaunchCustom(t *testing.T) {
 	cfg := config.Defaults().Ask
 	cfg.Launcher = "custom"
@@ -173,7 +163,6 @@ func TestLaunchCustom(t *testing.T) {
 	}
 }
 
-// Custom con fallo del comando → error con salida.
 func TestLaunchCustomFailure(t *testing.T) {
 	cfg := config.Defaults().Ask
 	cfg.Launcher = "custom"
@@ -184,7 +173,6 @@ func TestLaunchCustomFailure(t *testing.T) {
 	}
 }
 
-// herdr con salida sin pane_id → error claro.
 func TestLaunchHerdrBadOutput(t *testing.T) {
 	l, _ := newTestLauncher(t, config.Defaults().Ask)
 	l.run = func(string, ...string) (string, error) { return "{}", nil }

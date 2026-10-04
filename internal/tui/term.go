@@ -17,41 +17,31 @@ import (
 	xpty "github.com/charmbracelet/x/xpty"
 )
 
-// Dimensiones del modal de terminal: el grid del emulador
-// llena el interior del box, igual que el textarea del ask.
 const (
 	termMinW = 20
 	termMinH = 6
 	termMaxH = 40
 )
 
-// ptyIface es la porción de xpty.Pty que usa termSession; interfaz
-// propia para poder stubarla en tests.
+// Own interface instead of xpty.Pty so tests can stub the PTY.
 type ptyIface interface {
 	io.ReadWriteCloser
 	Resize(width, height int) error
 	Start(cmd *exec.Cmd) error
 }
 
-// termSession es una sesión de shell persistente: un PTY
-// corriendo el shell del usuario más el emulador VT que mantiene su
-// pantalla. Ocultar el modal NO la mata; solo shutdown() lo hace.
-//
-// El emulador no es thread-safe: todas sus mutaciones (Write del
-// output del pty, SendKey, Resize, Render) ocurren en el hilo de
-// Update; la goroutine pump solo lee del input pipe y escribe al PTY.
+// The VT emulator is not thread-safe: every mutation (pty output write, SendKey, Resize, Render) must stay on the Update goroutine.
 type termSession struct {
 	mu     sync.Mutex
 	pty    ptyIface
 	emu    *vt.Emulator
 	cmd    *exec.Cmd
-	dir    string // cwd fijo de la sesión (título del modal)
-	pgid   int    // process group del shell (Setsid: pgid = pid)
-	w, h   int    // dims actuales del grid
-	closed bool   // shutdown ya ejecutado
+	dir    string
+	pgid   int
+	w, h   int
+	closed bool
 }
 
-// resolveShell devuelve el shell del usuario: $SHELL o sh.
 func resolveShell() string {
 	if v := os.Getenv("SHELL"); v != "" {
 		return v
@@ -59,18 +49,7 @@ func resolveShell() string {
 	return "sh"
 }
 
-// termEnv hereda el entorno y garantiza UN TERM para el shell del PTY.
-//
-// MEDIDO (bug): el guardia era `os.Getenv("TERM") == ""`, que también es cierto
-// cuando TERM está presente pero VACÍO —un servicio, un runner de CI, un `TERM=`
-// exportado a mano—. En ese caso os.Environ() ya traía `TERM=` y el append
-// añadía un segundo `TERM=xterm-256color`: el hijo recibía dos entradas con la
-// misma clave y cuál gana no está garantizado, porque el orden del entorno no es
-// parte del contrato de exec.
-//
-// Con un TERM no vacío la descartamos antes de añadir el nuestro, que es lo que
-// hace que la variable quede definida una sola vez y con el valor que este programa
-// sabe pintar.
+// Measured bug: with TERM set-but-empty, os.Environ already carries TERM=, so appending ours yields two TERM entries and exec does not define which one wins.
 func termEnv() []string {
 	if os.Getenv("TERM") != "" {
 		return os.Environ()
@@ -78,37 +57,26 @@ func termEnv() []string {
 	env := make([]string, 0, len(os.Environ())+1)
 	for _, kv := range os.Environ() {
 		if k, _, ok := strings.Cut(kv, "="); ok && k == "TERM" {
-			continue // presente pero vacío: lo sustituimos por el nuestro
+			continue
 		}
 		env = append(env, kv)
 	}
 	return append(env, "TERM=xterm-256color")
 }
 
-// newTermSession lanza el shell del usuario (interactivo) en un PTY
-// nuevo con cwd dir.
 func newTermSession(w, h int, dir string) (*termSession, error) {
 	return startSession(w, h, dir, []string{resolveShell()})
 }
 
-// startSession es el constructor inyectable (argv explícito) para tests.
 func startSession(w, h int, dir string, argv []string) (*termSession, error) {
 	return startSessionWith(w, h, dir, argv, openRealPty)
 }
 
-// openRealPty es el PTY de verdad del sistema. Va como parámetro y no como una
-// variable global intercambiable porque el motivo por el que existe es el mismo
-// que el del argv explícito: la creación de un PTY falla de verdad —agotamiento de
-// descriptores de fichero, un `devpts` montado con el límite alcanzado— y la única
-// forma de comprobar que el error se propaga y no se traga es poder provocar el
-// fallo. Un `var` global sería un seam que además contaminaría a los tests que
-// llaman a `startSession` en paralelo.
+// A parameter and not a global var: real PTY creation fails (fd exhaustion, devpts limit) and that is the only way to test the error path without breaking parallel tests.
 func openRealPty(w, h int) (ptyIface, error) {
 	return xpty.NewPty(w, h)
 }
 
-// startSessionWith es el constructor con las dos piezas que dependen del entorno
-// inyectadas: el argv del shell y la apertura del PTY.
 func startSessionWith(w, h int, dir string, argv []string, openPty func(int, int) (ptyIface, error)) (*termSession, error) {
 	if w < 1 {
 		w = 1
@@ -118,13 +86,11 @@ func startSessionWith(w, h int, dir string, argv []string, openPty func(int, int
 	}
 	p, err := openPty(w, h)
 	if err != nil {
-		// Sin PTY no hay terminal: se devuelve el error tal cual para que el
-		// llamador lo diga y no deje una `termSession` a medio construir.
 		return nil, err
 	}
 	emu := vt.NewEmulator(w, h)
 	emu.SetScrollbackSize(1000)
-	cmd := exec.Command(argv[0], argv[1:]...) // nolint:gosec // argv deliberado del shell del usuario
+	cmd := exec.Command(argv[0], argv[1:]...) // nolint:gosec // argv is deliberately the user's own shell
 	cmd.Dir = dir
 	cmd.Env = termEnv()
 	setSessionLeader(cmd)
@@ -135,25 +101,19 @@ func startSessionWith(w, h int, dir string, argv []string, openPty func(int, int
 		return nil, err
 	}
 	if cmd.Process != nil {
-		s.pgid = cmd.Process.Pid // Setsid: el shell es líder de su grupo
+		s.pgid = cmd.Process.Pid // Setsid makes the shell a session leader, so its pgid equals its pid
 	}
 	go s.pump()
 	return s, nil
 }
 
-// pump copia el input pipe del emulador (secuencias de teclas y resize)
-// hacia el PTY. Corre hasta que el emulador se cierra (EOF).
-//
-// OJO: el mutex SOLO protege el flag closed/lifecycle, nunca se retiene
-// a lo largo de llamadas que puedan bloquear (SendKey escribe al pipe
-// y solo se desbloquea cuando pump lee; si sendKey retuviera el lock,
-// pump y sendKey se deadlockearían).
+// The mutex only guards the closed flag and is never held across a blocking call, or SendKey and this pump would deadlock on the input pipe.
 func (s *termSession) pump() {
 	buf := make([]byte, 4096)
 	for {
 		n, err := s.emu.Read(buf)
 		if n > 0 && !s.isClosed() {
-			_, _ = s.pty.Write(buf[:n]) // close concurrente → error benigno
+			_, _ = s.pty.Write(buf[:n])
 		}
 		if err != nil {
 			return
@@ -161,24 +121,19 @@ func (s *termSession) pump() {
 	}
 }
 
-// isClosed lee el flag de lifecycle bajo mutex.
 func (s *termSession) isClosed() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.closed
 }
 
-// sendKey codifica la tecla con el keymap del emulador (vt.SendKey:
-// ctrl, alt, flechas, F-keys...) y el pump la entrega al PTY. El
-// emulador solo se muta desde el hilo de Update; sin lock aquí.
 func (s *termSession) sendKey(k tea.KeyPressMsg) {
 	if s.isClosed() {
 		return
 	}
-	s.emu.SendKey(vt.KeyPressEvent(k)) // tea.KeyPressMsg → uv.KeyPressEvent (structs idénticos)
+	s.emu.SendKey(vt.KeyPressEvent(k)) // tea.KeyPressMsg -> uv.KeyPressEvent (identical structs)
 }
 
-// write vuelca bytes del PTY en el emulador (thread del Update).
 func (s *termSession) write(data []byte) {
 	if s.isClosed() {
 		return
@@ -186,33 +141,28 @@ func (s *termSession) write(data []byte) {
 	_, _ = s.emu.Write(data)
 }
 
-// resize redimensiona el emulador y el PTY (SIGWINCH al shell).
 func (s *termSession) resize(w, h int) {
 	if w < 1 || h < 1 || s.isClosed() {
 		return
 	}
-	s.w, s.h = w, h // solo el hilo de Update toca w/h
+	s.w, s.h = w, h // only the Update goroutine touches w/h
 	s.emu.Resize(w, h)
-	_ = s.pty.Resize(w, h) // close concurrente → error benigno
+	_ = s.pty.Resize(w, h)
 }
 
-// dims devuelve las dimensiones actuales del grid.
 func (s *termSession) dims() (w, h int) {
 	return s.w, s.h
 }
 
-// alive reporta si la sesión no ha sido apagada.
 func (s *termSession) alive() bool {
 	return !s.isClosed()
 }
 
-// label es el título corto de la sesión: basename del cwd fijo al crear.
 func (s *termSession) label() string {
 	return filepath.Base(s.dir)
 }
 
-// screen renderiza el grid del emulador con el cursor dibujado como
-// bloque invertido (el Render del buffer no lo incluye).
+// Render pads every line to the grid width so x never exceeds w; the min guards a disagreement, because ansi.Truncate would then cut past the line end and lose it.
 func (s *termSession) screen() string {
 	if s.isClosed() {
 		return ""
@@ -223,13 +173,6 @@ func (s *termSession) screen() string {
 	if pos.Y >= 0 && pos.Y < len(lines) {
 		line := lines[pos.Y]
 		w := lipglossWidth(line)
-		// `x` se acota al ancho de la línea en la propia expresión porque las dos
-		// medidas vienen de sitios distintos y no tienen por qué cuadrar: `x` es
-		// donde dice el emulador que está el cursor, y `w` es lo que mide lo que ha
-		// renderizado. Con ESTE emulador nunca se separan —`Render` rellena cada
-		// línea al ancho de la rejilla—, pero sin el `min` un desacuerdo haría que
-		// `ansi.Truncate` recortara desde más allá del final, se perdiera la línea
-		// entera y el bloque del cursor quedara fuera del modal.
 		x := min(pos.X, w)
 		var rest string
 		if w > x {
@@ -240,8 +183,6 @@ func (s *termSession) screen() string {
 	return strings.Join(lines, "\n")
 }
 
-// shutdown cierra el PTY (SIGHUP a la sesión) y remata el grupo con
-// SIGKILL como backstop; idempotente.
 func (s *termSession) shutdown() {
 	s.mu.Lock()
 	if s.closed {
@@ -255,10 +196,7 @@ func (s *termSession) shutdown() {
 		_ = p.Close()
 	}
 	if e != nil {
-		// Cerrar el input pipe desbloquea el Read del pump (EOF) sin
-		// pasar por emu.Close(): su flag interno `closed` se escribe
-		// sin lock y el pump lo consulta dentro de Read → data race
-		// bajo -race. io.Pipe sí es concurrency-safe.
+		// Closing the input pipe unblocks the pump's Read without emu.Close, whose internal closed flag is written unlocked and read inside Read, a data race under -race.
 		if in, ok := e.InputPipe().(io.Closer); ok {
 			_ = in.Close()
 		}
@@ -266,29 +204,20 @@ func (s *termSession) shutdown() {
 	killSessionGroup(pgid)
 }
 
-// wait espera al proceso del shell (xpty.WaitProcess: cmd.Wait en Unix,
-// reaper en Windows) para reaper sin zombie.
+// xpty.WaitProcess reaps the shell (cmd.Wait on Unix, a reaper on Windows) so a dead session leaves no zombie.
 func (s *termSession) wait() error {
 	if s.cmd == nil || s.cmd.Process == nil {
-		return nil // sesión stub/sin proceso: nada que repear
+		return nil
 	}
 	return xpty.WaitProcess(context.Background(), s.cmd)
 }
 
-// ---- Comandos y mensajes del PTY ----
-
-// ptyDataMsg transporta bytes leídos del PTY (output del shell).
 type ptyDataMsg struct{ data []byte }
 
-// ptyEOFMsg señala que el master del PTY no tiene más datos: el shell
-// (o todos sus hijos con el slave abierto) terminó.
 type ptyEOFMsg struct{}
 
-// ptyExitMsg llega tras reaper el proceso: err es el resultado de wait.
 type ptyExitMsg struct{ err error }
 
-// readPtyCmd lee del PTY una vez (loop: cada ptyDataMsg re-arma) y
-// señala EOF cuando el read no devuelve datos.
 func readPtyCmd(s *termSession) tea.Cmd {
 	return func() tea.Msg {
 		buf := make([]byte, 8192)
@@ -300,12 +229,11 @@ func readPtyCmd(s *termSession) tea.Cmd {
 	}
 }
 
-// waitCmd espera la salida del proceso fuera del hilo de Update.
 func (s *termSession) waitCmd() tea.Cmd {
 	return func() tea.Msg { return ptyExitMsg{err: s.wait()} }
 }
 
-// closeCmd apaga la sesión (para encadenar antes de tea.Quit).
+// Must be chained before tea.Quit, so the PTY is still closable while the program can act.
 func (s *termSession) closeCmd() tea.Cmd {
 	return func() tea.Msg {
 		s.shutdown()
@@ -313,8 +241,6 @@ func (s *termSession) closeCmd() tea.Cmd {
 	}
 }
 
-// quitCmd sale de la TUI matando antes la sesión de terminal viva, si
-// la hay: sin sesión es tea.Quit a secas.
 func (m Model) quitCmd() tea.Cmd {
 	if s := m.term; s != nil && s.alive() {
 		return tea.Sequence(s.closeCmd(), tea.Quit)
@@ -322,7 +248,6 @@ func (m Model) quitCmd() tea.Cmd {
 	return tea.Quit
 }
 
-// exitCode extrae el exit code de un error de wait (0 si ok).
 func exitCode(err error) int {
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
@@ -331,18 +256,11 @@ func exitCode(err error) int {
 	return 0
 }
 
-// ---- Modal de terminal (Model) ----
-
-// termW es el ancho del grid: el ancho interior del box tipo ask.
 func (m Model) termW() int {
-	// El suelo va en la expresión, no en un `if`: es una decisión de este modal, no
-	// una consecuencia del de `ask`. `askInnerW` tiene el suyo (28, por el
-	// textarea), y éste es aparte: si aquél baja, la rejilla del terminal tiene que
-	// seguir siendo usable, y no puede depender de que aquél no cambie.
+	// The floor is this modal's own decision, not a consequence of askInnerW's, so the grid stays usable if ask's floor ever drops.
 	return max(askInnerW(m.width), termMinW)
 }
 
-// termH es el alto del grid: la pantalla menos título/hint/bordes.
 func (m Model) termH() int {
 	h := m.height - 8
 	if h > termMaxH {
@@ -354,8 +272,6 @@ func (m Model) termH() int {
 	return h
 }
 
-// termCwdLabel es el cwd que usará la sesión: proyecto seleccionado o
-// root del workspace.
 func (m Model) termCwdLabel() string {
 	if p := m.selected(); p != nil {
 		return p.Name
@@ -363,7 +279,6 @@ func (m Model) termCwdLabel() string {
 	return filepath.Base(m.root)
 }
 
-// termCwd es el directorio de trabajo de la sesión nueva.
 func (m Model) termCwd() string {
 	if p := m.selected(); p != nil {
 		return p.Path
@@ -371,9 +286,7 @@ func (m Model) termCwd() string {
 	return m.root
 }
 
-// openTerm abre el modal de terminal (tecla !): si ya hay una
-// sesión viva la re-muestra (y re-dimensiona si cambió el layout); si
-// no, crea la sesión con cwd = proyecto seleccionado o root.
+// An already-live session is only re-shown and resized, never restarted: hiding the modal must not kill the user's shell.
 func (m Model) openTerm() (tea.Model, tea.Cmd) {
 	w, h := m.termW(), m.termH()
 	if s := m.term; s != nil && s.alive() {
@@ -391,16 +304,11 @@ func (m Model) openTerm() (tea.Model, tea.Cmd) {
 	m.term = s
 	m.termOpen = true
 	m.clearMessage()
-	// Loop de lectura + reaper del proceso desde el arranque: el master
-	// del PTY NO emite EOF al morir el shell mientras
-	// el propio pty sostiene el slave, así que la salida se detecta
-	// por wait, no por EOF.
+	// The PTY master never emits EOF while the pty itself holds the slave open, so shell exit is detected with wait, not EOF.
 	return m, tea.Batch(readPtyCmd(s), s.waitCmd())
 }
 
-// termKey captura las teclas mientras el modal está abierto: todo va
-// al PTY vía el keymap del emulador; solo ctrl+q es de
-// vroom (oculta el modal, la sesión sigue viva).
+// ctrl+q is the only vroom key: it hides the modal and leaves the session running.
 func (m Model) termKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	kp, ok := msg.(tea.KeyPressMsg)
 	if !ok {
@@ -416,8 +324,6 @@ func (m Model) termKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// termBox renderiza el modal: título con el cwd de la sesión, el grid
-// del emulador y el hint de ctrl+q.
 func (m Model) termBox() string {
 	innerW := m.termW()
 	var label string

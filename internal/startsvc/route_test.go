@@ -12,18 +12,15 @@ import (
 	"vroom/internal/state"
 )
 
-// fakeRoutes es el seam de portless para estos tests: el runner de CI no tiene
-// portless, ni Node 24, ni proxy, así que la suite ejercita el ciclo completo
-// contra un doble con el comportamiento MEDIDO.
+// fakeRoutes is the portless seam: CI has no portless, Node 24 or proxy, so the suite drives the whole cycle against a double.
 type fakeRoutes struct {
-	applied   []string        // "name:port" en orden de registro
-	prevPorts []int           // el puerto persistido que recibió cada Apply
-	warns     []string        // lo que devuelve Reconcile
-	result    portless.Result // lo que devuelve Apply
+	applied   []string
+	prevPorts []int
+	warns     []string
+	result    portless.Result
 }
 
-// Apply devuelve SIEMPRE el nombre que recibió, que es lo que el cliente real
-// hace: el nombre pretendido es un dato de entrada, no del resultado.
+// Apply always echoes the requested name, as the real client does: the intended name is input, never something the result decides.
 func (f *fakeRoutes) Apply(name string, port int, prev portless.Ownership) portless.Result {
 	f.applied = append(f.applied, name+":"+itoaTest(port))
 	f.prevPorts = append(f.prevPorts, prev.Port)
@@ -55,7 +52,7 @@ func itoaTest(n int) string {
 	return string(b)
 }
 
-// registeredAt es el resultado de una ruta que se ha registrado y verificado.
+// registeredAt is a registered AND verified result; its port argument is a placeholder that Apply overwrites.
 func registeredAt(port int) portless.Result {
 	return portless.Result{
 		Name:   "x",
@@ -66,15 +63,6 @@ func registeredAt(port int) portless.Result {
 	}
 }
 
-// ---- LA REGLA QUE GOBIERNA TODO EL SLICE ----
-
-// La salud del servicio NUNCA depende de que exista su ruta. Este test es el
-// que sostiene esa regla: con el seam de portless en sus peores formas, el
-// arranque TIENE ÉXITO y el servicio queda running.
-//
-// Es el escenario que un diseño con "fallo abierto cuando no hay portless"
-// rompería, y por eso se prueba con un proceso real, no con un mock del
-// servicio.
 func TestHealthNeverDependsOnTheRoute(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -116,8 +104,6 @@ func TestHealthNeverDependsOnTheRoute(t *testing.T) {
 	}
 }
 
-// route_mode = "off" no toca portless en absoluto: ni binario, ni shell, ni
-// ruta. Es la puerta de compatibilidad hacia atrás.
 func TestRouteModeOffNeverInvokesPortless(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
@@ -136,8 +122,6 @@ func TestRouteModeOffNeverInvokesPortless(t *testing.T) {
 	}
 }
 
-// El punto único de enganche: se registra DESPUÉS del discovery, y la ruta
-// apunta al puerto REAL que la app escucha, nunca al reservado.
 func TestRouteIsRegisteredAfterDiscoveryAndPointsAtTheRealPort(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
@@ -153,7 +137,7 @@ func TestRouteIsRegisteredAfterDiscoveryAndPointsAtTheRealPort(t *testing.T) {
 	if len(routes.applied) != 1 {
 		t.Fatalf("debe registrarse exactamente una ruta, got %v", routes.applied)
 	}
-	// El puerto registrado es el REAL (d.Port), no el reservado: R4.
+	// The registered port is the resolved one, never the reserved one (R4).
 	if !strings.HasSuffix(routes.applied[0], ":"+itoaTest(out.Port)) {
 		t.Errorf("la ruta debe apuntar al puerto real %d, got %q", out.Port, routes.applied[0])
 	}
@@ -165,8 +149,6 @@ func TestRouteIsRegisteredAfterDiscoveryAndPointsAtTheRealPort(t *testing.T) {
 	}
 }
 
-// La app ignora el puerto que vroom le inyecta y hace bind en otro sitio: la
-// ruta debe seguir al puerto que la app REALMENTE escucha.
 func TestRoutePointsAtWhereTheAppActuallyListens(t *testing.T) {
 	f := newFixture(t)
 	own := freePort(t)
@@ -191,8 +173,6 @@ func TestRoutePointsAtWhereTheAppActuallyListens(t *testing.T) {
 	}
 }
 
-// Un servicio SIN puerto resuelto no recibe ruta: publicar una dirección a un
-// puerto que nadie escucha sería una mentira.
 func TestNoRouteWithoutAResolvedPort(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "udp-only")
@@ -216,8 +196,6 @@ func TestNoRouteWithoutAResolvedPort(t *testing.T) {
 	}
 }
 
-// El puerto sin resolver (discovery agotado) tampoco publica ruta, y el
-// motivo lo dice.
 func TestNoRouteWhenPortUnresolved(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "churn")
@@ -241,8 +219,6 @@ func TestNoRouteWhenPortUnresolved(t *testing.T) {
 	}
 }
 
-// Una ruta DEGRADADA no persiste url: un Meta en disco que afirmara una
-// dirección sin verificar publicaría una mentira a quien lo leyera después.
 func TestDegradedRouteNeverPersistsAURL(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
@@ -267,8 +243,6 @@ func TestDegradedRouteNeverPersistsAURL(t *testing.T) {
 		t.Errorf("el estado debe ser degraded, got %q", out.Meta.RouteStatus)
 	}
 
-	// Y el Meta en disco dice lo mismo que el Meta en memoria: la mentira, si la
-	// hubiera, sería persistente.
 	onDisk, err := f.store.LoadMeta(f.dir)
 	if err != nil {
 		t.Fatal(err)
@@ -281,8 +255,6 @@ func TestDegradedRouteNeverPersistsAURL(t *testing.T) {
 	}
 }
 
-// La reconciliación se pide ANTES del alta, y lo que devuelve llega a los
-// avisos: es el canal que ya existe, no uno nuevo.
 func TestReconcileWarningsSurfaceAsWarnings(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
@@ -309,7 +281,6 @@ func TestReconcileWarningsSurfaceAsWarnings(t *testing.T) {
 	}
 }
 
-// La ruta se deriva de la RAMA con route_mode = "auto".
 func TestRouteNameDerivedFromBranchInAutoMode(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
@@ -327,8 +298,6 @@ func TestRouteNameDerivedFromBranchInAutoMode(t *testing.T) {
 	}
 }
 
-// Con route_mode = "named" manda route_name, no la rama: es lo que un callback
-// OAuth necesita.
 func TestRouteNameUsesRouteNameInNamedMode(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
@@ -347,8 +316,6 @@ func TestRouteNameUsesRouteNameInNamedMode(t *testing.T) {
 	}
 }
 
-// El estado de la ruta NO se confunde con el del servicio en el Meta: son dos
-// campos y la salud no depende del primero.
 func TestRouteStatusDoesNotAffectServiceState(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
@@ -371,9 +338,6 @@ func TestRouteStatusDoesNotAffectServiceState(t *testing.T) {
 	}
 }
 
-// El puerto resuelto es la única verdad: la ruta se construye desde él. Si
-// alguien la construyera desde el reservado, el servicio arrancaría con una
-// dirección que no sirve nada.
 func TestRouteNeverUsesTheReservedPort(t *testing.T) {
 	f := newFixture(t)
 	own := freePort(t)
@@ -399,9 +363,7 @@ func TestRouteNeverUsesTheReservedPort(t *testing.T) {
 	}
 }
 
-// El helper de test no puede dejar procesos vivos: es lo que el guard de
-// higiene de este paquete verifica al terminar la suite, y estos tests lanzan
-// hijos reales.
+// The fixture must leave no live children: this is what the package hygiene guard checks at suite end, and these tests spawn real children.
 func TestFixtureKillsItsChildren(t *testing.T) {
 	if !filepath.IsAbs(os.Args[0]) {
 		t.Fatal("el binario de test debe tener ruta absoluta")

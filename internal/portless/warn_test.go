@@ -14,43 +14,14 @@ import (
 	"vroom/internal/manifest"
 )
 
-// ---------------------------------------------------------------------------
-// Warn estaba al 18.2%: un solo caso probado (el de Node viejo). Es la función
-// que traduce una degradación al texto que el usuario lee, y cada motivo existe
-// porque SIGNIFICA algo distinto para quien depura:
-//
-//   - el binario no está      -> el entorno, no vroom
-//   - el binario tardó        -> portless colgado
-//   - el binario falló        -> Node viejo, el caso medido
-//   - no hay proxy           -> portless no está en marcha
-//   - el puerto no acepta    -> el proxy declara un puerto muerto
-//   - el nombre está ocupado -> hay otro dueño, y la ruta no se tocó
-//   - el puerto no está       -> el bind no se resolvió todavía
-//   - no se sirve la ruta     -> la ruta está escrita pero nadie la enruta
-//
-// Con un solo caso probado, un texto equivocado en los otros siete pasaría: el
-// aviso es lo único que dice qué pasó, y un aviso que no lo dice es ruido.
-//
-// Se comprueba lo que el aviso PROMETE, no que exista: cada motivo tiene que
-// decir qué pasó Y que el servicio sigue en su puerto, porque la ausencia de
-// ruta no es una caída y el usuario tiene que poder distinguirlo de un vistazo.
-// ---------------------------------------------------------------------------
-
-// TestWarnNombraCadaMotivoYPrometeElPuerto: tabla sobre TODOS los motivos
-// declarados, incluidos los dos que ninguna ruta de código produce hoy
-// (ReasonInvalidName y un motivo desconocido), porque un `default` mal escrito
-// es justo lo que se cuela cuando solo se prueba lo que ya se sabe que pasa.
+// Every declared reason is tabulated, including ReasonInvalidName and an unknown one, because a miswritten default only shows up when tested.
 func TestWarnNombraCadaMotivoYPrometeElPuerto(t *testing.T) {
 	tests := []struct {
 		reason string
 		host   string
-		// mustContain son fragmentos que el aviso TIENE que llevar para
-		// identificar el fallo concreto.
+		// Fragments the warning MUST carry: its text is the only thing telling the user what failed, and no other layer pins it.
 		mustContain []string
-		// wantPortPromise si el aviso tiene que decir que el servicio sigue
-		// vivo en su puerto. False para los motivos donde la ruta ni se
-		// intentó (puerto sin resolver), porque ahí el servicio aún no ha
-		// confirmado su puerto y prometerlo sería mentir.
+		// wantPortPromise is false only for port_unresolved: the service has not confirmed a port yet, so promising it would be a lie.
 		wantPortPromise bool
 	}{
 		{
@@ -95,17 +66,11 @@ func TestWarnNombraCadaMotivoYPrometeElPuerto(t *testing.T) {
 			wantPortPromise: true,
 		},
 		{
-			// Motivo desconocido: el default tiene que seguir siendo util.
-			// Si no, un motivo nuevo que se añada a Result y se olvide en Warn
-			// produciría un aviso vacio o mudo.
 			reason:          "algo_raro_nuevo",
 			mustContain:     []string{"algo_raro_nuevo"},
 			wantPortPromise: true,
 		},
 		{
-			// ReasonInvalidName existe como constante y ningun camino lo
-			// publica todavia. El default tiene que cubrirlo igual, porque
-			// puede aparecer hoy.
 			reason:          ReasonInvalidName,
 			mustContain:     []string{ReasonInvalidName},
 			wantPortPromise: true,
@@ -131,9 +96,6 @@ func TestWarnNombraCadaMotivoYPrometeElPuerto(t *testing.T) {
 	}
 }
 
-// TestWarnSilenciosoSinMotivo: sin motivo no hay nada que avisar. Es el caso
-// normal de un servicio|Published con éxito, y un aviso ahí sería ruido que
-// empuja al usuario a buscar un problema que no existe.
 func TestWarnSilenciosoSinMotivo(t *testing.T) {
 	for _, r := range []Result{
 		{Name: "svc", Status: StatusRegistered, Registered: true},
@@ -146,29 +108,18 @@ func TestWarnSilenciosoSinMotivo(t *testing.T) {
 	}
 }
 
-// TestWarnNombraElHostEnConflicto: el conflicto es el ÚNICO motivo cuyo aviso
-// lleva el nombre de la ruta, y es el que más necesita llevarlo: es el aviso
-// que dice "este nombre lo tiene otro en OTRO puerto", y sin el nombre el
-// usuario no puede ir a mirar nada.
 func TestWarnNombraElHostEnConflicto(t *testing.T) {
 	got := Warn(Result{Name: "svc", Host: "tienda.localhost", Reason: ReasonRouteConflict})
 
 	if !strings.Contains(got, "tienda.localhost") {
 		t.Errorf("el aviso de conflicto no nombra la ruta: %q", got)
 	}
-	// Y tiene que decir que la ruta se dejó intacta: es lo que evita que el
-	// usuario la borre a mano y rompa al dueño real.
+	// It must also say the route was left untouched, or the user deletes it by hand and breaks the real owner.
 	if !strings.Contains(got, "left untouched") {
 		t.Errorf("el aviso de conflicto no dice que la ruta quedó intacta: %q", got)
 	}
 }
 
-// TestClassifyTraduceCadaError: classify decide qué motivo se publica, y es lo
-// que luego Warn traduce a texto. Un classify equivocado hace que el usuario
-// lea "el puerto no está resuelto" cuando lo que pasó es que el binario tardó.
-//
-// Se cubren los errores por los que se llega aqui: los del binario (via exec)
-// y los del cliente (timeout del contexto, proxy parado).
 func TestClassifyTraduceCadaError(t *testing.T) {
 	tests := []struct {
 		name string
@@ -194,11 +145,7 @@ func TestClassifyTraduceCadaError(t *testing.T) {
 	}
 }
 
-// TestIsMissingBinaryDistingueAusenteDeRoto: es la razon por la que existe esa
-// funcion, segun su propio comentario: con una RUTA que no existe,
-// exec.Command NO devuelve ErrNotFound sino el error de fork/exec. Confundir
-// los dos hace que el usuario depure un portless roto que no existe, o un Node
-// viejo que no es la causa.
+// A PATH that does not resolve makes exec.Command return fork/exec, not ErrNotFound, so telling the two apart is the point: missing is an install, broken is a debug session.
 func TestIsMissingBinaryDistingueAusenteDeRoto(t *testing.T) {
 	tests := []struct {
 		name string
@@ -223,10 +170,6 @@ func TestIsMissingBinaryDistingueAusenteDeRoto(t *testing.T) {
 	}
 }
 
-// TestApplySinBinarioNoResuelvePuertoNiBinario: sin binario, Apply degrada
-// inmediatamente. Lo que importa es que NO toca nada: ni busca el binario, ni
-// escribe, ni sondea. Es la degradación que un runner de CI sin portless ve en
-// cada arranque, y si intentara algo dejaría rastro en el entorno.
 func TestApplySinBinarioNoResuelvePuertoNiBinario(t *testing.T) {
 	c := New(WithBinary(""))
 
@@ -244,15 +187,11 @@ func TestApplySinBinarioNoResuelvePuertoNiBinario(t *testing.T) {
 	if r.Url != "" {
 		t.Errorf("Url = %q sin binario", r.Url)
 	}
-	// El nombre es el PRETENDIDO: siempre se rellena, haya éxito o no.
 	if r.Name != "svc" {
 		t.Errorf("Name = %q, want svc incluso degradado", r.Name)
 	}
 }
 
-// TestApplyConPuertoNoResueltoNoInventaDireccion: port <= 0 no es un fallo del
-// binario, es que el bind no se resolvió. Publicar una URL aquí sería afirmar una
-// dirección que nadie confirmó.
 func TestApplyConPuertoNoResueltoNoInventaDireccion(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
@@ -272,15 +211,9 @@ func TestApplyConPuertoNoResueltoNoInventaDireccion(t *testing.T) {
 	}
 }
 
-// TestApplyConservaElHechoRegistradoCuandoFallaLaLecturaDeVuelta: la lectura
-// de vuelta falla DESPUÉS de que el alta ocurriera. Degradar el estado no puede
-// deshacer el hecho: la ruta está escrita y es nuestra, y perder ese dato haría
-// que la reconciliación no supiera qué limpiar.
 func TestApplyConservaElHechoRegistradoCuandoFallaLaLecturaDeVuelta(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
-	// list falla a partir de la segunda llamada: la consulta previa pasa, la
-	// lectura de vuelta no.
 	calls := 0
 	realExec := f.exec
 	c.exec = func(ctx context.Context, bin string, args ...string) (string, int, error) {
@@ -304,18 +237,15 @@ func TestApplyConservaElHechoRegistradoCuandoFallaLaLecturaDeVuelta(t *testing.T
 	if r.Url != "" {
 		t.Errorf("Url = %q sin haber podido verificar", r.Url)
 	}
-	// Y el motivo tiene que ser el del fallo real, no un generico.
 	if r.Reason != ReasonPortlessFailed {
 		t.Errorf("Reason = %q, want %q", r.Reason, ReasonPortlessFailed)
 	}
 }
 
-// TestApplySinProxyDegradaPeroConservaElAlta: el caso M6 medido —el binario
-// acepta exit 0 sin proxy en marcha porque no lo contacta—. La ruta se escribe y
-// es nuestra; lo que no se puede es publicar una URL.
+// MEASURED (M6): the binary takes exit 0 with no proxy running because alias never contacts it, so the write happens and only the URL must be withheld.
 func TestApplySinProxyDegradaPeroConservaElAlta(t *testing.T) {
 	f := newFake()
-	dir := t.TempDir() // sin proxy.port: no hay proxy
+	dir := t.TempDir()
 	c := New(
 		WithBinary("/fake/portless"),
 		WithStateDir(dir),
@@ -338,14 +268,11 @@ func TestApplySinProxyDegradaPeroConservaElAlta(t *testing.T) {
 	if r.Url != "" {
 		t.Errorf("Url = %q sin proxy", r.Url)
 	}
-	// Y la ruta tiene que estar de verdad en el estado del fake.
 	if _, ok := f.routes[Hostname("svc")]; !ok {
 		t.Error("la ruta no se escribio en el binario, pero el Result dice Registered")
 	}
 }
 
-// TestApplyPublicaCuandoElProxyEnruta: el camino de éxito completo, para que los
-// degradados de arriba sean comparables con algo que sí funciona.
 func TestApplyPublicaCuandoElProxyEnruta(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
@@ -369,9 +296,6 @@ func TestApplyPublicaCuandoElProxyEnruta(t *testing.T) {
 	}
 }
 
-// TestWithReasonConservaElHechoYQuitaLaUrl: withReason es lo que mantiene
-// Registered mientras degrada. Si se equivocara al respectar el hecho, toda la
-// garantía de reconciliación se pierde en silencio.
 func TestWithReasonConservaElHechoYQuitaLaUrl(t *testing.T) {
 	base := Result{
 		Name: "svc", Host: "svc.localhost", Port: 8080,
@@ -395,16 +319,12 @@ func TestWithReasonConservaElHechoYQuitaLaUrl(t *testing.T) {
 	if got.Name != base.Name || got.Host != base.Host || got.Port != base.Port {
 		t.Errorf("withReason perdio identidad: %+v", got)
 	}
-	// Y no puede mutar la original: es un receptor por valor y los callers la
-	// reutilizan (`registered`) para los dos caminos.
+	// It must not mutate the receiver: callers reuse the original for both branches.
 	if base.Status != StatusRegistered || base.Url == "" {
 		t.Errorf("withReason muto el receptor original: %+v", base)
 	}
 }
 
-// TestReleaseConNombreVacioRevocaSinTocarNada: no había nada nuestro que
-// retirar, luego sí se revoca. Es lo que evita que un stop de un servicio que
-// nunca tuvo ruta deje la propiedad puesta.
 func TestReleaseConNombreVacioRevocaSinTocarNada(t *testing.T) {
 	called := false
 	r := ReleaserFunc(func(string) error { called = true; return nil })
@@ -417,9 +337,7 @@ func TestReleaseConNombreVacioRevocaSinTocarNada(t *testing.T) {
 	}
 }
 
-// TestReleaseRevocaConRutaAusente: ErrRouteAbsent SÍ revoca, porque la ruta no
-// está que es justo lo que se quería. Un fallo real NO revoca, o la ruta
-// quedaría huérfana sin nadie que la limpie.
+// ErrRouteAbsent revokes because the route is gone, which is what was wanted; a real failure does not, or the route stays orphan with nobody to clean it.
 func TestReleaseRevocaConRutaAusente(t *testing.T) {
 	tests := []struct {
 		name string
@@ -442,14 +360,11 @@ func TestReleaseRevocaConRutaAusente(t *testing.T) {
 	}
 }
 
-// failingReleaserWith devuelve siempre el mismo error.
 type failingReleaserWith struct{ err error }
 
 func (f failingReleaserWith) RemoveAbsent(string) error { return f.err }
 
-// TestReleaserFuncAdaptaUnaFuncion: el adaptador existe para que un test pueda
-// pasar una closure. Sin ejercitarlo, el seam de retirada sería solo teórico: la
-// interfaz existe pero nadie la implementa fuera de aquí.
+// Without exercising the adapter the removal seam stays theoretical: the interface would have no implementation outside tests.
 func TestReleaserFuncAdaptaUnaFuncion(t *testing.T) {
 	var got string
 	var r Releaser = ReleaserFunc(func(name string) error { got = name; return ErrRouteAbsent })
@@ -462,38 +377,25 @@ func TestReleaserFuncAdaptaUnaFuncion(t *testing.T) {
 	}
 }
 
-// TestInertReleaserNoTocaNadaYEsEstatico: es el releaser por defecto de un binario
-// de test. Lo que protege es que un test que se olvide de instalar el seam NO
-// pueda mutar el routes.json del desarrollador, así que lo que hay que fijar es
-// que devuelve nil SIEMPRE y que es la misma instancia (inmutable por
-// construccion).
+// InertReleaser is the default under a test binary so a test that forgets the seam cannot mutate the developer's routes.json.
 func TestInertReleaserNoTocaNadaYEsEstatico(t *testing.T) {
 	r := InertReleaser()
 	if err := r.RemoveAbsent("cualquier-cosa"); err != nil {
 		t.Errorf("el releaser inerte devolvio %v, debe ser nil siempre", err)
 	}
-	// No se compara la identidad: ReleaserFunc es un tipo func, no comparable
-	// con ==, y eso romperia el binario de test. Lo que importa es que TODAS
-	// las llamadas son inertes, no que sea la misma.
+	// Identity is not compared on purpose: ReleaserFunc is a func type, so == would not compile.
 	for _, name := range []string{"", "a", "ruta.larga.localhost"} {
 		if err := InertReleaser().RemoveAbsent(name); err != nil {
 			t.Errorf("InertReleaser().RemoveAbsent(%q) = %v, debe ser nil siempre", name, err)
 		}
 	}
-	// Y que cumple el contrato de Releaser, que es lo que verifica el compilador
-	// en los tres call sites de produccion.
 	assertImplementsReleaser(t, InertReleaser())
 }
 
-// TestIsTestBinaryDetectaElBinarioDeTest: la guarda que hace que InertReleaser
-// sea el releaser por defecto. Si dejara de detectar el .test, un test sin seam
-// escribiría en el portless real del desarrollador.
 func TestIsTestBinaryDetectaElBinarioDeTest(t *testing.T) {
 	if !IsTestBinary() {
 		t.Error("IsTestBinary() es false corriendo bajo `go test`: la guarda de InertReleaser no protege nada")
 	}
-	// Y depende del nombre del binario, no de una variable: se comprueba el
-	// criterio contra las dos formas que se rechazan.
 	orig := os.Args[0]
 	t.Cleanup(func() { os.Args[0] = orig })
 
@@ -507,22 +409,16 @@ func TestIsTestBinaryDetectaElBinarioDeTest(t *testing.T) {
 	}
 }
 
-// TestClientForDevuelveNilSinContratoDeRuta: la puerta de compatibilidad hacia
-// atrás. Con route_mode = off hay que devolver nil ANTES de resolver nada, y
-// ese "antes" es lo que impide que vroom busque portless en un proyecto que no
-// lo pidió. Si alguien mueve la comprobación, la puerta se abre sin que nada
-// falle.
+// The gate must return nil BEFORE resolving anything, or vroom looks for portless in a project that never asked for routes.
 func TestClientForDevuelveNilSinContratoDeRuta(t *testing.T) {
-	// PORTLESS_BIN y PORTLESS_STATE_DIR a rutas que NO existen: si ClientFor
-	// llegara a resolver, construiría un cliente con binario (o al menos
-	// intentaría leer el entorno) y el test lo detectaría.
+	// Both env vars point at paths that do not exist, so any resolution attempt surfaces as a client.
 	t.Setenv("PORTLESS_BIN", filepath.Join(t.TempDir(), "no-existe"))
 	t.Setenv("PORTLESS_STATE_DIR", t.TempDir())
 
 	tests := []struct {
 		name string
 		m    *manifest.Manifest
-		want bool // ¿debe devolver cliente?
+		want bool
 	}{
 		{"nil", nil, false},
 		{"sin route_mode (default off)", &manifest.Manifest{Name: "svc"}, false},
@@ -545,11 +441,7 @@ func TestClientForDevuelveNilSinContratoDeRuta(t *testing.T) {
 	}
 }
 
-// TestResolveStateDirSigueElOrdenMedido: el orden es $PORTLESS_STATE_DIR →
-// $XDG_STATE_HOME/portless → $HOME/.portless, y MEDIDO contra portless 0.15.6:
-// $PORTLESS_HOME NO se honra. Implementar el orden del plan producia dos vistas
-// del mismo estado y el síntoma era una ruta que se registraba y luego no se
-// podía quitar.
+// MEASURED on 0.15.6: PORTLESS_HOME is ignored, and the plan's order read proxy.port from one directory while the binary wrote routes.json in another.
 func TestResolveStateDirSigueElOrdenMedido(t *testing.T) {
 	t.Run("PORTLESS_STATE_DIR manda", func(t *testing.T) {
 		t.Setenv("PORTLESS_STATE_DIR", "/opt/pl-state")
@@ -588,9 +480,7 @@ func TestResolveStateDirSigueElOrdenMedido(t *testing.T) {
 	})
 }
 
-// TestResolveBinarySigueElOrdenMedido: $PORTLESS_BIN → LookPath → shims de
-// mise. El último paso no es decorativo: medido, `env -i PATH=/usr/bin:/bin` NO
-// resuelve portless porque vive tras los shims (M14).
+// MEASURED (M14): `env -i PATH=/usr/bin:/bin` does not resolve portless because it lives behind the mise shims, hence the third step after $PORTLESS_BIN and LookPath.
 func TestResolveBinarySigueElOrdenMedido(t *testing.T) {
 	t.Run("PORTLESS_BIN manda", func(t *testing.T) {
 		t.Setenv("PORTLESS_BIN", "/opt/bin/portless")
@@ -601,8 +491,6 @@ func TestResolveBinarySigueElOrdenMedido(t *testing.T) {
 
 	t.Run("shim de mise cuando no esta en el PATH", func(t *testing.T) {
 		t.Setenv("PORTLESS_BIN", "")
-		// PATH vacio: LookPath no puede encontrar nada, y el unico camino que
-		// queda son los shims.
 		t.Setenv("PATH", "")
 		home := t.TempDir()
 		t.Setenv("HOME", home)
@@ -625,8 +513,6 @@ func TestResolveBinarySigueElOrdenMedido(t *testing.T) {
 		t.Setenv("PATH", "")
 		home := t.TempDir()
 		t.Setenv("HOME", home)
-		// Un DIRECTORIO llamado portless: resolverlo como binario daría un
-		// cliente que no puede ejecutar nada.
 		shimDir := filepath.Join(home, ".local", "bin")
 		if err := os.MkdirAll(filepath.Join(shimDir, "portless"), 0o755); err != nil {
 			t.Fatal(err)
@@ -646,9 +532,6 @@ func TestResolveBinarySigueElOrdenMedido(t *testing.T) {
 	})
 }
 
-// TestDefaultConstruyeClienteConLoResuelto: Default es lo que usan los caminos de
-// producción (Release con r nil y ClientFor). Sin binario devuelve un cliente SIN
-// binario en vez de error: es una degradación que Apply traduce en aviso.
 func TestDefaultConstruyeClienteConLoResuelto(t *testing.T) {
 	t.Setenv("PORTLESS_BIN", "/opt/bin/portless")
 	t.Setenv("PORTLESS_STATE_DIR", "/opt/pl-state")
@@ -699,10 +582,7 @@ func TestDefaultRespetaLasOpcionesSobreElEntorno(t *testing.T) {
 	}
 }
 
-// execErrNotFound es el error que exec.Command devuelve cuando no encuentra el
-// binario por el PATH. Se construye de verdad, no con una cadena: classify e
-// isMissingBinary comparan con errors.Is, y un string hecho a mano no lo
-// satisfaria y el test probaria el mensaje, no el comportamiento.
+// The real exec.ErrNotFound, not a string: classify and isMissingBinary use errors.Is, so a hand-built message would test the message.
 func execErrNotFound() error { return exec.ErrNotFound }
 
 func wrappedNotFound() error {
@@ -717,11 +597,7 @@ func wrappedRouteAbsent() error {
 	return fmt.Errorf("retirando: %w", ErrRouteAbsent)
 }
 
-// assertImplementsReleaser comprueba en ejecucion que r cumple Releaser. La
-// comprobacion de compilacion la haria una sentencia `var _ Releaser = r`, pero
-// el linter (staticcheck QF1011) pide omitir el tipo en una asignacion asi, y un
-// test no es sitio para pelearse con el linter: el contrato se verifica aqui,
-// con el mismo efecto.
+// A compile-time check would be `var _ Releaser = r`, but staticcheck QF1011 rejects that form; this has the same effect.
 func assertImplementsReleaser(t *testing.T, r Releaser) {
 	t.Helper()
 	if r == nil {

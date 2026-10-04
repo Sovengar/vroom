@@ -15,33 +15,10 @@ import (
 	"vroom/internal/state"
 )
 
-// ---------------------------------------------------------------------------
-// Los caminos que dependen de un fallo del entorno real.
-//
-// Nada de esto se puede probar con un doble: los fallos que se provocan son de
-// verdad —un puerto que no se puede atribuir, un `command_start` que no existe,
-// un servicio con el mismo nombre en dos directorios— y los Motores que hacen
-// falta son los de verdad, porque su contrato de error es justo lo que se está
-// comprobando.
-// ---------------------------------------------------------------------------
-
-// TestStopCmdEscribeEnElLogLosAvisosDelParado: el `Warn` que no se traga.
-//
-// `Stop` puede terminar el proceso y no conseguir todo lo que le pedía, y eso no
-// es un error: es un aviso. El aviso tiene que acabar en el log de stderr del
-// servicio, porque es lo único que el usuario puede leer después del hecho —la
-// TUI ya ha vuelto a la lista—.
-//
-// El aviso se provoca de verdad: el servicio declara un puerto que NO se puede
-// atribuir a nadie. MEDIDO: un mismo puerto escuchando a la vez en IPv4 y en IPv6
-// desde el mismo proceso da DOS dueños en `/proc/net/tcp`, y con dos dueños el
-// fallo de `killPortHolderWith` es cerrado a propósito —no se mata nada y se
-// avisa—, que es exactamente el aviso que se quiere ver en el log.
 func TestStopCmdEscribeEnElLogLosAvisosDelParado(t *testing.T) {
 	m, store := newTestModel(t)
 	p := primerProyectoConfigurado(t, m)
 
-	// El mismo puerto en las dos familias: `/proc/net/tcp` lo lista dos veces.
 	port := puertoConDueñoAmbiguo(t)
 
 	if err := store.SaveMeta(p.Path, state.Meta{Pid: 0, Port: port}); err != nil {
@@ -71,32 +48,19 @@ func TestStopCmdEscribeEnElLogLosAvisosDelParado(t *testing.T) {
 	}
 }
 
-// TestStartCmdPropagaElFalloDePersistirElMeta: el arranque que no termina.
-//
-// Es el camino que ya tuvo un bug: cuando el proceso SÍ arrancó pero guardar el
-// meta falla, se devuelve error sin ningún PID, y el caller no tiene forma de
-// parar al hijo. Lo que se puede comprobar desde la TUI es la mitad pública del
-// contrato: el mensaje trae el error y lo trae con el nombre del servicio.
-//
-// El fallo se provoca de verdad, sin tocar la persistencia: se convierte el
-// `meta.json` del servicio en un directorio no vacío, así que escribirlo falla con
-// EISDIR. Es lo que pasa cuando el directorio de estado quedó a medias por una
-// copia o por un `sudo` de otro sitio.
+// Regression anchor for the "spawned but meta failed" bug: the propagated error carries no PID because the child is already killed by then.
 func TestStartCmdPropagaElFalloDePersistirElMeta(t *testing.T) {
 	m, store := newTestModel(t)
 	p := primerProyectoConfigurado(t, m)
 
-	// El servicio arranca de verdad, para que el fallo sea el de persistencia y no
-	// el de un comando imposible: `sh -c` sale con 127 y el spawn sí tiene éxito.
+	// A command that really spawns, so the failure under test is the persistence one and not an impossible spawn.
 	p.Manifest = &manifest.Manifest{Name: "tienda-api", Command: "sleep 30", Port: 8081}
 
 	dir, err := store.EnsureServiceDir(p.Path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// MEDIDO: `SaveMeta` escribe `meta.json.tmp` y luego renombra. Con `meta.json`
-	// ya siendo un directorio no vacío el rename falla con EISDIR, que es el
-	// fallo que se quiere; el tmp sí llega a escribirse antes.
+	// MEDIDO: SaveMeta writes meta.json.tmp and then renames, so with meta.json already a non-empty directory the rename fails with EISDIR.
 	if err := os.MkdirAll(filepath.Join(dir, "meta.json", "bloqueo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -124,15 +88,7 @@ func TestStartCmdPropagaElFalloDePersistirElMeta(t *testing.T) {
 	}
 }
 
-// TestToggleDeComposersAvisaDeUnStackQueNoResuelve: el `stackStats` con error.
-//
-// El caso real es renombrar un servicio en el manifiesto y no en el compose file,
-// o borrar el directorio. El stack sigue ahí, con un nombre que ya no existe, y
-// `toggleComposers` tiene que decirlo en vez de arrancar medio grupo.
-//
-// El aviso importa por el orden: `stackStats` recorre TODOS los stacks antes de
-// lanzar ninguno, así que un nombre roto en el segundo stack no deja el primero
-// arrancado a medias.
+// stackStats resolves every stack before launching any, so an unresolvable name in the second must leave the first untouched.
 func TestToggleDeGrupoDeStacksAvisaDeUnStackQueNoResuelve(t *testing.T) {
 	isolateConfig(t)
 	root := writeTestTree(t, false)
@@ -163,7 +119,6 @@ primary_group = "tienda"
 		t.Fatalf("hay %d stacks, want 2", len(m.stacksForPrimary("tienda")))
 	}
 
-	// Todos los servicios del grupo están parados: la condición de arranque.
 	for _, p := range m.projects {
 		if sv := m.services[p.Path]; sv != nil {
 			sv.Status = statusStopped
@@ -181,12 +136,9 @@ primary_group = "tienda"
 	if !strings.Contains(got.message, "stack conflict") {
 		t.Errorf("message = %q, want que diga que hay un conflicto de stack", got.message)
 	}
-	// Y el nombre del culpable tiene que estar en el mensaje: sin él, el usuario
-	// tiene que abrir el compose file a adivinar cuál de los dos stacks está mal.
 	if !strings.Contains(got.message, "servicio-que-no-existe") {
 		t.Errorf("message = %q, want que nombre el servicio que no resuelve", got.message)
 	}
-	// Ningún servicio del grupo pasó a arrancarse.
 	for _, p := range m.projects {
 		if sv := got.services[p.Path]; sv != nil && sv.Status != statusStopped {
 			t.Errorf("%s quedó en %q tras un conflicto de stack: el fallo se detectó ANTES de "+
@@ -195,12 +147,7 @@ primary_group = "tienda"
 	}
 }
 
-// TestToggleSobreUnStackDeVerdadVaPorLaRamaDelStack: el `case` de `toggleStack`.
-//
-// El árbol de `newStackModel` sí trae filas `itemStack` con su stack puesto, pero
-// ningún test pulsaba la tecla sobre una de ellas: se llamaba a `toggleStack`
-// directamente. La diferencia no es de código sino de contrato —que la fila del
-// árbol, que es lo que el cursor puede señalar, llegue al toggle—.
+// Regression anchor: before this, no test pressed the key on an itemStack row, only called toggleStack directly.
 func TestToggleSobreUnStackDeVerdadVaPorLaRamaDelStack(t *testing.T) {
 	m := newStackModel(t)
 
@@ -230,16 +177,7 @@ func TestToggleSobreUnStackDeVerdadVaPorLaRamaDelStack(t *testing.T) {
 	}
 }
 
-// TestToggleDeGrupoSaltaAlMiembroSinEstadoConocidoEnElGrupoElegido: el `continue`
-// bien dirigido.
-//
-// El caso real es un miembro que el modelo no conoce porque se coló en el grupo
-// entre el escaneo y la pulsación, o que su manifiesto dejó de parsear. Sin el
-// `continue`, ese miembro caería en el `switch` con `sv` a nil y el panic
-// reventaría en mitad del arranque del grupo, con el resto ya lanzándose.
-//
-// Lo que se comprueba es que los miembros CON estado sí avanzan y el sin estado
-// se salta, que es la diferencia entre "se ignoró un miembro" y "no arrancó nada".
+// Without the nil-sv continue an unknown member panics mid-launch while the rest of the group is already starting.
 func TestToggleDeGrupoSaltaAlMiembroSinEstadoConocidoEnElGrupoElegido(t *testing.T) {
 	m, _ := newTestModel(t)
 
@@ -266,7 +204,6 @@ func TestToggleDeGrupoSaltaAlMiembroSinEstadoConocidoEnElGrupoElegido(t *testing
 			sv.Status = statusStopped
 		}
 	}
-	// El primero del grupo es el que se queda sin estado.
 	perdido := miembros[0].Path
 	delete(m.services, perdido)
 
@@ -291,11 +228,6 @@ func TestToggleDeGrupoSaltaAlMiembroSinEstadoConocidoEnElGrupoElegido(t *testing
 	}
 }
 
-// TestPickerInnerWTieneSueloEnUnTerminalEstrecho: el `min` de 28.
-//
-// El modal de picker se abre con la pantalla ya calculada, así que con un terminal
-// de 20 columnas el ancho interior salía en 6 y cada fila del picker se recortaba a
-// seis celdas: el usuario veía tragamanchas sin poder leer qué elegía.
 func TestPickerInnerWTieneSueloEnUnTerminalEstrecho(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.width = 20
@@ -307,30 +239,14 @@ func TestPickerInnerWTieneSueloEnUnTerminalEstrecho(t *testing.T) {
 			"no es usable y el usuario no puede leer lo que elige", w)
 	}
 
-	// Y que no reviente al componer la caja con ese ancho.
 	if s := m.pickerBox(); s == "" {
 		t.Error("pickerBox() devolvió vacío")
 	}
 }
 
-// TestElArbolOcultaLosStacksDeLosGruposPlegados: el `continue` de `buildTree`.
-//
-// Hay tres formas de que un stack no llegue a verse, y las tres son rutas que el
-// usuario toma a propósito:
-//
-//   - plegar el primario entero, que también se lleva sus stacks —si no, los
-//     stacks se quedarían flotando sin el grupo al que pertenecen—;
-//   - plegar sólo la cabecera de Composers, que deja los stacks escondidos pero
-//     deja ver al grupo;
-//   - un primario que no tiene stacks, que no debe abrir una cabecera de Composers
-//     vacía.
-//
-// La tercera es la que más se nota: un primario de un solo proyecto sin stacks
-// ganaba una fila de cabecera que no llevaba a ninguna parte.
 func TestElArbolOcultaLosStacksDeLosGruposPlegados(t *testing.T) {
 	m := modeloConDosPrimariosYStacks(t)
 
-	// Un primario con stacks y otro sin ellos: el segundo no puede abrir cabecera.
 	todos := m.tree
 	conStacks := -1
 	for i, e := range todos {
@@ -347,8 +263,6 @@ func TestElArbolOcultaLosStacksDeLosGruposPlegados(t *testing.T) {
 	p := projectPath(t, m, "tienda-web")
 	primSinStacks := manifestPrimary(t, p)
 
-	// Sin plegar: hay cabecera de Composers para el primario que tiene stacks y
-	// NO para el que no tiene ninguno.
 	if !m.treeTieneFila(func(e treeItem) bool {
 		return e.kind == itemSecondary && e.primary == primSinStacks && e.secondary == composersGroup
 	}) {
@@ -356,7 +270,6 @@ func TestElArbolOcultaLosStacksDeLosGruposPlegados(t *testing.T) {
 			"no lleva a nada es ruido", primSinStacks)
 	}
 
-	// Con el primario plegado, sus stacks desaparecen con él.
 	colapsado := m
 	colapsado.collapsed = map[string]bool{primConStacks: true}
 	arbol := colapsado.buildTree()
@@ -367,8 +280,6 @@ func TestElArbolOcultaLosStacksDeLosGruposPlegados(t *testing.T) {
 		}
 	}
 
-	// Y con la cabecera de Composers plegada, los stacks tampoco salen, pero el
-	// resto del grupo sigue visible.
 	porComposers := m
 	porComposers.collapsed = map[string]bool{porComposers.secondaryKey(primConStacks, composersGroup): true}
 	arbol = porComposers.buildTree()
@@ -390,15 +301,12 @@ func TestElArbolOcultaLosStacksDeLosGruposPlegados(t *testing.T) {
 	}
 }
 
-// modeloConDosPrimariosYStacks construye un modelo con dos grupos, stacks sólo en
-// uno de ellos. El grupo sin stacks es el caso que abre una cabecera de Composers
-// vacía, y para eso hace falta que exista de verdad un segundo primario.
+// A real second primary is required because a group with no stacks must not open an empty Composers header.
 func modeloConDosPrimariosYStacks(t *testing.T) Model {
 	t.Helper()
 	isolateConfig(t)
 	root := writeTestTree(t, false)
 
-	// Un segundo primario, con su servicio, que no aparece en el compose file.
 	writeStr(t, filepath.Join(root, "blog", ".vroom.toml"),
 		"name = \"blog\"\ncommand_start = \"true\"\nprimary_group = \"otro\"\n")
 
@@ -418,7 +326,6 @@ primary_group = "tienda"
 	return m
 }
 
-// treeTieneFila dice si alguna fila del árbol cumple el predicado.
 func (m Model) treeTieneFila(pred func(treeItem) bool) bool {
 	for _, e := range m.buildTree() {
 		if pred(e) {
@@ -428,7 +335,6 @@ func (m Model) treeTieneFila(pred func(treeItem) bool) bool {
 	return false
 }
 
-// manifestPrimary devuelve el primary_group del manifiesto de un proyecto.
 func manifestPrimary(t *testing.T, path string) string {
 	t.Helper()
 	mf, err := manifest.Parse(filepath.Join(path, manifest.FileName))
@@ -438,39 +344,25 @@ func manifestPrimary(t *testing.T, path string) string {
 	return mf.PrimaryGroup
 }
 
-// ---------------------------------------------------------------------------
-// Utilidades
-// ---------------------------------------------------------------------------
-
-// puertoConDueñoAmbiguo abre un puerto a la vez en IPv4 e IPv6 desde este
-// proceso y devuelve el número.
-//
-// MEDIDO: `/proc/net/tcp` lista una entrada por socket, así que el mismo pid
-// aparece DOS veces como dueño del mismo puerto. `distinctOwners` los ve, son dos,
-// y la política de `killPortHolderWith` es no matar nada cuando no puede probar de
-// quién es. Es el caso real de un puerto publicado en las dos familias sin que
-// vroom pueda decidir cuál es el suyo.
+// MEDIDO: /proc/net/tcp lists one entry per socket, so the same pid shows up as two owners of one port and killPortHolderWith refuses to kill what it cannot attribute.
 func puertoConDueñoAmbiguo(t *testing.T) int {
 	t.Helper()
 	ln4, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// El cierre va con t.Cleanup y NO con defer a propósito: si los listeners
-	// murieran al devolver la función, el puerto quedaría libre justo cuando el
-	// test lo necesita ocupado, y la prueba pasaría sin provocar nada.
+	// t.Cleanup, not defer: a defer would free the port right when the test needs it held and the assertions would pass without provoking anything.
 	t.Cleanup(func() { _ = ln4.Close() })
 
 	puerto := ln4.Addr().(*net.TCPAddr).Port
 	ln6, err := net.Listen("tcp6", fmt.Sprintf("[::1]:%d", puerto))
 	if err != nil {
-		// El host no tiene IPv6: se salta en vez de dar un falso "probado".
+		// Skip instead of fail when the host has no IPv6, so a missing family is not reported as a pass.
 		t.Skipf("no se pudo abrir el mismo puerto en IPv6: %v", err)
 	}
 	t.Cleanup(func() { _ = ln6.Close() })
 
-	// MEDIDO: sin esto la advertencia no se dispara, porque `PortOwnerPIDs` lee
-	// `/proc/net/tcp` y necesita las entradas SYN_RECV/ESTABLISHED de verdad.
+	// MEDIDO: without these accept loops PortOwnerPIDs finds nothing, since it reads real SYN_RECV/ESTABLISHED entries from /proc/net/tcp.
 	for _, ln := range []net.Listener{ln4, ln6} {
 		go func(ln net.Listener) {
 			for {
@@ -491,8 +383,6 @@ func puertoConDueñoAmbiguo(t *testing.T) int {
 	return puerto
 }
 
-// esperaDueño espera a que el puerto aparezca con al menos dos dueños en
-// `/proc/net/tcp`.
 func esperaDueño(t *testing.T, puerto int) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -500,8 +390,7 @@ func esperaDueño(t *testing.T, puerto int) {
 		if len(process.PortOwnerPIDs(puerto)) >= 2 {
 			return
 		}
-		// Una conexión que se cierra al instante deja el socket en el kernel el
-		// tiempo justo para que se pueda leer; se fuerza una conexión viva.
+		// A connection closed instantly can vanish from the kernel before it is read, so one is kept alive.
 		go func() {
 			for _, addr := range []string{
 				fmt.Sprintf("127.0.0.1:%d", puerto),
@@ -519,17 +408,7 @@ func esperaDueño(t *testing.T, puerto int) {
 		"puede provocar el aviso en este host", puerto)
 }
 
-// TestElArbolMuestraLosStacksDeUnPrimarioSinProyectos: el primario fantasma.
-//
-// Un stack declara a qué grupo pertenece, y ese grupo se busca entre los proyectos
-// escaneados. Si el grupo no tiene ningún proyecto —porque se borró el directorio
-// entero, o porque el stack se copió de otro workspace—, el primario no aparece en
-// ninguna parte del recorrido y sus stacks desaparecían con él.
-//
-// Es el caso inverso al que ya se probaba, y el que de verdad duele: el usuario
-// tiene su `vroom.compose.toml` con un stack bien escrito, pulsa start/stop y no ve
-// ninguna fila que pulsar. Sin este camino, `buildTree` sólo junta los grupos que ya
-// están en `visible`.
+// A stack whose primary has no scanned projects (deleted directory, stack copied from another workspace) used to vanish with it, leaving a valid compose stack with no row to press.
 func TestElArbolMuestraLosStacksDeUnPrimarioSinProyectos(t *testing.T) {
 	isolateConfig(t)
 	root := writeTestTree(t, false)

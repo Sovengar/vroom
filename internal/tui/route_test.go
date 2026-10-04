@@ -10,8 +10,7 @@ import (
 	"vroom/internal/state"
 )
 
-// displayRouteURL sólo muestra una url VERIFICADA. Una ruta degradada no tiene
-// ninguna, y el usuario no debe ver una dirección que no lleva a nada.
+// Only a verified route shows a URL: a degraded one has no address that leads anywhere, and a dead link is worse than none.
 func TestDisplayRouteURLOnlyWhenVerified(t *testing.T) {
 	cases := []struct {
 		name string
@@ -33,7 +32,7 @@ func TestDisplayRouteURLOnlyWhenVerified(t *testing.T) {
 	}
 }
 
-// nil no debe hacer panic: el panel se construye antes de que exista estado.
+// nil must not panic because the details panel is built before any service state exists.
 func TestDisplayRouteURLToleratesNilServiceState(t *testing.T) {
 	p := scanner.Project{Path: "/p", Name: "p", Configured: true, Manifest: &manifest.Manifest{Name: "p"}}
 	if got := displayRouteURL(p, nil); got != "" {
@@ -41,8 +40,6 @@ func TestDisplayRouteURLToleratesNilServiceState(t *testing.T) {
 	}
 }
 
-// La url aparece junto al puerto en el panel de detalles, y sólo si se ha
-// verificado: el usuario tiene que ver a dónde ir, pero no una dirección falsa.
 func TestDetailsShowVerifiedURLNextToPort(t *testing.T) {
 	m, store := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -67,7 +64,6 @@ func TestDetailsShowVerifiedURLNextToPort(t *testing.T) {
 	}
 }
 
-// Una ruta degradada no se muestra: no hay url que ofrecer.
 func TestDetailsHideDegradedURL(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")

@@ -16,27 +16,6 @@ import (
 	"vroom/internal/tail"
 )
 
-// ---------------------------------------------------------------------------
-// Los huecos que quedan en app.go: las teclas menos usadas, los degradados del
-// layout, los mensajes de Update que nadie disparaba y las ramas de la TUI en
-// estados poco frecuentes.
-//
-// Ninguno de estos caminos es raro para el usuario; lo que pasa es que llegan por
-// combinaciones de estado —una pestaña que no es la de consola, un modal encima de
-// otro, un servicio sin estado conocido— y las combinaciones de estado no se
-// provisuran solas en una suite.
-//
-// Y hay una categoría aparte: los defaults que existen para que el programa no se
-// rompa con una entrada rara (un margen negativo, un árbol vacío, un servicio sin
-// estado). Esos se prueban aquí porque son la diferencia entre "se ve raro" y "se
-// apaga".
-// ---------------------------------------------------------------------------
-
-// TestLasTeclasDePosicionDeLaConsolaPausanYReanudanElFollow: `g` y `G`.
-//
-// Es el control manual del follow. Ir arriba tiene que PAUSARLO —si no, el texto se
-// mueve solo mientras lo lee— e ir abajo tiene que reanudarlo. Los dos_STATEos de un
-// mismo control, y el segundo es el que más se usa.
 func TestLasTeclasDePosicionDeLaConsolaPausanYReanudanElFollow(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -53,12 +32,7 @@ func TestLasTeclasDePosicionDeLaConsolaPausanYReanudanElFollow(t *testing.T) {
 	}
 }
 
-// TestLaTeclaDeLogsSeNiegaSobreUnStack: la única acción que se rechaza por tipo de
-// fila.
-//
-// Un stack no tiene logs de servicio: sus servicios tienen, pero "los logs del
-// stack" no significan nada. Abrir el editor con lo que saliera sería peor que
-// negarse.
+// A stack has no logs of its own -- only its services do -- so "the stack's logs" means nothing.
 func TestLaTeclaDeLogsSeNiegaSobreUnStack(t *testing.T) {
 	m := newStackModel(t)
 	cursorEn(t, &m, "front")
@@ -73,28 +47,17 @@ func TestLaTeclaDeLogsSeNiegaSobreUnStack(t *testing.T) {
 	}
 }
 
-// TestElAliasOCierraLosMismosLogsQueLaTecla: el alias fijo.
-//
-// `o` es un alias de `l` que existe porque la gente lo escribe por costumbre. Y está
-// "salvo que el config lo reclame": si el usuario mapea `o` a otra acción, el alias
-// tiene que ceder.
+// "o" is an alias kept because people type it out of habit, and it must yield whenever the config claims that key.
 func TestElAliasOCierraLosMismosLogsQueLaTecla(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	t.Setenv("EDITOR", "/bin/sh")
 
-	// Sin config que lo reclame: `o` abre los logs.
 	if next, _ := m.handleKey(keyMsg("o")); next.(Model).message != "" || m.cfg.KeyFor("logs") != "l" {
 		t.Skip("precondición: `o` no debe estar mapeado a otra acción")
 	}
 
-	// Con `o` mapeado a otra cosa, el alias cede y manda la acción del config.
-	//
-	// MEDIDO: el config rechaza `o` como binding de build si... no, lo acepta; lo
-	// que pasa es que `tienda-web` del árbol base no tiene `command_build`, así que
-	// la acción que se ejecuta es el aviso de "no hay comando". Lo que se comprueba
-	// es el efecto observable: con `o` = build la tecla NO abre el editor, y el
-	// mensaje es el del build.
+	// tienda-web has no command_build, so the observable effect of binding "o" is the "no command" warning rather than a launch.
 	conConfig, _ := newTestModelWithConfig(t, "[keybindings]\nbuild = \"o\"\n")
 	conConfig = moveCursorTo(t, conConfig, "tienda-web")
 	if conConfig.cfg.KeyFor("build") != "o" {
@@ -111,13 +74,7 @@ func TestElAliasOCierraLosMismosLogsQueLaTecla(t *testing.T) {
 	}
 }
 
-// TestElLayoutSeRecuperaDeUnaPantallaEnormeYDeUnaDiminuta: los dos extremos.
-//
-// Los dos degradados importan por motivos distintos. En una ventana diminuta el
-// programa tiene que seguir siendo usable aunque no quepa todo —el árbol y la
-// consola son lo que no puede faltar—. Y en una enorme el viewport de la consola no
-// puede crecer sin límite: el buffer es limitado, así que un viewport de 5000 filas
-// deja el 99% del panel vacío.
+// The console viewport must not grow without bound: the buffer is capped, so a viewport of thousands of rows leaves the panel almost empty.
 func TestElLayoutSeRecapaDeUnaPantallaEnormeYDeUnaDiminuta(t *testing.T) {
 	m, _ := newTestModel(t)
 
@@ -131,33 +88,22 @@ func TestElLayoutSeRecapaDeUnaPantallaEnormeYDeUnaDiminuta(t *testing.T) {
 		if m.contentH < 0 {
 			t.Errorf("%dx%d: contentH = %d, want >= 0", dims[0], dims[1], m.contentH)
 		}
-		// MEDIDO: rightW llega a 0 en un terminal más estrecho que el árbol más sus
-		// dos marcos. Es el degradado documentado —"con menos de ~34 celdas el layout
-		// queda degradado"— y no un fallo: lo que no puede pasar es que sea NEGATIVO,
-		// porque bordered.draw invierte los lados y la caja se dibuja al revés.
+		// MEDIDO: rightW reaching 0 is the documented degradation below ~34 cells, but negative is not allowed because bordered.draw swaps the sides and draws the box inside out.
 		if m.rightW < 0 {
 			t.Errorf("%dx%d: rightW = %d, want >= 0: un ancho negativo invierte la caja", dims[0], dims[1], m.rightW)
 		}
-		// El viewport tiene que seguir siendo utilizable.
 		if m.consoleView.Height() < 1 && m.contentH > 0 {
 			t.Errorf("%dx%d: el viewport de consola tiene alto %d con contentH %d", dims[0], dims[1], m.consoleView.Height(), m.contentH)
 		}
 	}
 }
 
-// TestWindowSizeReencajaElArbolCuandoElCursorQuedaFuera: el auto-scroll tras un
-// redimensionado.
-//
-// Sin esto, al encoger la ventana el cursor puede quedar por debajo del borde
-// inferior y el usuario ve un árbol donde su proyecto no está, con el cursor en un
-// sitio invisible. Y no hay forma de saber en qué fila está.
+// Otherwise a shrink leaves the cursor below the bottom edge and the user sees a tree with no sign of where it is.
 func TestWindowSizeReencajaElArbolCuandoElCursorQuedaFuera(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.width, m.height = 100, 30
 	m.updateLayout()
 
-	// Se lleva el cursor al final del árbol y luego se encoge la ventana a una
-	// pantalla en la que no cabe.
 	m.cursor = len(m.tree) - 1
 	m.treeTop = 0
 
@@ -170,16 +116,12 @@ func TestWindowSizeReencajaElArbolCuandoElCursorQuedaFuera(t *testing.T) {
 	if got.treeTop > cursorLine {
 		t.Errorf("treeTop = %d con el cursor en la línea %d: la ventana del árbol quedó por debajo del cursor", got.treeTop, cursorLine)
 	}
-	// Y nunca por encima de la última fila.
 	if max := cursorLine; got.treeTop > max {
 		t.Errorf("treeTop = %d no puede pasar de la línea del cursor %d", got.treeTop, max)
 	}
 }
 
-// TestWindowSizeRedimensionaLaTerminalViva: la otra mitad del mismo mensaje.
-//
-// Si la terminal embebida no sigue al redimensionado, se queda con el tamaño viejo
-// dentro de un modal nuevo y sus líneas aparecen cortadas.
+// Without this the embedded terminal keeps its old size inside the new modal and its lines look cut.
 func TestWindowSizeRedimensionaLaTerminalViva(t *testing.T) {
 	s := newStubSession(40, 10, &stubPty{})
 	defer s.shutdown()
@@ -195,12 +137,7 @@ func TestWindowSizeRedimensionaLaTerminalViva(t *testing.T) {
 	}
 }
 
-// TestUpdateConCadaMensajeDeMuestreoLoIntegraEnSuSitio: los cinco mensajes de las
-// cinco pestañas.
-//
-// Los cinco son el mismo patrón con destino distinto, y por eso un solo test los
-// cubre sin repetir: si uno cambia de sitio, el panel se queda en "sampling…"
-// para siempre mientras la data se guarda en un mapa que nadie mira.
+// All five are the same pattern with a different destination, and a misplaced one parks its data in a map nobody reads while the panel stays on "sampling".
 func TestUpdateConCadaMensajeDeMuestreoLoIntegraEnSuSitio(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -233,10 +170,7 @@ func TestUpdateConCadaMensajeDeMuestreoLoIntegraEnSuSitio(t *testing.T) {
 	}
 }
 
-// TestUpdateConUnPtyDataSinTerminalNoRevienta: el mensaje llega sin sesión.
-//
-// Puede pasar por un ptyData en vuelo cuando el usuario cierra el modal con ctrl+q
-// en el mismo instante. Sin la guarda, `s.write` sobre un nil revienta la TUI.
+// An in-flight ptyData can arrive after the modal closed, and without the guard the write on a nil session takes the TUI down.
 func TestUpdateConUnPtyDataSinTerminalNoRevienta(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.term = nil
@@ -251,10 +185,7 @@ func TestUpdateConUnPtyDataSinTerminalNoRevienta(t *testing.T) {
 	}
 }
 
-// TestNavigateConElArbolVacioNoHaceNada: el default que evita un módulo por cero.
-//
-// Un árbol vacío es real: el usuario está en un directorio sin ningún proyecto y el
-// `len(m.tree) == 0` es lo que impide que el `j` haga un módulo por cero.
+// An empty tree is real (a directory with no projects), and the len(m.tree) == 0 guard is what keeps navigation from a modulo by zero.
 func TestNavigateConElArbolVacioNoHaceNada(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.tree = nil
@@ -267,13 +198,7 @@ func TestNavigateConElArbolVacioNoHaceNada(t *testing.T) {
 	}
 }
 
-// TestToggleSelectedRepartePorElTipoDeFila: las cinco filas y a dónde lleva cada una.
-//
-// Es la función que decide qué hace la tecla `s` según dónde esté el cursor, y cada
-// fila tiene un destino: un primario y un secundario van a la acción de grupo, el
-// header de Composers al motor de stacks, un stack al motor, y una fila de repo a un
-// aviso. El repo es el caso que más cuesta: es una fila SINTETIZADA que no es un
-// proyecto, y sin el aviso `s` no haría nada.
+// A repo row is synthesized rather than a project, so without its warning "s" would do nothing at all on it.
 func TestToggleSelectedRepartePorElTipoDeFila(t *testing.T) {
 	t.Run("header primario: acción de grupo", func(t *testing.T) {
 		m, _ := newTestModel(t)
@@ -293,7 +218,7 @@ func TestToggleSelectedRepartePorElTipoDeFila(t *testing.T) {
 		if it.kind != itemProject {
 			t.Fatalf("precondición: el cursor debe estar en un proyecto, got %v", it.kind)
 		}
-		// Un secundario de verdad: el árbol de test no tiene uno, así que se inyecta.
+		// The test tree has no secondary header, so a real one is injected.
 		m.tree[m.cursor] = treeItem{kind: itemSecondary, primary: "tienda", secondary: "backend"}
 		next, _ := m.toggleSelected()
 		if strings.Contains(next.(Model).message, "select a service") {
@@ -343,11 +268,7 @@ func TestToggleSelectedRepartePorElTipoDeFila(t *testing.T) {
 	})
 }
 
-// TestToggleNodeCuandoTodosEstanVivosLosPara: el otro sentido de la acción de grupo.
-//
-// El inverso del caso que ya había: si no hay ninguno parado, la acción para los
-// vivos. Y marca stopping, que es lo que hace que el usuario vea el cambio antes de
-// que el motor termine.
+// Marking stopping is what lets the user see the change before the engine has finished.
 func TestToggleNodeCuandoTodosEstanVivosLosPara(t *testing.T) {
 	m, _ := newTestModel(t)
 	cursorEn(t, &m, "tienda")
@@ -368,17 +289,13 @@ func TestToggleNodeCuandoTodosEstanVivosLosPara(t *testing.T) {
 	}
 }
 
-// TestToggleNodeLimpiaLaConsolaDeLosQueArranca: el segundo de la acción de grupo.
-//
-// Al arrancar hay que vaciar la vista de consola: el log anterior es del proceso
-// anterior, y verlo debajo del servicio recién arrancado hace pensar que el proceso
-// nuevo está fallando con los errores viejos.
+// Stale output shown under a freshly started service reads as the new process failing with old errors.
 func TestToggleNodeLimpiaLaConsolaDeLosQueArranca(t *testing.T) {
 	m, _ := newTestModel(t)
 	cursorEn(t, &m, "tienda")
 
 	api, web := projectPath(t, m, "tienda-api"), projectPath(t, m, "tienda-web")
-	// El log del que va a arrancar tiene contenido en disco de una vida anterior.
+	// The service about to start still has a previous run's output on disk.
 	if _, err := m.store.EnsureServiceDir(web); err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +305,6 @@ func TestToggleNodeLimpiaLaConsolaDeLosQueArranca(t *testing.T) {
 	markRunning(&m, api, livePID(t))
 	m.services[web].Status = statusStopped
 
-	// Se deja contenido viejo en la consola de los dos.
 	for _, ruta := range []string{api, web} {
 		cs := m.consoleStateFor(ruta)
 		cs.stdout, cs.stderr, cs.merged = "viejo\n", "viejo\n", "viejo\n"
@@ -397,24 +313,17 @@ func TestToggleNodeLimpiaLaConsolaDeLosQueArranca(t *testing.T) {
 	next, _ := m.toggleNode("tienda", "")
 	got := next.(Model)
 
-	// El que arrancó tiene la consola limpia.
 	cs := got.consoleStateFor(web)
 	if cs.merged != "" || cs.stdout != "" || cs.stderr != "" {
 		t.Errorf("el servicio que arrancó conserva el log anterior: %q", cs.merged)
 	}
-	// Y los offsets apuntan al final del fichero, que es lo que impide que el
-	// siguiente tail reinserte el log viejo.
 	if got.consoleStateFor(web).off[0] == 0 {
 		t.Error("el offset de stdout quedó a cero con un log que ya tenía contenido: " +
 			"el siguiente tail reinsertaría la vida anterior del servicio")
 	}
 }
 
-// TestMarkStackStoppingIgnoraLosNombresQueNoResuelven: el criterio de resolución.
-//
-// Un stack puede referenciar un servicio que ya no está en el workspace —alguien
-// lo borró desde el último refresh—. Esa fila se salta en silencio porque el resto
-// del stack se puede parar igual, y el aviso del conflicto ya salió en otro sitio.
+// A stack may reference a service deleted since the last refresh, and skipping it silently is safe because the conflict warning is issued elsewhere.
 func TestMarkStackStoppingIgnoraLosNombresQueNoResuelven(t *testing.T) {
 	m := newStackModel(t)
 	ruta := projectPath(t, m, "tienda-api")
@@ -433,11 +342,7 @@ func TestMarkStackStoppingIgnoraLosNombresQueNoResuelven(t *testing.T) {
 	}
 }
 
-// TestMarkStackStoppingNoRepiteElServicioQueSaleEnDosEtapas: el `seen`.
-//
-// Un servicio repetido en dos etapas se contaría dos veces en el conteo del stack, y
-// el panel mostraría "2 servicios" para uno. `markStackStopping` tiene su propio
-// `seen` por eso.
+// A service repeated across stages would be counted twice in the stack total, so markStackStopping keeps its own seen set.
 func TestMarkStackStoppingNoRepiteElServicioQueSaleEnDosEtapas(t *testing.T) {
 	m := newStackModel(t)
 	ruta := projectPath(t, m, "tienda-api")
@@ -457,19 +362,13 @@ func TestMarkStackStoppingNoRepiteElServicioQueSaleEnDosEtapas(t *testing.T) {
 	}
 }
 
-// TestDispatchAskAvisaDelFallbackDeEstrategiaAntesDeLanzar: el warn del launcher.
-//
-// Con `launcher = "herdr"` explícito y sin sesión herdr, el launcher devuelve inline
-// y un aviso. El aviso tiene que LLEGAR antes del despacho, no después: si sólo
-// apareciera cuando el agente cerrara, el usuario no sabría por qué su agente se
-// está ejecutando en primer plano.
+// With launcher = "herdr" set but no herdr present the launcher falls back to inline, and the warning must reach the model before the dispatch is emitted.
 func TestDispatchAskAvisaDelFallbackDeEstrategiaAntesDeLanzar(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	m.askPromptOpen = true
 	m.askAgent = agenteFalso()
 	m.promptInput.SetValue("arregla el bug")
-	// herdr explícito sin herdr: la estrategia cae a inline con aviso.
 	m.askLauncher = nuevoLauncherSinHerdr(t)
 	m.promptInput.Focus()
 
@@ -483,12 +382,7 @@ func TestDispatchAskAvisaDelFallbackDeEstrategiaAntesDeLanzar(t *testing.T) {
 	}
 }
 
-// TestDispatchAskConEstrategiaInlineUsaExecProcess: la otra estrategia.
-//
-// Inline suspende la TUI y corre el agente en el sitio, que es lo que el patrón wt
-// hace y lo que el usuario quiere cuando no hay multiplexer. La diferencia con
-// herdr/custom es observable: inline devuelve tea.ExecProcess, no un comando en
-// background.
+// Inline suspends the TUI and runs the agent in place, which is observably different from herdr/custom because it returns tea.ExecProcess.
 func TestDispatchAskConEstrategiaInlineUsaExecProcess(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -503,7 +397,7 @@ func TestDispatchAskConEstrategiaInlineUsaExecProcess(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("inline tiene que devolver el comando de suspensión")
 	}
-	// Inline no lleva aviso: es lo pedido, no un fallback.
+	// Inline carries no warning: it is what was asked for, not a fallback.
 	if got.message != "" {
 		t.Errorf("aviso = %q en inline: inline es lo pedido cuando se pide inline", got.message)
 	}
@@ -512,12 +406,7 @@ func TestDispatchAskConEstrategiaInlineUsaExecProcess(t *testing.T) {
 	}
 }
 
-// TestRestartSelectedConElEstadoPortPendingNoEsRunning: sólo se reinicia lo que
-// está running.
-//
-// port_pending es un servicio VIVO con el discovery en vuelo, pero no está en estado
-// running. Reiniciarlo mataría un proceso que iba bien por un puerto que aún no se
-// había confirmado. El mensaje tiene que decirlo.
+// port_pending is a live process whose port is unconfirmed, so restarting it would kill a healthy process over a pending discovery.
 func TestRestartSelectedConElEstadoPortPendingNoEsRunning(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -535,11 +424,7 @@ func TestRestartSelectedConElEstadoPortPendingNoEsRunning(t *testing.T) {
 	}
 }
 
-// TestEditLogsCmdTraeElEditorYSuMensajeDeError: el puente con el editor.
-//
-// Lo que no se puede probar aquí es `tea.ExecProcess` —suspende el programa y espera
-// al editor—, así que se prueba lo que sí: que el comando se compone con el editor
-// resuelto, y que el mensaje de error nombra al editor y no dice "algo falló".
+// tea.ExecProcess itself cannot be tested here (it suspends the program until the editor closes), so only its composition is asserted.
 func TestEditLogsCmdTraeElEditorYSuMensajeDeError(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -557,12 +442,7 @@ func TestEditLogsCmdTraeElEditorYSuMensajeDeError(t *testing.T) {
 	}
 }
 
-// TestLosTresModalesSeSuperponenSobreElDashboard: una sola cosa, tres sitios.
-//
-// Los tres son `overlay` sobre el mismo contenido, y sólo uno puede estar abierto a
-// la vez. Lo que se comprueba es la prioridad —ask, luego picker, luego terminal— y
-// que los tres de verdad pintan encima: un modal que no se ve es un programa que
-// parece colgado.
+// Only one overlay can be open at a time, so the priority order matters and a modal that fails to paint looks like a hang.
 func TestLosTresModalesSeSuperponenSobreElDashboard(t *testing.T) {
 	m, _ := newTestModel(t)
 	base := m.View().Content
@@ -615,17 +495,12 @@ func TestLosTresModalesSeSuperponenSobreElDashboard(t *testing.T) {
 	})
 }
 
-// TestElPromptDelAskSeDimensionaTrasCambiarElPrompt: el comentario lo avisa.
-//
-// `sizeAskPrompt` tiene que llamarse tras CUALQUIER cambio de Prompt o de ancho, y
-// también antes del Focus. Lo que se comprueba es que el resultado es utilizable: con
-// un prompt largo, el ancho pedido no puede ser el del prompt por defecto.
+// sizeAskPrompt must run after every Prompt or width change and before Focus, or the textarea collapses.
 func TestElPromptDelAskSeDimensionaTrasCambiarElPrompt(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.width, m.height = 120, 40
 	m.updateLayout()
 
-	// Un prompt largo de verdad, que es lo que el comentario del método avisa.
 	m.promptInput.Prompt = "> " + strings.Repeat("? ", 20)
 	m.sizeAskPrompt()
 
@@ -637,10 +512,6 @@ func TestElPromptDelAskSeDimensionaTrasCambiarElPrompt(t *testing.T) {
 	}
 }
 
-// helpers --------------------------------------------------------------------
-
-// nuevoLauncherSinHerdr devuelve un launcher con herdr explícito y sin binario, que
-// es el caso que produce el fallback a inline con aviso.
 func nuevoLauncherSinHerdr(t *testing.T) *launcher.Launcher {
 	t.Helper()
 	t.Setenv("HERDR_ENV", "")
@@ -648,21 +519,17 @@ func nuevoLauncherSinHerdr(t *testing.T) *launcher.Launcher {
 	return launcher.New(herdrExplicita())
 }
 
-// nuevoLauncherInline devuelve un launcher con estrategia inline explícita.
 func nuevoLauncherInline(t *testing.T) *launcher.Launcher {
 	t.Helper()
 	return launcher.New(askInlineConfig())
 }
 
-// herdrExplicita es el AskConfig que pide herdr a propósito.
 func herdrExplicita() config.AskConfig {
 	return config.AskConfig{Launcher: "herdr"}
 }
 
-// gitStatusDePrueba es un estado git plausible para la pestaña.
 func gitStatusDePrueba() gitinfo.Status {
 	return gitinfo.Status{Branch: "main"}
 }
 
-// stripANSIOf quita los escapes para poder buscar texto en un render.
 func stripANSIOf(s string) string { return tail.StripANSI(s) }

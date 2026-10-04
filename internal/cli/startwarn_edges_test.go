@@ -7,34 +7,14 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// Lo que el arranque le dice al usuario por el log, y no por la respuesta.
-//
-// El resultado JSON de `start` es la respuesta para un agente. Los avisos son otra
-// cosa: son lo que un humano lee después, abriendo el log del servicio. Si ahí no
-// llegan, un servicio que arrancó pero con el puerto sin verificar parece un
-// servicio que arrancó bien.
-// ---------------------------------------------------------------------------
+// The JSON result of `start` answers an agent, while the warnings are what a human reads later in the service log; a service that started with an unverified port looks fine if they never land there.
 
-// TestStartEscribeLosAvisosEnElLogDelServicio: el `Warnings` que no se pierden.
-//
-// El caso que se provoca es un servicio en `port_mode = "dynamic"` que NO abre
-// ningún puerto TCP —un worker, una app sin servidor—. El arranque va bien, pero
-// el puerto queda sin resolver, y eso tiene que aparecer en el log de stderr del
-// servicio con la línea `vroom ▶ start:`.
-//
-// MEDIDO: es la única forma honesta de llegar aquí. Los avisos sólo se emiten en
-// modo dynamic, porque en modo fixed el puerto es el declarado y no hay nada que
-// verificar; y el camino de "sin puerto" es el más corto de los tres —no hay que
-// esperar al plazo del discovery ni abrir sockets—.
+// MEDIDO: a dynamic-mode service that opens no TCP port is the only honest way in, because fixed mode has nothing to verify and the no-port path is the shortest of the three (no discovery deadline, no sockets).
 func TestStartEscribeLosAvisosEnElLogDelServicio(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
 
-	// Un worker: vive, no escucha. En dynamic, el discovery acaba sin puertos.
-	//
-	// `port` declarado a propósito porque `Validate` lo exige en dynamic: es el
-	// fallback de la app (`PORT=${PORT:-N}`), no el puerto que vroom inyecta.
+	// `port` is declared on purpose because Validate demands it in dynamic mode: it is the app fallback (PORT=${PORT:-N}), not the port vroom injects.
 	worker := filepath.Join(root, "worker")
 	writeFile(t, filepath.Join(worker, ".vroom.toml"), `name = "worker"
 command_start = "sleep 30"
@@ -55,8 +35,6 @@ port = 8080
 	}
 	t.Cleanup(func() { _, _ = cmdStop("worker", "") })
 
-	// El aviso tiene que estar en el log de stderr del servicio, que es lo único
-	// que sobrevive a que la TUI se cierre.
 	log, err := os.ReadFile(store.StderrLog(worker))
 	if err != nil {
 		t.Fatalf("no hay log de stderr del servicio: %v", err)
@@ -70,23 +48,14 @@ port = 8080
 		t.Errorf("el aviso = %q, want que explique que el servicio no abrió puerto: el usuario "+
 			"tiene que entender por qué la tab Health no sondea nada", aviso)
 	}
-	// Y no puede salir por stdout: stdout es la respuesta JSON, y un aviso ahí rompe
-	// a cualquier agente que la parsee.
+	// It must not leak into stdout: stdout is the JSON reply and a warning there breaks any agent parsing it.
 	if strings.Contains(res.Action, "no TCP port") {
 		t.Errorf("action = %q: el motivo del aviso se ha colado en la respuesta en vez de quedarse "+
 			"en el log", res.Action)
 	}
 }
 
-// TestRunLoggedFallaSiElLogNoSePuedeAbrir: el primer descriptor.
-//
-// Los one-shot escriben en el log del servicio. Si ese log no se puede abrir, el
-// comando no se lanza: es preferible decir que no se pudo escribir el log a ejecutar
-// un build de dos minutos cuyo output no va a ninguna parte.
-//
-// Y el error tiene que ser el del `OpenFile` sin envolver, porque quien lo lee
-// necesita el errno: esto pasa por permisos o por disco, no por nada que vroom pueda
-// arreglar.
+// One-shots write to the service log, so if that log cannot be opened the command does not launch: refusing beats running a two-minute build whose output goes nowhere, and the OpenFile error is returned unwrapped because whoever reads it needs the errno (permissions or disk, nothing vroom can fix).
 func TestRunLoggedFallaSiElLogNoSePuedeAbrir(t *testing.T) {
 	dir := t.TempDir()
 	roto := filepath.Join(dir, "logs")
@@ -107,13 +76,7 @@ func TestRunLoggedFallaSiElLogNoSePuedeAbrir(t *testing.T) {
 	}
 }
 
-// TestRunLoggedFallaSiElBannerNoSePuedeEscribir: el mismo descriptor, sin espacio.
-//
-// El segundo fallo posible es el que sólo aparece con el fichero YA abierto: se
-// abre bien y no se puede escribir en él. Un banner que no cabe significa que
-// tampoco cabrá la salida del build, así que es el mismo veredicto: no se lanza.
-//
-// MEDIDO: `/dev/full` es exactamente eso —abre, escribe y devuelve ENOSPC—.
+// MEDIDO: /dev/full is the only way to get a log that opens fine and then rejects writes with ENOSPC, and a banner that does not fit means the build output will not fit either, so the verdict is the same: do not launch.
 func TestRunLoggedFallaSiElBannerNoSePuedeEscribir(t *testing.T) {
 	const lleno = "/dev/full"
 	if _, err := os.Stat(lleno); err != nil {

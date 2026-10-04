@@ -8,7 +8,6 @@ import (
 	"vroom/internal/gitinfo"
 )
 
-// La tab Metrics muestra la muestra cacheada del servicio en ejecución.
 func TestMetricsLinesShowsSample(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -25,7 +24,6 @@ func TestMetricsLinesShowsSample(t *testing.T) {
 	}
 }
 
-// Sin servicio corriendo, Metrics muestra el placeholder.
 func TestMetricsLinesNotRunning(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -34,7 +32,6 @@ func TestMetricsLinesNotRunning(t *testing.T) {
 	}
 }
 
-// La tab Git muestra rama y commits cacheados; el error se propaga.
 func TestGitLines(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -54,7 +51,6 @@ func TestGitLines(t *testing.T) {
 	}
 }
 
-// La tab Env muestra el entorno cacheado y ordenado.
 func TestEnvLinesShowsVars(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -72,7 +68,6 @@ func TestEnvLinesShowsVars(t *testing.T) {
 	}
 }
 
-// El timeline registra eventos de jobs con su resultado.
 func TestTimelineRecordsJobs(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -93,7 +88,6 @@ func TestTimelineRecordsJobs(t *testing.T) {
 	}
 }
 
-// Sin eventos, el timeline muestra el placeholder.
 func TestTimelineEmpty(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -102,7 +96,6 @@ func TestTimelineEmpty(t *testing.T) {
 	}
 }
 
-// La tab Health muestra el resultado del probe; sin puerto avisa.
 func TestHealthLines(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -124,7 +117,6 @@ func TestHealthLines(t *testing.T) {
 	}
 }
 
-// La tecla numérica activa cada una de las 7 pestañas del panel Output.
 func TestAllTabsReachableByNumber(t *testing.T) {
 	m, _ := newTestModel(t)
 	for i := 0; i < int(tabCount); i++ {

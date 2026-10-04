@@ -6,21 +6,7 @@ import (
 	"vroom/internal/state"
 )
 
-// ---------------------------------------------------------------------------
-// El stop de la TUI tiene que RETIRAR la ruta.
-//
-// El reviewer comprobó que borrando los tres call sites de Release la suite
-// seguía verde, así que la decisión 13 del ADR no la verificaba nada. Estos
-// tests cierran el hueco para el camino de la TUI: si mañana alguien quita el
-// release de stopCmd, esto se pone rojo.
-//
-// Y un route que no se retira al parar es exactamente el daño que esta feature
-// existe para evitar: una dirección apuntando a un puerto muerto.
-// ---------------------------------------------------------------------------
-
-// Un stub que registra las retiradas. Las variables de costura viven en
-// route.go (producción) porque releaseRoute tiene que poder leerlas; aquí sólo
-// se instalan y se limpian.
+// The double only records removals: the real releaser talks to the portless binary, which these tests never run.
 type recordingReleaser struct{ removed []string }
 
 func (r *recordingReleaser) RemoveAbsent(name string) error {
@@ -28,7 +14,6 @@ func (r *recordingReleaser) RemoveAbsent(name string) error {
 	return nil
 }
 
-// installRouteStub apunta la retirada de la TUI al doble del test.
 func installRouteStub(t *testing.T, rec *recordingReleaser) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -39,7 +24,6 @@ func installRouteStub(t *testing.T, rec *recordingReleaser) {
 	routeStubInstalled = true
 }
 
-// El stop de un servicio con ruta registrada la retira.
 func TestStopRemovesTheServiceRoute(t *testing.T) {
 	rec := &recordingReleaser{}
 	installRouteStub(t, rec)
@@ -65,9 +49,7 @@ func TestStopRemovesTheServiceRoute(t *testing.T) {
 		t.Errorf("parar no puede fallar por la retirada de una ruta: %#v", msg)
 	}
 
-	// Y revoca la propiedad: sin esto el Meta seguiría declarando nuestra una
-	// ruta ya retirada, que es lo que permite que el arranque siguiente pise la
-	// ruta de otro que haya tomado el nombre.
+	// Ownership must be revoked too, or the next start could stomp a route another worktree has since claimed.
 	meta, err := store.LoadMeta(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -80,8 +62,7 @@ func TestStopRemovesTheServiceRoute(t *testing.T) {
 	}
 }
 
-// Un servicio SIN ruta no invoca la retirada: RouteName vacío es la señal de que
-// no hubo contrato de ruta, y una llamada con nombre vacío sería ruido.
+// An empty RouteName means there was never a route contract, and releasing that empty name would be noise.
 func TestStopWithoutRouteDoesNotCallRelease(t *testing.T) {
 	rec := &recordingReleaser{}
 	installRouteStub(t, rec)
@@ -89,7 +70,7 @@ func TestStopWithoutRouteDoesNotCallRelease(t *testing.T) {
 	dir := t.TempDir()
 	store := state.NewStoreAt(t.TempDir())
 	if err := store.SaveMeta(dir, state.Meta{
-		Name: "p", State: state.StateRunning, // sin RouteName
+		Name: "p", State: state.StateRunning,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -104,8 +85,7 @@ func TestStopWithoutRouteDoesNotCallRelease(t *testing.T) {
 	}
 }
 
-// El mismo caso en la TUI: un handle vivo sin propiedad NO es autoridad para
-// borrar. Con una ruta ajena ocupando el nombre, el stop la eliminaba.
+// A live handle without ownership is not authority to delete, so a foreign route holding the name survives.
 func TestStopDoesNotRemoveAForeignRoute(t *testing.T) {
 	rec := &recordingReleaser{}
 	installRouteStub(t, rec)

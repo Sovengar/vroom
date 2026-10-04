@@ -9,26 +9,10 @@ import (
 	"testing"
 )
 
-// HYGIENE GUARD.
-//
-// Un helper que sobrevive a la suite retiene un puerto del rango de reserva
-// para siempre: cada fuga quita una ranura y no se recupera sin reiniciar la
-// TUI. Pasó una vez con un TestHelperService de 4 h 08 m.
-//
-// El emparejamiento es por EXECUTABLE, no por línea de comandos: cualquier
-// proceso cuyo /proc/<pid>/exe resuelva a este mismo binario y siga vivo al
-// terminar la suite es una fuga, con certeza. Un `pgrep -f` sería global de
-// máquina y podría culpar o matar a la corrida de otro proceso.
-//
-// Y hay una trampa que este guard ya se comió una vez: los helpers de este
-// paquete SON este mismo binario. Su TestMain correría el guard, encontraría
-// al proceso que los lanzó y lo mataría. Por eso un helper se declara con
-// su variable de entorno, y por eso el guard nunca toca a sus antepasados.
-
-// helperEnvVar marca los procesos que son un helper lanzado por la suite.
+// The helpers of this package ARE this same binary, so their TestMain would run this guard, find the process that launched them and kill it: helpers declare themselves with this variable and the guard never touches its own ancestors.
 const helperEnvVar = "VROOM_START_HELPER"
 
-// leakedTestBinaries devuelve los pids que ejecutan ESTE binario y siguen vivos.
+// Matched by executable, never by command line: a pgrep -f is machine-global and would blame or kill another run.
 func leakedTestBinaries() []int {
 	self, err := os.Executable()
 	if err != nil {
@@ -64,7 +48,6 @@ func leakedTestBinaries() []int {
 	return leaked
 }
 
-// isAncestor dice si candidate está en la cadena de padres de pid.
 func isAncestor(candidate, pid int) bool {
 	for range 64 {
 		ppid := syscall.Getppid()
@@ -81,11 +64,12 @@ func isAncestor(candidate, pid int) bool {
 	return false
 }
 
+// A helper that outlives the suite holds a reserved port slot for good: every leak costs one and only a TUI restart recovers it, which is what a TestHelperService surviving 4h08m once cost.
 func TestMain(m *testing.M) {
 	code := m.Run()
 
 	if os.Getenv(helperEnvVar) != "" {
-		os.Exit(code) // soy un helper: no soy el guard
+		os.Exit(code)
 	}
 
 	leaked := leakedTestBinaries()
@@ -102,9 +86,7 @@ func TestMain(m *testing.M) {
 	os.Exit(1)
 }
 
-// isTestBinary dice si el proceso pid ejecuta el binario `self`. Es la única
-// pieza de lógica del guard, y está aparte para poder probarla contra un
-// proceso que el test posee y controla, sin spawn ni shell de por medio.
+// The guard's only real logic, factored out so a test can exercise it against a process it owns, with no spawn and no shell.
 func isTestBinary(root, self string, pid int) bool {
 	exe, err := os.Readlink(filepath.Join(root, strconv.Itoa(pid), "exe"))
 	if err != nil {
@@ -117,9 +99,7 @@ func isTestBinary(root, self string, pid int) bool {
 	return resolved == self
 }
 
-// testBinaryPath resuelve el ejecutable de este binario. Falla en lugar de
-// devolver cadena vacía: si no se puede resolver, un guard que no encuentra
-// NADA parece un guard que pasa, y eso es peor que no tenerlo.
+// Fails instead of returning an empty string: a guard that cannot resolve its binary finds nothing and looks like a passing guard, which is worse than no guard.
 func testBinaryPath(t *testing.T) string {
 	t.Helper()
 	self, err := os.Executable()
@@ -133,12 +113,7 @@ func testBinaryPath(t *testing.T) string {
 	return resolved
 }
 
-// El guard tiene que poder fallar. Se comprueba contra el propio proceso del
-// test, que poseemos y controlamos: determinista, sin spawn, sin shell y sin
-// depender de qué /bin/sh sea en la máquina.
-//
-// El control negativo (pid 1) es lo que impide que un isTestBinary que
-// devolviera true siempre pasara el aserto positivo.
+// pid 1 is the negative control that keeps an always-true isTestBinary from passing the positive assertion.
 func TestHygieneGuardMatchesOwnBinary(t *testing.T) {
 	self := testBinaryPath(t)
 

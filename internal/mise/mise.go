@@ -1,9 +1,4 @@
-// Package mise descubre tasks definidos en la sección [tasks.*] de un
-// mise.toml.
-//
-// El acoplamiento con mise es opcional: listar tasks solo parsea el
-// fichero (no requiere el binario); ejecutar un task lanza
-// `mise run <name>`, que sí lo necesita.
+// Package mise discovers the [tasks.*] of a mise.toml by parsing the file only; listing never needs the mise binary, running a task always does.
 package mise
 
 import (
@@ -15,17 +10,13 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// FileName es el fichero de configuración de mise que se parsea.
 const FileName = "mise.toml"
 
-// Task es un task ejecutable de mise.
 type Task struct {
 	Name        string
 	Description string
 }
 
-// taskDef es la definición declarativa de un task en mise.toml. Los
-// campos que no nos interesan (run, depends, env, ...) se ignoran.
 type taskDef struct {
 	Description string `toml:"description"`
 	Hide        bool   `toml:"hide"`
@@ -35,14 +26,11 @@ type miseConfig struct {
 	Tasks map[string]taskDef `toml:"tasks"`
 }
 
-// HasMiseToml reporta si dir contiene un mise.toml.
 func HasMiseToml(dir string) bool {
 	_, err := os.Stat(filepath.Join(dir, FileName))
 	return err == nil
 }
 
-// Tasks parsea los tasks del mise.toml de dir, ordenados alfabéticamente
-// y sin los marcados con hide = true.
 func Tasks(dir string) ([]Task, error) {
 	path := filepath.Join(dir, FileName)
 	var cfg miseConfig

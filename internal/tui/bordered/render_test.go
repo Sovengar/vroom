@@ -9,20 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// ---------------------------------------------------------------------------
-// Los tests de este archivo cubren las ramas de RenderWithTitlesEx que el
-// wrap_test.go no toca: el clamp de ancho, los caracteres de borde vacios, el
-// titulo mas ancho que la caja, los tres alineamientos, el borde con color, y
-// el camino de wrap DENTRO del render (no solo de wrapLine).
-//
-// Son las ramas por las que la caja se deforma: si el titulo no se trunca, se
-// sale de la caja; si un caracter de borde vacio no se sustituye por espacio,
-// la linea del borde mide una celda menos que el resto y la caja se ve rota.
-// ---------------------------------------------------------------------------
-
-// TestRenderAnchoMinimoNoRompeLaCaja: por debajo de 2 celdas de ancho no hay
-// caja posible, asi que se sube a 2 en vez de restar un ancho negativo. El
-// assert importante es que NO revienta con panic ni produce anchuras negativa.
+// Below 2 cells no box is possible, so the width clamps up rather than subtracting a negative and handing strings.Repeat a panic.
 func TestRenderAnchoMinimoNoRompeLaCaja(t *testing.T) {
 	for _, width := range []int{-5, -1, 0, 1} {
 		out := RenderWithTitleEx(lipgloss.RoundedBorder(), nil, AlignLeft, "T", "x", width)
@@ -34,12 +21,8 @@ func TestRenderAnchoMinimoNoRompeLaCaja(t *testing.T) {
 	}
 }
 
-// TestRenderConCaracteresDeBordeVaciosLosSustituyePorEspacio: un Border con
-// caracteres vacios (lipgloss lo permite para bordes parciales) debe rellenarse
-// con espacios. Si no, la linea mide una celda menos y las tres lineas de la
-// caja dejan de alinearse.
+// lipgloss permits empty border runes for partial borders; unfilled they measure zero width, so the line comes up a cell short of the others.
 func TestRenderConCaracteresDeBordeVaciosLosSustituyePorEspacio(t *testing.T) {
-	// Top/Left/Right/Bottom vacios; las esquinas si presentes.
 	border := lipgloss.Border{
 		TopLeft:     "+",
 		TopRight:    "+",
@@ -56,15 +39,12 @@ func TestRenderConCaracteresDeBordeVaciosLosSustituyePorEspacio(t *testing.T) {
 			t.Errorf("linea %d ancho = %d, want %d: %q", i, w, width, line)
 		}
 	}
-	// El borde horizontal tiene que ser el caracter de relleno, no el vacio.
 	if !strings.Contains(lines[0], " hi ") {
 		t.Errorf("el titulo no aparece: %q", lines[0])
 	}
 }
 
-// TestRenderTruncaElTituloMasAnchoQueLaCaja: un titulo de 30 celdas en una caja
-// de 10 tiene que truncarse al ancho interior. Sin el truncate, la linea del
-// borde empuja las demas y el titulo invade la caja de al lado.
+// A title wider than the box must be truncated, or the border row overflows and the title invades the neighbouring box.
 func TestRenderTruncaElTituloMasAnchoQueLaCaja(t *testing.T) {
 	const width = 10
 	out := RenderWithTitleEx(lipgloss.RoundedBorder(), nil, AlignLeft, "TITULO MUY LARGO", "x", width)
@@ -76,10 +56,7 @@ func TestRenderTruncaElTituloMasAnchoQueLaCaja(t *testing.T) {
 	}
 }
 
-// cellIndexOf devuelve la CELDA en la que aparece needle dentro de line,
-// contando en ancho de pantalla y no en bytes. Hace falta porque las esquinas
-// del borde son multibyte: strings.Index daría la posición en bytes, que en
-// una caja con esquinas es un número sin relación con la columna.
+// Counts screen cells, not bytes: border corners are multibyte, so strings.Index would return an offset unrelated to the column.
 func cellIndexOf(line, needle string) int {
 	runes := []rune(line)
 	w := 0
@@ -92,10 +69,6 @@ func cellIndexOf(line, needle string) int {
 	return -1
 }
 
-// TestRenderAlineamientosDelTitulo: los tres alineamientos tienen que colocar
-// el titulo en puntos distintos de la linea de borde, y todos tienen que
-// respetar el ancho. Es la propiedad que hace que un footer a la derecha y un
-// header a la izquierda convivan en la misma caja.
 func TestRenderAlineamientosDelTitulo(t *testing.T) {
 	const width = 30
 	const title = "T"
@@ -133,11 +106,7 @@ func TestRenderAlineamientosDelTitulo(t *testing.T) {
 	}
 }
 
-// TestRenderConBordeDeColor: cuando hay borderFg, los caracteres de borde se
-// emiten con el SGR del color. El assert NO es el color exacto sino que el ANSI
-// este presente y que el ancho MEDIDO (que ignora el ANSI) siga siendo el
-// pedido: ese es el contrato que el resto de la TUI depende, porque las
-// columnas se calculan con ansi.StringWidth.
+// The contract is the ANSI-ignoring measured width, not the exact color, because the rest of the TUI computes columns with ansi.StringWidth.
 func TestRenderConBordeDeColor(t *testing.T) {
 	const width = 24
 	out := RenderWithTitlesEx(
@@ -161,17 +130,9 @@ func TestRenderConBordeDeColor(t *testing.T) {
 	}
 }
 
-// TestRenderEsquinasAnchasSaturanElAnchoInteriorAZero: con esquinas de mas de
-// una celda (lipgloss las permite) el ancho interior sale NEGATIVO. El clamp a
-// cero es lo que evita que strings.Repeat reciba un numero negativo y reviente
-// con panic, asi que es codigo de seguridad y por eso se ejercita.
-//
-// Antes de este test el clamp estaba sin cubrir: ningun border del repo lo
-// necesita (todos son de una celda), asi que una regresion aqui pasaria
-// inadvertida hasta que alguien usara un border compuesto.
+// No border in the repo needs this clamp (all corners are one cell), so the branch would regress unnoticed until someone used a compound border.
 func TestRenderEsquinasAnchasSaturanElAnchoInteriorAZero(t *testing.T) {
-	// "┌─┐" mide 3 celdas, asi que dos esquinas ya son 6: con width 2 el
-	// interior es 2-6 = -4.
+	// "┌─┐" is 3 cells wide, so two corners already take 6 and width 2 leaves an interior of -4.
 	border := lipgloss.Border{
 		TopLeft:     "┌─┐",
 		TopRight:    "┌─┐",
@@ -185,7 +146,6 @@ func TestRenderEsquinasAnchasSaturanElAnchoInteriorAZero(t *testing.T) {
 
 	out := RenderWithTitleEx(border, nil, AlignLeft, "T", "cuerpo", 2)
 
-	// Lo que importa es que no revienta y que el contenido no se pierde.
 	if !strings.Contains(out, "cuerpo") {
 		t.Errorf("el contenido se perdio al saturar el ancho interior: %q", out)
 	}
@@ -196,16 +156,12 @@ func TestRenderEsquinasAnchasSaturanElAnchoInteriorAZero(t *testing.T) {
 	}
 }
 
-// TestRenderEnvuelveElContenidoQueNoCabe: aqui se ejercita el wrapLine desde
-// buildContentLines, no en aislamiento. El contenido se parte en varias lineas
-// y CADA una tiene que medir el ancho interior exacto — es el requisito sin el
-// cual el borde derecho deja de ser una columna recta.
+// Exercises wrapLine through buildContentLines rather than in isolation.
 func TestRenderEnvuelveElContenidoQueNoCabe(t *testing.T) {
 	const width = 16
 	out := RenderWithTitleEx(lipgloss.RoundedBorder(), nil, AlignLeft, " t ", "abcdefghijklmnopqrstuvwxyz", width)
 
 	lines := strings.Split(out, "\n")
-	// borde + (contenido partido en trozos de ancho interior) + borde.
 	if len(lines) < 4 {
 		t.Fatalf("el contenido largo deberia producir varias lineas, hubo %d: %q", len(lines), out)
 	}
@@ -214,8 +170,6 @@ func TestRenderEnvuelveElContenidoQueNoCabe(t *testing.T) {
 			t.Errorf("linea %d ancho = %d, want %d: %q", i, w, width, line)
 		}
 	}
-	// Solo las lineas de cuerpo llevan borde vertical: la primera y la ultima
-	// son las lineas del borde horizontal, con esquinas.
 	body := lines[1 : len(lines)-1]
 	if len(body) < 2 {
 		t.Fatalf("el contenido se partio en %d lineas, want >=2: %q", len(body), body)
@@ -225,9 +179,7 @@ func TestRenderEnvuelveElContenidoQueNoCabe(t *testing.T) {
 			t.Errorf("cuerpo %d no empieza por el borde izquierdo: %q", i, line)
 		}
 	}
-	// El texto tiene que seguir estando entero: el wrap reparte, nunca tira.
-	// Se comprueba quitando los bordes y los espacios de relleno, porque los
-	// trozos se cortan en el ancho interior, no en multiplos de 10.
+	// The wrap redistributes and never drops text; checking it means stripping borders and padding because the cuts land on the inner width, not on multiples of 10.
 	var texto strings.Builder
 	for _, line := range body {
 		texto.WriteString(ansi.Strip(strings.Trim(line, "│")))
@@ -237,9 +189,6 @@ func TestRenderEnvuelveElContenidoQueNoCabe(t *testing.T) {
 	}
 }
 
-// TestRenderContenidoVacioDibujaUnaFila: un contenido vacio tiene que dar una
-// linea de cuerpo en blanco del ancho interior. Sin esa fila, la caja sale
-// aplastada contra su propio borde.
 func TestRenderContenidoVacioDibujaUnaFila(t *testing.T) {
 	const width = 12
 	out := RenderWithTitleEx(lipgloss.RoundedBorder(), nil, AlignLeft, " t ", "", width)
@@ -253,9 +202,6 @@ func TestRenderContenidoVacioDibujaUnaFila(t *testing.T) {
 	}
 }
 
-// TestRenderRellenaElContenidoCortoAPadDerecha: el cuerpo se rellena por la
-// derecha hasta el borde. Un "│ab" sin relleno saca la columna del borde
-// derecho, que es exactamente el defecto que hace la UI difficult de leer.
 func TestRenderRellenaElContenidoCortoAPadDerecha(t *testing.T) {
 	const width = 12
 	out := RenderWithTitleEx(lipgloss.RoundedBorder(), nil, AlignLeft, "", "ab", width)
@@ -266,8 +212,6 @@ func TestRenderRellenaElContenidoCortoAPadDerecha(t *testing.T) {
 	}
 }
 
-// TestRenderMultiplesLineasDeContenido: un contenido con saltos de linea
-// explicitos produce una fila por linea, rellenada y con sus dos bordes.
 func TestRenderMultiplesLineasDeContenido(t *testing.T) {
 	const width = 10
 	out := RenderWithTitleEx(lipgloss.RoundedBorder(), nil, AlignLeft, "", "a\nb\nc", width)

@@ -10,13 +10,10 @@ import (
 	"strings"
 )
 
-// ReadMetrics lee métricas del proceso desde /proc: memoria residente
-// (VmRSS), nº de hilos, descriptores abiertos y ticks de CPU acumulados.
 func ReadMetrics(pid int) (Metrics, error) {
 	return readMetricsAt(procRoot, pid)
 }
 
-// readMetricsAt permite inyectar la raíz de /proc para los tests.
 func readMetricsAt(root string, pid int) (Metrics, error) {
 	dir := filepath.Join(root, strconv.Itoa(pid))
 	var m Metrics
@@ -37,7 +34,6 @@ func readMetricsAt(root string, pid int) (Metrics, error) {
 	return m, nil
 }
 
-// parseVmRSS extrae el campo VmRSS (en kB) de /proc/<pid>/status.
 func parseVmRSS(status string) int64 {
 	for _, line := range strings.Split(status, "\n") {
 		v, ok := strings.CutPrefix(line, "VmRSS:")
@@ -57,8 +53,7 @@ func parseVmRSS(status string) int64 {
 	return 0
 }
 
-// ReadEnviron devuelve el entorno del proceso (variables "KEY=value").
-// Solo unix: en Windows no hay equivalente directo.
+// Only unix: Windows has no direct equivalent for reading another process environment.
 func ReadEnviron(pid int) ([]string, error) {
 	return readEnvironAt(procRoot, pid)
 }

@@ -120,8 +120,7 @@ process_pattern = ""
 	}
 }
 
-// La clave vieja `group` ya no agrupa (reemplazo duro, sin
-// alias); los campos desconocidos se ignoran.
+// The old `group` key no longer groups (hard replacement, no alias); unknown fields are ignored.
 func TestParseGroupKeyIgnored(t *testing.T) {
 	path := writeManifest(t, `
 name = "x"
@@ -137,9 +136,7 @@ command_start = "y"
 	}
 }
 
-// command_install/command_build son comandos one-shot
-// opcionales (pueden ser `mise run ...` o cualquier comando); su
-// ausencia no invalida el manifiesto. command_stop igualmente opcional.
+// command_install/command_build are optional one-shot commands (mise run ... or anything), so their absence cannot invalidate the manifest; command_stop is optional too.
 func TestParseInstallBuildStop(t *testing.T) {
 	path := writeManifest(t, `
 name = "web-frontend"

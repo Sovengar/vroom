@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-// Fuera de un repo, ReadStatus devuelve error y rama vacía.
 func TestReadStatusNoRepo(t *testing.T) {
 	st := ReadStatus(t.TempDir())
 	if st.Branch != "" {
@@ -19,7 +18,6 @@ func TestReadStatusNoRepo(t *testing.T) {
 	}
 }
 
-// En un repo real, ReadStatus lee rama, estado sucio y commits.
 func TestReadStatusRepo(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git no disponible")
@@ -57,7 +55,6 @@ func TestReadStatusRepo(t *testing.T) {
 		t.Errorf("Commits = %v, want el commit inicial", st.Commits)
 	}
 
-	// Un fichero modificado marca el repo como sucio.
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("changed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -14,8 +14,7 @@ import (
 	"github.com/charmbracelet/x/vt"
 )
 
-// stubPty graba los writes (lo que el pump envía al PTY) y los
-// resizes; Read devuelve EOF inmediato (o el error configurado).
+// stubPty records the bytes the pump sends to the PTY plus every resize; Read returns immediate EOF (or the configured error).
 type stubPty struct {
 	mu      sync.Mutex
 	written []byte
@@ -60,15 +59,13 @@ func (p *stubPty) isClosed() bool {
 	return p.closed
 }
 
-// newStubSession arma una termSession con PTY stub: emulador real +
-// pump real, sin procesos.
+// newStubSession wires a real emulator and a real pump to a stubbed PTY, so no process is ever spawned.
 func newStubSession(w, h int, p *stubPty) *termSession {
 	s := &termSession{pty: p, emu: vt.NewEmulator(w, h), w: w, h: h}
 	go s.pump()
 	return s
 }
 
-// waitFor poll-ea cond hasta el deadline; falla el test si no llega.
 func waitFor(t *testing.T, d time.Duration, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(d)
@@ -81,7 +78,6 @@ func waitFor(t *testing.T, d time.Duration, cond func() bool) {
 	t.Fatal("condición no alcanzada antes del deadline")
 }
 
-// keyPress construye el KeyPressMsg de una tecla imprimible o especial.
 func keyPress(s string) tea.KeyPressMsg {
 	switch s {
 	case "enter":
@@ -102,10 +98,6 @@ func keyPress(s string) tea.KeyPressMsg {
 	return tea.KeyPressMsg{Code: rune(s[0]), Text: s}
 }
 
-// ---- Codificación de teclas ----
-
-// Las teclas llegan al PTY con su secuencia ANSI correcta: el keymap
-// del emulador (vt.SendKey) codifica ctrl/alt/flechas/especiales.
 func TestSendKeyEncoding(t *testing.T) {
 	tests := []struct {
 		name string
@@ -138,12 +130,11 @@ func TestSendKeyEncoding(t *testing.T) {
 	}
 }
 
-// shutdown tras cerrar: sendKey no escribe ni panickea (idempotencia).
 func TestSendKeyAfterShutdown(t *testing.T) {
 	p := &stubPty{}
 	s := newStubSession(80, 10, p)
 	s.shutdown()
-	s.shutdown() // idempotente
+	s.shutdown()
 	s.sendKey(keyPress("x"))
 	if got := string(p.bytesWritten()); got != "" {
 		t.Errorf("writes tras shutdown: %q", got)
@@ -153,8 +144,6 @@ func TestSendKeyAfterShutdown(t *testing.T) {
 	}
 }
 
-// resize redimensiona emulador y PTY; con dims nuevas tras un cambio
-// de ventana.
 func TestSessionResize(t *testing.T) {
 	p := &stubPty{}
 	s := newStubSession(80, 10, p)
@@ -168,11 +157,7 @@ func TestSessionResize(t *testing.T) {
 	}
 }
 
-// ---- Ciclo de vida en el Model ----
-
-// "!" abre el modal y crea la sesión con cwd = proyecto seleccionado;
-// el shell es $SHELL (aquí un script lento) y el loop de lectura queda
-// armado.
+// $SHELL is a script that sleeps 30s so the session is still alive when these assertions run.
 func TestBangOpensTerminal(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("requiere PTY unix")
@@ -201,7 +186,7 @@ func TestBangOpensTerminal(t *testing.T) {
 		t.Error("la sesión debe quedar viva")
 	}
 	_ = store
-	// Cleanup: matar la sesión para no dejar procesos colgados.
+	// Kill the session here or the real PTY child process outlives the test binary.
 	if c := m2.term.closeCmd(); c != nil {
 		c()
 	}
@@ -210,8 +195,6 @@ func TestBangOpensTerminal(t *testing.T) {
 	}
 }
 
-// ctrl+q oculta el modal SIN matar la sesión; "!" la re-muestra sin
-// crear otra.
 func TestCtrlQHidesKeepsSession(t *testing.T) {
 	p := &stubPty{}
 	m, _ := newTestModel(t)
@@ -226,8 +209,6 @@ func TestCtrlQHidesKeepsSession(t *testing.T) {
 		t.Fatal("ctrl+q NO debe matar la sesión")
 	}
 
-	// Reabrir: misma sesión (no se crea otra) y el stub no recibió
-	// un segundo Start.
 	before := len(p.bytesWritten())
 	m3, _ := press(m2, "!")
 	if !m3.termOpen {
@@ -241,8 +222,6 @@ func TestCtrlQHidesKeepsSession(t *testing.T) {
 	}
 }
 
-// Con el modal abierto las teclas van al shell: "q" NO sale de la TUI
-// y "!" escribe el bang.
 func TestTermModalCapturesKeys(t *testing.T) {
 	p := &stubPty{}
 	m, _ := newTestModel(t)
@@ -265,7 +244,6 @@ func TestTermModalCapturesKeys(t *testing.T) {
 		return strings.Contains(string(p.bytesWritten()), "!")
 	})
 
-	// ctrl+c va al shell (SIGINT), no sale de vroom.
 	next, cmd2 := m2.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	m3 := next.(Model)
 	if cmd2 != nil {
@@ -277,7 +255,6 @@ func TestTermModalCapturesKeys(t *testing.T) {
 	_ = m3
 }
 
-// ptyDataMsg alimenta el emulador y re-arma el loop de lectura.
 func TestPtyDataFeedsEmulator(t *testing.T) {
 	p := &stubPty{}
 	m, _ := newTestModel(t)
@@ -295,8 +272,6 @@ func TestPtyDataFeedsEmulator(t *testing.T) {
 	}
 }
 
-// EOF del PTY no arma nada (el reaper se armó al abrir la sesión) y
-// ptyExitMsg limpia la sesión con aviso y modal cerrado.
 func TestPtyExitLifecycle(t *testing.T) {
 	p := &stubPty{}
 	m, _ := newTestModel(t)
@@ -325,7 +300,6 @@ func TestPtyExitLifecycle(t *testing.T) {
 	}
 }
 
-// Exit code != 0 se notifica.
 func TestPtyExitCodeNotify(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.term = newStubSession(80, 10, &stubPty{})
@@ -336,14 +310,13 @@ func TestPtyExitCodeNotify(t *testing.T) {
 	}
 }
 
-// exitCode extrae el código de un ExitError; otros errores → 0.
+// exitCode digs the status out of an *exec.ExitError; nil or any other error counts as 0.
 func TestExitCodeHelper(t *testing.T) {
 	if got := exitCode(nil); got != 0 {
 		t.Errorf("exitCode(nil) = %d", got)
 	}
 }
 
-// Con sesión viva, q encadena el shutdown antes de salir.
 func TestQuitCmdKillsSession(t *testing.T) {
 	p := &stubPty{}
 	m, _ := newTestModel(t)
@@ -353,20 +326,17 @@ func TestQuitCmdKillsSession(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("quitCmd debe devolver un comando")
 	}
-	// Con sesión el primer cmd del Sequence NO es QuitMsg (es el
-	// closeCmd; el runtime de bubbletea ejecuta la secuencia).
+	// The Sequence must lead with closeCmd, not QuitMsg, because bubbletea runs the batch in order.
 	msg := cmd()
 	if _, ok := msg.(tea.QuitMsg); ok {
 		t.Fatal("el primer cmd del quit con sesión NO debe ser QuitMsg")
 	}
-	// El close del sequence es closeCmd: al invocarlo se apaga todo.
 	m.term.closeCmd()()
 	waitFor(t, time.Second, func() bool { return !m.term.alive() })
 	if !p.isClosed() {
 		t.Error("el pty stub debe quedar cerrado tras el quit")
 	}
 
-	// Sin sesión: quitCmd es tea.Quit a secas.
 	m2, _ := newTestModel(t)
 	cmd2 := m2.quitCmd()
 	if _, ok := cmd2().(tea.QuitMsg); !ok {
@@ -374,13 +344,11 @@ func TestQuitCmdKillsSession(t *testing.T) {
 	}
 }
 
-// El box muestra título con el cwd de la sesión y el hint; sin sesión,
-// placeholder "terminal closed".
 func TestTermBoxRender(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 
-	m.termOpen = true // sin sesión aún
+	m.termOpen = true
 	box := m.termBox()
 	if !strings.Contains(box, "terminal closed") {
 		t.Errorf("box sin sesión = %q, want placeholder", box)
@@ -404,10 +372,7 @@ func TestTermBoxRender(t *testing.T) {
 	s.shutdown()
 }
 
-// ---- Integración con PTY real (unix) ----
-
-// Sesión real: sh corriendo en un PTY; el echo del shell llega al
-// emulador y el exit cierra el ciclo completo.
+// The one test that drives a real PTY process, so it covers the seam no stub reaches.
 func TestTermSessionIntegration(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("requiere PTY unix")
@@ -418,7 +383,6 @@ func TestTermSessionIntegration(t *testing.T) {
 	}
 	defer s.shutdown()
 
-	// Escribir un echo marcador y esperar a que el emulador lo pinte.
 	s.sendKey(keyPress("e"))
 	s.sendKey(keyPress("c"))
 	s.sendKey(keyPress("h"))
@@ -432,7 +396,6 @@ func TestTermSessionIntegration(t *testing.T) {
 	s.sendKey(keyPress("2"))
 	s.sendKey(keyPress("enter"))
 
-	// Bombea el output del PTY al emulador hasta ver el marcador.
 	deadline := time.After(5 * time.Second)
 	found := false
 	for !found {
@@ -456,8 +419,7 @@ func TestTermSessionIntegration(t *testing.T) {
 		}
 	}
 
-	// exit + enter: el reaper (waitCmd) detecta la salida del shell
-	// (el master NO emite EOF mientras el pty sostiene el slave).
+	// Only the reaper can see the shell exit: the PTY master never emits EOF while the slave side is held open.
 	s.sendKey(keyPress("e"))
 	s.sendKey(keyPress("x"))
 	s.sendKey(keyPress("i"))

@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-// readMetricsAt lee RSS, FDs y ticks desde una raíz /proc simulada.
 func TestReadMetricsAt(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "1234")
@@ -17,7 +16,7 @@ func TestReadMetricsAt(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// stat: campos tras ')' son state + 10 valores + utime(100) + stime(50).
+	// stat: the fields after ')' are state + 10 values + utime(100) + stime(50).
 	stat := "1234 (proc) S 1 1 1 0 -1 0 0 0 0 0 100 50 0 0 0 0 0 0 0\n"
 	if err := os.WriteFile(filepath.Join(dir, "stat"), []byte(stat), 0o644); err != nil {
 		t.Fatal(err)
@@ -45,14 +44,13 @@ func TestReadMetricsAt(t *testing.T) {
 	}
 }
 
-// Un PID inexistente devuelve error (la UI muestra placeholder).
 func TestReadMetricsMissingPID(t *testing.T) {
 	if _, err := readMetricsAt(t.TempDir(), 999999); err == nil {
 		t.Error("se esperaba error con un PID inexistente")
 	}
 }
 
-// readEnvironAt parte el contenido por NUL y descarta entradas vacías.
+// The doubled NUL at the end must be dropped rather than yielding an empty variable.
 func TestReadEnvironAt(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "42")

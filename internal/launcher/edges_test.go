@@ -10,25 +10,7 @@ import (
 	"vroom/internal/config"
 )
 
-// ---------------------------------------------------------------------------
-// Resolve, Launch y parsePaneID: los bordes que no son "dentro de herdr".
-//
-// Resolve decide qué estrategia se usa, y su `warn` es lo único que le dice al
-// usuario que su configuración explícita no se está respetando. Por eso el caso
-// de "pide herdr y no hay herdr" importa más que el de éxito.
-//
-// parsePaneID extrae un id de la salida JSON de herdr, y esa salida es de un
-// programa externo que no controla este repo. La función tiene que fallar en
-// silencio —""— ante cualquier forma inesperada, porque el llamador ya comprueba
-// el "" y da un error accionable.
-// ---------------------------------------------------------------------------
-
-// TestResolveConConfigExplicitoYSinSesionHerdrAvisa: el caso que produce el
-// `warn`, y el aviso tiene que decir DOS cosas.
-//
-// Qué pasó (no hay sesión herdr) y qué se va a hacer (inline, en primer plano).
-// Con sólo una de las dos el usuario tiene que adivinar si su configuración se
-// ignora o si algo falló.
+// The warning must say both what happened (no herdr session) and what will happen instead (inline), or the user cannot tell whether the config is ignored or something failed.
 func TestResolveConConfigExplicitoYSinSesionHerdrAvisa(t *testing.T) {
 	l := &Launcher{
 		cfg:  config.AskConfig{Launcher: "herdr"},
@@ -52,12 +34,7 @@ func TestResolveConConfigExplicitoYSinSesionHerdrAvisa(t *testing.T) {
 	}
 }
 
-// TestResolveConHerdrExplicitoYSesionHerdrNoAvisa: el camino bueno del herdr
-// explícito: estrategia herdr y NINGÚN aviso.
-//
-// El aviso sólo existe para el fallback. Si también saliera aquí, el usuario que
-// pide herdr en una sesión herdr vería un aviso en cada pregunta que no dice
-// absolutamente nada.
+// The warning exists only for the fallback, so a herdr user in a herdr session must never see one.
 func TestResolveConHerdrExplicitoYSesionHerdrNoAvisa(t *testing.T) {
 	l := &Launcher{
 		cfg:  config.AskConfig{Launcher: "herdr"},
@@ -75,11 +52,7 @@ func TestResolveConHerdrExplicitoYSesionHerdrNoAvisa(t *testing.T) {
 	}
 }
 
-// TestResolveAutoSinSesionNoAvisa: en `auto` el fallback a inline NO es un aviso.
-//
-// La diferencia es deliberada: `auto` significa "usa lo que haya", así que inline
-// es lo pedido. Avisar ahí sería ruido en cada pregunta de un usuario fuera de
-// herdr, y teaches al usuario a ignorar los avisos.
+// In auto the inline fallback is what was asked for, so warning there would train the user to ignore every warning.
 func TestResolveAutoSinSesionNoAvisa(t *testing.T) {
 	l := &Launcher{
 		cfg:  config.AskConfig{Launcher: "auto"},
@@ -94,11 +67,7 @@ func TestResolveAutoSinSesionNoAvisa(t *testing.T) {
 	}
 }
 
-// TestResolveConSesionHerdrPeroSinBinarioCaeAInlineYAvisa: HERDR_ENV=1 sin el
-// binario es el caso de " multiplexer dice que sí pero no está".
-//
-// Y en `auto` no avisa, por el mismo motivo que antes: la comprobación es doble a
-// propósito (sesión Y binario) y el resultado es el mismo que sin sesión.
+// HERDR_ENV without the binary is checked as a pair on purpose, so the result matches the no-session case.
 func TestResolveConSesionHerdrPeroSinBinario(t *testing.T) {
 	newL := func(strategy string) *Launcher {
 		return &Launcher{
@@ -122,12 +91,6 @@ func TestResolveConSesionHerdrPeroSinBinario(t *testing.T) {
 	}
 }
 
-// TestResolveConEstrategiaDesconocidaCaeAAuto: un valor que no es ninguno de los
-// tresKNOWN no es un error, es el default.
-//
-// Load ya valida el launcher, así que aquí sólo se fija que la función no
-// entre en pánico y que el resultado sea el de `auto`, que es lo que haría
-// alguien que escribiera el launcher a mano en un config viejo.
 func TestResolveConEstrategiaDesconocidaCaeAAuto(t *testing.T) {
 	l := &Launcher{
 		cfg:  config.AskConfig{Launcher: "inventada"},
@@ -140,12 +103,7 @@ func TestResolveConEstrategiaDesconocidaCaeAAuto(t *testing.T) {
 	}
 }
 
-// TestResolveConInlineYCustomNoPreguntaPorHerdr: inline y custom se devuelven tal
-// cual, sin mirar el entorno.
-//
-// Es lo que hace que `custom` sirva de algo con una plantilla arbitraria: si
-// preguntara por herdr, un launcher de shell que menciona "herdr" por casualidad
-// dependería del multiplexer.
+// Inline and custom must not consult the environment, otherwise a shell launcher whose command happens to mention "herdr" would depend on the multiplexer.
 func TestResolveConInlineYCustomNoPreguntaPorHerdr(t *testing.T) {
 	for _, want := range []string{StrategyInline, StrategyCustom} {
 		consulted := false
@@ -168,12 +126,7 @@ func TestResolveConInlineYCustomNoPreguntaPorHerdr(t *testing.T) {
 	}
 }
 
-// TestLaunchRechazaInlineYLoDesconocido: inline NO pasa por Launch.
-//
-// Es lo que impide que un bug en el camino inline lo mande por detrás: inline
-// suspende la TUI con tea.ExecProcess y no tiene nada que despachar en segundo
-// plano. Devolver un error explícito en vez de un no-op silencioso es lo que hace
-// que el fallo se vea si alguien lo llama por error.
+// Inline must not go through Launch: it suspends the TUI via tea.ExecProcess and has nothing to dispatch in the background, so an explicit error beats a silent no-op.
 func TestLaunchRechazaInlineYLoDesconocido(t *testing.T) {
 	l := New(config.AskConfig{})
 
@@ -188,12 +141,7 @@ func TestLaunchRechazaInlineYLoDesconocido(t *testing.T) {
 	}
 }
 
-// TestLaunchPropagaElErrorDeHerdrConSuSalida: si herdr falla, el mensaje lleva
-// su salida.
-//
-// La salida de herdr es lo que dice por qué falló, y sin ella el usuario tiene
-// que reproducir la llamada a mano. Y el prefijo dice en qué paso falló
-// (split/create/run), que es lo que determina qué arreglar.
+// herdr's own output is the only explanation of the failure, and the prefix names which step failed (split/create/run), which is what decides what to fix.
 func TestLaunchPropagaElErrorDeHerdrConSuSalida(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -239,12 +187,7 @@ func TestLaunchPropagaElErrorDeHerdrConSuSalida(t *testing.T) {
 	}
 }
 
-// TestLaunchHerdrSinPaneIdDaErrorAccionable: herdr sale 0 pero sin pane id es un
-// fallo, no un acierto.
-//
-// Es un caso real: una versión distinta de herdr, o un `--json` que cambia. Sin
-// pane id no se puede lanzar el comando en ningún sitio, así que seguir como si
-// nada dejaría al usuario con un agente que no arrancó y sin aviso.
+// Real case: a different herdr version, or a changed --json, yields exit 0 with no pane_id, and continuing would leave an agent that never started and no warning.
 func TestLaunchHerdrSinPaneIdDaErrorAccionable(t *testing.T) {
 	l := &Launcher{
 		cfg: config.AskConfig{Target: "pane", Direction: "right"},
@@ -252,7 +195,6 @@ func TestLaunchHerdrSinPaneIdDaErrorAccionable(t *testing.T) {
 		look: func(string) (string, error) {
 			return "/usr/bin/herdr", nil
 		},
-		// Sale 0 y con un JSON válido, pero sin pane_id donde se espera.
 		run: func(string, ...string) (string, error) {
 			return `{"result":{"pane":{"nombre":"sin-id"}}}`, nil
 		},
@@ -267,12 +209,7 @@ func TestLaunchHerdrSinPaneIdDaErrorAccionable(t *testing.T) {
 	}
 }
 
-// TestParsePaneIDAguantaLasFormasQueNoSonLoEsperado: la salida de herdr es de
-// un programa externo, así que el parser tiene que devolver "" ante cualquier
-// rareza y dejar que el llamador avise.
-//
-// Cada caso es una forma real de fallo de parseo: JSON que no es un objeto, una ruta
-// que no existe, un valor que no es string, un tipo en medio del camino.
+// herdr's output comes from an external program this repo does not control, so parsePaneID must return "" on any surprise and let the caller raise an actionable error.
 func TestParsePaneIDAguentaLasFormasQueNoSonLoEsperado(t *testing.T) {
 	tests := []struct {
 		name string
@@ -301,8 +238,6 @@ func TestParsePaneIDAguentaLasFormasQueNoSonLoEsperado(t *testing.T) {
 	}
 }
 
-// TestParsePaneIDConLaSalidaRealDeHerdrTab: el caso de tab, que usa una clave
-// distinta del pane (root_pane) y podría haberse dejado sin probar.
 func TestParsePaneIDConLaSalidaRealDeHerdrTab(t *testing.T) {
 	l, log := newTestLauncher(t, config.AskConfig{Target: "tab"})
 	if out, err := l.Launch(StrategyHerdr, req()); err != nil {
@@ -323,15 +258,7 @@ func TestParsePaneIDConLaSalidaRealDeHerdrTab(t *testing.T) {
 	}
 }
 
-// TestLaunchCustomExpandeLosPlaceholdersYLosProtege: {dir}, {agent} y {cmd} se
-// sustituyen con el valor entrecomillado, y el script CORRE.
-//
-// Que estén entrecomillados es lo que hace que un directorio con espacios o un
-// prompt con punto y coma no rompa la plantilla. Y {cmd} es el argv COMPLETO en
-// una sola palabra, que es lo que permite pasárselo a otro comando.
-//
-// Se usa un `sh` de mentira en el PATH que graba sus argumentos: el objetivo es
-// ver lo que LLEGA a la plantilla, no comprobar que sh funciona.
+// A fake sh on PATH records its argv because the goal is what REACHES the template, not whether sh works.
 func TestLaunchCustomExpandeLosPlaceholdersYLosProtege(t *testing.T) {
 	dir := t.TempDir()
 	log := filepath.Join(dir, "out.log")
@@ -366,16 +293,13 @@ func TestLaunchCustomExpandeLosPlaceholdersYLosProtege(t *testing.T) {
 	}
 
 	got := readFileString(t, log)
-	// El dir y el agent llegan entrecomillados, con el espacio intacto.
 	if !strings.Contains(got, "'/srv/mi proyecto'") {
 		t.Errorf("el directorio no llegó entrecomillado:\n%s", got)
 	}
 	if !strings.Contains(got, "'open code'") {
 		t.Errorf("el agente no llegó entrecomillado:\n%s", got)
 	}
-	// MEDIDO: {cmd} NO se convierte en una sola palabra — se expande token a
-	// token, cada uno entrecomillado. Es lo que hace que el punto y coma del
-	// prompt no se ejecute como comando: va dentro de sus comillas.
+	// MEDIDO: {cmd} is expanded token by token, each quoted separately, which is what keeps a semicolon in the prompt from executing.
 	if !strings.Contains(got, "'arregla el bug; con punto y coma'") {
 		t.Errorf("el prompt no llegó entrecomillado: un ';' suelto ejecutaría el resto\n%s", got)
 	}
@@ -384,11 +308,7 @@ func TestLaunchCustomExpandeLosPlaceholdersYLosProtege(t *testing.T) {
 	}
 }
 
-// TestLaunchCustomPropagaElErrorDeLaPlantilla: si el script de la plantilla sale
-// con error, el mensaje lo dice y nombra la plantilla.
-//
-// Es el mensaje que conecta "el agente no arrancó" con "tu launcher_cmd está
-// mal", que es la otra mitad de la que el usuario necesita.
+// Naming launcher_cmd is what connects "the agent did not start" with the half of the message the user can actually fix.
 func TestLaunchCustomPropagaElErrorDeLaPlantilla(t *testing.T) {
 	l := &Launcher{
 		cfg: config.AskConfig{Launcher: "custom", LauncherCmd: "exit 3"},
@@ -409,12 +329,7 @@ func TestLaunchCustomPropagaElErrorDeLaPlantilla(t *testing.T) {
 	}
 }
 
-// TestInlineCmdApuntaAlDirectorioDelProyecto: la estrategia inline suspende la
-// TUI y corre el agente en el directorio del proyecto.
-//
-// El cwd es lo que hace que un agente sin --cwd relativo funcione, y es lo que
-// hace que "el agente trabaja en este proyecto" sea verdad sin que nadie lo
-// escriba en el prompt.
+// The cwd is what makes "the agent works on this project" true without anyone writing it into the prompt.
 func TestInlineCmdApuntaAlDirectorioDelProyecto(t *testing.T) {
 	r := req()
 	r.Dir = "/srv/proyecto"
@@ -423,14 +338,12 @@ func TestInlineCmdApuntaAlDirectorioDelProyecto(t *testing.T) {
 	if cmd.Dir != "/srv/proyecto" {
 		t.Errorf("cmd.Dir = %q, want el directorio del proyecto", cmd.Dir)
 	}
-	// Y el argv es el de la request, sin el nombre del agente por delante: el
-	// argv de la request YA incluye el binario.
+	// The request argv already carries the binary, so the agent name must not be prepended again.
 	if got := strings.Join(cmd.Args, " "); got != "opencode --prompt fix the bug" {
 		t.Errorf("cmd.Args = %q", got)
 	}
 }
 
-// runReal ejecuta un comando de verdad y devuelve su salida combinada.
 func runReal(name string, args ...string) (string, error) {
 	out, err := exec.Command(name, args...).CombinedOutput()
 	return string(out), err

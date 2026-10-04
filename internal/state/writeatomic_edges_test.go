@@ -7,21 +7,7 @@ import (
 	"testing"
 )
 
-// TestWriteJSONAtomicRevientaConUnTipoNoSerializable: la rama que era código muerto.
-//
-// `writeJSONAtomic` serializa lo que sea, y con los tipos que vroom guarda aquí —
-// `Meta` y `map[string]bool`, todo string, int, int64 y bool— `encoding/json`
-// siempre funciona. Antes esa comprobación era un `if err != nil { return }` que
-// ningún test podía ejecutar: código muerto con forma de comprobación.
-//
-// Ahora es un panic, y este test es lo que le da sentido. El caso de referencia es
-// un `float64` con NaN, que es el ejemplo canónico de "json falla" y también el
-// primero que aparecería si alguien añadiera un campo numérico real a `Meta`.
-//
-// Lo que se comprueba no es que el panic exista por decoración, sino que el mensaje
-// diga QUÉ tipo no se pudo serializar: un panic que sólo dice "json: unsupported
-// value" deja a quien lo ve sin saber de dónde viene, y este panic se va a leer en
-// mitad de un arranque.
+// writeJSONAtomic panics on a type json cannot serialize, and the message must name both the type and the json error because it is read mid-boot.
 func TestWriteJSONAtomicRevientaConUnTipoNoSerializable(t *testing.T) {
 	defer func() {
 		r := recover()
@@ -43,9 +29,7 @@ func TestWriteJSONAtomicRevientaConUnTipoNoSerializable(t *testing.T) {
 		}
 	}()
 
-	// MEDIDO: NaN es exactamente lo que `encoding/json` rechaza y nada más. Un canal
-	// también sirve, pero el NaN es el caso que de verdad puede colarse en un struct
-	// por accidente.
+	// MEDIDO: NaN is the only value encoding/json rejects here, and the one a stray numeric field would smuggle in.
 	_ = writeJSONAtomic(filepath.Join(t.TempDir(), "nunca.json"), map[string]float64{"x": nan()})
 }
 
@@ -54,16 +38,7 @@ func nan() float64 {
 	return zero / zero
 }
 
-// TestSaveMetaYSaveCollapsedCompartenElEscribidoAtomico: el tmp + rename.
-//
-// Los dos caminos de guardado de estado usan el mismo helper, y lo que se comprueba
-// es que el patrón se cumple: se escribe un `.tmp`, se renombra, y no queda nada
-// detrás.
-//
-// Que el fichero destino no se toca hasta el rename es lo que hace que un corte a
-// mitad de escritura deje el meta ANTERIOR intacto en vez de un json truncado. Sin
-// eso, `LoadMeta` leería un `meta.json` a medias y el servicio aparecería con el
-// estado de la ejecución anterior.
+// tmp + rename leaves the destination untouched until the rename, so an interrupted write keeps the previous meta instead of truncated JSON.
 func TestSaveMetaYSaveCollapsedCompartenElEscribidoAtomico(t *testing.T) {
 	s := NewStoreAt(t.TempDir())
 	const proyecto = "/srv/api"
@@ -88,7 +63,6 @@ func TestSaveMetaYSaveCollapsedCompartenElEscribidoAtomico(t *testing.T) {
 		}
 	}
 
-	// Y el contenido es el que se pidió, no un json vacío.
 	meta, err := s.LoadMeta(proyecto)
 	if err != nil {
 		t.Fatal(err)
@@ -101,15 +75,7 @@ func TestSaveMetaYSaveCollapsedCompartenElEscribidoAtomico(t *testing.T) {
 	}
 }
 
-// TestSaveMetaPropagaElFalloDeEscribirElTemporal: el error que SÍ puede ocurrir.
-//
-// El error de `os.WriteFile` es de los de verdad: disco lleno, permisos, un
-// directorio que se sustituyó por un fichero. Y tiene que salir como error, no como
-// panic, porque es una condición del entorno y hay quien pueda reintentar.
-//
-// Se provoca con el `meta.json` convertido en un directorio no vacío: el temporal
-// se escribe bien y el `rename` sobre un destino que es un directorio falla con
-// EISDIR.
+// A full disk or an unwritable dir is an environment condition someone can retry, so it must return an error rather than panic.
 func TestSaveMetaPropagaElFalloDeEscribirElTemporal(t *testing.T) {
 	s := NewStoreAt(t.TempDir())
 	const proyecto = "/srv/api"
@@ -118,6 +84,7 @@ func TestSaveMetaPropagaElFalloDeEscribirElTemporal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A non-empty meta.json directory lets the tmp write succeed and fails the rename with EISDIR.
 	if err := os.MkdirAll(filepath.Join(dir, "meta.json", "bloqueo"), 0o755); err != nil {
 		t.Fatal(err)
 	}

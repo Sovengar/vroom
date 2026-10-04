@@ -1,16 +1,4 @@
-// Package cli implementa la interfaz de línea de comandos de vroom para
-// consumo por IA: todos los comandos devuelven JSON en stdout y errores
-// en stderr con formato {"error":"..."}.
-//
-// Comandos:
-//
-//	vroom                    → lanza la TUI (comportamiento por defecto)
-//	vroom list               → lista todos los proyectos con estado completo
-//	vroom start <name>       → arranca un servicio daemonizado
-//	vroom stop <name>        → detiene un servicio
-//	vroom build <name>       → ejecuta command_build (one-shot síncrono)
-//	vroom install <name>     → ejecuta command_install (one-shot síncrono)
-//	vroom logs <name>        → muestra los logs del servicio
+// Package cli is vroom's AI-facing contract: every subcommand emits JSON on stdout and errors as {"error":"..."} on stderr.
 package cli
 
 import (
@@ -37,48 +25,25 @@ import (
 	"vroom/internal/tail"
 )
 
-// ---- JSON output types ----
-
-// ListResult es la respuesta de `vroom list`.
 type ListResult struct {
 	Projects []ProjectInfo `json:"projects"`
 }
 
-// ProjectInfo contiene toda la información de un proyecto para consumo
-// externo (IA).
 type ProjectInfo struct {
 	Name       string `json:"name"`
 	Path       string `json:"path"`
 	Configured bool   `json:"configured"`
 	Status     string `json:"status"`
-	// Port es el puerto REAL: el que vroom confirmó que el proceso escucha,
-	// o 0 cuando no hay ninguno confirmado. Nunca es el declarado: un puerto
-	// que vroom no confirmó puede ser el del twin de otro worktree, y un
-	// agente que lo lea se disconnecta del sitio equivocado.
+	// Never the declared port, which may belong to a twin worktree; 0 means vroom confirmed no listener.
 	Port int `json:"port"`
-	// DeclaredPort es lo que dice el manifiesto: el puerto por DEFECTO de la
-	// app (PORT=${PORT:-N}). Se publica aparte para que "no hay puerto real"
-	// no se confunda con "no hay puerto en el manifiesto", y para no perder
-	// la información al quitar el fallback de Port.
+	// Published apart so "no real port" is not read as "no port in the manifest".
 	DeclaredPort int    `json:"declared_port,omitempty"`
 	PortMode     string `json:"port_mode,omitempty"`
-	// PortVerified es tri-estado a propósito, y por eso es *bool:
-	//   ausente → la fila no está configurada o su manifiesto no parseó, así
-	//            que no hay contrato de puerto que afirmar;
-	//   false   → hay contrato de puerto y vroom NO confirmó ninguno. Esto
-	//            es lo que un `bool` con omitempty hacía imposible de emitir.
-	//   true    → el puerto publicado está confirmado contra un listener real.
+	// *bool on purpose: absent = no port contract at all, false = contract exists but nothing was confirmed, which bool+omitempty cannot emit.
 	PortVerified *bool `json:"port_verified,omitempty"`
-	// RouteMode es la INTENCIÓN, tal como PortMode: lo que dice el manifiesto,
-	// no lo que<vroom> consiguió. Se publica aunque la ruta se degradara, para
-	// que un agente pueda distinguir "no se pidió ruta" de "se pidió y falló".
-	// Y se OMITE cuando no hay contrato de ruta, para que un manifiesto legacy
-	// produzca exactamente el mismo JSON que antes de este campo.
+	// Intent, not outcome, and omitted when the manifest has no route contract so a legacy manifest still emits byte-identical JSON.
 	RouteMode string `json:"route_mode,omitempty"`
-	// Route es el RESULTADO, y es un puntero porque el AUSENTE también es un
-	// estado: un manifiesto sin contrato de ruta no afirma ni niega nada. Misma
-	// lección que PortVerified, y por eso *RouteInfo y no un valor con
-	// omitempty.
+	// Pointer because absence is itself a state: a manifest with no route contract neither claims nor denies one.
 	Route          *RouteInfo `json:"route,omitempty"`
 	Command        string     `json:"command,omitempty"`
 	CommandStop    string     `json:"command_stop,omitempty"`
@@ -99,24 +64,14 @@ type ProjectInfo struct {
 	ManifestError  string     `json:"manifest_error,omitempty"`
 }
 
-// RouteInfo es el resultado de la ruta, tal como lo lee un agente.
-//
-// Tri-estado y por construcción: Name siempre (es el nombre PRETENDIDO, haya
-// éxito o no — nunca una url, que es lo que un agente intentaría abrir),
-// Status siempre, Url SÓLO si se ha visto funcionar, Reason sólo al degradar.
-//
-// Una URL que nadie verificó no se publica. Es la lección de port_verified
-// aplicada entera: un campo que afirma una dirección falsa es peor que un
-// campo ausente, porque el agente que lo lea se conecta a otra cosa.
 type RouteInfo struct {
 	Name   string `json:"name"`
-	Status string `json:"status"` // registered | degraded
+	Status string `json:"status"`
 	Url    string `json:"url,omitempty"`
 	Reason string `json:"reason,omitempty"`
 	Port   int    `json:"port,omitempty"`
 }
 
-// ActionResult es la respuesta de start/stop/build/install.
 type ActionResult struct {
 	OK       bool   `json:"ok"`
 	Project  string `json:"project"`
@@ -127,41 +82,24 @@ type ActionResult struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// LogsResult es la respuesta de `vroom logs`.
 type LogsResult struct {
 	Project string `json:"project"`
 	Stdout  string `json:"stdout,omitempty"`
 	Stderr  string `json:"stderr,omitempty"`
 }
 
-// ErrorResult es el formato estándar de error.
 type ErrorResult struct {
 	Error string `json:"error"`
 }
 
-// ---- Helpers ----
-
-// outputJSON escribe el contrato de salida en w.
-//
-// El writer es un PARÁMETRO, no un global: la salida de este paquete es su
-// contrato con los agentes, así que es lo último que puede quedar atado a un
-// recurso del proceso. Con `os.Stdout` dentro, ningún comando se puede ejercer
-// en un test —habría que sustituir el descriptor del proceso entero para leer lo que
-// escribió— y los nueve command* se quedaban sin cubrir sin que nadie lo
-// notara: no es que fueran difíciles de probar, es que no se podían probar.
+// The writer is a parameter, not a global: this JSON is the agent contract, so it must be exercisable without swapping the whole process's file descriptors.
 func outputJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
 }
 
-// outputError escribe el contrato de error. NO sale: devuelve el código para que
-// lo interprete el caller.
-//
-// Que el código de salida sea un valor de retorno y no un os.Exit en medio del
-// paquete es lo que permite probarlo, y también lo que deja la salida en un
-// único sitio: main decide, el paquete informa. Un os.Exit aquí convertía cada
-// ruta de error en una sentencia que ningún test podía ejecutar.
+// Returns the exit code instead of calling os.Exit, so the caller decides the process outcome and every error path stays testable.
 func outputError(w io.Writer, msg string) int {
 	_ = json.NewEncoder(w).Encode(ErrorResult{Error: msg})
 	return 1
@@ -199,11 +137,7 @@ func loadConfig() config.Config {
 	return config.Load()
 }
 
-// findProject busca un proyecto por path (direccionador canónico) o por
-// nombre manifest. query puede ser un nombre o una ruta absoluta; path
-// (del flag --path) tiene prioridad y desambigua. Primero busca por
-// nombre del manifiesto; si no encuentra, intenta por nombre del
-// directorio. Devuelve error accionable si hay ambigüedad.
+// --path wins over the name because the same manifest name can exist in several worktrees.
 func findProject(projects []scanner.Project, query, path string) (scanner.Project, error) {
 	if path != "" {
 		return findByPath(projects, path)
@@ -218,7 +152,6 @@ func findProject(projects []scanner.Project, query, path string) (scanner.Projec
 			matches = append(matches, p)
 		}
 	}
-	// Fallback: buscar por nombre del directorio
 	if len(matches) == 0 {
 		for _, p := range projects {
 			if p.Name == query {
@@ -236,17 +169,14 @@ func findProject(projects []scanner.Project, query, path string) (scanner.Projec
 		for i, m := range matches {
 			paths[i] = m.Path
 		}
-		sort.Strings(paths) // orden estable para el mensaje
+		sort.Strings(paths) // sorted so the ambiguity message is stable across runs
 		return scanner.Project{}, fmt.Errorf(
 			"ambiguous project name %q: found in %s; use --path to disambiguate",
 			query, strings.Join(paths, ", "))
 	}
 }
 
-// findByPath resuelve un proyecto por su ruta absoluta exacta. Normaliza
-// ambos lados (abs, clean y symlinks resueltos) para que un path con
-// symlink apunte al proyecto correcto; si el path no existe cae a su forma
-// absoluta/limpia y devuelve "project not found" como antes.
+// Both sides are normalized (abs, clean, symlinks resolved) so a symlinked path still resolves to the right project.
 func findByPath(projects []scanner.Project, path string) (scanner.Project, error) {
 	abs := normalizePath(path)
 	for _, p := range projects {
@@ -257,9 +187,6 @@ func findByPath(projects []scanner.Project, path string) (scanner.Project, error
 	return scanner.Project{}, fmt.Errorf("project not found: %s", path)
 }
 
-// normalizePath devuelve la ruta absoluta, limpia y con symlinks resueltos
-// cuando es posible; si la ruta no existe (o falla la resolución) usa la
-// forma absoluta/limpia.
 func normalizePath(path string) string {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -271,11 +198,7 @@ func normalizePath(path string) string {
 	return filepath.Clean(abs)
 }
 
-// extractPathFlag separa el flag --path <valor> (o --path=<valor>) de los
-// demás argumentos (posicionales y otros flags, p.ej. --tail/--stream de
-// logs). Devuelve error si --path aparece sin valor, con valor vacío o más
-// de una vez: el comportamiento es predecible en vez de ignorarlo en
-// silencio.
+// A bad --path is an error, not silence: a silently dropped flag would change which project a command acts on.
 func extractPathFlag(args []string) (rest []string, path string, err error) {
 	rest = make([]string, 0, len(args))
 	seen := false
@@ -313,7 +236,6 @@ func extractPathFlag(args []string) (rest []string, path string, err error) {
 	return rest, path, nil
 }
 
-// evaluateStatus devuelve el estado evaluado de un proyecto.
 func evaluateStatus(manager process.Manager, store *state.Store, path string) (string, state.Meta) {
 	meta, err := store.LoadMeta(path)
 	if err != nil {
@@ -324,10 +246,7 @@ func evaluateStatus(manager process.Manager, store *state.Store, path string) (s
 		CreationTimeMs: meta.CreationTimeMs,
 		Port:           meta.Port,
 		ProcessPattern: meta.ProcessPattern,
-		// Los tres estados de puerto se pasan desde el meta persistido. Sin
-		// esto la TUI y el JSON cuentan historias distintas sobre el mismo
-		// servicio: el mismo meta leía "port_unresolved" en una y "running"
-		// en la otra.
+		// The three port states come from the persisted meta: recomputing them here made the TUI and the JSON tell different stories about the same service.
 		PortPending:    meta.State == state.StatePortPending,
 		PortUnresolved: meta.State == state.StatePortUnresolved,
 		NoPort:         meta.State == state.StateNoPort,
@@ -335,7 +254,6 @@ func evaluateStatus(manager process.Manager, store *state.Store, path string) (s
 	return string(status), meta
 }
 
-// buildProjectInfo construye ProjectInfo desde un scanner.Project.
 func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map[string]bool, p scanner.Project) ProjectInfo {
 	info := ProjectInfo{
 		Name:          p.Name,
@@ -366,15 +284,10 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 	info.PrimaryGroup = m.PrimaryGroup
 	info.SecondaryGroup = m.SecondaryGroup
 	info.PortMode = m.EffectivePortMode()
-	// route_mode se publica como INTENCIÓN, incluso degradada: es lo que dice
-	// el manifiesto. El resultado va aparte, en Route. Con route_mode = "off"
-	// no se publica nada: un manifiesto que no declaró ruta no afirma ni niega
-	// que tenga una, y eso es distinto de afirmar que no la tiene.
 	if m.EffectiveRouteMode() != manifest.RouteModeOff {
 		info.RouteMode = m.EffectiveRouteMode()
 	}
 
-	// Colapso: clave = primary o primary/secondary
 	if m.PrimaryGroup != "" {
 		key := m.PrimaryGroup
 		if m.SecondaryGroup != "" {
@@ -391,13 +304,7 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 		info.StartedAt = meta.StartedAt
 	}
 
-	// El puerto se resuelve DESPUÉS de evaluateStatus: meta es el estado real
-	// del servicio. Asignarlo antes haría que el JSON emita siempre el puerto
-	// declarado, que es exactamente el bug que este cambio elimina.
-	//
-	// Y no hay fallback al declarado para un servicio vivo: 0 es la verdad
-	// y el declarado vive en declared_port. Para uno parado se conserva,
-	// porque entonces es la única información que hay.
+	// Resolved after evaluateStatus because meta is the service's real state; assigning earlier is exactly what made the JSON always emit the declared port.
 	info.DeclaredPort = m.Port
 	if meta.Pid > 0 {
 		info.Port = meta.Port
@@ -406,13 +313,7 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 		info.Port = m.Port
 	}
 
-	// El objeto de ruta sólo existe si hay CONTRATO de ruta. Un manifiesto sin
-	// route_mode no afirma ni niega nada sobre rutas, que es distinto de
-	// afirmar que no hay.
-	//
-	// Y sale del Meta persistido, no de una comprobación en vivo: el JSON no
-	// shellea a portless en cada `vroom list`. Por eso lo que se afirma es
-	// "último estado conocido", y por eso una ruta degradada no trae url.
+	// Taken from the persisted meta, never a live portless call, so `vroom list` cannot shell out and a degraded route carries no url.
 	if info.RouteMode != "" {
 		r := RouteInfo{Name: meta.RouteName, Port: meta.RoutePort}
 		switch meta.RouteStatus {
@@ -423,9 +324,7 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 			r.Status = portless.StatusDegraded
 			r.Reason = meta.RouteReason
 		}
-		// RouteStatus vacío = nunca se intentó (o el servicio nunca arrancó):
-		// no hay resultado que afirmar, y un objeto con status vacío sería un
-		// contrato que el JSON no cumple.
+		// An empty RouteStatus means never attempted, and emitting an object with an empty status would be a contract the JSON does not keep.
 		if r.Status != "" {
 			info.Route = &r
 		}
@@ -436,14 +335,7 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 
 func boolPtr(b bool) *bool { return &b }
 
-// cliRouteReleaser devuelve el seam de retirada, o nil para que portless
-// construya el cliente real.
-//
-// El punto de inyección existe porque sin él la retirada de la CLI no la
-// observaba nadie: el reviewer comprobó que borrando los tres call sites de
-// Release la suite seguía en verde, de modo que la decisión 13 del ADR —"se
-// retira en los tres caminos"— no la verificaba nada. En producción ambas
-// variables están a cero y sale el camino real.
+// The seam exists because deleting the three Release call sites kept the suite green, leaving ADR-0013's "retired on all three paths" decision unverified; in production both vars are zero and the real path runs.
 var (
 	cliReleaseStub          portless.ReleaserFunc
 	cliReleaseStubInstalled bool
@@ -453,54 +345,25 @@ func cliRouteReleaser() portless.Releaser {
 	if cliReleaseStubInstalled && cliReleaseStub != nil {
 		return cliReleaseStub
 	}
-	// LOW-3: sin stub, en un binario de test, `nil` construiría el cliente real
-	// y resolvería el portless y el state dir del desarrollador. Un test que se
-	// olvide de instalar el seam no debe poder mutar su routes.json real. La
-	// comprobación vive en portless porque eran tres copias iguales.
+	// LOW-3: in a test binary nil would build the real client and mutate the developer's routes.json.
 	if portless.IsTestBinary() {
 		return portless.InertReleaser()
 	}
 	return nil
 }
 
-// releaseRouteOnStop retira la ruta de un servicio parado y REVOCA la
-// propiedad si la retirada surtió efecto. Muta el Meta; quien lo persiste es el
-// SaveMeta del stop, que va justo después.
-//
-// SOLO retira si la propiedad está CONCEDIDA. El handle (RouteName/RoutePort)
-// sobrevive a la revocación a propósito —para que la reconciliación tenga dónde
-// mirar—, así que usarlo como autoridad de borrado es el mismo error que se
-// corrigió en Reconcile: con una ruta ajena ocupando el nombre y un alta que
-// chocó con ella, el stop la borraba. Reproducido contra portless real antes de
-// este guard.
-//
-// Va FUERA del guard de proceso a propósito: un servicio que ya estaba muerto
-// cuando se paró (Pid 0) también deja una ruta detrás.
+// Deletes only when ownership was GRANTED: the handle survives revocation, so treating it as delete authority once removed another worktree's route (reproduced against real portless).
 func releaseRouteOnStop(meta *state.Meta) {
 	if !meta.RouteOwned {
-		return // nunca fue nuestra: no se toca nada
+		return
 	}
 	if !portless.Release(cliRouteReleaser(), meta.RouteName) {
-		return // la retirada no surtió efecto: no se revoca nada
+		return // the release did not take effect, so nothing is revoked
 	}
 	meta.RouteOwned = false
 }
 
-// ---- Commands ----
-
-// Run es el punto de entrada del CLI. Devuelve true si manejó un
-// subcomando (el caller debe salir); false si debe lanzar la TUI.
-//
-// El reparto es deliberado: Run sólo reparte y EMITE, y cada cmd* devuelve el
-// valor a publicar. Antes los comandos escribían ellos mismos y llamaban a
-// os.Exit en caso de error, con lo que ninguno podía ejecutarse en un test sin
-// matar el binario de test. Ahora el error viaja como valor y el proceso se
-// cierra en un solo sitio —main— que es donde esa decisión pertenece.
-// El `exit` va por parámetro y no como un `var` global intercambiable por la misma
-// razón que en `cmd/vroom`: una llamada a `os.Exit` mata el proceso de test, así que
-// la única forma de comprobar que se pide el código correcto es poder inyectar la
-// salida. Con un `var`, cualquier test que lo tocara contaminaría a los que corren
-// en el mismo proceso; con un parámetro, cada test ve sólo el suyo.
+// exit is a parameter, not a package var: a global swapped by a test would contaminate every other test running in the same process.
 func Run(args []string, exit func(int)) bool {
 	handled, code := runInto(os.Stdout, os.Stderr, args)
 	if handled && code != 0 {
@@ -509,15 +372,7 @@ func Run(args []string, exit func(int)) bool {
 	return handled
 }
 
-// runInto es Run con los writers y el código de salida como valores.
-//
-// La separación es lo que hace que el contrato entero sea comprobable: stdout es
-// la RESPUESTA y stderr el DIAGNÓSTICO, y un test puede exigir que un error vaya
-// a stderr y no a stdout. Con os.Stdout y os.Exit dentro, las nueve rutas de
-// error del CLI eran sentencias que ningún test podía ejecutar.
-//
-// Y devuelve `handled` aparte del código porque son dos preguntas distintas: si
-// no hubo subcomando hay que lanzar la TUI, y eso no es un error ni un éxito.
+// stdout is the response and stderr the diagnostic, so a test can demand that an error never lands on stdout.
 func runInto(stdout, stderr io.Writer, args []string) (handled bool, code int) {
 	payload, handled, err := dispatch(args)
 	if !handled {
@@ -527,25 +382,13 @@ func runInto(stdout, stderr io.Writer, args []string) (handled bool, code int) {
 		return true, outputError(stderr, err.Error())
 	}
 	if err := outputJSON(stdout, payload); err != nil {
-		// Un stdout que no acepta el JSON no es un comando que "no hizo nada":
-		// el agente recibiría una respuesta vacía y la leería como que no hay
-		// proyectos. Sale con 1 y lo dice en el mismo contrato.
+		// A stdout that refuses the JSON is not a command that did nothing: the agent would read the empty answer as "no projects".
 		return true, outputError(stderr, "could not write response: "+err.Error())
 	}
 	return true, 0
 }
 
-// dispatch reparte un subcomando y devuelve (payload, manejado, error).
-//
-// Devolver el error en vez de emitirlo es lo que hace testeable el reparto: los
-// nueve comandos tienen caminos de error REALES —proyecto no encontrado, no
-// configurado, escaneo fallido, comando one-shot ausente— y son justo los que
-// nunca se ejercitaban porque cada uno terminaba el proceso.
-//
-// Los errores de --path y de uso se comprueban AQUÍ y no en cada cmd*, porque
-// son de la FORMA de la invocación: no dependen de ningún comando, y duplicar
-// el parseo nueve veces sólo multiplicaría la superficie a la que hay que
-// mirar.
+// --path and usage errors are checked once here because they depend on the invocation's shape, not on any command.
 func dispatch(args []string) (payload any, handled bool, err error) {
 	if len(args) == 0 {
 		return nil, false, nil
@@ -553,8 +396,6 @@ func dispatch(args []string) (payload any, handled bool, err error) {
 
 	cmd := args[0]
 
-	// Un comando con flag --path comparte el mismo parseo y el mismo contrato de
-	// error. La tabla es lo que evita nueve copias del mismo bloque.
 	switch cmd {
 	case "start", "stop", "build", "install", "logs":
 		usage := "usage: vroom " + cmd + " <project-name|path> [--path <path>]"
@@ -592,21 +433,11 @@ func dispatch(args []string) (payload any, handled bool, err error) {
 		payload, err = cmdHelp()
 		return payload, true, err
 	default:
-		return nil, false, nil // comando desconocido → TUI
+		return nil, false, nil // an unknown subcommand is not an error: it falls through to the TUI
 	}
 }
 
-// cliSession es el contexto que TODOS los comandos de lectura necesitan: la
-// config, el store y el manager.
-//
-// Vive aquí porque el preámbulo estaba copiado en cinco comandos y porque es
-// la razón por la que los comandos no se podían probar: cada uno resolvía su
-// propia configuración desde el entorno y escribía su propia salida, así que
-// probar uno exigía montar el entorno entero de producción.
-//
-// sessionErr es un error YA ENVUELTO con su prefijo, porque el prefijo es
-// parte del contrato: un agente distingue "no encuentro el proyecto" de "el
-// escaneo falló" sin leer el stack.
+// Error prefixes are part of the JSON contract: an agent must tell "project not found" from "scan failed" without reading the stack.
 type cliSession struct {
 	cfg     config.Config
 	root    string
@@ -614,12 +445,7 @@ type cliSession struct {
 	manager process.Manager
 }
 
-// newCliSession monta el contexto, o devuelve el error con el prefijo que el
-// contrato publica para ese punto.
-//
-// El prefijo NO se aplica en los tres sitios internos: "scan error: " lo dice
-// el comando que escanea, y store/config no son errores de escaneo. Por eso
-// scanError lleva su propio envoltorio y los otros dos no.
+// The "scan error: " prefix is applied only by the scanner, because store/config failures are not scan errors and must not claim to be.
 func newCliSession() (cliSession, error) {
 	cfg := loadConfig()
 	store, err := state.NewStore()
@@ -634,10 +460,7 @@ func newCliSession() (cliSession, error) {
 	}, nil
 }
 
-// scan ejecuta el escaneo del root con el prefijo del contrato. Se llama aparte
-// de newCliSession porque `launch --list` necesita el store pero NO escanea: el
-// compose file es el contrato de ese comando, y un error de disco no debe
-// impedir listar stacks.
+// Separate from newCliSession because `launch --list` needs the store but not the scan: a disk error must not stop it from listing stacks.
 func (s cliSession) scan() (scanner.ScanResult, error) {
 	res, err := scanner.Scan(s.root, s.cfg.Scanner.Depth)
 	if err != nil {
@@ -646,9 +469,7 @@ func (s cliSession) scan() (scanner.ScanResult, error) {
 	return res, nil
 }
 
-// resolve busca el proyecto y devuelve el error tal cual, porque findProject ya
-// redacta un mensaje accionable (nombra el nombre y los paths candidatos) y
-// envolverlo lo enterraría.
+// Returned unwrapped because findProject already names the ambiguous paths and a wrap would bury that.
 func (s cliSession) resolve(query, path string) (scanner.Project, error) {
 	res, err := s.scan()
 	if err != nil {
@@ -657,7 +478,6 @@ func (s cliSession) resolve(query, path string) (scanner.Project, error) {
 	return findProject(res.Projects, query, path)
 }
 
-// cmdList lista todos los proyectos con estado completo.
 func cmdList() (any, error) {
 	s, err := newCliSession()
 	if err != nil {
@@ -681,7 +501,6 @@ func cmdList() (any, error) {
 	return result, nil
 }
 
-// cmdStart arranca un servicio daemonizado.
 func cmdStart(name, path string) (any, error) {
 	s, err := newCliSession()
 	if err != nil {
@@ -697,7 +516,6 @@ func cmdStart(name, path string) (any, error) {
 		return nil, fmt.Errorf("project %q is not configured (missing or invalid .vroom.toml)", name)
 	}
 
-	// Verificar si ya está corriendo
 	status, _ := evaluateStatus(s.manager, s.store, p.Path)
 	if status == state.StateRunning {
 		return ActionResult{
@@ -707,7 +525,6 @@ func cmdStart(name, path string) (any, error) {
 		}, nil
 	}
 
-	// Arrancar
 	if _, err := s.store.EnsureServiceDir(p.Path); err != nil {
 		return nil, fmt.Errorf("could not create service dir: %w", err)
 	}
@@ -737,7 +554,6 @@ func cmdStart(name, path string) (any, error) {
 	}, nil
 }
 
-// cmdStop detiene un servicio.
 func cmdStop(name, path string) (any, error) {
 	s, err := newCliSession()
 	if err != nil {
@@ -749,13 +565,8 @@ func cmdStop(name, path string) (any, error) {
 		return nil, err
 	}
 
-	// Parada graciosa si command_stop está definido
 	if p.Configured && p.Manifest.Stop != "" {
-		// El fallo de command_stop NO detiene el cleanup: el servicio puede
-		// seguir vivo y quitar su PID sin matarlo lo dejaría huérfano y sin
-		// dueño, que es peor que un comando de parada que falla. El error se
-		// descarta a propósito, y por eso el `_` está commented y no es un
-		// olvido.
+		// A failing command_stop must not skip cleanup: dropping the PID without killing the process leaves an unowned orphan.
 		_, _, _ = runLogged("stop", p.Manifest.Stop, p.Path, s.store.StdoutLog(p.Path), s.store.StderrLog(p.Path))
 	}
 
@@ -770,21 +581,7 @@ func cmdStop(name, path string) (any, error) {
 	}, nil
 }
 
-// stopCleanup es todo lo que hace cmdStop DESPUÉS de matar el proceso, con el
-// manager inyectado.
-//
-// Está separado del comando a propósito: cmdStop escanea disco, resuelve config
-// y escribe JSON, así que no se puede ejercer en un test sin convertir el test en
-// una integración de todo el CLI. Y la alternativa —dejar la lógica escrita en
-// el comando y "probarla" reimplementándola en el test— es peor: un test que
-// replica la lógica pasa aunque la lógica se borre, que es exactamente el hueco
-// que dejó la primera versión (borrar los tres call sites dejaba la suite verde).
-//
-// Y devuelve error en vez de emitirlo porque ClearPid es el ÚNICO punto de esta
-// función cuyo fallo es irrecuperable: sin él el Meta sigue afirmando un PID
-// vivo para un servicio ya parado, y el siguiente `vroom list` afirmaría un
-// servicio corriendo que no existe. Los demás fallos —parada, retirada de
-// ruta— se registran y el cleanup sigue, como antes.
+// Only ClearPid returns an error: the other failures are logged and cleanup continues, but a stale PID would make the next `vroom list` report a service that is not running.
 func stopCleanup(store *state.Store, manager process.Manager, path string) error {
 	meta, err := store.LoadMeta(path)
 	if err == nil && (meta.Pid > 0 || meta.Pgid > 0 || meta.Port > 0) {
@@ -797,14 +594,10 @@ func stopCleanup(store *state.Store, manager process.Manager, path string) error
 		for _, w := range warns {
 			_ = appendLine(store.StderrLog(path), "── vroom ▶ stop: "+w)
 		}
-		// El servicio ya está parado: su reserva vuelve al pool.
 		process.ReleasePort(meta.ReservedPort)
 	}
 	if err == nil {
-		// Y su ruta deja de existir: una dirección que apunta a un puerto
-		// muerto es peor que ninguna. Va FUERA del guard de proceso a
-		// propósito: un servicio que ya estaba muerto cuando se paró (Pid 0)
-		// también deja una ruta detrás.
+		// Outside the process guard on purpose: a service already dead at stop time (Pid 0) still leaves a route behind.
 		releaseRouteOnStop(&meta)
 	}
 
@@ -822,24 +615,15 @@ func stopCleanup(store *state.Store, manager process.Manager, path string) error
 	return nil
 }
 
-// cmdBuild ejecuta command_build de forma síncrona.
 func cmdBuild(name, path string) (any, error) {
 	return cmdOneShot(name, path, "build")
 }
 
-// cmdInstall ejecuta command_install de forma síncrona.
 func cmdInstall(name, path string) (any, error) {
 	return cmdOneShot(name, path, "install")
 }
 
-// cmdOneShot ejecuta un comando one-shot (build/install).
-//
-// El switch de kind es exhaustivo A PROPÓSITO y sin default: si mañana aparece
-// una tercera clase de one-shot, este comando tiene que negarse a ejecutarla
-// en vez de publicar un ActionResult sin comando ni código, que un agente leería
-// como "se ejecutó y salió bien". kind es una constante de este paquete, así que
-// el default es código muerto y el compilador es quien lo avisa al añadir el
-// caso.
+// The kind switch must refuse a new one-shot kind rather than publish an empty ActionResult, which an agent reads as "ran and succeeded".
 func cmdOneShot(name, path, kind string) (any, error) {
 	s, err := newCliSession()
 	if err != nil {
@@ -883,21 +667,14 @@ func cmdOneShot(name, path, kind string) (any, error) {
 	return result, nil
 }
 
-// logFilter son los dos flags de `vroom logs`. Es un tipo y no dos enteros
-// sueltos porque los dos viajan juntos por todo el comando y juntos deciden qué
-// se lee: separarlosZGinvitaba a leer stderr cuando se pidió stdout.
+// One type, not two ints, because both flags travel together and jointly decide which stream is read.
 type logFilter struct {
-	tail   int    // 0 = todo el log
-	stream string // merged | stdout | stderr
+	// 0 means the whole log, not zero lines.
+	tail   int
+	stream string
 }
 
-// parseLogFlags lee los flags simples de logs: --tail N, --stream valor.
-//
-// Un flag sin valor se ignora en vez de fallar, y un valor no numérico se
-// trata como 0 (todo el log). Es deliberado: el contrato es "lo que pediste o
-// el log entero", y un error por un `--tail` mal escrito dejaría al usuario sin
-// logs, que es peor que darle logs de más. El valor se reporta en el
-// resultado implícito, no se oculta.
+// A malformed --tail/--stream degrades to the whole log on purpose: failing instead would leave the caller with no logs at all.
 func parseLogFlags(flags []string) logFilter {
 	f := logFilter{stream: "merged"}
 	for i := 0; i < len(flags); i++ {
@@ -917,12 +694,7 @@ func parseLogFlags(flags []string) logFilter {
 	return f
 }
 
-// readLog devuelve el log completo sin códigos ANSI.
-//
-// Un log ilegible devuelve "" y no un error: los logs son un extra informativo
-// del estado del servicio, y un comando de consulta no puede dejar de responder
-// porque el fichero de log no se puede leer. La fila del proyecto sigue siendo
-// la misma.
+// An unreadable log yields "" and no error: logs are an extra on the row, and a query command must still answer.
 func readLog(path string) string {
 	data, _, err := tail.ReadNew(path, 0)
 	if err != nil {
@@ -931,25 +703,12 @@ func readLog(path string) string {
 	return tail.StripANSI(data)
 }
 
-// lastNLines devuelve las últimas n líneas de s.
-//
-// n <= 0 y "más líneas de las que hay" devuelven s tal cual. Recortar por líneas
-// y no por bytes es lo que evita partir una línea por la mitad, que es justo lo
-// que un agente no puede usar.
-//
-// MEDIDO (bug): el salto de línea final cuenta como una línea MÁS. Un log de
-// tres líneas escrito como "a\nb\nc\n" se parte en cuatro, así que `--tail 2`
-// devolvía la tercera y una vacía —una línea de menos de las pedidas, y la que
-// falta es justo la más antigua que el usuario quería—. Por eso el elemento
-// final vacío se descarta ANTES de contar, y se devuelve con salto para que el
-// recuento del consumidor siga siendo el que pidió.
+// MEDIDO (bug): a trailing newline is a terminator, not a line, and counting it made `--tail N` return N-1 lines, dropping the oldest.
 func lastNLines(s string, n int) string {
 	if n <= 0 {
 		return s
 	}
 	lines := strings.Split(s, "\n")
-	// Un log que acaba en "\n" no tiene una última línea: el salto es el
-	// FINALIZADOR de la anterior. Sin esto, `tail N` devuelve N-1.
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
@@ -959,7 +718,6 @@ func lastNLines(s string, n int) string {
 	return strings.Join(lines[len(lines)-n:], "\n") + "\n"
 }
 
-// cmdLogs muestra los logs de un servicio.
 func cmdLogs(name string, flags []string, path string) (any, error) {
 	s, err := newCliSession()
 	if err != nil {
@@ -982,7 +740,7 @@ func cmdLogs(name string, flags []string, path string) (any, error) {
 		result.Stdout = lastNLines(readLog(stdoutPath), f.tail)
 	case "stderr":
 		result.Stderr = lastNLines(readLog(stderrPath), f.tail)
-	default: // merged
+	default: // any stream value other than stdout|stderr degrades to merged
 		result.Stdout = lastNLines(readLog(stdoutPath), f.tail)
 		result.Stderr = lastNLines(readLog(stderrPath), f.tail)
 	}
@@ -990,9 +748,7 @@ func cmdLogs(name string, flags []string, path string) (any, error) {
 	return result, nil
 }
 
-// cmdHelp muestra la ayuda. Devuelve la misma forma de mapa que antes: la ayuda
-// también es JSON porque este paquete tiene UN contrato de salida, y un comando
-// que imprimiera texto plano rompería la regla que un agente puede asumir.
+// Help is JSON too: this package has one output contract, and plain text would break what an agent can assume.
 func cmdHelp() (any, error) {
 	return map[string]any{
 		"commands": map[string]string{
@@ -1014,25 +770,17 @@ func cmdHelp() (any, error) {
 	}, nil
 }
 
-// LaunchListResult es la respuesta de `vroom launch --list`.
 type LaunchListResult struct {
 	File   string              `json:"file"`
 	Stacks []orchestrate.Stack `json:"stacks"`
 }
 
-// cmdLaunch maneja el subcomando launch: --list, <name>, <name> --dry.
-//
-// `--list` NO escanea proyectos y NO necesita store: su contrato es el compose
-// file, así que construir el store y recorrer el disco para él sería trabajo que
-// puede fallar sin cambiar la respuesta. Antes lo hacía, y un `vroom launch
-// --list` en un directorio con el home ilegible fallaba por una razón que no
-// tiene que ver con los stacks.
+// --list never builds the store nor scans: its contract is the compose file, and touching disk only added ways to fail for reasons unrelated to the stacks.
 func cmdLaunch(args []string) (any, error) {
 	if len(args) == 0 {
 		return nil, errors.New("usage: vroom launch --list | vroom launch <name> [--dry]")
 	}
 
-	// Buscar compose file en CWD
 	cf, err := orchestrate.ParseComposeFile(".")
 	if err != nil {
 		return nil, err
@@ -1052,7 +800,6 @@ func cmdLaunch(args []string) (any, error) {
 		return nil, err
 	}
 
-	// Scan projects
 	s, err := newCliSession()
 	if err != nil {
 		return nil, err
@@ -1064,7 +811,6 @@ func cmdLaunch(args []string) (any, error) {
 
 	engine := orchestrate.NewEngine(s.manager, s.store)
 
-	// Check for --dry flag
 	dryRun := false
 	for _, a := range args[1:] {
 		if a == "--dry" {
@@ -1088,9 +834,6 @@ func cmdLaunch(args []string) (any, error) {
 	return result, nil
 }
 
-// ---- Internal helpers (ported from TUI for CLI use) ----
-
-// runLogged ejecuta un comando one-shot con `sh -c` en workDir.
 func runLogged(kind, command, workDir, stdoutPath, stderrPath string) (time.Duration, int, error) {
 	if dir := filepath.Dir(stdoutPath); dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -1100,16 +843,7 @@ func runLogged(kind, command, workDir, stdoutPath, stderrPath string) (time.Dura
 
 	banner := fmt.Sprintf("── vroom ▶ %s: %s ──", kind, command)
 
-	// El stdout se abre UNA vez y de ahí sale también el banner. Con dos
-	// `OpenFile` sobre el mismo fichero —uno para el banner y otro para el comando—
-	// el segundo no podía fallar nunca, porque el primero acababa de demostrar que
-	// el directorio existe y el modo es de escritura: un `if err != nil` con forma
-	// de comprobación y sin nada detrás.
-	//
-	// Con un descriptor, los dos fallos son reales y se distinguen: que no se pueda
-	// abrir el log, y que se abra pero no acepte escrituras —disco lleno, un
-	// `/dev/full`—. El segundo importa más de lo que parece: un banner que no cabe
-	// significa que tampoco cabrá la salida del build.
+	// One descriptor serves both the banner and the command: two OpenFile calls made the second error unreachable, hiding a full disk (/dev/full) behind a check that could never fail.
 	out, err := os.OpenFile(stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return 0, 0, err

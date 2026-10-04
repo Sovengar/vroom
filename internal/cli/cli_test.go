@@ -23,7 +23,6 @@ func wtProjects() []scanner.Project {
 	}
 }
 
-// Nombre único resuelve como hoy.
 func TestFindProjectUniqueName(t *testing.T) {
 	p, err := findProject(wtProjects(), "repo", "")
 	if err != nil {
@@ -34,7 +33,6 @@ func TestFindProjectUniqueName(t *testing.T) {
 	}
 }
 
-// Nombre duplicado sin path falla con paths accionables.
 func TestFindProjectDuplicateNameActionable(t *testing.T) {
 	_, err := findProject(wtProjects(), "api", "")
 	if err == nil {
@@ -52,7 +50,6 @@ func TestFindProjectDuplicateNameActionable(t *testing.T) {
 	}
 }
 
-// Direccionamiento por path posicional.
 func TestFindProjectPositionalPath(t *testing.T) {
 	p, err := findProject(wtProjects(), "/repo-wt/a", "")
 	if err != nil {
@@ -63,7 +60,6 @@ func TestFindProjectPositionalPath(t *testing.T) {
 	}
 }
 
-// Direccionamiento por flag --path (desambigua el nombre).
 func TestFindProjectPathFlag(t *testing.T) {
 	p, err := findProject(wtProjects(), "api", "/repo-wt/b")
 	if err != nil {
@@ -74,7 +70,6 @@ func TestFindProjectPathFlag(t *testing.T) {
 	}
 }
 
-// Un path no escaneado no resuelve.
 func TestFindProjectUnknownPath(t *testing.T) {
 	_, err := findProject(wtProjects(), "/no/existe", "")
 	if err == nil || !strings.Contains(err.Error(), "project not found") {
@@ -82,8 +77,6 @@ func TestFindProjectUnknownPath(t *testing.T) {
 	}
 }
 
-// findByPath normaliza symlinks: un path con symlink apunta al proyecto
-// correcto en ambos sentidos.
 func TestFindProjectResolvesSymlink(t *testing.T) {
 	root := t.TempDir()
 	real := filepath.Join(root, "proj")
@@ -95,7 +88,6 @@ func TestFindProjectResolvesSymlink(t *testing.T) {
 		t.Skipf("no se pudo crear symlink: %v", err)
 	}
 
-	// Query por el symlink → proyecto con la ruta real.
 	projects := []scanner.Project{
 		{Path: real, Name: "proj", Configured: true, Manifest: &manifest.Manifest{Name: "proj"}},
 	}
@@ -103,14 +95,12 @@ func TestFindProjectResolvesSymlink(t *testing.T) {
 		t.Errorf("findByPath(%q) = (%+v, %v), want path %q", link, p, err, real)
 	}
 
-	// Proyecto con path symlink, query por la ruta real.
 	symProjects := []scanner.Project{{Path: link, Name: "proj", Configured: true}}
 	if p, err := findByPath(symProjects, real); err != nil || p.Path != link {
 		t.Errorf("findByPath(%q) = (%+v, %v), want path %q", real, p, err, link)
 	}
 }
 
-// extractPathFlag separa --path del resto sin perder otros flags.
 func TestExtractPathFlag(t *testing.T) {
 	rest, path, err := extractPathFlag([]string{"api", "--path", "/repo-wt/b", "--tail", "50"})
 	if err != nil {
@@ -125,7 +115,6 @@ func TestExtractPathFlag(t *testing.T) {
 	}
 }
 
-// extractPathFlag: forma --path=valor y posición respecto al posicional.
 func TestExtractPathFlagEqualsForm(t *testing.T) {
 	rest, path, err := extractPathFlag([]string{"--path=/repo-wt/a", "api"})
 	if err != nil {
@@ -139,14 +128,13 @@ func TestExtractPathFlagEqualsForm(t *testing.T) {
 	}
 }
 
-// extractPathFlag: casos borde → error predecible, nunca silencio.
 func TestExtractPathFlagEdgeCases(t *testing.T) {
 	cases := [][]string{
-		{"api", "--path"},                       // sin valor
-		{"api", "--path", "--tail"},             // seguido de otro flag
-		{"api", "--path="},                      // forma = vacía
-		{"api", "--path", ""},                   // valor vacío
-		{"api", "--path", "/a", "--path", "/b"}, // duplicado
+		{"api", "--path"},
+		{"api", "--path", "--tail"}, // a flag is never taken as the value
+		{"api", "--path="},
+		{"api", "--path", ""},
+		{"api", "--path", "/a", "--path", "/b"},
 	}
 	for _, args := range cases {
 		if _, _, err := extractPathFlag(args); err == nil {
@@ -155,7 +143,6 @@ func TestExtractPathFlagEdgeCases(t *testing.T) {
 	}
 }
 
-// Vroom list expone la relación repo/worktree con array plano.
 func TestListExposesRelationFlat(t *testing.T) {
 	manager := process.NewManager()
 	store := state.NewStoreAt(t.TempDir())
@@ -175,7 +162,7 @@ func TestListExposesRelationFlat(t *testing.T) {
 		t.Errorf("contenedor bare inesperado: %+v", binfo)
 	}
 
-	// El array sigue siendo plano y los campos son aditivos.
+	// The array stays flat and relation fields are additive, so existing agent consumers keep parsing it.
 	data, err := json.Marshal(ListResult{Projects: []ProjectInfo{info}})
 	if err != nil {
 		t.Fatal(err)
@@ -198,8 +185,6 @@ func TestListExposesRelationFlat(t *testing.T) {
 	}
 }
 
-// vroom list expone el error de topología (WorktreeErr) de forma aditiva y
-// omitempty (back-compat).
 func TestListExposesWorktreeError(t *testing.T) {
 	manager := process.NewManager()
 	store := state.NewStoreAt(t.TempDir())
@@ -221,7 +206,6 @@ func TestListExposesWorktreeError(t *testing.T) {
 		t.Errorf("JSON sin worktree_error: %s", data)
 	}
 
-	// omitempty: ausente cuando no hay error de topología.
 	clean := buildProjectInfo(manager, store, map[string]bool{}, scanner.Project{
 		Path: "/x", Name: "x", Configured: true, Manifest: &manifest.Manifest{Name: "x"},
 	})

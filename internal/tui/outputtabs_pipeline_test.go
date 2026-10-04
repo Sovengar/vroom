@@ -20,31 +20,9 @@ import (
 	"vroom/internal/state"
 )
 
-// ---------------------------------------------------------------------------
-// Los tests de outputtabs_test.go afirman el RENDER (metricsLines, gitLines)
-// con la cache del modelo ya rellenada a mano. Eso prueba la mitad pura del
-// sistema y deja la otra mitad sin proves: si applyMetrics se rompe, o metricsCmd
-// lee el PID equivocado, esos tests siguen en verde.
-//
-// Estos tests cubren la mitad transicion: el cmd que produce el mensaje y el
-// apply que lo integra. Y lo hacen contra las dependencias REALES, no contra
-// stubs:
-//
-//   - metricsCmd/envCmd leen /proc, y se les da os.Getpid(): el muestreo es el
-//     del propio proceso de test. Es una lectura real de /proc y determinista
-//     en la existencia del PID, que es justo lo que el cmd necesita comprobar.
-//   - probeHealth habla HTTP de verdad contra un httptest.Server real.
-//   - gitCmd ejecuta git de verdad sobre un repo real inicializado en el árbol
-//     temporal.
-//
-// La razón de no inyectar un seam para /proc ni para el HTTP es que no hace
-// falta: los dos ya son deterministas sin stub, y un stub probaría la forma del
-// mensaje en vez del camino que lo produce, que es donde estaban los huecos.
-// ---------------------------------------------------------------------------
+// These cover the transition half -- the cmd that produces the message and the apply that integrates it -- against real /proc, real HTTP and real git, because a stub would assert the shape of the message instead of the path that produces it.
 
-// runCmd ejecuta un tea.Cmd y devuelve su mensaje, o nil si el cmd es nil.
-// Un cmd nil es parte del contrato de estos tabs: significa "no hay nada que
-// muestrear", y hay que poder distinguirlo de "produjo un mensaje".
+// A nil cmd is part of these tabs' contract, meaning "nothing to sample", so it must stay distinguishable from "produced a message".
 func runCmd(cmd tea.Cmd) tea.Msg {
 	if cmd == nil {
 		return nil
@@ -52,9 +30,7 @@ func runCmd(cmd tea.Cmd) tea.Msg {
 	return cmd()
 }
 
-// markRunning deja el servicio del path en estado vivo con el PID dado.
-// isRunning exige pid > 0 y un status vivo, y los cmd de metrics/env/health
-// pasan por ahi antes de leer nada.
+// isRunning demands pid > 0 and a live status, which the metrics/env/health cmds check before reading anything.
 func markRunning(m *Model, path string, pid int) {
 	sv, ok := m.services[path]
 	if !ok {
@@ -66,26 +42,20 @@ func markRunning(m *Model, path string, pid int) {
 	sv.Meta.State = state.StateRunning
 }
 
-// ---- Metrics ----
-
-// TestMetricsCmdNilSinSeleccionOParado: los tres guards del cmd. Devolver nil
-// es lo que evita un msg vacio que metería una fila basura en la cache.
+// Returning nil keeps an empty message from putting a junk row in the cache.
 func TestMetricsCmdNilSinSeleccionOParado(t *testing.T) {
 	m, _ := newTestModel(t)
 
-	// Cursor fuera del arbol: no hay proyecto seleccionado.
 	m.cursor = -1
 	if cmd := m.metricsCmd(); cmd != nil {
 		t.Error("metricsCmd con nada seleccionado deberia devolver nil")
 	}
 
-	// Proyecto configurado pero parado: no hay PID que muestrear.
 	m = moveCursorTo(t, m, "tienda-api")
 	if cmd := m.metricsCmd(); cmd != nil {
 		t.Error("metricsCmd con el servicio parado deberia devolver nil")
 	}
 
-	// Vivo pero sin PID: isRunning lo exige, asi que no hay nada que leer.
 	path := pathOfSelected(t, m)
 	m.services[path].Status = statusRunning
 	m.services[path].Meta.Pid = 0
@@ -94,11 +64,7 @@ func TestMetricsCmdNilSinSeleccionOParado(t *testing.T) {
 	}
 }
 
-// TestMetricsCmdMuestreaElProcesoRealYLoIntegra: el pipeline entero. El cmd se
-// ejecuta contra /proc del propio proceso de test, y el mensaje se pasa por
-// applyMetrics como haria Update. Lo que se afirma NO es el valor numerico
-// (varia entre maquinas) sino que el mensaje trae el path correcto y que tras
-// aplicarlo hay una vista de metricas utilizable.
+// The numbers vary per machine, so what is asserted is the path and that applying the message leaves a usable view.
 func TestMetricsCmdMuestreaElProcesoRealYLoIntegra(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -115,9 +81,7 @@ func TestMetricsCmdMuestreaElProcesoRealYLoIntegra(t *testing.T) {
 	if msg.err != nil {
 		t.Fatalf("ReadMetrics(self) fallo: %v", msg.err)
 	}
-	// El proceso de test tiene threads y fds abiertos: si esto sale a cero, el
-	// cmd esta leyendo el PID equivocado, que es el fallo que este test existe
-	// para cazar.
+	// A zero here means the cmd sampled the wrong PID, which is the failure this test exists to catch.
 	if msg.m.Threads == 0 {
 		t.Error("Threads = 0 leyendo el propio proceso: se esta muestreando otro PID")
 	}
@@ -138,15 +102,12 @@ func TestMetricsCmdMuestreaElProcesoRealYLoIntegra(t *testing.T) {
 		t.Error("applyMetrics no guardo la muestra previa, el CPU% nunca se podria calcular")
 	}
 
-	// El render tiene que ver ahora las metricas, no el placeholder.
 	if got := strings.Join(m.metricsLines(80), "\n"); strings.Contains(got, "sampling metrics") {
 		t.Errorf("metricsLines sigue en el placeholder tras integrar: %q", got)
 	}
 }
 
-// TestApplyMetricsErrorBorraLaMuestraVieja: si el muestreo falla, la cache se
-// borra en vez de quedarse con el ultimo valor bueno. Un CPU% congelado es
-// peor que none: parece vivo.
+// A frozen CPU% is worse than none because it looks alive, so the cached sample is dropped on error.
 func TestApplyMetricsErrorBorraLaMuestraVieja(t *testing.T) {
 	m, _ := newTestModel(t)
 	path := "/proj/x"
@@ -160,29 +121,21 @@ func TestApplyMetricsErrorBorraLaMuestraVieja(t *testing.T) {
 	}
 }
 
-// TestApplyMetricsCalculaCPUPorDelta: el CPU% es un delta entre dos muestras, no
-// un valor absoluto. Sin muestra previa es 0; con ticks que avanzan es > 0.
-//
-// El segundo caso usa ticks imposibles a proposito: el valor exacto depende del
-// reloj, pero el SIGNO no. Un assert sobre el numero seria flaky; un assert
-// sobre "crecio" es estable y es lo que el render necesita saber.
+// The exact value depends on the clock, so the assertion is on the sign (it grew) rather than on a number, which would be flaky.
 func TestApplyMetricsCalculaCPUPorDelta(t *testing.T) {
 	m, _ := newTestModel(t)
 	const path = "/proj/x"
 
-	// Primera muestra: no hay con quien comparar, CPU = 0.
 	m.applyMetrics(metricsMsg{path: path, m: process.Metrics{RSSKB: 100, Ticks: 500, Threads: 2, FDs: 3}})
 	if got := m.metrics[path].CPU; got != 0 {
 		t.Errorf("primera muestra CPU = %v, want 0 (no hay delta todavia)", got)
 	}
 
-	// Los ticks no avanzan: CPU se queda en 0 en vez de dividir por algo.
 	m.applyMetrics(metricsMsg{path: path, m: process.Metrics{RSSKB: 100, Ticks: 500, Threads: 2, FDs: 3}})
 	if got := m.metrics[path].CPU; got != 0 {
 		t.Errorf("ticks sin avanzar CPU = %v, want 0", got)
 	}
 
-	// Los ticks avanzan: hay delta, el CPU% sale de process.CPUPercent.
 	m.metricsPrev[path].at = time.Now().Add(-time.Second)
 	m.applyMetrics(metricsMsg{path: path, m: process.Metrics{RSSKB: 100, Ticks: 900, Threads: 2, FDs: 3}})
 	if got := m.metrics[path].CPU; got <= 0 {
@@ -190,9 +143,6 @@ func TestApplyMetricsCalculaCPUPorDelta(t *testing.T) {
 	}
 }
 
-// ---- Env ----
-
-// TestEnvCmdNilSinSeleccionOParado: mismos guards que metricsCmd.
 func TestEnvCmdNilSinSeleccionOParado(t *testing.T) {
 	m, _ := newTestModel(t)
 
@@ -214,21 +164,7 @@ func TestEnvCmdNilSinSeleccionOParado(t *testing.T) {
 	}
 }
 
-// TestEnvCmdLeeElEntornoRealYLoOrdena: el entorno del proceso de test, con una
-// variable heredada de verdad del runner que debe aparecer. Es la prueba de que
-// el cmd lee el PID del servicio y no otro.
-//
-// NOTA sobre por que el marcador NO se inyecta con t.Setenv: ReadEnviron lee
-// /proc/<pid>/environ, que es el bloque que el kernel congelo en el execve que
-// lanzo el binario de test. t.Setenv llama a setenv(3) DESPUES, y eso cambia el
-// entorno del proceso dentro de Go pero NO el bloque que /proc expone:
-// comprobado, con la variable inyectada se leen 151 vars y el marcador no esta.
-// Un test que marque con t.Setenv solo pasaria sobre una lectura-stub.
-//
-// NOTA sobre la variable heredada (la primera version de este test decia
-// "inyectada", que era untrue):
-// variable inyectada que debe aparecer. Es la prova de que el cmd lee el PID del
-// servicio y no otro: si leyera otro proceso, la variable no estara.
+// The marker must be an inherited variable, not t.Setenv: ReadEnviron reads the block the kernel froze at execve, and a later setenv(3) never shows up in /proc/<pid>/environ.
 func TestEnvCmdLeeElEntornoRealYLoOrdena(t *testing.T) {
 	marker := pickRealEnvVar(t)
 
@@ -264,8 +200,7 @@ func TestEnvCmdLeeElEntornoRealYLoOrdena(t *testing.T) {
 	if len(vars) == 0 {
 		t.Fatal("applyEnv no guardo el entorno")
 	}
-	// applyEnv ordena: el render lo asume para que la lista no baile entre
-	// refrescos del mismo entorno.
+	// applyEnv sorts because the render assumes it, so the list does not jump between refreshes of the same environment.
 	for i := 1; i < len(vars); i++ {
 		if vars[i-1] > vars[i] {
 			t.Fatalf("el entorno no esta ordenado en la posicion %d: %q > %q", i, vars[i-1], vars[i])
@@ -273,8 +208,7 @@ func TestEnvCmdLeeElEntornoRealYLoOrdena(t *testing.T) {
 	}
 }
 
-// TestApplyEnvErrorBorraElEntornoPrevio: mismo criterio que en metrics. Un
-// entorno obsoleto tras un PID muerto son variables de otro proceso.
+// A stale environment after a dead PID is another process's variables, so it is dropped rather than kept.
 func TestApplyEnvErrorBorraElEntornoPrevio(t *testing.T) {
 	m, _ := newTestModel(t)
 	const path = "/proj/x"
@@ -287,9 +221,6 @@ func TestApplyEnvErrorBorraElEntornoPrevio(t *testing.T) {
 	}
 }
 
-// ---- Git ----
-
-// TestGitCmdNilSinSeleccion.
 func TestGitCmdNilSinSeleccion(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.cursor = -1
@@ -298,10 +229,7 @@ func TestGitCmdNilSinSeleccion(t *testing.T) {
 	}
 }
 
-// TestGitCmdLeeElRepoRealYLoIntegra: git de verdad sobre un repo real. El árbol
-// de tests trae un .git/HEAD escrito a mano, que basta para Branch pero NO para
-// `git status`; por eso se inicializa un repo de verdad, se configura y se
-// commitea. Es lo que hace el cmd en produccion.
+// The test tree's hand-written .git/HEAD is enough for Branch but not for git status, so a real repo is initialised and committed here.
 func TestGitCmdLeeElRepoRealYLoIntegra(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -332,8 +260,6 @@ func TestGitCmdLeeElRepoRealYLoIntegra(t *testing.T) {
 	}
 }
 
-// TestGitCmdDetectaCambiosSinCommitear: la otra mitad de la informacion de la
-// tab. Un fichero modificado tiene que salir como changed, no como clean.
 func TestGitCmdDetectaCambiosSinCommitear(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -361,9 +287,7 @@ func TestGitCmdDetectaCambiosSinCommitear(t *testing.T) {
 	}
 }
 
-// TestGitCmdRepoIlegiblePropagaElError: sin repo, git falla. El error tiene que
-// llegar al estado, no desaparecer: la tab lo muestra y es la unica pista de
-// que la ruta no es un repo.
+// The git error must reach the state because it is the only clue that the path is not a repo.
 func TestGitCmdRepoIlegiblePropagaElError(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "suelto")
@@ -379,19 +303,13 @@ func TestGitCmdRepoIlegiblePropagaElError(t *testing.T) {
 		t.Error("git status sobre un directorio sin repo deberia traer error")
 	}
 
-	// El error tiene que llegar a la tab: es la unica pista de que la ruta no
-	// es un repo. Si applyGit se lo comiera, la UI mostraria "clean" en un
-	// directorio sin control de versiones.
 	m.applyGit(msg)
 	if m.gitStatus[msg.path].Err == "" {
 		t.Error("el error de git no llego al estado tras applyGit")
 	}
 }
 
-// TestApplyGitSinRamaNoPisaLaRamaConocida: una lectura sin rama (repo ilegible,
-// o rama borrada) no debe borrar la rama que ya se sabia. Si lo hiciera, un
-// fallo transitorio de git dejaria la UI sin nombre de rama hasta el siguiente
-// exito.
+// A read with no branch must not erase the known one, or a transient git failure leaves the UI branchless until the next success.
 func TestApplyGitSinRamaNoPisaLaRamaConocida(t *testing.T) {
 	m, _ := newTestModel(t)
 	const path = "/proj/x"
@@ -407,11 +325,7 @@ func TestApplyGitSinRamaNoPisaLaRamaConocida(t *testing.T) {
 	}
 }
 
-// ---- Health ----
-
-// TestHealthCmdNilSinSeleccion: el cmd tiene cuatro guards (sin seleccion, sin
-// config, sin manifiesto, sin puerto). El de sin puerto es el que evita sondear
-// un puerto que no es del servicio.
+// The cmd has four guards (no selection, no config, no manifest, no port); only the first and third are reachable from this tree.
 func TestHealthCmdNilSinSeleccion(t *testing.T) {
 	m, _ := newTestModel(t)
 
@@ -426,10 +340,7 @@ func TestHealthCmdNilSinSeleccion(t *testing.T) {
 	}
 }
 
-// TestHealthCmdNoSondeaConPuertoSinResolver: hay un puerto en el manifiesto pero
-// el bind no se confirmo. Sondear apuntaria a un puerto que puede ser el de otro
-// worktree, asi que no se hace. Este guard es una decision de seguridad, no una
-// optimizacion.
+// Probing an unresolved port could hit a port owned by another worktree, so this guard is a safety decision, not an optimization.
 func TestHealthCmdNoSondeaConPuertoSinResolver(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -446,10 +357,7 @@ func TestHealthCmdNoSondeaConPuertoSinResolver(t *testing.T) {
 	}
 }
 
-// TestHealthCmdSondeaElPuertoRealDelServicio: el cmd completo contra un
-// httptest.Server real. El puerto del manifiesto se redirige al del server, que
-// es como se verifica que el cmd sondea el puerto de displayPort y no el
-// declarado a ciegas.
+// Redirecting the manifest port to the server's is what proves the cmd probes the resolved port instead of the declared one.
 func TestHealthCmdSondeaElPuertoRealDelServicio(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/healthz" {
@@ -469,8 +377,7 @@ func TestHealthCmdSondeaElPuertoRealDelServicio(t *testing.T) {
 	setManifestPort(&m, "tienda-api", port)
 	setHealthPath(&m, "tienda-api", "/healthz")
 	markRunning(&m, path, os.Getpid())
-	// El puerto resuelto manda sobre el del manifiesto; hay que alinearlos o el
-	// cmd seguiria apuntando al puerto declarado.
+	// The resolved port overrides the manifest's, so both have to be aligned or the cmd would still probe the declared port.
 	m.services[path].Meta.Port = port
 
 	msg, ok := runCmd(m.healthCmd()).(healthMsg)
@@ -506,10 +413,7 @@ func TestHealthCmdSondeaElPuertoRealDelServicio(t *testing.T) {
 	}
 }
 
-// TestProbeHealthErroresYEstados: probeHealth contra un server real que
-// devuelve 500, y contra un puerto donde no hay nadie. Los dos casos tienen que
-// distinguirse: 500 es un servicio vivo que responde mal (se muestra la
-// respuesta), y conexion rehusada es que no hay servicio.
+// A 500 is a live service answering badly (its body is shown) while a refused connection means there is no service, and the two must stay distinguishable.
 func TestProbeHealthErroresYEstados(t *testing.T) {
 	t.Run("500 con cuerpo", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -531,7 +435,7 @@ func TestProbeHealthErroresYEstados(t *testing.T) {
 	})
 
 	t.Run("nadie escuchando", func(t *testing.T) {
-		// Server cerrado: el puerto queda libre y el probe no puede conectar.
+		// The server is closed first, so the port is free and the probe cannot connect.
 		srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 		url := srv.URL
 		srv.Close()
@@ -546,9 +450,7 @@ func TestProbeHealthErroresYEstados(t *testing.T) {
 	})
 }
 
-// TestFirstLine: la primera linea NO vacia, recortada a 100. Es lo que se ve
-// como snippet en la tab Health, asi que un recorte mal hecho o un salto
-// inicial no tratado se notan.
+// It is what the Health tab shows as the snippet, so a bad trim or an untreated leading newline is visible.
 func TestFirstLine(t *testing.T) {
 	tests := []struct {
 		name string
@@ -561,8 +463,7 @@ func TestFirstLine(t *testing.T) {
 		{"solo espacios", "   \n\t\n", ""},
 		{"vacio", "", ""},
 		{"sin salto", "una linea", "una linea"},
-		// trunc() gasta el ultimo caracter en la elipsis: 99 x + "…". El
-		// total son 100 runes, que es el contrato de anchura de la columna.
+		// trunc() spends the last rune on the ellipsis, so 99 x plus it is exactly the 100-rune column contract.
 		{"recorta a 100 con elipsis", strings.Repeat("x", 250), strings.Repeat("x", 99) + "…"},
 		{"crlf", "hola\r\nadios", "hola"},
 	}
@@ -576,11 +477,7 @@ func TestFirstLine(t *testing.T) {
 	}
 }
 
-// ---- Timeline de stacks ----
-
-// TestRecordStackEventPorNombreConComposeFile: un arranque o parada de stack
-// deja un evento en el timeline de CADA servicio del stack, no solo del
-// primero. Es la unica trazabilidad de que un stack arranco entero.
+// This is the only record that a whole stack started, so every service of the stack gets an event, not just the first.
 func TestRecordStackEventPorNombreConComposeFile(t *testing.T) {
 	m, _ := newTestModel(t)
 	api := projectPath(t, m, "tienda-api")
@@ -607,10 +504,7 @@ func TestRecordStackEventPorNombreConComposeFile(t *testing.T) {
 	}
 }
 
-// TestRecordStackEventDeduplicaServiciosRepetidos: un servicio puede aparecer en
-// varias etapas del stack. Solo debe quedar un evento: duplicarlo haria que un
-// stack de dos etapas con un servicio compartido pareciese haber arrancado ese
-// servicio dos veces.
+// Duplicating would make a two-stage stack with a shared service look like that service started twice.
 func TestRecordStackEventDeduplicaServiciosRepetidos(t *testing.T) {
 	m, _ := newTestModel(t)
 	api := projectPath(t, m, "tienda-api")
@@ -633,9 +527,7 @@ func TestRecordStackEventDeduplicaServiciosRepetidos(t *testing.T) {
 	}
 }
 
-// TestRecordStackEventSinComposeFileNoHaceNada: sin compose file no hay stacks
-// que registrar. Es el estado normal de un proyecto sin orquestacion, y no puede
-// dejar basura en ningun timeline.
+// A project without orchestration is the normal case here, and it must leave no events behind.
 func TestRecordStackEventSinComposeFileNoHaceNada(t *testing.T) {
 	m, _ := newTestModel(t)
 	api := projectPath(t, m, "tienda-api")
@@ -648,9 +540,7 @@ func TestRecordStackEventSinComposeFileNoHaceNada(t *testing.T) {
 	}
 }
 
-// TestRecordStackEventNombreDesconocidoNoEscribe: un nombre que no esta en el
-// compose file no es un error (el stack puede haberse filtrado), pero tampoco
-// puede atribuirse a ningun servicio.
+// An unknown name is not an error (the stack may have been filtered out) but cannot be attributed to any service.
 func TestRecordStackEventNombreDesconocidoNoEscribe(t *testing.T) {
 	m, _ := newTestModel(t)
 	api := projectPath(t, m, "tienda-api")
@@ -667,9 +557,6 @@ func TestRecordStackEventNombreDesconocidoNoEscribe(t *testing.T) {
 	}
 }
 
-// ---- Helpers ----
-
-// projectPath devuelve la ruta absoluta del proyecto con ese nombre de manifiesto.
 func projectPath(t *testing.T, m Model, name string) string {
 	t.Helper()
 	for _, p := range m.projects {
@@ -681,9 +568,7 @@ func projectPath(t *testing.T, m Model, name string) string {
 	return ""
 }
 
-// setManifestPort reescribe el puerto del manifiesto del proyecto indicado.
-// Se hace sobre el árbol, no sobre el manifest ya parseado, porque el cmd de
-// health lee el manifiesto que hay en disco a traves del proyecto escaneado.
+// The health cmd reads the manifest through the scanned project, so both the tree item and the project copy have to be rewritten.
 func setManifestPort(m *Model, name string, port int) {
 	for i := range m.tree {
 		if m.tree[i].kind == itemProject && m.tree[i].project.Manifest != nil &&
@@ -699,7 +584,6 @@ func setManifestPort(m *Model, name string, port int) {
 	}
 }
 
-// setHealthPath reesplica setManifestPort para health_path.
 func setHealthPath(m *Model, name, path string) {
 	for i := range m.tree {
 		if m.tree[i].kind == itemProject && m.tree[i].project.Manifest != nil &&
@@ -715,11 +599,7 @@ func setHealthPath(m *Model, name, path string) {
 	}
 }
 
-// pickRealEnvVar devuelve el nombre (sin valor) de una variable de entorno que
-// el proceso de test heredo de verdad del runner, para marcarla al leer
-// /proc/self/environ. Se elige de una lista de candidatos habituales en vez de
-// "la primera que exista", para no depender de que el runner exporte algo
-// inesperado.
+// Picked from a list of common candidates rather than the first that exists, so the test does not depend on the runner exporting something unexpected.
 func pickRealEnvVar(t *testing.T) string {
 	t.Helper()
 	for _, name := range []string{"HOME", "PATH", "USER", "LANG", "TERM", "PWD", "SHELL"} {
@@ -731,8 +611,7 @@ func pickRealEnvVar(t *testing.T) string {
 	return ""
 }
 
-// serverPort extrae el puerto de una URL de httptest ("http://127.0.0.1:PORT").
-// Se parte por "//" y no por el primer ":", que es el del esquema.
+// Splits on the "//" and not on the first ":", which belongs to the scheme.
 func serverPort(t *testing.T, rawURL string) int {
 	t.Helper()
 	_, hostport, ok := strings.Cut(rawURL, "//")
@@ -751,8 +630,6 @@ func serverPort(t *testing.T, rawURL string) int {
 	return port
 }
 
-// initRepoWithCommit crea un repo git real en path, con un commit, para que
-// `git status` y `git log` tengan algo que responder.
 func initRepoWithCommit(t *testing.T, path string) {
 	t.Helper()
 	git := func(args ...string) {

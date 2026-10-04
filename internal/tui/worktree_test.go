@@ -18,9 +18,7 @@ import (
 	"vroom/internal/state"
 )
 
-// newRepoModel construye un modelo a partir de un slice plano ya anotado
-// (sin git real): permite testear la presentación del anidado en
-// aislamiento.
+// newRepoModel builds a model from a hand-annotated project slice with no real git, so nesting presentation is testable in isolation.
 func newRepoModel(t *testing.T, projects []scanner.Project, collapsed map[string]bool) Model {
 	t.Helper()
 	isolateConfig(t)
@@ -60,7 +58,7 @@ func newRepoModel(t *testing.T, projects []scanner.Project, collapsed map[string
 	return m
 }
 
-// repoFixture: main checkout en root/repo (primary X) y dos worktrees.
+// repoFixture: main checkout at root/repo in primary group X, plus two worktrees of it.
 func repoFixture(t *testing.T) ([]scanner.Project, string, string, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -99,7 +97,6 @@ func findRepo(t *testing.T, m Model, name string) int {
 	return -1
 }
 
-// Repo con worktrees = una sola fila colapsada; worktrees no top-level.
 func TestRepoCollapsedSingleRow(t *testing.T) {
 	projects, repo, _, _ := repoFixture(t)
 	m := newRepoModel(t, projects, nil)
@@ -126,7 +123,6 @@ func TestRepoCollapsedSingleRow(t *testing.T) {
 	}
 }
 
-// Repo sin worktrees no ofrece toggle.
 func TestRepoWithoutWorktreesNotExpandable(t *testing.T) {
 	root := t.TempDir()
 	solo := filepath.Join(root, "solo")
@@ -142,7 +138,6 @@ func TestRepoWithoutWorktreesNotExpandable(t *testing.T) {
 	}
 }
 
-// La fila del repo es el main checkout operable.
 func TestRepoRowIsOperableMainCheckout(t *testing.T) {
 	projects, repo, _, _ := repoFixture(t)
 	m := newRepoModel(t, projects, nil)
@@ -166,7 +161,6 @@ func TestRepoRowIsOperableMainCheckout(t *testing.T) {
 	}
 }
 
-// Expandir revela los worktrees indentados.
 func TestExpandRepoRevealsIndentedWorktrees(t *testing.T) {
 	projects, _, _, _ := repoFixture(t)
 	m := newRepoModel(t, projects, nil)
@@ -182,8 +176,6 @@ func TestExpandRepoRevealsIndentedWorktrees(t *testing.T) {
 			t.Errorf("%s debe verse al expandir: %q", name, joined)
 		}
 	}
-	// Indentación: las filas de worktree van 2 espacios más adentro que
-	// la fila de su repo.
 	idxRepo, idxA, idxB := findCursor(m2, "repo"), findCursor(m2, "repo-wt-a"), findCursor(m2, "repo-wt-b")
 	if idxA < idxRepo || idxB < idxA {
 		t.Fatalf("orden inesperado: repo=%d a=%d b=%d", idxRepo, idxA, idxB)
@@ -194,7 +186,6 @@ func TestExpandRepoRevealsIndentedWorktrees(t *testing.T) {
 	}
 }
 
-// Un worktree anidado es operable con su propio workdir.
 func TestNestedWorktreeOperable(t *testing.T) {
 	projects, repo, wtA, _ := repoFixture(t)
 	for i := range projects {
@@ -209,7 +200,6 @@ func TestNestedWorktreeOperable(t *testing.T) {
 		return moveCursorTo(t, m, "repo-wt-a")
 	}
 
-	// start arranca con el workdir del worktree.
 	_, cmd := press(atWorktree(), "s")
 	if cmd == nil {
 		t.Fatal("start sobre un worktree debe emitir un comando")
@@ -217,14 +207,12 @@ func TestNestedWorktreeOperable(t *testing.T) {
 	if sm, ok := cmd().(startedMsg); !ok || sm.path != wtA {
 		t.Fatalf("el servicio debe arrancar con workdir %s", wtA)
 	}
-	// build e install operan sobre el worktree (jobs independientes).
 	if _, bcmd := press(atWorktree(), "b"); bcmd == nil {
 		t.Fatal("build sobre un worktree debe emitir un comando")
 	}
 	if _, icmd := press(atWorktree(), "i"); icmd == nil {
 		t.Fatal("install sobre un worktree debe emitir un comando")
 	}
-	// stop: con el servicio running, s para el worktree.
 	m := atWorktree()
 	m.services[wtA].Status = statusRunning
 	if _, scmd := press(m, "s"); scmd == nil {
@@ -232,7 +220,6 @@ func TestNestedWorktreeOperable(t *testing.T) {
 	}
 }
 
-// El colapso del repo se restaura y no colisiona con las claves de grupo.
 func TestRepoCollapsePersistedAndNamespaced(t *testing.T) {
 	projects, repo, _, _ := repoFixture(t)
 	m := newRepoModel(t, projects, map[string]bool{repoKey(repo): true})
@@ -243,7 +230,6 @@ func TestRepoCollapsePersistedAndNamespaced(t *testing.T) {
 	if !strings.Contains(strings.Join(tree, "\n"), "repo-wt-a") {
 		t.Errorf("con el repo expandido deben verse los worktrees: %q", strings.Join(tree, "\n"))
 	}
-	// Plegar el repo no toca la clave del grupo "X" y viceversa.
 	m = moveCursorTo(t, m, "repo")
 	m2, _ := press(m, "enter")
 	if m2.repoExpanded(repo) {
@@ -252,7 +238,6 @@ func TestRepoCollapsePersistedAndNamespaced(t *testing.T) {
 	if m2.collapsed["X"] {
 		t.Error("el colapso del repo no debe tocar la clave del grupo X")
 	}
-	// Plegar el grupo X no colapsa/expande el repo.
 	m3 := m2
 	m3.cursor = findPrimary(m3, "X")
 	m4, _ := press(m3, "enter")
@@ -264,11 +249,10 @@ func TestRepoCollapsePersistedAndNamespaced(t *testing.T) {
 	}
 }
 
-// La clave del nodo repo es estructuralmente disjunta de las claves de
-// grupo: un primary_group literalmente igual a "repo:<path>" no colisiona.
+// repoKey is structurally disjoint from group keys, so even a primary_group literally spelled "repo:<path>" (the old repoKey format) cannot collide.
 func TestRepoKeyDoesNotCollideWithGroupKey(t *testing.T) {
 	projects, repo, _, _ := repoFixture(t)
-	groupKey := "repo:" + repo // misma cadena que usaba el viejo repoKey
+	groupKey := "repo:" + repo
 	for i := range projects {
 		if projects[i].Path == repo {
 			projects[i].Manifest.PrimaryGroup = groupKey
@@ -282,7 +266,6 @@ func TestRepoKeyDoesNotCollideWithGroupKey(t *testing.T) {
 		return m
 	}
 
-	// Plegar el grupo no debe tocar el estado del nodo repo.
 	g := build()
 	g.cursor = findPrimary(g, groupKey)
 	g2, _ := press(g, "enter")
@@ -293,8 +276,7 @@ func TestRepoKeyDoesNotCollideWithGroupKey(t *testing.T) {
 		t.Error("plegar el grupo no debe expandir el repo (colisión de claves)")
 	}
 
-	// Expandir el repo no debe tocar el grupo (modelo fresco: el mapa de
-	// colapso se comparte por referencia entre copias del modelo).
+	// Fresh model: the collapsed map is shared by reference across model copies, so reusing one would leak the earlier toggle.
 	r := build()
 	r = moveCursorTo(t, r, "repo")
 	r2, _ := press(r, "enter")
@@ -306,8 +288,6 @@ func TestRepoKeyDoesNotCollideWithGroupKey(t *testing.T) {
 	}
 }
 
-// La clave de repo persiste y se restaura a través del store (namespace
-// propio incluido).
 func TestRepoCollapseKeyPersists(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	key := repoKey("/some/repo")
@@ -320,7 +300,6 @@ func TestRepoCollapseKeyPersists(t *testing.T) {
 	}
 }
 
-// Bare repo se muestra como contenedor no ejecutable y anida sus worktrees.
 func TestBareContainerNotOperable(t *testing.T) {
 	root := t.TempDir()
 	bare := filepath.Join(root, "bare")
@@ -343,7 +322,6 @@ func TestBareContainerNotOperable(t *testing.T) {
 	if cmd != nil {
 		t.Error("el contenedor bare no debe ser operable")
 	}
-	// Expandir anida el worktree.
 	m3, _ := press(m2, "enter")
 	tree, _ := m3.treeLines()
 	joined := strings.Join(tree, "\n")
@@ -355,8 +333,6 @@ func TestBareContainerNotOperable(t *testing.T) {
 	}
 }
 
-// Un contenedor bare sin worktrees no muestra glifo de expansión (no hay
-// nada que expandir).
 func TestBareContainerWithoutWorktreesHasNoGlyph(t *testing.T) {
 	root := t.TempDir()
 	bare := filepath.Join(root, "bare")
@@ -375,7 +351,6 @@ func TestBareContainerWithoutWorktreesHasNoGlyph(t *testing.T) {
 	}
 }
 
-// Un worktree detached muestra su sha como rama.
 func TestDetachedWorktreeShowsSha(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")
@@ -409,7 +384,6 @@ func TestDetachedWorktreeShowsSha(t *testing.T) {
 	}
 }
 
-// Worktree sin manifiesto se lista como no configurado y no es operable.
 func TestUnconfiguredWorktreeRow(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")
@@ -433,7 +407,6 @@ func TestUnconfiguredWorktreeRow(t *testing.T) {
 	}
 }
 
-// Worktree fuera del root se anida bajo un contenedor sintetizado.
 func TestOutOfRootWorktreeNestsUnderSyntheticContainer(t *testing.T) {
 	outside := "/outside/repo"
 	wtA := "/root/repo-wt-a"
@@ -455,7 +428,6 @@ func TestOutOfRootWorktreeNestsUnderSyntheticContainer(t *testing.T) {
 	}
 }
 
-// El repo conserva su grupo y posición; el toggle vive en su fila.
 func TestRepoKeepsGroup(t *testing.T) {
 	projects, _, _, _ := repoFixture(t)
 	m := newRepoModel(t, projects, nil)
@@ -474,10 +446,8 @@ func TestRepoKeepsGroup(t *testing.T) {
 	}
 }
 
-// El grupo propio de un worktree no lo reposiciona.
 func TestWorktreeGroupIsInert(t *testing.T) {
 	projects, repo, _, _ := repoFixture(t)
-	// wt-a declara primary_group "Y" (debe ser inerte).
 	for i := range projects {
 		if projects[i].Path == projects[i].RepoRoot {
 			continue
@@ -496,8 +466,6 @@ func TestWorktreeGroupIsInert(t *testing.T) {
 	}
 }
 
-// ---- Integración con git real ----
-
 func requireGit(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -515,8 +483,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// TestNewNestsRealGitWorktrees es el acceptance end-to-end: escaneo real,
-// anotación de topología y anidado en el árbol de la TUI.
+// End-to-end acceptance: real git scan, real topology annotation, real nesting in the tree.
 func TestNewNestsRealGitWorktrees(t *testing.T) {
 	requireGit(t)
 	isolateConfig(t)
@@ -564,8 +531,6 @@ func TestNewNestsRealGitWorktrees(t *testing.T) {
 	}
 }
 
-// La TUI notifica la degradación de topología (git ausente o fallo) sin
-// romper el scan ni ocultar proyectos.
 func TestNewNotifiesTopologyDegradation(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
@@ -582,7 +547,7 @@ func TestNewNotifiesTopologyDegradation(t *testing.T) {
 	write(filepath.Join(repo, ".vroom.toml"), "name = \"repo\"\ncommand_start = \"echo\"\n")
 	write(filepath.Join(repo, ".git", "config"), "[core]\n\tbare = false\n")
 
-	// git falso que falla: la consulta de topología degrada por repo.
+	// A git shim that always exits 1 goes first in PATH, so the topology lookup degrades per repo.
 	bin := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -598,8 +563,7 @@ func TestNewNotifiesTopologyDegradation(t *testing.T) {
 	}
 }
 
-// La TUI reporta el mismo conflicto de stack que el CLI y no elige
-// arbitrariamente el primer proyecto con ese nombre.
+// The TUI must report the engine's verdict instead of picking the first project that shares the name.
 func TestStackStatsConflictMatchesEngine(t *testing.T) {
 	projects := []scanner.Project{
 		{Path: "/repo-wt/a", Name: "a", Configured: true, Manifest: manifestNamed("api", "")},
@@ -621,7 +585,6 @@ func TestStackStatsConflictMatchesEngine(t *testing.T) {
 		t.Errorf("la fila del stack debe marcar el conflicto: %q", m.stackRow(stack))
 	}
 
-	// Nombre único: resuelve sin conflicto.
 	unique := []scanner.Project{{Path: "/dev/api", Name: "api", Configured: true, Manifest: manifestNamed("api", "")}}
 	mu := newRepoModel(t, unique, nil)
 	mu.services["/dev/api"].Status = statusRunning
@@ -631,8 +594,7 @@ func TestStackStatsConflictMatchesEngine(t *testing.T) {
 	}
 }
 
-// H2: un error de topología se marca en la fila aunque no haya worktrees
-// descubiertos (un fallo de `git worktree list` implica 0 hijos).
+// H2: a failed "git worktree list" means 0 children, so the row must still flag the topology error.
 func TestRepoRowShowsTopologyErrorWithoutChildren(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")
@@ -660,9 +622,7 @@ func mustTree(t *testing.T, m Model) []string {
 	return tree
 }
 
-// M1: la agregación de grupos ignora los worktrees anidados: no se
-// cuentan en el header, no se togglean con el grupo y siguen visibles
-// bajo su fila de repo (option B).
+// M1: group aggregation ignores nested worktrees: not counted in the header, not toggled with the group, still visible under their repo row (option B).
 func TestGroupAggregationExcludesNestedWorktrees(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")
@@ -676,24 +636,20 @@ func TestGroupAggregationExcludesNestedWorktrees(t *testing.T) {
 	}
 	m := newRepoModel(t, projects, map[string]bool{repoKey(repo): true})
 
-	// El header de X cuenta solo a los miembros reales (repo + member).
 	if _, n := m.nodeStats("X", ""); n != 2 {
 		t.Fatalf("X debe contar 2 miembros (sin el worktree), got %d", n)
 	}
-	// El texto del header colapsado refleja ese conteo.
 	m.collapsed["X"] = true
 	if row := m.primaryRow("X"); !strings.Contains(row, "(0/2)") {
 		t.Errorf("header X debe mostrar (0/2): %q", row)
 	}
 	m.collapsed["X"] = false
 
-	// toggleNode(X) no afecta al worktree anidado.
 	next, _ := m.toggleNode("X", "")
 	m2 := next.(Model)
 	if sv := m2.services[wt]; sv != nil && sv.Status != statusStopped {
 		t.Errorf("toggleNode(X) no debe arrancar el worktree anidado: %v", sv.Status)
 	}
-	// El worktree sigue visible bajo su fila de repo, indentado.
 	idx := findCursor(m2, "repo-wt")
 	if idx < 0 {
 		t.Fatal("el worktree debe seguir visible bajo su repo")
@@ -703,8 +659,6 @@ func TestGroupAggregationExcludesNestedWorktrees(t *testing.T) {
 	}
 }
 
-// rowLine devuelve la línea renderizada de la fila del árbol en el
-// índice del cursor para ese nombre.
 func rowLine(t *testing.T, m Model, name string) string {
 	t.Helper()
 	idx := findCursor(m, name)
@@ -718,31 +672,25 @@ func rowLine(t *testing.T, m Model, name string) string {
 	return tree[idx]
 }
 
-// La fila de repo indica con +N los worktrees en ejecución aunque
-// estén plegados, sin confundirse con el servicio propio del main.
 func TestRepoRowBadgeCountsRunningWorktrees(t *testing.T) {
 	projects, repo, wtA, _ := repoFixture(t)
 
-	// Ningún worktree corriendo: sin badge.
 	m := newRepoModel(t, projects, nil)
 	if row := rowLine(t, m, "repo"); strings.Contains(row, "+") {
 		t.Errorf("sin worktrees corriendo no debe haber badge: %q", row)
 	}
 
-	// Un worktree corriendo, repo plegado: +1 en la fila del repo.
 	m.services[wtA].Status = statusRunning
 	if row := rowLine(t, m, "repo"); !strings.Contains(row, "+1") {
 		t.Errorf("un worktree corriendo debe marcar +1: %q", row)
 	}
 
-	// Solo el main corriendo: sigue sin badge.
 	m2 := newRepoModel(t, projects, nil)
 	m2.services[repo].Status = statusRunning
 	if row := rowLine(t, m2, "repo"); strings.Contains(row, "+") {
 		t.Errorf("solo el main corriendo no debe marcar badge: %q", row)
 	}
 
-	// Main + worktree a la vez: el badge convive con la bolita del main.
 	m2.services[wtA].Status = statusRunning
 	row := rowLine(t, m2, "repo")
 	if !strings.Contains(row, "+1") {
@@ -753,8 +701,6 @@ func TestRepoRowBadgeCountsRunningWorktrees(t *testing.T) {
 	}
 }
 
-// La fila contenedora (sin servicio propio) también marca +N sus
-// worktrees en ejecución.
 func TestContainerRowBadgeCountsRunningWorktrees(t *testing.T) {
 	outside := "/outside/repo"
 	wtA := "/root/repo-wt-a"
@@ -774,8 +720,6 @@ func TestContainerRowBadgeCountsRunningWorktrees(t *testing.T) {
 	}
 }
 
-// El badge no rompe el ancho fijo de la columna de árbol, ni con
-// nombres largos (recorte), ni plegado/expandido, ni en contenedoras.
 func TestRepoRowBadgeKeepsColumnWidth(t *testing.T) {
 	root := t.TempDir()
 	long := strings.Repeat("r", 40)
@@ -802,7 +746,6 @@ func TestRepoRowBadgeKeepsColumnWidth(t *testing.T) {
 		}
 	}
 
-	// Contenedora sintetizada (sin servicio propio) con nombre largo.
 	outside := filepath.Join(root, long+"-outside")
 	mc := newRepoModel(t, []scanner.Project{
 		{Path: wt, Name: long + "-wt", Configured: true, Manifest: manifestNamed("api", ""),
@@ -818,7 +761,6 @@ func TestRepoRowBadgeKeepsColumnWidth(t *testing.T) {
 		t.Errorf("contenedora: la línea mide %d, excede treeWidth=%d: %q", w, treeWidth, tree[idx])
 	}
 
-	// Repo con error de topología (⚠) y nombre largo.
 	mw := newRepoModel(t, []scanner.Project{{
 		Path: repo, Name: long, Configured: true, Manifest: manifestNamed("repo", ""),
 		WorktreeErr: "git binary not available",
@@ -827,7 +769,6 @@ func TestRepoRowBadgeKeepsColumnWidth(t *testing.T) {
 		t.Errorf("repo con WorktreeErr: la línea mide %d: %q", lipglossWidth(line), line)
 	}
 
-	// Repo con ⚠ y badge a la vez (glifo + ⚠ + badge).
 	me := newRepoModel(t, []scanner.Project{
 		{Path: repo, Name: long, Configured: true, Manifest: manifestNamed("repo", ""), WorktreeErr: "boom"},
 		{Path: wt, Name: long + "-wt", Configured: true, Manifest: manifestNamed("api", ""),
@@ -838,7 +779,6 @@ func TestRepoRowBadgeKeepsColumnWidth(t *testing.T) {
 		t.Errorf("repo con ⚠ y badge: la línea mide %d: %q", lipglossWidth(line), line)
 	}
 
-	// Contenedora bare con ⚠ y nombre largo.
 	bare := filepath.Join(root, long+"-bare")
 	wt2 := filepath.Join(root, long+"-bare-wt")
 	mb := newRepoModel(t, []scanner.Project{

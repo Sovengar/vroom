@@ -9,44 +9,19 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// `main()` de verdad, en un proceso de verdad.
-//
-// `main()` llama a `os.Exit`, y un `os.Exit` dentro del proceso de test lo mata sin
-// que se pueda mirar nada. La única forma honesta de ejecutarlo es en otro proceso:
-// el propio binario de test se re-ejecuta, y esta vez `main()` corre para verdad.
-//
-// La cobertura no se pierde por el camino: `go test -cover` compila el binario de
-// test instrumentado y le pone `GOCOVERDIR`, que el hijo hereda del entorno, así
-// que sus contadores acaban en el mismo perfil que los del padre. Eso es lo que
-// permite afirmar que `main()` está cubierta en vez de suponerlo.
-// ---------------------------------------------------------------------------
-
-// vroomComoMarcaDeHijo es lo que el proceso hijo lee para saber que debe
-// ejecutar `main()` en vez de la suite.
+// The child-process harness exists because main() calls os.Exit, which would kill the test binary; the child's coverage still lands in the parent profile because go test -cover exports GOCOVERDIR through the inherited env.
 const vroomComoMarcaDeHijo = "VROOM_TEST_EJECUTAR_MAIN"
 
-// TestMain es el punto de entrada del binario de test, y por eso es el sitio donde
-// se decide qué hace este proceso: suite normal, o `main()` de vroom.
-//
-// Sin esto habría que llamar a `main()` desde un test, y el `os.Exit` de su rama de
-// error se comería al resto de la suite.
 func TestMain(m *testing.M) {
 	if os.Getenv(vroomComoMarcaDeHijo) == "1" {
-		// El hijo no ejecuta tests: ejecuta el programa. Sus argumentos vienen en
-		// argv porque es lo que `main()` lee (`os.Args[1:]`).
+		// Args travel in argv because that is what main() reads.
 		main()
-		// `main()` sólo vuelve si todo fue bien; llegar aquí significa código 0.
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
 }
 
-// ejecutarMainComoHijo lanza este mismo binario de test como proceso hijo y
-// devuelve su código de salida y su stderr.
-//
-// Se pasa el entorno entero y sólo se le añade la marca: `GOCOVERDIR` tiene que
-// llegar al hijo tal cual, o su cobertura se perdería.
+// The whole env is forwarded so GOCOVERDIR reaches the child untouched; a minimal env would silently drop its coverage.
 func ejecutarMainComoHijo(t *testing.T, args ...string) (code int, stderr string) {
 	t.Helper()
 	self, err := os.Executable()
@@ -57,7 +32,7 @@ func ejecutarMainComoHijo(t *testing.T, args ...string) (code int, stderr string
 	cmd.Env = append(os.Environ(), vroomComoMarcaDeHijo+"=1")
 	var salidaErr strings.Builder
 	cmd.Stderr = &salidaErr
-	cmd.Stdout = os.Stderr // la salida del hijo no es lo que se comprueba aquí
+	cmd.Stdout = os.Stderr // keeps child output visible for debugging without touching the asserted stream
 
 	if err := cmd.Run(); err != nil {
 		var salida *exec.ExitError
@@ -69,15 +44,7 @@ func ejecutarMainComoHijo(t *testing.T, args ...string) (code int, stderr string
 	return 0, salidaErr.String()
 }
 
-// TestMainDevuelveCeroConUnSubcomandoQueVaBien: la rama que no mata el proceso.
-//
-// El caso normal: un subcomando que funciona. `main()` llega al final sin error y
-// el proceso sale con 0.
-//
-// Y se comprueba desde FUERA a propósito —con el código de salida real del proceso
-// real— porque es lo único que distingue este camino del otro: los dos ejecutan las
-// mismas líneas hasta que `runMain` responde, y lo que cambia es si el proceso muere
-// con 1.
+// The exit code is read from a real process because both paths run the same lines until runMain answers; only the process death differs.
 func TestMainDevuelveCeroConUnSubcomandoQueVaBien(t *testing.T) {
 	t.Setenv("VROOM_CONFIG", filepath.Join(t.TempDir(), "ausente.toml"))
 
@@ -87,15 +54,7 @@ func TestMainDevuelveCeroConUnSubcomandoQueVaBien(t *testing.T) {
 	}
 }
 
-// TestMainSaleConUnoCuandoLaTUINoPuedeArrancar: la rama que mata el proceso.
-//
-// Sin subcomando, `runMain` cae en la TUI. Sin TTY detrás, bubbletea no puede abrir
-// el terminal y el arranque falla: ese es el caso que `main()` tiene que convertir
-// en "vroom: <motivo>" por stderr y código de salida 1.
-//
-// Lo que se comprueba son las dos mitades del contrato de un proceso que falla: el
-// CÓDIGO, porque un script decide con él, y el MENSAJE, porque es lo único que ve un
-// usuario que lanzó vroom en un contexto sin terminal.
+// No subcommand drops runMain into the TUI, and with no TTY behind it bubbletea cannot open the terminal: the failure main() must report as "vroom: <reason>" plus exit 1.
 func TestMainSaleConUnoCuandoLaTUINoPuedeArrancar(t *testing.T) {
 	t.Setenv("VROOM_CONFIG", filepath.Join(t.TempDir(), "ausente.toml"))
 

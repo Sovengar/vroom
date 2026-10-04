@@ -16,7 +16,6 @@ import (
 	"vroom/internal/state"
 )
 
-// stubManager permite forzar resultados de Evaluate en tests del modelo.
 type stubManager struct {
 	eval func(process.EvalSpec) process.Status
 }
@@ -36,10 +35,7 @@ func (s *stubManager) Evaluate(spec process.EvalSpec) process.Status {
 
 var _ process.Manager = (*stubManager)(nil)
 
-// newTestModel construye un árbol temporal con 3 proyectos:
-// tienda-api (Go, primary_group tienda, con repo git), tienda-web
-// (JavaScript, primary_group tienda) y suelto (Go, sin manifiesto).
-// Devuelve el modelo y store.
+// newTestModel builds a temp tree with 3 projects: tienda-api (Go, group tienda, git repo), tienda-web (JS, group tienda), suelto (Go, no manifest).
 func newTestModel(t *testing.T) (Model, *state.Store) {
 	t.Helper()
 	isolateConfig(t)
@@ -50,8 +46,7 @@ func newTestModel(t *testing.T) (Model, *state.Store) {
 	return m, store
 }
 
-// newJobsTestModel extiende el árbol base con comandos install/build en
-// tienda-api y un mise.toml con tasks en tienda-web.
+// newJobsTestModel is newTestModel plus install/build commands on tienda-api and a mise.toml with tasks on tienda-web.
 func newJobsTestModel(t *testing.T) (Model, *state.Store) {
 	t.Helper()
 	isolateConfig(t)
@@ -62,16 +57,13 @@ func newJobsTestModel(t *testing.T) (Model, *state.Store) {
 	return m, store
 }
 
-// isolateConfig apunta VROOM_CONFIG a un fichero inexistente para que
-// los tests no lean la config real del usuario.
+// isolateConfig points VROOM_CONFIG at a missing file so no test ever reads the real user config.
 func isolateConfig(t *testing.T) {
 	t.Helper()
 	t.Setenv("VROOM_CONFIG", filepath.Join(t.TempDir(), "absent-config.toml"))
 }
 
-// newTestModelWithConfig construye el modelo leyendo la config del
-// contenido dado (para probar claves del config.toml, ej. el prefill
-// de ask).
+// newTestModelWithConfig is newTestModel reading the given config.toml body, for keybinding and ask prefill tests.
 func newTestModelWithConfig(t *testing.T, content string) (Model, *state.Store) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.toml")
@@ -86,8 +78,7 @@ func newTestModelWithConfig(t *testing.T, content string) (Model, *state.Store) 
 	return m, store
 }
 
-// fakeBin escribe un binario ejecutable falso en un directorio nuevo y
-// devuelve el directorio (para usar como PATH).
+// fakeBin writes stub executables and returns the directory to install as the whole PATH.
 func fakeBin(t *testing.T, names ...string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -99,8 +90,7 @@ func fakeBin(t *testing.T, names ...string) string {
 	return dir
 }
 
-// writeTestTree crea el árbol de proyectos de prueba; con jobs añade
-// los campos one-shot del manifiesto y tasks de mise.
+// writeTestTree builds the shared project tree; jobs=true adds the one-shot manifest fields and the mise tasks.
 func writeTestTree(t *testing.T, jobs bool) string {
 	t.Helper()
 	root := t.TempDir()
@@ -170,7 +160,6 @@ func findCursor(m Model, name string) int {
 	return -1
 }
 
-// findPrimary devuelve el índice del header primario con ese nombre.
 func findPrimary(m Model, name string) int {
 	for i, it := range m.tree {
 		if it.kind == itemPrimary && it.primary == name {
@@ -180,7 +169,6 @@ func findPrimary(m Model, name string) int {
 	return -1
 }
 
-// findSecondary devuelve el índice del header secundario del par dado.
 func findSecondary(m Model, primary, secondary string) int {
 	for i, it := range m.tree {
 		if it.kind == itemSecondary && it.primary == primary && it.secondary == secondary {
@@ -200,8 +188,6 @@ func moveCursorTo(t *testing.T, m Model, name string) Model {
 	return m
 }
 
-// pathOfSelected devuelve el path del proyecto bajo el cursor (falla si
-// el cursor está sobre un grupo).
 func pathOfSelected(t *testing.T, m Model) string {
 	t.Helper()
 	p := m.selected()
@@ -211,13 +197,11 @@ func pathOfSelected(t *testing.T, m Model) string {
 	return p.Path
 }
 
-// Navegación cíclica sobre el árbol (grupos + proyectos).
 func TestNavigationCyclic(t *testing.T) {
 	m, _ := newTestModel(t)
 	if len(m.entries) != 3 {
 		t.Fatalf("esperaba 3 proyectos, got %d", len(m.entries))
 	}
-	// árbol: grupo tienda + 2 miembros + suelto
 	if len(m.tree) != 4 {
 		t.Fatalf("esperaba 4 filas de árbol, got %d", len(m.tree))
 	}
@@ -238,7 +222,6 @@ func TestNavigationCyclic(t *testing.T) {
 	}
 }
 
-// Toggle sobre running: SIEMPRE para (nunca doble start).
 func TestToggleRunningStops(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -254,7 +237,6 @@ func TestToggleRunningStops(t *testing.T) {
 	}
 }
 
-// Toggle sobre unknown: para el servicio dudoso.
 func TestToggleUnknownStops(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -270,7 +252,6 @@ func TestToggleUnknownStops(t *testing.T) {
 	}
 }
 
-// Toggle sobre stopped → starting (transitorio) + comando de spawn.
 func TestToggleStoppedStarts(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -284,7 +265,6 @@ func TestToggleStoppedStarts(t *testing.T) {
 	}
 }
 
-// Toggle ignorado mientras el servicio está en tránsito.
 func TestToggleInTransitIgnored(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -300,7 +280,6 @@ func TestToggleInTransitIgnored(t *testing.T) {
 	}
 }
 
-// Restart = stop → start encadenados.
 func TestRestartChainsStopAndStart(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -315,7 +294,6 @@ func TestRestartChainsStopAndStart(t *testing.T) {
 		t.Errorf("tras R: estado = %s, want stopping", got)
 	}
 
-	// Simular el stoppedMsg que devuelve stopCmd.
 	next, cmd2 := m2.Update(stoppedMsg{path: path})
 	m3 := next.(Model)
 	if cmd2 == nil {
@@ -328,7 +306,7 @@ func TestRestartChainsStopAndStart(t *testing.T) {
 
 func TestRestartRequiresRunning(t *testing.T) {
 	m, _ := newTestModel(t)
-	m = moveCursorTo(t, m, "tienda-api") // stopped
+	m = moveCursorTo(t, m, "tienda-api")
 
 	m2, cmd := press(m, "R")
 	if cmd != nil {
@@ -339,7 +317,6 @@ func TestRestartRequiresRunning(t *testing.T) {
 	}
 }
 
-// El polling actualiza estados desde meta.json.
 func TestRefreshUpdatesStatuses(t *testing.T) {
 	m, store := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -369,7 +346,6 @@ func TestRefreshUpdatesStatuses(t *testing.T) {
 	}
 }
 
-// Meta corrupto → stopped + warning visible, sin crashear.
 func TestRefreshWithCorruptMeta(t *testing.T) {
 	m, store := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -383,7 +359,7 @@ func TestRefreshWithCorruptMeta(t *testing.T) {
 	}
 
 	cmd := refreshCmd(store, &stubManager{}, m.projects)
-	msg := cmd() // ejecutar el comando directamente
+	msg := cmd()
 	rm, ok := msg.(refreshedMsg)
 	if !ok {
 		t.Fatalf("msg inesperado: %T", msg)
@@ -396,7 +372,6 @@ func TestRefreshWithCorruptMeta(t *testing.T) {
 	}
 }
 
-// Unknown se mapea a estado unknown con indicador en el dashboard.
 func TestRefreshMapsUnknown(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -415,7 +390,6 @@ func TestRefreshMapsUnknown(t *testing.T) {
 	}
 }
 
-// Al refrescar con meta en disco el modelo re-adjunta el estado.
 func TestReattachFromDisk(t *testing.T) {
 	m, store := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -450,10 +424,7 @@ func TestTickReschedules(t *testing.T) {
 	_ = m2
 }
 
-// ---- Dashboard ----
-
-// El panel de detalles es fijo (sin toggle); `d` no existe y
-// esc sale directamente.
+// The details panel has no toggle key: 'd' is gone for good, so esc quits straight out.
 func TestDetailsAlwaysVisible(t *testing.T) {
 	m, _ := newTestModel(t)
 	if !m.detailsShown {
@@ -473,8 +444,6 @@ func TestDetailsAlwaysVisible(t *testing.T) {
 	}
 }
 
-// Enter sobre un proyecto pliega el contenedor más interno;
-// aquí (sin secundario en el árbol base) su primario. No emite comandos.
 func TestEnterOnProjectTogglesInnermost(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -485,12 +454,11 @@ func TestEnterOnProjectTogglesInnermost(t *testing.T) {
 	if !m2.collapsed["tienda"] {
 		t.Fatal("enter sobre el proyecto (sin secundario) debe plegar su primario tienda")
 	}
-	if len(m2.tree) != 2 { // header tienda + suelto
+	if len(m2.tree) != 2 { // 2 rows left: the collapsed tienda header plus the ungrouped suelto.
 		t.Errorf("árbol colapsado: %d filas, want 2", len(m2.tree))
 	}
 }
 
-// En anchos mínimos el detalle se auto-oculta aunque esté abierto.
 func TestDetailsAutoHideNarrow(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.width = 50
@@ -507,7 +475,6 @@ func TestDetailsAutoHideNarrow(t *testing.T) {
 	}
 }
 
-// La pestaña activa se renderiza con estilo distinto.
 func TestActiveTabMarked(t *testing.T) {
 	if tabLabel(tabConsole, true) == tabLabel(tabConsole, false) {
 		t.Error("la pestaña activa debe renderizarse distinto a la inactiva")
@@ -517,7 +484,6 @@ func TestActiveTabMarked(t *testing.T) {
 	}
 }
 
-// El árbol hace scroll automático al navegar más allá de lo visible.
 func TestTreeAutoScroll(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
@@ -542,19 +508,17 @@ func TestTreeAutoScroll(t *testing.T) {
 
 	m.cursor = len(m.entries) - 1
 	_, cl := m.treeLines()
-	m.treeTop = cl - m.bodyH + 1 // simular posición tras navegar al final
+	m.treeTop = cl - m.bodyH + 1
 	if m.treeTop < 0 {
 		m.treeTop = 0
 	}
 
-	// k desde el índice 11 → 10: el cursor sigue dentro de la ventana.
 	m2, _ := press(m, "k")
 	tree, cl2 := m2.treeLines()
 	if cl2 < m2.treeTop || cl2 >= m2.treeTop+m2.bodyH {
 		t.Errorf("cursor fuera de la ventana: cl=%d top=%d bodyH=%d total=%d",
 			cl2, m2.treeTop, m2.bodyH, len(tree))
 	}
-	// Volver al inicio: el cursor 0 fuerza treeTop a 0.
 	m3 := m2
 	for i := 0; i < 10; i++ {
 		m3, _ = press(m3, "k")
@@ -564,9 +528,7 @@ func TestTreeAutoScroll(t *testing.T) {
 	}
 }
 
-// El dashboard se compone de cajas de borde redondeado: a anchos/altos
-// razonables, cada línea debe medir exactamente el ancho de la terminal y el
-// total de líneas el alto, sin que el compositor re-envuelva contenido.
+// Exact width and height per line is the composer's contract: one extra line pushes the bottom border off screen.
 func TestDashboardBoxWidthInvariant(t *testing.T) {
 	for _, size := range [][2]int{{100, 30}, {120, 40}, {80, 24}, {60, 20}, {44, 20}, {40, 20}, {200, 50}} {
 		m, _ := newTestModel(t)
@@ -585,8 +547,6 @@ func TestDashboardBoxWidthInvariant(t *testing.T) {
 	}
 }
 
-// El dashboard muestra árbol (dots/nombres), header de grupo y
-// pestañas.
 func TestRenderDashboard(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -603,7 +563,6 @@ func TestRenderDashboard(t *testing.T) {
 			t.Errorf("el dashboard no contiene %q", want)
 		}
 	}
-	// El panel de detalles (abierto por defecto) muestra los campos base.
 	for _, want := range []string{"branch:", "main", "start:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("el panel de detalles no contiene %q", want)
@@ -611,7 +570,6 @@ func TestRenderDashboard(t *testing.T) {
 	}
 }
 
-// La rama git aparece en el panel de detalles.
 func TestDetailsShowsBranch(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -620,7 +578,6 @@ func TestDetailsShowsBranch(t *testing.T) {
 	if !strings.Contains(joined, "branch:") || !strings.Contains(joined, "main") {
 		t.Errorf("detalle sin rama git: %q", joined)
 	}
-	// Proyecto sin repo no muestra la fila.
 	m = moveCursorTo(t, m, "suelto")
 	for _, l := range m.detailsLines(m.rightW) {
 		if strings.Contains(l, "branch:") {
@@ -629,8 +586,6 @@ func TestDetailsShowsBranch(t *testing.T) {
 	}
 }
 
-// El panel de detalles muestra los 4 comandos del manifiesto en la
-// columna derecha; los no configurados aparecen atenuados.
 func TestDetailsShowsCommands(t *testing.T) {
 	m, _ := newJobsTestModel(t)
 	m = moveCursorTo(t, m, "tienda-web")
@@ -643,15 +598,12 @@ func TestDetailsShowsCommands(t *testing.T) {
 	if !strings.Contains(joined, "stop:") {
 		t.Errorf("detalles sin la fila stop: %q", joined)
 	}
-	// La fila stop sin configurar no debe filtrar el valor de otro campo.
+	// An unconfigured stop must not inherit another field's value.
 	if strings.Contains(joined, "docker") {
 		t.Errorf("stop sin configurar no debe mostrar valor: %q", joined)
 	}
 }
 
-// ---- Consola ----
-
-// Append incremental sin resetear contenido previo.
 func TestConsoleIncrementalAppend(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -673,7 +625,6 @@ func TestConsoleIncrementalAppend(t *testing.T) {
 	}
 }
 
-// Merged intercala ambos deltas sin duplicar bytes.
 func TestConsoleMergedNoDuplicates(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -690,7 +641,6 @@ func TestConsoleMergedNoDuplicates(t *testing.T) {
 	}
 }
 
-// Navegar entre servicios conserva los buffers y offsets.
 func TestConsoleBuffersSurviveNavigation(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -699,12 +649,12 @@ func TestConsoleBuffersSurviveNavigation(t *testing.T) {
 	next, _ := m.Update(consoleDeltaMsg{path: pathA, stdout: "histórico\n", offS: 10})
 	m1 := next.(Model)
 
-	m2, _ := press(m1, "j") // → tienda-web
+	m2, _ := press(m1, "j")
 	pathB := pathOfSelected(t, m2)
 	next, _ = m2.Update(consoleDeltaMsg{path: pathB, stdout: "web\n", offS: 4})
 	m3 := next.(Model)
 
-	m4, _ := press(m3, "k") // de vuelta a tienda-api
+	m4, _ := press(m3, "k")
 	if got := m4.consoleStateFor(pathA).merged; got != "histórico\n" {
 		t.Errorf("buffer de A perdido: %q", got)
 	}
@@ -716,7 +666,6 @@ func TestConsoleBuffersSurviveNavigation(t *testing.T) {
 	}
 }
 
-// Scroll pausa el follow; G lo reactiva.
 func TestConsoleFollowPause(t *testing.T) {
 	m, _ := newTestModel(t)
 	if !m.consoleFollow {
@@ -732,11 +681,10 @@ func TestConsoleFollowPause(t *testing.T) {
 	}
 }
 
-// pgup y pgdown hacen scroll real de la consola.
 func TestConsolePageScroll(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
-	m.consoleView.SetHeight(5) // antes de setConsoleContent: GotoBottom respeta el alto
+	m.consoleView.SetHeight(5) // Set the height before setConsoleContent: GotoBottom reads it.
 	m.setConsoleContent(strings.Repeat("line\n", 100))
 
 	m2, _ := press(m, "pgup")
@@ -752,12 +700,10 @@ func TestConsolePageScroll(t *testing.T) {
 	}
 }
 
-// La rueda del mouse hace scroll de la consola: arriba pausa el follow,
-// abajo hasta el final lo reactiva.
 func TestMouseWheelScroll(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
-	m.consoleView.SetHeight(5) // antes de setConsoleContent: GotoBottom respeta el alto
+	m.consoleView.SetHeight(5)
 	m.setConsoleContent(strings.Repeat("line\n", 100))
 
 	next, _ := m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
@@ -769,7 +715,6 @@ func TestMouseWheelScroll(t *testing.T) {
 		t.Error("rueda arriba debe desplazar la vista")
 	}
 
-	// Vuelta al final: la vista debe quedar pegada abajo y con follow.
 	for i := 0; i < 100; i++ {
 		next, _ = m2.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 		m2 = next.(Model)
@@ -781,7 +726,6 @@ func TestMouseWheelScroll(t *testing.T) {
 		t.Error("rueda abajo hasta el final debe reactivar el follow")
 	}
 
-	// Rueda fuera de la consola: ignorada (nada cambia).
 	before := m2.consoleView.YOffset()
 	m4 := m2
 	m4.activeTab = tabThreads
@@ -792,8 +736,6 @@ func TestMouseWheelScroll(t *testing.T) {
 	}
 }
 
-// c cicla merged → stdout → stderr → merged (antes t,
-// ahora reservada para el picker de tasks).
 func TestToggleStreamMode(t *testing.T) {
 	m, _ := newTestModel(t)
 	m2, _ := press(m, "c")
@@ -810,8 +752,6 @@ func TestToggleStreamMode(t *testing.T) {
 	}
 }
 
-// Buffer con cap a nivel de modelo: los buffers nunca crecen
-// infinito aunque el delta sea grande.
 func TestConsoleBufferCapped(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -828,7 +768,6 @@ func TestConsoleBufferCapped(t *testing.T) {
 	}
 }
 
-// Heredado: buffer vacío muestra placeholder en el viewport.
 func TestEmptyConsoleShowsPlaceholder(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -838,8 +777,7 @@ func TestEmptyConsoleShowsPlaceholder(t *testing.T) {
 	}
 }
 
-// offBy reporta si got se desvía de want más allá de la tolerancia (el
-// delta de tiempo real entre muestras introduce una desviación mínima).
+// offBy allows 0.5 of drift because real wall-clock deltas skew the sampled CPU percentage.
 func offBy(got, want float64) bool {
 	d := got - want
 	if d < 0 {
@@ -848,8 +786,6 @@ func offBy(got, want float64) bool {
 	return d > 0.5
 }
 
-// Integración end-to-end del pipeline de consola: tail real
-// sobre ficheros en disco, dos ticks, solo bytes nuevos.
 func TestConsoleTailPipelineRealFiles(t *testing.T) {
 	m, store := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -859,7 +795,6 @@ func TestConsoleTailPipelineRealFiles(t *testing.T) {
 	}
 	stdoutLog := store.StdoutLog(path)
 
-	// Primer tick de consola: fichero con contenido inicial.
 	if err := os.WriteFile(stdoutLog, []byte("boot\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -870,7 +805,6 @@ func TestConsoleTailPipelineRealFiles(t *testing.T) {
 		t.Errorf("merged = %q, want boot\\n", got)
 	}
 
-	// El servicio escribe más y llega el segundo tick: solo el delta.
 	f, err := os.OpenFile(stdoutLog, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		t.Fatal(err)
@@ -888,8 +822,6 @@ func TestConsoleTailPipelineRealFiles(t *testing.T) {
 	}
 }
 
-// ---- Pestañas ----
-
 func TestTabSwitching(t *testing.T) {
 	m, _ := newTestModel(t)
 	if m.activeTab != tabConsole {
@@ -906,7 +838,6 @@ func TestTabSwitching(t *testing.T) {
 	if m4, _ := press(m3, "7"); m4.activeTab != tabHealth {
 		t.Error("tecla 7 debe activar Health")
 	}
-	// `tab` cicla a la siguiente pestaña (7 en total) y `shift+tab` atrás.
 	m5, _ := press(m3, "tab")
 	if m5.activeTab != tabGit {
 		t.Errorf("tab desde Metrics debe ir a Git, got %v", m5.activeTab)
@@ -925,9 +856,6 @@ func TestTabSwitching(t *testing.T) {
 	}
 }
 
-// ---- Threads ----
-
-// Servicio no running → placeholder.
 func TestThreadsPlaceholderNotRunning(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -942,8 +870,6 @@ func TestThreadsPlaceholderNotRunning(t *testing.T) {
 	}
 }
 
-// Tabla ordenada por CPU desc, con delta entre
-// muestras (100 ticks en 2s = 50%).
 func TestThreadsTableAndCPU(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -951,7 +877,6 @@ func TestThreadsTableAndCPU(t *testing.T) {
 	m.services[path].Status = statusRunning
 	m.services[path].Meta.Pid = 4242
 
-	// Primera muestra: CPU 0.
 	next, _ := m.Update(threadsMsg{path: path, threads: []process.ThreadInfo{
 		{TID: 1, Name: "main", State: "R", Ticks: 100},
 		{TID: 2, Name: "gc", State: "S", Ticks: 0},
@@ -962,7 +887,6 @@ func TestThreadsTableAndCPU(t *testing.T) {
 		t.Fatalf("primera muestra: %+v", rows)
 	}
 
-	// Segunda muestra: main +100 ticks en 2s → 50%.
 	prev := m1.threadPrev[path]
 	prev.at = time.Now().Add(-2 * time.Second)
 	next, _ = m1.Update(threadsMsg{path: path, threads: []process.ThreadInfo{
@@ -986,7 +910,6 @@ func TestThreadsTableAndCPU(t *testing.T) {
 	}
 }
 
-// Error de muestreo (proceso muerto) → sin filas ni crash.
 func TestThreadsSamplingError(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -1001,9 +924,6 @@ func TestThreadsSamplingError(t *testing.T) {
 	}
 }
 
-// ---- Help / misceláneos ----
-
-// Help responsive: completa en ancho amplio, compacta y truncada en estrecho.
 func TestHelpResponsive(t *testing.T) {
 	full1 := dashboardHelp1(200, nil)
 	if !strings.Contains(full1, "start/stop") {
@@ -1022,8 +942,7 @@ func TestHelpResponsive(t *testing.T) {
 	}
 }
 
-// El badge muestra el puerto REAL (meta.Port), no el declarado. En dynamic
-// los dos difieren y el declarado miente.
+// The badge shows the real resolved port, never the declared one: in dynamic mode the declared port may belong to another worktree.
 func TestBadgeShowsPort(t *testing.T) {
 	p := scanner.Project{
 		Path: "/tmp/x", Name: "x",
@@ -1045,15 +964,13 @@ func TestBadgeShowsPort(t *testing.T) {
 	if badge := statusBadge(p, sv, "·", "·"); strings.Contains(badge, ":41501") {
 		t.Errorf("badge stopped no debe mostrar puerto: %q", badge)
 	}
-	// Sin manifiesto: nunca puerto
 	p2 := scanner.Project{Path: "/tmp/y", Name: "y"}
 	if badge := statusBadge(p2, &ServiceState{Status: statusUnconfigured}, "·", "·"); strings.Contains(badge, ":") {
 		t.Errorf("badge unconfigured con puerto: %q", badge)
 	}
 }
 
-// El puerto pendiente tiene representación propia: no se disfraza de sano
-// con el spinner genérico, y sigue siendo detenible.
+// Port pending gets its own badge instead of the generic spinner, and stays stoppable.
 func TestBadgePortPendingIsItsOwnState(t *testing.T) {
 	p := scanner.Project{
 		Path: "/tmp/x", Name: "x", Configured: true,
@@ -1072,7 +989,6 @@ func TestBadgePortPendingIsItsOwnState(t *testing.T) {
 		t.Error("el puerto pendiente debe seguir siendo detenible")
 	}
 
-	// Un servicio sin puerto TCP tampoco está sano, pero tampoco roto.
 	sv.Status = statusNoPort
 	if badge := statusBadge(p, sv, "SPIN", "START"); !strings.Contains(badge, "no port") {
 		t.Errorf("servicio sin puerto debe nombrarse: %q", badge)
@@ -1082,33 +998,27 @@ func TestBadgePortPendingIsItsOwnState(t *testing.T) {
 	}
 }
 
-// Heredado: `l`/`o` compone el editor correctamente (nvim -O, foco
-// según el stream activo, editores no-vim sin -O).
 func TestBuildEditorCmd(t *testing.T) {
 	stdoutLog := "/state/services/abc/stdout.log"
 	stderrLog := "/state/services/abc/stderr.log"
 
-	// nvim default con -O, stdout primero
 	cmd := buildEditorCmd("nvim", stdoutLog, stderrLog, false)
 	want := []string{"nvim", "-O", stdoutLog, stderrLog}
 	if !equalArgs(cmd.Args, want) {
 		t.Errorf("args = %v, want %v", cmd.Args, want)
 	}
 
-	// foco en stderr: stderr primero
 	cmd = buildEditorCmd("nvim", stdoutLog, stderrLog, true)
 	want = []string{"nvim", "-O", stderrLog, stdoutLog}
 	if !equalArgs(cmd.Args, want) {
 		t.Errorf("args = %v, want %v", cmd.Args, want)
 	}
 
-	// vim también recibe -O
 	cmd = buildEditorCmd("vim", stdoutLog, stderrLog, false)
 	if !equalArgs(cmd.Args, []string{"vim", "-O", stdoutLog, stderrLog}) {
 		t.Errorf("args = %v", cmd.Args)
 	}
 
-	// editor no-vim: sin -O, con argumentos propios respetados
 	cmd = buildEditorCmd("code -w", stdoutLog, stderrLog, false)
 	if !equalArgs(cmd.Args, []string{"code", "-w", stdoutLog, stderrLog}) {
 		t.Errorf("args = %v", cmd.Args)
@@ -1143,8 +1053,6 @@ func TestResolveEditor(t *testing.T) {
 	}
 }
 
-// La ayuda menciona `l logfile`, las pestañas, el colapso de grupos y
-// las acciones one-shot y ask; `d` (toggle) desapareció.
 func TestHelpWording(t *testing.T) {
 	full := dashboardHelp1(200, nil) + " · " + dashboardHelp2(200, nil) // nil = defaults
 	for _, want := range []string{"l logfile", "1-7 tabs", "enter collapse", "b build", "i install", "t tasks", "a ask", "C clear", "/ filter", "! shell"} {
@@ -1157,11 +1065,6 @@ func TestHelpWording(t *testing.T) {
 	}
 }
 
-// ---- Keybindings configurables ----
-
-// Con defaults la help reproduce el texto
-// histórico más el segmento de la terminal embebida, y las teclas
-// disparan sus acciones (los tests existentes lo cubren uno a uno).
 func TestHelpDefaultsDerived(t *testing.T) {
 	want1 := "/ filter · shift+click select · ! shell · q quit · s start/stop · R restart · b build · i install"
 	want2 := "j/k move · enter collapse · t tasks · a ask · C clear · c stream · l logfile · r refresh · 1-7 tabs"
@@ -1173,7 +1076,6 @@ func TestHelpDefaultsDerived(t *testing.T) {
 	}
 }
 
-// La help refleja un remap (x start/stop, no s start/stop).
 func TestHelpRemapped(t *testing.T) {
 	kb := map[string]string{"start_stop": "x"}
 	full1 := dashboardHelp1(200, kb)
@@ -1185,8 +1087,6 @@ func TestHelpRemapped(t *testing.T) {
 	}
 }
 
-// Remap de start_stop a "x" — x dispara el toggle y s queda
-// libre.
 func TestRemappedStartStop(t *testing.T) {
 	m, _ := newTestModelWithConfig(t, "[keybindings]\nstart_stop = \"x\"\n")
 	m = moveCursorTo(t, m, "tienda-api")
@@ -1200,7 +1100,6 @@ func TestRemappedStartStop(t *testing.T) {
 		t.Errorf("status = %q, want starting", m2.services[path].Status)
 	}
 
-	// s dejó de estar asignada: no dispara nada.
 	m3, cmd2 := press(m2, "s")
 	if cmd2 != nil {
 		t.Error("s removida no debe lanzar nada")
@@ -1210,8 +1109,6 @@ func TestRemappedStartStop(t *testing.T) {
 	}
 }
 
-// Remap de tasks a "m" — m abre el picker (sin mise.toml notifica
-// como lo haría t hoy) y t queda libre.
 func TestRemappedTasks(t *testing.T) {
 	m, _ := newTestModelWithConfig(t, "[keybindings]\ntasks = \"m\"\n")
 	m = moveCursorTo(t, m, "tienda-web")
@@ -1229,8 +1126,6 @@ func TestRemappedTasks(t *testing.T) {
 	}
 }
 
-// Con un remap activo, las universales siguen operando (1/2
-// pestañas, / filtro, enter plegado, tab cicla).
 func TestUniversalsWithRemap(t *testing.T) {
 	m, _ := newTestModelWithConfig(t, "[keybindings]\nstart_stop = \"x\"\nrestart = \"z\"\n")
 
@@ -1242,12 +1137,10 @@ func TestUniversalsWithRemap(t *testing.T) {
 	if !m3.filterOpen {
 		t.Error("/ debe abrir el filtro aun con remap")
 	}
-	m4, _ := press(m3, "esc") // limpia el filtro (vacío) y cierra
+	m4, _ := press(m3, "esc")
 	if m4.filterOpen {
 		t.Error("esc debe cerrar el filtro")
 	}
-	// enter plega el grupo bajo el cursor (header del primario; el
-	// árbol base arranca con el proyecto inline suelto, no con un header).
 	m4b := m4
 	m4b.cursor = findPrimary(m4b, "tienda")
 	m5, _ := press(m4b, "enter")
@@ -1260,10 +1153,8 @@ func TestUniversalsWithRemap(t *testing.T) {
 	}
 }
 
-// El alias fijo `o` abre los logs; si el config reclama "o" para
-// otra acción, gana la acción configurada.
+// 'o' is a fixed alias for the log editor, unless config binds 'o' to another action, which then wins.
 func TestLogsAliasFixed(t *testing.T) {
-	// Alias con defaults: o abre los logs (cmd del editor) como l.
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, cmd := press(m, "o")
@@ -1272,19 +1163,14 @@ func TestLogsAliasFixed(t *testing.T) {
 	}
 	_ = m2
 
-	// "o" reclamada por el config: dispara la acción configurada.
 	m3, _ := newTestModelWithConfig(t, "[keybindings]\ninstall = \"o\"\n")
-	m3 = moveCursorTo(t, m3, "suelto") // tiene manifest sin command_install
+	m3 = moveCursorTo(t, m3, "suelto") // has a manifest but no command_install
 	m4, _ := press(m3, "o")
 	if !strings.Contains(m4.message, "no install command") {
 		t.Errorf("o reclamada por install debe disparar install: msg=%q", m4.message)
 	}
 }
 
-// ---- Grupos seleccionables y colapsables ----
-
-// Seleccionar un grupo y colapsarlo con enter: los miembros se ocultan
-// y el header muestra running/total; enter de nuevo los expande.
 func TestGroupCollapse(t *testing.T) {
 	m, _ := newTestModel(t)
 	gi := findPrimary(m, "tienda")
@@ -1292,7 +1178,6 @@ func TestGroupCollapse(t *testing.T) {
 		t.Fatal("grupo tienda no encontrado en el árbol")
 	}
 	m.cursor = gi
-	// tienda-api running → header colapsado "tienda (1/2)".
 	m.services[pathOfSelectedNamed(t, m, "tienda-api")].Status = statusRunning
 
 	m2, cmd := press(m, "enter")
@@ -1302,7 +1187,7 @@ func TestGroupCollapse(t *testing.T) {
 	if !m2.collapsed["tienda"] {
 		t.Fatal("enter sobre grupo debe colapsarlo")
 	}
-	if len(m2.tree) != 2 { // header tienda + suelto
+	if len(m2.tree) != 2 {
 		t.Errorf("árbol colapsado: %d filas, want 2", len(m2.tree))
 	}
 	if m2.cursor != gi {
@@ -1316,7 +1201,7 @@ func TestGroupCollapse(t *testing.T) {
 	if strings.Contains(treeText, "tienda-web") || strings.Contains(treeText, "tienda-api") {
 		t.Errorf("los miembros del grupo colapsado no deben verse en el árbol: %q", treeText)
 	}
-	// El panel de detalles sí lista los miembros (peek del grupo).
+	// Collapsing hides members in the tree only: the details panel still lists them.
 	if !strings.Contains(m2.renderDashboard(), "tienda-web") {
 		t.Error("el panel de info debe listar los miembros del grupo colapsado")
 	}
@@ -1332,13 +1217,10 @@ func TestGroupCollapse(t *testing.T) {
 	}
 }
 
-// s sobre un grupo: si hay parados arranca los parados; si no, para los
-// running (toggle de grupo).
 func TestGroupToggleAll(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.cursor = findPrimary(m, "tienda")
 
-	// Ambos stopped → start de ambos.
 	m2, cmd := press(m, "s")
 	if cmd == nil {
 		t.Fatal("s sobre grupo con parados debe emitir starts")
@@ -1350,7 +1232,6 @@ func TestGroupToggleAll(t *testing.T) {
 		}
 	}
 
-	// Ambos running → stop de ambos.
 	for _, name := range []string{"tienda-api", "tienda-web"} {
 		m2.services[pathOfSelectedNamed(t, m2, name)].Status = statusRunning
 	}
@@ -1366,7 +1247,6 @@ func TestGroupToggleAll(t *testing.T) {
 	}
 }
 
-// Panel de info sobre grupo: resumen con conteo y miembros.
 func TestGroupDetails(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.cursor = findPrimary(m, "tienda")
@@ -1381,7 +1261,6 @@ func TestGroupDetails(t *testing.T) {
 	}
 }
 
-// Consola con grupo seleccionado: placeholder, no logs.
 func TestGroupConsolePlaceholder(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.cursor = findPrimary(m, "tienda")
@@ -1404,16 +1283,7 @@ func pathOfSelectedNamed(t *testing.T, m Model, name string) string {
 	return m.tree[idx].project.Path
 }
 
-// ---- Agrupación jerárquica de dos niveles ----
-
-// newNestedTestModel construye un árbol con primarios y secundarios:
-// tienda (backend: tienda-api, tienda-billing; sin secundario:
-// tienda-inventory; frontend: tienda-web), otros (backend: otros-api) y
-// suelto sin manifiesto. Tienda y otros comparten el nombre de
-// secundario "backend" para verificar claves sin colisión.
-// Filas esperadas: P otros, S backend, otros-api, suelto, P tienda,
-// S backend, tienda-api, tienda-billing, tienda-inventory, S frontend,
-// tienda-web.
+// tienda and otros both own a "backend" secondary, which is what proves the composite collapse keys cannot collide.
 func newNestedTestModel(t *testing.T) Model {
 	t.Helper()
 	isolateConfig(t)
@@ -1452,7 +1322,6 @@ func newNestedTestModel(t *testing.T) Model {
 	return m
 }
 
-// Header primario en columna 0 y secundario indentado 2 espacios.
 func TestNestedTreeRender(t *testing.T) {
 	m := newNestedTestModel(t)
 	tree, _ := m.treeLines()
@@ -1462,8 +1331,7 @@ func TestNestedTreeRender(t *testing.T) {
 			t.Errorf("falta header %q: %q", want, joined)
 		}
 	}
-	// Los dos headers secundarios "backend" van indentados: 4 espacios
-	// visibles antes del glifo (cursor 2 + indent 2); el primario, 2.
+	// Secondary headers show 4 leading spaces (2 cursor + 2 indent); primary ones show 2.
 	if got := strings.Count(joined, "▾ backend"); got != 2 {
 		t.Errorf("esperaba 2 headers backend (tienda y otros), got %d: %q", got, joined)
 	}
@@ -1477,8 +1345,6 @@ func TestNestedTreeRender(t *testing.T) {
 	}
 }
 
-// Plegar un secundario oculta solo sus proyectos; el primario y
-// sus otros secundarios siguen visibles.
 func TestSecondaryCollapse(t *testing.T) {
 	m := newNestedTestModel(t)
 	si := findSecondary(m, "tienda", "backend")
@@ -1513,7 +1379,6 @@ func TestSecondaryCollapse(t *testing.T) {
 	}
 }
 
-// Plegar el primario oculta también sus headers secundarios.
 func TestPrimaryCollapseHidesSecondaries(t *testing.T) {
 	m := newNestedTestModel(t)
 	pi := findPrimary(m, "tienda")
@@ -1529,8 +1394,6 @@ func TestPrimaryCollapseHidesSecondaries(t *testing.T) {
 			t.Errorf("%q no debe verse con el primario plegado: %q", want, joined)
 		}
 	}
-	// El primario plegado y los bloques de otros siguen visibles
-	// (incluido su header backend, otro primario).
 	for _, want := range []string{"▸ tienda", "▾ otros", "▾ backend", "otros-api"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("%s debe seguir visible: %q", want, joined)
@@ -1538,8 +1401,6 @@ func TestPrimaryCollapseHidesSecondaries(t *testing.T) {
 	}
 }
 
-// Enter sobre un proyecto con secundario pliega el secundario,
-// no el primario; sobre uno sin secundario, el primario.
 func TestEnterOnProjectInnermostNested(t *testing.T) {
 	m := newNestedTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -1554,7 +1415,6 @@ func TestEnterOnProjectInnermostNested(t *testing.T) {
 	}
 }
 
-// El conteo del primario suma a todos sus secundarios.
 func TestPrimaryCountIncludesSecondaries(t *testing.T) {
 	m := newNestedTestModel(t)
 	m.services[pathOfSelectedNamed(t, m, "tienda-api")].Status = statusRunning
@@ -1567,8 +1427,6 @@ func TestPrimaryCountIncludesSecondaries(t *testing.T) {
 	}
 }
 
-// Plegar tienda/backend no pliega otros/backend (claves
-// compuestas sin colisión).
 func TestSecondaryCollapseKeysNoCollision(t *testing.T) {
 	m := newNestedTestModel(t)
 	m.cursor = findSecondary(m, "tienda", "backend")
@@ -1583,8 +1441,6 @@ func TestSecondaryCollapseKeysNoCollision(t *testing.T) {
 	}
 }
 
-// s sobre el primario aplica el toggle a todos sus miembros,
-// incluidos los de todos sus secundarios.
 func TestPrimaryToggleAllSecondaries(t *testing.T) {
 	m := newNestedTestModel(t)
 	m.cursor = findPrimary(m, "tienda")
@@ -1599,8 +1455,6 @@ func TestPrimaryToggleAllSecondaries(t *testing.T) {
 	}
 }
 
-// s sobre el secundario aplica solo a los miembros de ese
-// secundario.
 func TestSecondaryToggleScoped(t *testing.T) {
 	m := newNestedTestModel(t)
 	m.services[pathOfSelectedNamed(t, m, "tienda-web")].Status = statusRunning
@@ -1619,7 +1473,6 @@ func TestSecondaryToggleScoped(t *testing.T) {
 	}
 }
 
-// El panel de detalles del secundario lista solo sus miembros.
 func TestSecondaryDetails(t *testing.T) {
 	m := newNestedTestModel(t)
 	m.cursor = findSecondary(m, "tienda", "backend")
@@ -1638,8 +1491,6 @@ func TestSecondaryDetails(t *testing.T) {
 	}
 }
 
-// La fila group: del panel de detalles muestra el compuesto
-// primario/secundario (o solo el primario sin secundario).
 func TestDetailsGroupComposite(t *testing.T) {
 	m := newNestedTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -1652,11 +1503,6 @@ func TestDetailsGroupComposite(t *testing.T) {
 	}
 }
 
-// ---- Jobs one-shot ----
-
-// b lanza el comando build del manifiesto: marca el job, ejecuta,
-// libera el bloqueo y notifica el resultado; la salida (con banner)
-// queda en stdout.log visible en la consola.
 func TestBuildKey(t *testing.T) {
 	m, store := newJobsTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -1700,7 +1546,6 @@ func TestBuildKey(t *testing.T) {
 	}
 }
 
-// Sin campo build → notifica, no lanza nada.
 func TestBuildKeyWithoutCommand(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -1713,7 +1558,6 @@ func TestBuildKeyWithoutCommand(t *testing.T) {
 	}
 }
 
-// i lanza el comando install del manifiesto; sin install → notify.
 func TestInstallKey(t *testing.T) {
 	m, _ := newJobsTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -1729,7 +1573,6 @@ func TestInstallKey(t *testing.T) {
 		t.Errorf("jobMsg = %+v, want exit 0", jm)
 	}
 
-	// Sin install configurado → notify.
 	m4, _ := newTestModel(t)
 	m4 = moveCursorTo(t, m4, "tienda-web")
 	m5, cmd2 := press(m4, "i")
@@ -1741,12 +1584,10 @@ func TestInstallKey(t *testing.T) {
 	}
 }
 
-// Con un job en curso sobre el proyecto, otra acción one-shot se
-// bloquea con notificación; otros proyectos siguen libres.
 func TestJobBusyBlock(t *testing.T) {
 	m, _ := newJobsTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
-	m2, _ := press(m, "b") // build en curso
+	m2, _ := press(m, "b")
 
 	m3, cmd2 := press(m2, "i")
 	if cmd2 != nil {
@@ -1759,7 +1600,6 @@ func TestJobBusyBlock(t *testing.T) {
 		t.Error("el job original debe seguir marcado")
 	}
 
-	// Otro proyecto puede lanzar el suyo en paralelo.
 	m4 := moveCursorTo(t, m3, "tienda-web")
 	m5, cmd3 := press(m4, "b")
 	if cmd3 == nil {
@@ -1768,7 +1608,6 @@ func TestJobBusyBlock(t *testing.T) {
 	_ = m5
 }
 
-// b/i/t sobre grupo o unconfigured notifican en vez de fallar.
 func TestJobsGuards(t *testing.T) {
 	m, _ := newJobsTestModel(t)
 	m.cursor = findPrimary(m, "tienda")
@@ -1785,7 +1624,6 @@ func TestJobsGuards(t *testing.T) {
 	}
 }
 
-// jobCmd registra el exit code y los banners de inicio/fin en el log.
 func TestJobCmdFailure(t *testing.T) {
 	dir := t.TempDir()
 	stdout := filepath.Join(dir, "stdout.log")
@@ -1812,11 +1650,6 @@ func TestJobCmdFailure(t *testing.T) {
 	}
 }
 
-// ---- Picker de tasks de mise ----
-
-// t abre el modal con los tasks ordenados (sin los hide); j/k navegan;
-// enter cierra y lanza `mise run <task>` como job; el render muestra
-// título, cursor y hint de teclas.
 func TestPickerOpenAndRun(t *testing.T) {
 	m, _ := newJobsTestModel(t)
 	m = moveCursorTo(t, m, "tienda-web")
@@ -1854,14 +1687,12 @@ func TestPickerOpenAndRun(t *testing.T) {
 	}
 }
 
-// esc cierra el modal sin salir de la TUI; otras teclas se ignoran
-// (modal).
 func TestPickerModal(t *testing.T) {
 	m, _ := newJobsTestModel(t)
 	m = moveCursorTo(t, m, "tienda-web")
 	m2, _ := press(m, "t")
 
-	m3, cmd := press(m2, "s") // el modal debe tragar teclas ajenas
+	m3, cmd := press(m2, "s")
 	if cmd != nil || m3.services[pathOfSelected(t, m3)].Status != statusStopped {
 		t.Error("el modal debe ignorar s (sin toggle de servicio)")
 	}
@@ -1878,7 +1709,6 @@ func TestPickerModal(t *testing.T) {
 	}
 }
 
-// Sin mise.toml → notifica; unconfigured → notify de manifiesto.
 func TestPickerGuards(t *testing.T) {
 	m, _ := newJobsTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -1895,7 +1725,6 @@ func TestPickerGuards(t *testing.T) {
 	}
 }
 
-// mise.toml con sección [tasks] vacía → notifica en vez de abrir.
 func TestPickerNoTasks(t *testing.T) {
 	isolateConfig(t)
 	root := writeTestTree(t, true)
@@ -1913,17 +1742,11 @@ func TestPickerNoTasks(t *testing.T) {
 	}
 }
 
-// ---- Limpiar consola ----
-
-// C vacía los buffers y salta los offsets al EOF: el viewport queda
-// limpio, el siguiente tail no reintroduce nada y los ficheros no
-// cambian.
 func TestClearConsole(t *testing.T) {
 	m, store := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
 
-	// Simular contenido de consola + delta pendiente en el log.
 	cs := m.consoleStateFor(path)
 	cs.merged = "output viejo\n"
 	m.setConsoleContent(cs.view(m.stream))
@@ -1948,12 +1771,10 @@ func TestClearConsole(t *testing.T) {
 	if cs2.off[0] != int64(len("output viejo\n")) {
 		t.Errorf("off[0] = %d, want EOF del log", cs2.off[0])
 	}
-	// El siguiente tail no reintroduce el contenido.
 	dm := consoleTailCmd(path, cs2.off[0], cs2.off[1], stdout, store.StderrLog(path))().(consoleDeltaMsg)
 	if dm.stdout != "" && dm.stderr != "" {
 		t.Errorf("delta tras clear = %q/%q, want vacío", dm.stdout, dm.stderr)
 	}
-	// El fichero conserva su histórico.
 	data, _ := os.ReadFile(stdout)
 	if !strings.Contains(string(data), "output viejo") {
 		t.Error("C no debe truncar los ficheros de log")
@@ -1975,11 +1796,8 @@ func TestClearConsoleGuards(t *testing.T) {
 	}
 }
 
-// ---- Ask AI ----
-
-// Sin agentes instalados → notify, sin abrir nada.
 func TestAskNoAgents(t *testing.T) {
-	t.Setenv("PATH", t.TempDir()) // sin opencode/pi/hermes
+	t.Setenv("PATH", t.TempDir()) // no agents on PATH
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, _ := press(m, "a")
@@ -1991,7 +1809,6 @@ func TestAskNoAgents(t *testing.T) {
 	}
 }
 
-// Un único agente instalado → directo al prompt (sin picker).
 func TestAskSingleAgent(t *testing.T) {
 	t.Setenv("PATH", fakeBin(t, "pi"))
 	m, _ := newTestModel(t)
@@ -2008,7 +1825,6 @@ func TestAskSingleAgent(t *testing.T) {
 	}
 }
 
-// Varios agentes instalados → picker de agentes; enter lleva al prompt.
 func TestAskPickerFlow(t *testing.T) {
 	t.Setenv("PATH", fakeBin(t, "opencode", "pi", "hermes"))
 	m, _ := newTestModel(t)
@@ -2027,13 +1843,12 @@ func TestAskPickerFlow(t *testing.T) {
 	}
 }
 
-// El prompt vacío no lanza nada; el esc cancela antes de salir.
 func TestAskPromptGuards(t *testing.T) {
 	t.Setenv("PATH", fakeBin(t, "pi"))
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, _ := press(m, "a")
-	m2.promptInput.SetValue("") // el prefill default deja el input no vacío
+	m2.promptInput.SetValue("") // the default prefill leaves the input non-empty
 
 	m3, _ := press(m2, "enter")
 	if !m3.askPromptOpen || !strings.Contains(m3.message, "empty prompt") {
@@ -2049,7 +1864,6 @@ func TestAskPromptGuards(t *testing.T) {
 	}
 }
 
-// Dispatch por herdr (fake): enter con prompt lanza split+run y notifica.
 func TestAskDispatchHerdr(t *testing.T) {
 	bin := fakeBin(t, "pi")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"" + filepath.Join(t.TempDir(), "calls.log") + "\"\n" +
@@ -2079,7 +1893,6 @@ func TestAskDispatchHerdr(t *testing.T) {
 	}
 }
 
-// a sobre un grupo → notify.
 func TestAskOnGroup(t *testing.T) {
 	t.Setenv("PATH", fakeBin(t, "pi"))
 	m, _ := newTestModel(t)
@@ -2090,9 +1903,7 @@ func TestAskOnGroup(t *testing.T) {
 	}
 }
 
-// El prefill default rellena el input con el template builtin
-// expandido: {name} → nombre del proyecto, {logs} → dir del servicio.
-// Teclear añade al final (comportamiento editable real).
+// The default prefill expands {name} to the project name and {logs} to its service dir.
 func TestAskPromptPrefillDefault(t *testing.T) {
 	t.Setenv("PATH", fakeBin(t, "pi"))
 	m, store := newTestModel(t)
@@ -2114,7 +1925,6 @@ func TestAskPromptPrefillDefault(t *testing.T) {
 	}
 }
 
-// Un template custom del config se expande con name/dir/logs.
 func TestAskPromptPrefillCustom(t *testing.T) {
 	t.Setenv("PATH", fakeBin(t, "pi"))
 	m, _ := newTestModelWithConfig(t, `[ask]
@@ -2132,7 +1942,6 @@ prompt = "About {name} in {dir}, logs at {logs}: "
 	}
 }
 
-// prompt = "" en config → sin prefill (comportamiento previo).
 func TestAskPromptPrefillEmpty(t *testing.T) {
 	t.Setenv("PATH", fakeBin(t, "pi"))
 	m, _ := newTestModelWithConfig(t, "[ask]\nprompt = \"\"\n")
@@ -2143,8 +1952,6 @@ func TestAskPromptPrefillEmpty(t *testing.T) {
 	}
 }
 
-// El textarea del prompt crece con el contenido hasta el cap de
-// pantalla (16) y ahí se queda (scroll interno), nunca lo excede.
 func TestAskPromptDynamicHeight(t *testing.T) {
 	t.Setenv("PATH", fakeBin(t, "pi"))
 	m, _ := newTestModel(t)
@@ -2157,13 +1964,11 @@ func TestAskPromptDynamicHeight(t *testing.T) {
 	if m2.promptInput.Height() != 6 {
 		t.Errorf("alto inicial = %d, want 6 (grande de inicio)", m2.promptInput.Height())
 	}
-	// Contenido que envuelve en ~11 filas visuales: crece.
 	m3 := m2
 	m3.promptInput.SetValue(strings.Repeat("ab ", 300) + "TAIL1")
 	if m3.promptInput.Height() < 10 {
 		t.Errorf("alto tras prefill largo = %d, want >10 (crece con el contenido)", m3.promptInput.Height())
 	}
-	// Contenido mayor que el cap: el alto se clava en 16, no crece más.
 	m4 := m3
 	m4.promptInput.SetValue(strings.Repeat("ab ", 600) + "TAIL2")
 	if m4.promptInput.Height() != 16 {
@@ -2171,8 +1976,6 @@ func TestAskPromptDynamicHeight(t *testing.T) {
 	}
 }
 
-// Las líneas largas de la consola se envuelven (soft wrap) en vez
-// de truncarse al borde derecho.
 func TestConsoleSoftWrap(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -2180,7 +1983,7 @@ func TestConsoleSoftWrap(t *testing.T) {
 		t.Fatal("el viewport de consola debe tener SoftWrap activado")
 	}
 	tail := "END-MARKER-XYZ"
-	long := strings.Repeat("abcdefghij", 30) + " " + tail // 310 runes > rightW
+	long := strings.Repeat("abcdefghij", 30) + " " + tail
 	m.setConsoleContent(long)
 	rendered := m.consoleView.View()
 	if !strings.Contains(rendered, tail) {
@@ -2193,8 +1996,7 @@ func TestConsoleSoftWrap(t *testing.T) {
 	}
 }
 
-// El contenido pre-estilizado conserva el color en la continuación
-// (ansi.Cut re-emite las secuencias previas al corte).
+// Continuation lines keep their ANSI style because ansi.Cut re-emits the sequences that preceded the cut.
 func TestConsoleSoftWrapKeepsStyle(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -2210,10 +2012,7 @@ func TestConsoleSoftWrapKeepsStyle(t *testing.T) {
 	}
 }
 
-// ---- Filtro del árbol con "/" ----
-
-// writeFilterTree extiende el árbol base con un secondary_group en
-// tienda-web (frontend) para probar el match por secundario.
+// writeFilterTree adds a "frontend" secondary to tienda-web so filter-on-secondary can be exercised.
 func writeFilterTree(t *testing.T) string {
 	t.Helper()
 	root := writeTestTree(t, false)
@@ -2224,8 +2023,7 @@ func writeFilterTree(t *testing.T) string {
 	return root
 }
 
-// newFilterTestModel construye el modelo sobre el árbol con secundario.
-// Árbol completo: suelto, tienda ▸ api, tienda ▸ frontend ▸ web.
+// newFilterTestModel: the tree is suelto plus tienda > {tienda-api, frontend > tienda-web}.
 func newFilterTestModel(t *testing.T) Model {
 	t.Helper()
 	isolateConfig(t)
@@ -2236,8 +2034,6 @@ func newFilterTestModel(t *testing.T) Model {
 	return m
 }
 
-// typeFilter teclea s carácter a carácter en el filtro abierto
-// (filtrado en vivo).
 func typeFilter(m Model, s string) Model {
 	for _, r := range s {
 		next, _ := press(m, string(r))
@@ -2246,8 +2042,6 @@ func typeFilter(m Model, s string) Model {
 	return m
 }
 
-// "/" abre la barra inline; las teclas van al input (q no
-// sale) y el placeholder es visible; sin texto el árbol queda intacto.
 func TestFilterOpenCapturesKeys(t *testing.T) {
 	m, _ := newTestModel(t)
 	m2, _ := press(m, "/")
@@ -2260,8 +2054,7 @@ func TestFilterOpenCapturesKeys(t *testing.T) {
 	if len(m2.tree) != 4 {
 		t.Errorf("abrir el filtro no debe alterar el árbol, filas = %d", len(m2.tree))
 	}
-	// El cursor virtual consume la 1ª letra del placeholder, así que el
-	// render contiene "/" + cursor + "ilter…".
+	// The virtual cursor eats the placeholder's first letter, so the render holds "/", cursor, "ilter...".
 	if !strings.Contains(m2.renderDashboard(), "ilter…") {
 		t.Error("la barra debe mostrar el placeholder filter…")
 	}
@@ -2274,7 +2067,6 @@ func TestFilterOpenCapturesKeys(t *testing.T) {
 	}
 }
 
-// Reabrir con "/" conserva el texto aplicado.
 func TestFilterReopenKeepsText(t *testing.T) {
 	m, _ := newTestModel(t)
 	m2, _ := press(m, "/")
@@ -2286,12 +2078,10 @@ func TestFilterReopenKeepsText(t *testing.T) {
 	}
 }
 
-// Match por nombre (case-insensitive) y por primary_group.
 func TestFilterMatchNameAndPrimary(t *testing.T) {
 	m, _ := newTestModel(t)
 	m2, _ := press(m, "/")
 	m3 := typeFilter(m2, "TIENDA")
-	// árbol: header tienda + api + web (suelto no matchea)
 	if len(m3.tree) != 3 {
 		t.Fatalf("filas = %d, want 3", len(m3.tree))
 	}
@@ -2303,13 +2093,11 @@ func TestFilterMatchNameAndPrimary(t *testing.T) {
 	}
 }
 
-// Match por secondary_group (el texto no aparece en ningún
-// nombre ni en el primario).
+// "front" appears in no project name and no primary group, so a match can only come from the secondary.
 func TestFilterMatchSecondary(t *testing.T) {
 	m := newFilterTestModel(t)
 	m2, _ := press(m, "/")
 	m3 := typeFilter(m2, "front")
-	// árbol: header tienda + header frontend + tienda-web
 	if len(m3.tree) != 3 {
 		t.Fatalf("filas = %d, want 3", len(m3.tree))
 	}
@@ -2324,13 +2112,10 @@ func TestFilterMatchSecondary(t *testing.T) {
 	}
 }
 
-// Los headers solo aparecen con miembros que matchean.
 func TestFilterHeadersOnlyWithMembers(t *testing.T) {
 	m := newFilterTestModel(t)
 	m2, _ := press(m, "/")
 	m3 := typeFilter(m2, "api")
-	// árbol: header tienda + tienda-api; el secundario frontend queda
-	// sin miembros y no aparece
 	if len(m3.tree) != 2 {
 		t.Fatalf("filas = %d, want 2", len(m3.tree))
 	}
@@ -2342,8 +2127,6 @@ func TestFilterHeadersOnlyWithMembers(t *testing.T) {
 	}
 }
 
-// Sin matches el árbol queda vacío y el render muestra la línea
-// "no matches".
 func TestFilterNoMatches(t *testing.T) {
 	m, _ := newTestModel(t)
 	m2, _ := press(m, "/")
@@ -2356,8 +2139,6 @@ func TestFilterNoMatches(t *testing.T) {
 	}
 }
 
-// Enter cierra el box aplicando el filtro; la barra queda
-// como indicador persistente `⌕ texto · n`.
 func TestFilterEnterApplies(t *testing.T) {
 	m, _ := newTestModel(t)
 	m2, _ := press(m, "/")
@@ -2377,7 +2158,6 @@ func TestFilterEnterApplies(t *testing.T) {
 	}
 }
 
-// Esc dentro del box cierra limpiando (árbol completo).
 func TestFilterEscInBoxClears(t *testing.T) {
 	m, _ := newTestModel(t)
 	m2, _ := press(m, "/")
@@ -2394,7 +2174,6 @@ func TestFilterEscInBoxClears(t *testing.T) {
 	}
 }
 
-// Esc con filtro aplicado limpia el filtro y NO sale de la TUI.
 func TestFilterEscAppliedDoesNotQuit(t *testing.T) {
 	m, _ := newTestModel(t)
 	m2, _ := press(m, "/")
@@ -2409,7 +2188,6 @@ func TestFilterEscAppliedDoesNotQuit(t *testing.T) {
 	}
 }
 
-// Esc sin filtro sigue saliendo (sin cambios).
 func TestFilterEscWithoutFilterQuits(t *testing.T) {
 	m, _ := newTestModel(t)
 	_, cmd := press(m, "esc")
@@ -2418,7 +2196,6 @@ func TestFilterEscWithoutFilterQuits(t *testing.T) {
 	}
 }
 
-// Al filtrar, cursor y treeTop se resetean a 0.
 func TestFilterResetsCursor(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.cursor = len(m.tree) - 1
@@ -2429,12 +2206,10 @@ func TestFilterResetsCursor(t *testing.T) {
 	}
 }
 
-// Fix: el render del árbol respeta treeTop; con el cursor en la
-// última fila de un árbol más alto que el cuerpo, la primera línea
-// visible es la fila treeTop (hoy se dibuja siempre desde 0).
+// Regression: the tree render used to always draw from row 0 and ignore treeTop.
 func TestTreeRenderRespectsTreeTop(t *testing.T) {
 	m, _ := newTestModel(t)
-	m.height = 9 // bodyOuter=5, bodyH = 3 < filas del árbol (4)
+	m.height = 9 // bodyOuter=5, bodyH=3, which is shorter than the tree.
 	m.updateLayout()
 	m.cursor = 2
 	m2, _ := press(m, "j") // cursor=3, treeTop=1
@@ -2451,8 +2226,6 @@ func TestTreeRenderRespectsTreeTop(t *testing.T) {
 	}
 }
 
-// Con la barra visible, la línea 0 del árbol es el indicador y
-// las filas del árbol empiezan en la línea 1.
 func TestFilterBarConsumesTreeLine(t *testing.T) {
 	m, _ := newTestModel(t)
 	if len(m.treeColumnLines()) != 4 {
@@ -2471,20 +2244,13 @@ func TestFilterBarConsumesTreeLine(t *testing.T) {
 	}
 }
 
-// El descubrimiento completo NO se ejecuta en el tick de la interfaz.
-// refreshCmd ya llama a Evaluate → PortOpen por proyecto cada 2 s; sumarle
-// enumerar listeners convertiría el refresco en trabajo por segundo con N
-// proyectos. Es un guard estructural: si algún día alguien mete el
-// discovery en el camino del tick, este test lo delata.
+// Structural guard: discovery on the 2s tick would turn every refresh into per-service listener work.
 func TestDiscoveryIsNotInTheTUIRefreshPath(t *testing.T) {
 	data, err := os.ReadFile("app.go")
 	if err != nil {
 		t.Skipf("no se puede leer app.go: %v", err)
 	}
-	// portless entra en la misma lista que el discovery: el seam hace exec al
-	// binario, y si se colara en el tick de 2 s cada refresh se convertiría en
-	// un spawn por servicio. El arranque y el stop sí lo usan, y por eso lo
-	// hacen a través de route.go, nunca desde app.go.
+	// portless is on the same list because the seam execs the binary; start and stop use it via route.go instead.
 	for _, forbidden := range []string{"DiscoverPort", "lineageListenersAt", "ReservePort", "portless."} {
 		if strings.Contains(string(data), forbidden) {
 			t.Errorf("el tick de la TUI no puede llamar a %s: el coste por refresh debe quedar acotado", forbidden)
@@ -2492,8 +2258,6 @@ func TestDiscoveryIsNotInTheTUIRefreshPath(t *testing.T) {
 	}
 }
 
-// Un puerto ya resuelto se evalúa sin volver a mirar /proc: el tick lleva
-// PortPending=false y el puerto real, no el reservado.
 func TestRefreshEvaluatesResolvedPortWithoutPending(t *testing.T) {
 	var got []process.EvalSpec
 	manager := &stubManager{eval: func(spec process.EvalSpec) process.Status {
@@ -2528,9 +2292,7 @@ func TestRefreshEvaluatesResolvedPortWithoutPending(t *testing.T) {
 	}
 }
 
-// M2: con el puerto sin resolver NO se muestra ni se sondea el puerto
-// declarado. El declarado nunca se confirmó como de este servicio, y puede
-// ser el de otro worktree: la tab Health tiene que quedarse quieta.
+// M2: an unresolved port must never fall back to the declared one, which may belong to another worktree.
 func TestHealthTabDoesNotProbeUnresolvedDeclaredPort(t *testing.T) {
 	p := scanner.Project{
 		Path: "/tmp/x", Name: "x", Configured: true,
@@ -2576,8 +2338,6 @@ func TestHealthTabDoesNotProbeUnresolvedDeclaredPort(t *testing.T) {
 	}
 }
 
-// Un puerto resuelto sigue mostrando y sondeando el puerto real: el guard
-// anterior no puede rotten la ruta que sí debe funcionar.
 func TestHealthTabStillProbesResolvedPort(t *testing.T) {
 	p := scanner.Project{
 		Path: "/tmp/x", Name: "x", Configured: true,

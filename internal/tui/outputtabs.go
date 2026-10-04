@@ -17,15 +17,11 @@ import (
 	"vroom/internal/state"
 )
 
-// ---- Tab 3: Metrics ----
-
-// metricsSample es la muestra previa para calcular el CPU% por delta.
 type metricsSample struct {
 	at    time.Time
 	ticks uint64
 }
 
-// metricsView es la métrica de recursos mostrada por el servicio.
 type metricsView struct {
 	CPU     float64
 	RSSKB   int64
@@ -40,7 +36,6 @@ type metricsMsg struct {
 	err  error
 }
 
-// metricsCmd muestrea recursos del PID del servicio seleccionado (si corre).
 func (m Model) metricsCmd() tea.Cmd {
 	p := m.selected()
 	if p == nil || !p.Configured || !m.isRunning(p.Path) {
@@ -53,7 +48,6 @@ func (m Model) metricsCmd() tea.Cmd {
 	}
 }
 
-// applyMetrics integra la muestra y calcula el CPU% por delta de ticks.
 func (m *Model) applyMetrics(msg metricsMsg) {
 	if msg.err != nil {
 		delete(m.metrics, msg.path)
@@ -70,7 +64,6 @@ func (m *Model) applyMetrics(msg metricsMsg) {
 	m.metricsPrev[msg.path] = &metricsSample{at: now, ticks: msg.m.Ticks}
 }
 
-// metricsLines renderiza la tabla de recursos del servicio seleccionado.
 func (m Model) metricsLines(w int) []string {
 	p := m.selected()
 	if p == nil {
@@ -94,7 +87,6 @@ func (m Model) metricsLines(w int) []string {
 	}
 }
 
-// humanKB formatea kB en un tamaño legible (KB/MB/GB).
 func humanKB(kb int64) string {
 	switch {
 	case kb >= 1024*1024:
@@ -106,14 +98,11 @@ func humanKB(kb int64) string {
 	}
 }
 
-// ---- Tab 4: Git ----
-
 type gitMsg struct {
 	path string
 	st   gitinfo.Status
 }
 
-// gitCmd lee el estado git del proyecto seleccionado.
 func (m Model) gitCmd() tea.Cmd {
 	p := m.selected()
 	if p == nil {
@@ -130,7 +119,6 @@ func (m *Model) applyGit(msg gitMsg) {
 	}
 }
 
-// gitLines renderiza rama, estado y últimos commits del proyecto.
 func (m Model) gitLines(w int) []string {
 	p := m.selected()
 	if p == nil {
@@ -171,15 +159,12 @@ func (m Model) gitLines(w int) []string {
 	return lines
 }
 
-// ---- Tab 5: Env ----
-
 type envMsg struct {
 	path string
 	vars []string
 	err  error
 }
 
-// envCmd lee el entorno del proceso del servicio seleccionado (si corre).
 func (m Model) envCmd() tea.Cmd {
 	p := m.selected()
 	if p == nil || !p.Configured || !m.isRunning(p.Path) {
@@ -201,7 +186,6 @@ func (m *Model) applyEnv(msg envMsg) {
 	m.envVars[msg.path] = msg.vars
 }
 
-// envLines renderiza el entorno del proceso (key=value), ordenado.
 func (m Model) envLines(w int) []string {
 	p := m.selected()
 	if p == nil {
@@ -224,9 +208,6 @@ func (m Model) envLines(w int) []string {
 	return lines
 }
 
-// ---- Tab 6: Timeline ----
-
-// timelineEvent es un evento operativo del servicio (start/stop/build/...).
 type timelineEvent struct {
 	At      time.Time
 	Kind    string
@@ -235,10 +216,8 @@ type timelineEvent struct {
 	OK      bool
 }
 
-// maxTimeline es el nº máximo de eventos conservados por servicio.
 const maxTimeline = 100
 
-// addEvent registra un evento en el timeline del servicio (en memoria).
 func (m *Model) addEvent(path, kind, detail string, elapsed time.Duration, ok bool) {
 	if path == "" {
 		return
@@ -250,7 +229,6 @@ func (m *Model) addEvent(path, kind, detail string, elapsed time.Duration, ok bo
 	m.events[path] = list
 }
 
-// timelineLines renderiza los eventos del servicio, más reciente arriba.
 func (m Model) timelineLines(w int) []string {
 	p := m.selected()
 	if p == nil {
@@ -279,8 +257,6 @@ func (m Model) timelineLines(w int) []string {
 	return lines
 }
 
-// recordStackEventByName registra en el timeline de cada servicio del stack
-// el resultado de su orquestación (start/stop del stack).
 func (m *Model) recordStackEventByName(name string, ok bool) {
 	if m.composeFile == nil {
 		return
@@ -305,9 +281,6 @@ func (m *Model) recordStackEventByName(name string, ok bool) {
 	}
 }
 
-// ---- Tab 7: Health ----
-
-// healthResult es el resultado de un probe HTTP al puerto del servicio.
 type healthResult struct {
 	StatusCode  int
 	Latency     time.Duration
@@ -322,8 +295,6 @@ type healthMsg struct {
 	r    *healthResult
 }
 
-// healthCmd hace un GET al puerto REAL del servicio con timeout corto. El
-// puerto del manifiesto es el default de la app, no el que está escuchando.
 func (m Model) healthCmd() tea.Cmd {
 	p := m.selected()
 	if p == nil || !p.Configured || p.Manifest == nil || displayPort(*p, m.services[p.Path]) == 0 {
@@ -334,7 +305,6 @@ func (m Model) healthCmd() tea.Cmd {
 	return func() tea.Msg { return healthMsg{path: path, r: probeHealth(url)} }
 }
 
-// probeHealth ejecuta el GET y resume el resultado.
 func probeHealth(url string) *healthResult {
 	client := &http.Client{Timeout: 1500 * time.Millisecond}
 	start := time.Now()
@@ -353,7 +323,6 @@ func probeHealth(url string) *healthResult {
 	}
 }
 
-// firstLine devuelve la primera línea no vacía, recortada.
 func firstLine(s string) string {
 	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimSpace(line)
@@ -364,12 +333,10 @@ func firstLine(s string) string {
 	return ""
 }
 
-// healthURL es la URL que se sondea: puerto real + health_path.
 func healthURL(p *scanner.Project, sv *ServiceState) string {
 	return fmt.Sprintf("http://127.0.0.1:%d%s", displayPort(*p, sv), p.Manifest.HealthURLPath())
 }
 
-// healthLines renderiza el último probe de salud del servicio.
 func (m Model) healthLines(w int) []string {
 	p := m.selected()
 	if p == nil {
@@ -378,10 +345,8 @@ func (m Model) healthLines(w int) []string {
 	if !p.Configured {
 		return []string{styleDim.Render(trunc("no manifest — create a .vroom.toml to enable", w))}
 	}
+	// The port exists but nobody confirmed it; showing or probing the declared one could hit a twin worktree's port, so neither happens.
 	if sv := m.services[p.Path]; sv != nil && sv.Meta.State == state.StatePortUnresolved {
-		// El puerto existe pero nadie lo ha confirmado. Mostrar el declarado
-		// y sondearlo apuntaría a un puerto que puede ser el de otro
-		// worktree; no se hace.
 		return []string{styleWarn.Render(trunc("port unresolved — the service did not bind in time", w))}
 	}
 	if p.Manifest == nil || displayPort(*p, m.services[p.Path]) == 0 {

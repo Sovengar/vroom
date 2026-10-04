@@ -1,6 +1,4 @@
-// Package gitinfo lee la rama git actual de un proyecto directamente del
-// disco, sin spawnar el binario git: instantáneo y
-// testeable. Soporta repos normales y worktrees.
+// Package gitinfo reads the current branch straight from disk and never spawns the git binary, so a machine without git still shows branches (see docs/adr/adr-0011-worktree-topology-discovery-boundary.md).
 package gitinfo
 
 import (
@@ -9,9 +7,6 @@ import (
 	"strings"
 )
 
-// Branch devuelve la rama actual del repo en path. Si no hay repo, el HEAD
-// es ilegible o está en un estado desconocido devuelve "" (la UI omite la
-// fila). HEAD detached se muestra como sha corto + " (detached)".
 func Branch(path string) string {
 	head, ok := readHEAD(path)
 	if !ok {
@@ -20,8 +15,6 @@ func Branch(path string) string {
 	return parseHEAD(head)
 }
 
-// readHEAD localiza y lee el fichero HEAD del repo en path, incluyendo
-// worktrees (donde .git es un fichero con "gitdir: <ruta>").
 func readHEAD(path string) (string, bool) {
 	gitPath := filepath.Join(path, ".git")
 	info, err := os.Stat(gitPath)
@@ -52,9 +45,6 @@ func readHEAD(path string) (string, bool) {
 	return strings.TrimSpace(string(raw)), true
 }
 
-// parseHEAD interpreta el contenido de HEAD: "ref: refs/heads/X" → "X";
-// sha de 40 hex (detached) → "abc1234 (detached)"; refs inusuales se
-// muestran tal cual.
 func parseHEAD(head string) string {
 	if ref, ok := strings.CutPrefix(head, "ref: "); ok {
 		ref = strings.TrimSpace(ref)

@@ -2,8 +2,7 @@ package manifest
 
 import "testing"
 
-// Un manifiesto sin port_mode se comporta como fixed: la puerta de
-// compatibilidad hacia atrás, no un detalle de implementación.
+// A manifest without port_mode behaves as fixed: that is the backward-compatibility door, not an implementation detail.
 func TestEffectivePortModeDefaults(t *testing.T) {
 	cases := []struct {
 		name string
@@ -26,7 +25,7 @@ func TestEffectivePortModeDefaults(t *testing.T) {
 	}
 }
 
-// HasPort distingue "no tiene puerto por diseño" de "aún no se ha resuelto".
+// HasPort tells "no port by design" apart from "not resolved yet".
 func TestHasPort(t *testing.T) {
 	if (&Manifest{Port: 8080}).HasPort() != true {
 		t.Error("fixed con puerto debe tener puerto")
@@ -42,7 +41,6 @@ func TestHasPort(t *testing.T) {
 	}
 }
 
-// Validate: port_mode desconocido se rechaza.
 func TestValidateRejectsUnknownPortMode(t *testing.T) {
 	m := Manifest{Name: "x", Command: "run", Port: 8080, PortMode: "random"}
 	if err := m.Validate(); err == nil {
@@ -50,8 +48,7 @@ func TestValidateRejectsUnknownPortMode(t *testing.T) {
 	}
 }
 
-// Riesgo 15: la regla cross-field que el doc declaraba y el código no
-// aplicaba. Ahora se aplica, y es cross-field de verdad.
+// Riesgo 15: the cross-field rule the doc declared and the code never applied, now enforced as a genuine cross-field check.
 func TestValidateHealthPathCrossField(t *testing.T) {
 	rejected := []Manifest{
 		{Name: "x", Command: "run", HealthPath: "/healthz"},                   // sin puerto en ningún modo
@@ -69,9 +66,6 @@ func TestValidateHealthPathCrossField(t *testing.T) {
 	}
 }
 
-// Retrocompatibilidad: todo manifiesto que se aceptaba antes sigue
-// aceptándose, salvo el cruce health_path+sin puerto que el doc ya
-// declaraba inválido.
 func TestValidateBackwardsCompatible(t *testing.T) {
 	legacy := []Manifest{
 		{Name: "x", Command: "run"},

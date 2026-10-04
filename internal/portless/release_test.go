@@ -8,16 +8,6 @@ import (
 	"vroom/internal/portless"
 )
 
-// ---------------------------------------------------------------------------
-// La retirada, que antes no la observaba NADA.
-//
-// El reviewer comprobó que borrando los tres call sites de Release la suite
-// seguía en verde: la decisión 13 del ADR ("se retira en los tres caminos") no
-// la verificaba nada. Estos tests cierran ese hueco en el seam, y los de cada
-// paquete en los tres caminos reales.
-// ---------------------------------------------------------------------------
-
-// un doble que registra lo que se le pide retirar.
 type recordingReleaser struct {
 	removed []string
 	err     error
@@ -28,10 +18,8 @@ func (r *recordingReleaser) RemoveAbsent(name string) error {
 	return r.err
 }
 
-// errRemoveFailed es el error que devuelve una retirada que no pudo completarse.
 var errRemoveFailed = errors.New("portless alias --remove exited 1")
 
-// Release retira lo que se le dice, y sólo eso.
 func TestReleaseRemovesThroughTheSeam(t *testing.T) {
 	rec := &recordingReleaser{}
 	portless.Release(rec, "mi-ruta")
@@ -41,8 +29,6 @@ func TestReleaseRemovesThroughTheSeam(t *testing.T) {
 	}
 }
 
-// Un nombre vacío no invoca nada: es la señal de "este servicio no registró
-// ruta", y una llamada con nombre vacío sería ruido en el binario.
 func TestReleaseSkipsEmptyName(t *testing.T) {
 	rec := &recordingReleaser{}
 	portless.Release(rec, "")
@@ -52,42 +38,25 @@ func TestReleaseSkipsEmptyName(t *testing.T) {
 	}
 }
 
-// El fallo de la retirada es BENIGNO y no se propaga: quitar una ruta
-// inexistente sale con 1 (medido, M10) y un stop repetido no puede ser un error,
-// porque el servicio ya está parado. Release no devuelve nada por eso.
+// MEASURED (M10): removing a missing route exits 1, so a repeated stop must not be an error and Release returns nothing.
 func TestReleaseSwallowsErrors(t *testing.T) {
 	rec := &recordingReleaser{err: errRemoveFailed}
-	portless.Release(rec, "mi-ruta") // no debe panic ni propagar
+	portless.Release(rec, "mi-ruta")
 
 	if len(rec.removed) != 1 {
 		t.Errorf("se debe intentar la retirada aunque falle, got %v", rec.removed)
 	}
 }
 
-// nil significa "construye el cliente real": es lo que usan los tres caminos de
-// stop en produccion. Con un nombre vacio no debe llegar a construir el cliente
-// ni a tocar nada, y eso es comprobable sin binario.
-//
-// El camino real de nil --una retirada de verdad contra el entorno-- no se
-// prueba aqui a proposito: exigiria el portless del usuario. Vive en el test de
-// integracion, que es aislado y opt-in.
+// nil means "build the real client", which would resolve the developer's portless and state dir; with an empty name it must not get that far, so a test that forgets the seam cannot mutate another routes.json.
 func TestReleaseWithNilSeamAndEmptyNameIsInert(t *testing.T) {
-	// Nil significa "construye el cliente real", que resolvería el portless y el
-	// state dir del DESARROLLADOR. Con el nombre vacío no debe llegar a
-	// construirlos, y este test es lo que lo fija: un test futuro que se olvide
-	// de inyectar el seam no debe poder mutar el routes.json de otra persona.
 	portless.Release(nil, "")
 }
 
-// La retirada real contra portless de verdad, aislada. Gated como el resto de la
-// integración: sin la variable, esto no corre.
 func TestReleaseIntegrationRemovesForReal(t *testing.T) {
 	iso := integrationStateDir(t)
 
-	// 10 SEGUNDOS: WithTimeout toma un time.Duration, y un 10 a secas serían 10
-	// nanosegundos. Un deadline de 10ns expira antes de que el binario arranque, y
-	// el test se salta diciendo que portless "no responde" — que es un falso
-	// negativo silencioso.
+	// 10*time.Second, not a bare 10: the value is nanoseconds and a 10ns deadline expires before the binary starts, skipping the test with a false "no response".
 	c := portless.New(
 		portless.WithBinary(integrationBin(t)),
 		portless.WithStateDir(iso),
@@ -100,10 +69,9 @@ func TestReleaseIntegrationRemovesForReal(t *testing.T) {
 		t.Skipf("portless no responde como se espera: %v", err)
 	}
 
-	// Retirar, y retirar otra vez: las dos tienen que salir bien.
 	portless.Release(c, "vroom.release")
 	if _, found, _ := c.Lookup("vroom.release"); found {
 		t.Error("tras la retirada la ruta debe desaparecer")
 	}
-	portless.Release(c, "vroom.release") // repetida: benigna
+	portless.Release(c, "vroom.release")
 }

@@ -14,9 +14,7 @@ import (
 	"time"
 )
 
-// ---- helpers de integración ----
-
-// requireProc salta si el entorno no expone /proc (Linux sin procfs).
+// Skips when the environment has no procfs, which would make every /proc assertion vacuous.
 func requireProc(t *testing.T) {
 	t.Helper()
 	if _, err := os.Stat("/proc/self/task"); err != nil {
@@ -24,8 +22,6 @@ func requireProc(t *testing.T) {
 	}
 }
 
-// pidProcInfo lee /proc/<pid>/stat. Un zombie cuenta como muerto: ya no
-// ejecuta ni puede tener el puerto, sólo espera a que su padre lo recoja.
 func pidProcInfo(t *testing.T, pid int) (procInfo, bool) {
 	t.Helper()
 	info, err := procStatAt(filepath.Join(procRoot, strconv.Itoa(pid)))
@@ -35,9 +31,7 @@ func pidProcInfo(t *testing.T, pid int) (procInfo, bool) {
 	return info, true
 }
 
-// listenPortAndHold abre un listener real en un puerto efímero y devuelve
-// el puerto. El proceso de test es el dueño: sirve para probar que Stop no
-// toca procesos ajenos.
+// The test process itself owns the listener, which is what makes it a foreign process from Stop's point of view.
 func listenPortAndHold(t *testing.T) (int, func()) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -57,8 +51,6 @@ func listenPortAndHold(t *testing.T) (int, func()) {
 	return port, func() { _ = ln.Close() }
 }
 
-// freePortForHelper reserva un puerto efímero y lo cierra para que lo
-// tompex el proceso helper. allow_reuse evita EADDRINUSE por TIME_WAIT.
 func freePortForHelper(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -70,7 +62,6 @@ func freePortForHelper(t *testing.T) int {
 	return port
 }
 
-// waitFor escanea hasta que cond sea cierta; falla tras timeout.
 func waitFor(t *testing.T, timeout time.Duration, desc string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -83,17 +74,12 @@ func waitFor(t *testing.T, timeout time.Duration, desc string, cond func() bool)
 	t.Fatalf("timeout esperando: %s", desc)
 }
 
-// waitPortOpen espera a que un puerto acepte conexiones.
 func waitPortOpen(t *testing.T, port int, timeout time.Duration) {
 	t.Helper()
 	waitFor(t, timeout, "puerto abierto", func() bool { return PortOpen(port) })
 }
 
-// ---- helper process ----
-
-// TestHelperListener NO es un test: es el binario helper que se lanza como
-// descendiente re-sid para probar el Stop por linaje. Se invoca con
-// VROOM_TEST_HELPER=listener y VROOM_TEST_PORT=<puerto>.
+// Not a test: this binary is re-launched as a re-sid descendant, selected by VROOM_TEST_HELPER (listener, two-ports or churn) and VROOM_TEST_PORT.
 func TestHelperListener(t *testing.T) {
 	mode := os.Getenv("VROOM_TEST_HELPER")
 	if mode != "listener" && mode != "two-ports" && mode != "churn" {
@@ -125,9 +111,7 @@ func TestHelperListener(t *testing.T) {
 	time.Sleep(120 * time.Second)
 }
 
-// twoPortsListener abre un listener de metrics ANTES que el principal, con
-// una pausa en medio. Reproduce la app que expone métricas primero y el
-// puerto de servicio después.
+// Opens a metrics listener before the main one, reproducing an app that exposes metrics first and its service port later.
 func twoPortsListener(mainPort string) {
 	metrics, err := net.Listen("tcp", "127.0.0.1:"+os.Getenv("VROOM_TEST_PORT2"))
 	if err != nil {
@@ -145,17 +129,7 @@ func twoPortsListener(mainPort string) {
 	time.Sleep(120 * time.Second)
 }
 
-// churnListener abre y cierra un listener efímero cada 80 ms, de modo que el
-// conjunto que ve el descubrimiento NUNCA lleva la ventana de estabilización quieta.
-//
-// Reproduce el patrón que el discovery tiene que nombrar en vez de decidir: una app
-// que va abriendo puertos según carga el trabajo, sin que ninguno sea claramente el
-// principal. El puerto efímero (0) es lo que hace la prueba robusta: no depende de que
-// haya un rango libre ni de acertar con el número.
-//
-// El ritmo (80 ms) está por debajo de `discoverSettle` (500 ms) a propósito: si fuera
-// más lento, el conjunto llegaría a estar quieto el tiempo suficiente y el discovery
-// lo decidiría, que es el otro desenlace.
+// The 80 ms cadence sits below discoverSettle (500 ms) on purpose: any slower and the set would hold still long enough for discovery to decide it.
 func churnListener() {
 	var previo net.Listener
 	defer func() {
@@ -187,8 +161,6 @@ func acceptLoop(ln net.Listener) {
 	}
 }
 
-// ---- Escenario: Stop mata a un descendiente que se ha re-sid ----
-
 func TestStopKillsResidDescendantAndFreesPort(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -201,8 +173,7 @@ func TestStopKillsResidDescendantAndFreesPort(t *testing.T) {
 
 	m := newTestManager(t)
 	dir := t.TempDir()
-	// El hijo arranca su propio backend con setsid: el backend queda en
-	// OTRO process group, fuera del PGID registrado.
+	// The child re-sids its own backend, so it lands in a different process group than the recorded PGID.
 	res := startSleep(t, m, StartSpec{
 		Command:    "setsid " + testBinary(t) + " -test.run=^TestHelperListener$ & sleep 300",
 		WorkDir:    dir,
@@ -214,7 +185,6 @@ func TestStopKillsResidDescendantAndFreesPort(t *testing.T) {
 		_ = m.Stop(StopSpec{Pgid: res.Pgid, Timeout: time.Second})
 	})
 
-	// El backend ya está escuchando y es un descendiente en otro grupo.
 	waitPortOpen(t, port, 5*time.Second)
 	backendPID := PortOwnerPID(port)
 	if backendPID <= 0 {
@@ -231,8 +201,6 @@ func TestStopKillsResidDescendantAndFreesPort(t *testing.T) {
 		t.Fatalf("precondición del test: el backend debe ser descendiente directo (ppid=%d, root=%d)", backend.ppid, res.Pid)
 	}
 
-	// El linaje se captura ANTES del stop: después se pierde, porque al morir
-	// el root sus descendientes se reparentan a init.
 	lineageBefore := append([]int{res.Pid}, descendantsAt(procRoot, res.Pid)...)
 	if len(lineageBefore) < 2 {
 		t.Fatalf("precondición: se esperaba al menos un descendiente, linaje=%v", lineageBefore)
@@ -248,28 +216,22 @@ func TestStopKillsResidDescendantAndFreesPort(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 
-	// El proceso principal termina.
 	if _, alive := pidProcInfo(t, res.Pid); alive {
 		t.Errorf("el proceso principal %d sigue vivo tras Stop", res.Pid)
 	}
-	// El backend re-sid también termina.
 	if _, alive := pidProcInfo(t, int(backendPID)); alive {
 		t.Errorf("el backend re-sid %d sigue vivo tras Stop: kill(-pgid) no alcanza al linaje", backendPID)
 	}
-	// Ningún PID del linaje sobrevive.
 	for _, pid := range lineageBefore {
 		if _, alive := pidProcInfo(t, pid); alive {
 			t.Errorf("el pid %d del linaje sobrevive al stop", pid)
 		}
 	}
-	// El puerto que el backend escuchaba queda libre.
 	waitFor(t, 3*time.Second, "puerto liberado", func() bool { return !PortOpen(port) })
 	if len(warns) != 0 {
 		t.Errorf("stop limpio no debe emitir avisos: %v", warns)
 	}
 }
-
-// ---- Escenario: Stop sigue funcionando con un solo process group ----
 
 func TestStopSingleProcessGroupNoRegression(t *testing.T) {
 	if testing.Short() {
@@ -283,7 +245,7 @@ func TestStopSingleProcessGroupNoRegression(t *testing.T) {
 
 	m := newTestManager(t)
 	dir := t.TempDir()
-	// Sin setsid: el helper comparte el PGID del servicio.
+	// No setsid: the helper shares the service PGID.
 	res := startSleep(t, m, StartSpec{
 		Command:    testBinary(t) + " -test.run=^TestHelperListener$ & sleep 300",
 		WorkDir:    dir,
@@ -314,10 +276,7 @@ func TestStopSingleProcessGroupNoRegression(t *testing.T) {
 	waitFor(t, 3*time.Second, "puerto liberado", func() bool { return !PortOpen(port) })
 }
 
-// ---- Escenario: Stop NO mata a un proceso ajeno que ocupa el puerto ----
-
-// Servicio ya detenido (PGID 0) cuyo puerto preservado está ocupado por el
-// twin de otro worktree. Stop no debe ejecutar fuser -k.
+// An already-stopped service (PGID 0) whose recorded port is held by a twin in another worktree: Stop must not run fuser -k.
 func TestStopDoesNotKillForeignPortHolder(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: proceso real en el puerto")
@@ -325,7 +284,6 @@ func TestStopDoesNotKillForeignPortHolder(t *testing.T) {
 	port, release := listenPortAndHold(t)
 	defer release()
 
-	// El servicio ya está parado: sólo queda el puerto en el meta.
 	meta := StopSpec{Pgid: 0, Port: port, Timeout: time.Second}
 	var warns []string
 	meta.Warn = func(f string, a ...any) { warns = append(warns, fmt.Sprintf(f, a...)) }
@@ -335,7 +293,6 @@ func TestStopDoesNotKillForeignPortHolder(t *testing.T) {
 		t.Fatalf("Stop de servicio ya parado no debe fallar: %v", err)
 	}
 
-	// El proceso ajeno sigue vivo y el puerto sigue abierto.
 	if !PortOpen(port) {
 		t.Error("vroom cerró el puerto de un proceso ajeno")
 	}
@@ -350,10 +307,6 @@ func TestStopDoesNotKillForeignPortHolder(t *testing.T) {
 	}
 }
 
-// ---- Escenario: propietario del puerto desconocido falla de forma cerrada ----
-
-// El puerto está ocupado pero vroom no puede determinar quién lo ocupa:
-// no se mata nada y se avisa.
 func TestStopUnknownPortOwnerFailsClosed(t *testing.T) {
 	port, release := listenPortAndHold(t)
 	defer release()
@@ -361,7 +314,7 @@ func TestStopUnknownPortOwnerFailsClosed(t *testing.T) {
 	var warns []string
 	warn := func(f string, a ...any) { warns = append(warns, fmt.Sprintf(f, a...)) }
 
-	// Se inyecta un resolvedor que no sabe nada del puerto.
+	// An injected resolver that knows nothing about the port.
 	killPortHolderWith(port, os.Getpid(), nil, func(int) []int32 { return nil }, warn)
 
 	if !PortOpen(port) {
@@ -375,8 +328,6 @@ func TestStopUnknownPortOwnerFailsClosed(t *testing.T) {
 	}
 }
 
-// Dueños múltiples (dual-stack o dos procesos en el mismo puerto) siguen
-// sin prueba de propiedad: tampoco se mata.
 func TestStopAmbiguousPortOwnersFailsClosed(t *testing.T) {
 	port, release := listenPortAndHold(t)
 	defer release()
@@ -395,9 +346,7 @@ func TestStopAmbiguousPortOwnersFailsClosed(t *testing.T) {
 	}
 }
 
-// Dueño probado como propio (dentro del linaje) → sí libera el puerto.
-// El dueño es un listener hijo real: matar al proceso de test sería peor que
-// el bug que se está probando.
+// The owner is a real child listener: killing the test process would be worse than the bug under test.
 func TestStopKillsOwnedPortHolder(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -443,8 +392,6 @@ func TestStopKillsOwnedPortHolder(t *testing.T) {
 	}
 }
 
-// ---- Escenario: Stop es idempotente ----
-
 func TestStopIsIdempotent(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integración: spawn real")
@@ -463,7 +410,7 @@ func TestStopIsIdempotent(t *testing.T) {
 	if err := m.Stop(StopSpec{Pgid: res.Pgid, Timeout: 2 * time.Second}); err != nil {
 		t.Fatalf("primer Stop: %v", err)
 	}
-	// Segundo stop: el PGID ya no existe, no hay puerto que liberar.
+	// Second stop: the PGID is already gone and there is no port to free.
 	var warns []string
 	if err := m.Stop(StopSpec{Pgid: res.Pgid, Timeout: time.Second, Warn: func(f string, a ...any) {
 		warns = append(warns, fmt.Sprintf(f, a...))
@@ -474,8 +421,6 @@ func TestStopIsIdempotent(t *testing.T) {
 		t.Errorf("stop idempotente no debe emitir avisos: %v", warns)
 	}
 }
-
-// ---- lineage: fixtures sintéticos de /proc ----
 
 func writeProcFixture(t *testing.T, tree map[int]procInfo) string {
 	t.Helper()
@@ -493,7 +438,7 @@ func writeProcFixture(t *testing.T, tree map[int]procInfo) string {
 			t.Fatal(err)
 		}
 	}
-	// PID 1 siempre existe en un /proc real; algunos readers lo asumen.
+	// PID 1 always exists in a real /proc and some readers assume it.
 	if _, ok := tree[1]; !ok {
 		dir := filepath.Join(root, "1")
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -507,15 +452,13 @@ func writeProcFixture(t *testing.T, tree map[int]procInfo) string {
 	return root
 }
 
-// Descendientes transitivos, incluido el que hizo setsid (otro pgid) y
-// excluyendo procesos de otros linajes y el propio init.
 func TestDescendantsAtFollowsResidChild(t *testing.T) {
 	root := writeProcFixture(t, map[int]procInfo{
-		100: {ppid: 1, pgid: 100},   // raíz del servicio
-		101: {ppid: 100, pgid: 100}, // hijo en el mismo grupo
-		102: {ppid: 101, pgid: 102}, // nieto que hizo setsid
-		103: {ppid: 102, pgid: 102}, // bisnieto del re-sid
-		200: {ppid: 1, pgid: 200},   // twin de otro worktree
+		100: {ppid: 1, pgid: 100},   // service root
+		101: {ppid: 100, pgid: 100}, // child in the same group
+		102: {ppid: 101, pgid: 102}, // grandchild that called setsid
+		103: {ppid: 102, pgid: 102}, // great-grandchild of the re-sid
+		200: {ppid: 1, pgid: 200},   // twin in another worktree
 		201: {ppid: 200, pgid: 200},
 	})
 	got := descendantsAt(root, 100)
@@ -530,8 +473,6 @@ func TestDescendantsAtFollowsResidChild(t *testing.T) {
 	}
 }
 
-// El pid re-sid se detecta como tal leyendo /proc: su pgid != el de su
-// padre, luego kill(-pgid) no lo alcanza.
 func TestProcSnapshotDetectsResidPgid(t *testing.T) {
 	root := writeProcFixture(t, map[int]procInfo{
 		100: {ppid: 1, pgid: 100},
@@ -549,7 +490,6 @@ func TestProcSnapshotDetectsResidPgid(t *testing.T) {
 	}
 }
 
-// comm con paréntesis (p.ej. "Web Content") no rompe el parseo de stat.
 func TestProcStatAtCommWithParens(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "55")
@@ -575,7 +515,6 @@ func TestProcSnapshotAtMissingRoot(t *testing.T) {
 	}
 }
 
-// testBinary devuelve la ruta del binario de test actual.
 func testBinary(t *testing.T) string {
 	t.Helper()
 	bin, err := os.Executable()
@@ -585,7 +524,6 @@ func testBinary(t *testing.T) string {
 	return shellQuote(bin)
 }
 
-// shellQuote entrecomilla para sh.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

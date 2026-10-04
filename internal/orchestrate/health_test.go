@@ -11,7 +11,6 @@ import (
 	"vroom/internal/process"
 )
 
-// listenOn abre un listener real en un puerto efímero.
 func listenOn(t *testing.T) (int, func()) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -21,7 +20,6 @@ func listenOn(t *testing.T) (int, func()) {
 	return ln.Addr().(*net.TCPAddr).Port, func() { _ = ln.Close() }
 }
 
-// Puerto que abre a tiempo → nil.
 func TestWaitForPortOpensInTime(t *testing.T) {
 	port, release := listenOn(t)
 	defer release()
@@ -30,14 +28,13 @@ func TestWaitForPortOpensInTime(t *testing.T) {
 	}
 }
 
-// Puerto que nunca abre → error al agotar el timeout.
 func TestWaitForPortTimeout(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close() // puerto libre: nadie abre
+	_ = ln.Close() // free port: nothing will listen
 
 	start := time.Now()
 	err = WaitForPort(port, time.Second)
@@ -49,8 +46,7 @@ func TestWaitForPortTimeout(t *testing.T) {
 	}
 }
 
-// Riesgo 8, mitad legacy: port = 0 sigue siendo un sleep corto y nil. Ni
-// estado nuevo, ni aviso, ni retención extra.
+// Riesgo 8 (legacy half): port = 0 stays a short sleep returning nil, with no new state, warning or extra hold.
 func TestWaitForPortZeroIsLegacyShortSleep(t *testing.T) {
 	start := time.Now()
 	if err := WaitForPort(0, 30*time.Second); err != nil {
@@ -62,8 +58,6 @@ func TestWaitForPortZeroIsLegacyShortSleep(t *testing.T) {
 	}
 }
 
-// El mismo caso pero a través de AwaitPort en modo fixed: indistinguible del
-// legacy, sin semántica nueva.
 func TestAwaitPortFixedZeroMatchesLegacy(t *testing.T) {
 	start := time.Now()
 	err := AwaitPort(PortWait{Port: 0, Mode: manifest.PortModeFixed}, 30*time.Second)
@@ -75,7 +69,6 @@ func TestAwaitPortFixedZeroMatchesLegacy(t *testing.T) {
 	}
 }
 
-// fixed sin port_mode declarado: mismo comportamiento que fixed explícito.
 func TestAwaitPortFixedWithoutPortModeDeclaration(t *testing.T) {
 	m := &manifest.Manifest{Name: "x", Command: "run", Port: 0}
 	mode := m.EffectivePortMode()
@@ -89,7 +82,6 @@ func TestAwaitPortFixedWithoutPortModeDeclaration(t *testing.T) {
 	}
 }
 
-// fixed con puerto concreto: gatea contra el puerto, como siempre.
 func TestAwaitPortFixedGatesOnPort(t *testing.T) {
 	port, release := listenOn(t)
 	defer release()
@@ -98,8 +90,7 @@ func TestAwaitPortFixedGatesOnPort(t *testing.T) {
 	}
 }
 
-// La regla de retención sólo aplica en dynamic: fixed con puerto que nunca
-// abre falla como siempre, sin tratamento de puerto pendiente.
+// The pending-port rule exists only in dynamic: fixed with a port that never opens simply fails.
 func TestAwaitPortFixedNeverOpensFailsLikeToday(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -117,7 +108,6 @@ func TestAwaitPortFixedNeverOpensFailsLikeToday(t *testing.T) {
 	}
 }
 
-// none avanza sin espera porque lo declara explícitamente.
 func TestAwaitPortNoneDoesNotWait(t *testing.T) {
 	start := time.Now()
 	if err := AwaitPort(PortWait{Port: 0, Mode: manifest.PortModeNone}, 30*time.Second); err != nil {
@@ -128,8 +118,6 @@ func TestAwaitPortNoneDoesNotWait(t *testing.T) {
 	}
 }
 
-// dynamic con puerto pendiente nunca avanza por timeout en crudo: consume su
-// presupuesto dentro del discovery y reporta una causa distinguible.
 func TestAwaitPortDynamicPendingReportsDistinctCause(t *testing.T) {
 	err := AwaitPort(PortWait{Mode: manifest.PortModeDynamic, PortPending: true}, 700*time.Millisecond)
 	if err == nil {
@@ -143,8 +131,6 @@ func TestAwaitPortDynamicPendingReportsDistinctCause(t *testing.T) {
 	}
 }
 
-// dynamic sin puerto TCP termina acotado y se reporta como "sin puerto",
-// no como fallo de arranque.
 func TestAwaitPortDynamicNoPortIsBounded(t *testing.T) {
 	start := time.Now()
 	err := AwaitPort(PortWait{Mode: manifest.PortModeDynamic, NoPort: true}, 30*time.Second)
@@ -158,17 +144,14 @@ func TestAwaitPortDynamicNoPortIsBounded(t *testing.T) {
 	}
 }
 
-// dynamic con puerto resuelto gatea contra ese puerto, no contra el declarado.
 func TestAwaitPortDynamicGatesOnResolvedPort(t *testing.T) {
 	port, release := listenOn(t)
 	defer release()
 	if err := AwaitPort(PortWait{Mode: manifest.PortModeDynamic, Port: port}, 2*time.Second); err != nil {
 		t.Errorf("dynamic debe gatear contra el puerto resuelto: %v", err)
 	}
-	// El puerto declarado está en el PortWait de otra etapa; el nuestro no
-	// aparece por ninguna parte: la_stage avanza por el real.
 	if process.PortOpen(port) != true {
 		t.Fatal("precondición: el listener debe seguir abierto")
 	}
-	_ = strconv.Itoa(port) // el número resuelto es el que se usa
+	_ = strconv.Itoa(port)
 }

@@ -1,8 +1,4 @@
-// Package worktree descubre la topología de repositorios git (worktrees
-// linkeados y bare repos). Es el único punto del proyecto autorizado a
-// spawnar el binario git: internal/gitinfo sigue leyendo HEAD solo de
-// disco. La topología se expone como datos planos para que el scanner
-// anote los proyectos sin construir una estructura anidada.
+// Package worktree discovers git repository topology and is the only place in the project allowed to spawn the git binary; it returns flat data so internal/gitinfo stays disk-only (see docs/adr/adr-0011-worktree-topology-discovery-boundary.md).
 package worktree
 
 import (
@@ -17,37 +13,27 @@ import (
 	"time"
 )
 
-// ErrGitUnavailable indica que el binario git no está disponible en PATH.
-// El scanner lo usa para degradar por repo sin romper el scan completo.
+// Kept distinct from topology errors so the scanner can degrade per repo without hiding a real git failure.
 var ErrGitUnavailable = errors.New("git binary not available")
 
-// DefaultTimeout acota cada invocación de git por repo (la
-// dependencia del binario git en el scan debe ser acotada y degradable).
+// A per-repo bound: one hanging git must never stall the whole scan.
 const DefaultTimeout = 3 * time.Second
 
-// listTimeout y listWaitDelay son variables para que los tests puedan
-// acortarlos.
-//
-// listTimeout acota la invocación de git. listWaitDelay acota el cierre de
-// los pipes tras el deadline del contexto: sin él, un proceso descendiente
-// vivo con los pipes abiertos puede colgar cmd.Wait() más allá del
-// timeout, así que el timeout no acotaría el tiempo de reloj real.
+// WaitDelay bounds the pipe close after the context deadline, else a live descendant holding the pipes makes Wait outlast the timeout.
 var (
 	listTimeout   = DefaultTimeout
 	listWaitDelay = time.Second
 )
 
-// Worktree es una entrada de `git worktree list --porcelain`.
 type Worktree struct {
-	Path     string // ruta absoluta del worktree
-	HEAD     string // sha completo
-	Branch   string // ref corta (refs/heads/x → x); "" si detached o bare
-	Detached bool   // HEAD detached
-	Bare     bool   // el propio repo es bare
-	Prunable bool   // worktree ausente/obsoleto según git
+	Path     string
+	HEAD     string
+	Branch   string
+	Detached bool
+	Bare     bool
+	Prunable bool
 }
 
-// gitPath busca el binario git en PATH.
 func gitPath() string {
 	if p, err := exec.LookPath("git"); err == nil {
 		return p
@@ -55,14 +41,10 @@ func gitPath() string {
 	return ""
 }
 
-// List devuelve los worktrees registrados del repo que contiene dir.
-// Devuelve ErrGitUnavailable si git no está disponible; cualquier otro
-// error (exit != 0, salida inválida) describe el fallo de topología.
 func List(dir string) ([]Worktree, error) {
 	return listWith(dir, gitPath())
 }
 
-// listWith es List con el binario ya resuelto (inyectable en tests).
 func listWith(dir, git string) ([]Worktree, error) {
 	if git == "" {
 		return nil, ErrGitUnavailable
@@ -71,17 +53,14 @@ func listWith(dir, git string) ([]Worktree, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, git, "-C", dir, "worktree", "list", "--porcelain")
 	cmd.WaitDelay = listWaitDelay
-	// stdout lleva el porcelain a parsear; stderr solo alimenta el
-	// mensaje de error. Mezclarlos (CombinedOutput) corrompería el parseo
-	// con cualquier warning de git.
+	// stderr stays out of stdout because any git warning would corrupt the porcelain parse.
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			// Degradación por timeout: se envuelve el error de contexto
-			// para que errors.Is(err, context.DeadlineExceeded) funcione.
+			// wrapped so errors.Is(err, context.DeadlineExceeded) still matches.
 			return nil, fmt.Errorf("git worktree list timed out in %s: %w", dir, ctxErr)
 		}
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
@@ -92,11 +71,6 @@ func listWith(dir, git string) ([]Worktree, error) {
 	return ParsePorcelain(stdout.String())
 }
 
-// ParsePorcelain interpreta la salida de `git worktree list --porcelain`.
-// Función pura (sin exec) para testear table-driven: bloques separados por
-// línea en blanco con claves `worktree`, `HEAD`, `branch`, `detached`,
-// `bare` y `prunable`. Salida vacía = sin worktrees; salida no vacía sin
-// ningún bloque `worktree` = salida inválida.
 func ParsePorcelain(out string) ([]Worktree, error) {
 	var wts []Worktree
 	var cur *Worktree
@@ -118,8 +92,6 @@ func ParsePorcelain(out string) ([]Worktree, error) {
 			flush()
 			path := strings.TrimSpace(val)
 			if path == "" {
-				// Bloque degenerado sin ruta: se ignora, nunca se
-				// produce una entrada con Path == "".
 				continue
 			}
 			cur = &Worktree{Path: path}
@@ -152,8 +124,6 @@ func ParsePorcelain(out string) ([]Worktree, error) {
 	return wts, nil
 }
 
-// shortRef acorta una ref de git: refs/heads/x → x; otras refs se dejan
-// tal cual (mismo criterio que gitinfo.parseHEAD).
 func shortRef(ref string) string {
 	if branch, ok := strings.CutPrefix(ref, "refs/heads/"); ok {
 		return branch
@@ -161,13 +131,10 @@ func shortRef(ref string) string {
 	return ref
 }
 
-// IsBareRepo reporta si dir es un bare repo. Heurística reforzada:
-// conjunción HEAD + objects/ + refs/ presentes, sin
-// .git, y con el marcador autoritativo core.bare = true que escriben
-// `git init --bare` / `git clone --bare` (elimina falsos positivos).
+// The conjunction plus core.bare is what removes false positives, so do not relax it to a single marker.
 func IsBareRepo(dir string) bool {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-		return false // un repo normal (dir o file) nunca es bare
+		return false
 	}
 	for _, name := range []string{"HEAD", "objects", "refs"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
@@ -177,11 +144,7 @@ func IsBareRepo(dir string) bool {
 	return hasBareMarker(filepath.Join(dir, "config"))
 }
 
-// hasBareMarker reporta si el config de git declara core.bare = true. La
-// clave se busca solo dentro de la sección [core]: un `bare = true` en
-// otra sección (o en un fichero que no es un config de git) no cuenta, así
-// que un directorio cualquiera con HEAD/objects/refs no se confunde con un
-// bare repo.
+// Scoped to the [core] section, else a bare key anywhere makes any dir with HEAD/objects/refs look like a bare repo.
 func hasBareMarker(configPath string) bool {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -211,8 +174,7 @@ func hasBareMarker(configPath string) bool {
 	return false
 }
 
-// stripConfigComment elimina un comentario inline de git config (`#` o
-// `;`) sin tocar valores entre comillas simples.
+// Single quotes are literal in git config, so only # and ; outside quotes start a comment.
 func stripConfigComment(line string) string {
 	inQuote := false
 	for i, r := range line {
@@ -226,7 +188,6 @@ func stripConfigComment(line string) string {
 	return line
 }
 
-// isTrueConfigValue interpreta un booleano de git config.
 func isTrueConfigValue(v string) bool {
 	switch strings.ToLower(v) {
 	case "true", "yes", "on", "1":

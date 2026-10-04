@@ -7,16 +7,7 @@ import (
 	"vroom/internal/scanner"
 )
 
-// ---------------------------------------------------------------------------
-// Los accesores de grupo y el agrupamiento en bloques contiguos.
-//
-// `PrimaryOf` y `SecondaryOf` se llaman sobre CADA proyecto del escaneo, incluidos
-// los directorios sin `.vroom.toml` que el escaneo mete en el árbol. El caso del
-// manifiesto nil es el más probable de los dos, y un nil dentro de cualquiera de los
-// dos apagaría la TUI en el primer escaneo de un workspace con una carpeta suelta.
-//
-// Y `IsPrimaryHeader` es la regla que decide qué fila abre un bloque. Get it wrong
-// y el árbol enseña cabeceras duplicadas o peor: ninguna.
+// Both accessors run over every scanned project, including bare directories with no manifest, so a nil must yield "" instead of blanking the TUI.
 func TestLosAccesoresNoRevientanConUnProyectoSinManifiesto(t *testing.T) {
 	casos := []struct {
 		nombre     string
@@ -43,12 +34,7 @@ func TestLosAccesoresNoRevientanConUnProyectoSinManifiesto(t *testing.T) {
 	}
 }
 
-// TestElGrupoVacioNoEsUnGrupoNiComoPrimaryNiComoSecundario: el invariante de los
-// accesores.
-//
-// Devolver "" es lo que hace que el agrupamiento trate el proyecto como inline en
-// lugar de meterlo en un bloque llamado "". Un bloque vacío en el árbol es una fila
-// que no lleva a ningún sitio.
+// Returning "" is what makes the grouping treat the project as inline instead of opening a block literally named "".
 func TestElGrupoVacioNoEsUnGrupoNiComoPrimaryNiComoSecundario(t *testing.T) {
 	p := proyectoConGrupos("", "", "x")
 	if PrimaryOf(p) != "" {
@@ -59,16 +45,7 @@ func TestElGrupoVacioNoEsUnGrupoNiComoPrimaryNiComoSecundario(t *testing.T) {
 	}
 }
 
-// TestIsPrimaryHeaderAbreUnBloqueSoloEnSuPrimeraEntrada: la regla del bloque
-// contiguo.
-//
-// Las entradas llegan YA ORDENADAS por grupo, así que "abre el bloque" es
-// literalmente "el anterior es de otro grupo". De ahí las dos condiciones: grupo no
-// vacío, y ser el primero o tener un vecino distinto.
-//
-// Cada caso importa por lo que rompería: sin la condición de "no vacío", un proyecto
-// inline abriría un bloque; sin la del vecino, cada miembro abriría su propio bloque
-// y el árbol tendría cuatro cabeceras en vez de una.
+// Entries arrive already sorted by group, so opening a block is literally "the previous entry is a different group".
 func TestIsPrimaryHeaderAbreUnBloqueSoloEnSuPrimeraEntrada(t *testing.T) {
 	entradas := []Entry{
 		{Primary: "tienda"},
@@ -99,11 +76,7 @@ func TestIsPrimaryHeaderAbreUnBloqueSoloEnSuPrimeraEntrada(t *testing.T) {
 	}
 }
 
-// TestUnBloqueDeUnSoloMiembroSíAbreCabecera: el borde de un bloque de tamaño uno.
-//
-// Es el caso donde las dos condiciones se contradicen en apariencia: no hay "anterior
-// del mismo grupo" y aun así tiene que abrir cabecera. Si fallara, el único proyecto
-// de un grupo aparecería sin el grupo encima, que es un proyecto suelto en el árbol.
+// A single-member group has no previous entry of its own yet must still open a header, or its only project appears loose in the tree.
 func TestUnBloqueDeUnSoloMiembroSiAbreCabecera(t *testing.T) {
 	entradas := []Entry{
 		{Primary: "blog"},
@@ -113,21 +86,14 @@ func TestUnBloqueDeUnSoloMiembroSiAbreCabecera(t *testing.T) {
 		t.Error("un grupo con un solo miembro tiene que abrir cabecera: si no, el proyecto " +
 			"aparece suelto en el árbol y su grupo desaparece")
 	}
-	// Y el primero de todos también, aunque no tenga anterior.
 	if !IsPrimaryHeader(entradas, 0) {
 		t.Error("la primera entrada tiene que abrir cabecera aunque no tenga anterior")
 	}
 }
 
-// TestArrangeOrdenaElArbolSinMezclarGrupos: el orden que hace posible la regla
-// de bloque contiguo.
-//
-// `IsPrimaryHeader` sólo funciona porque `Arrange` deja los miembros de un primario
-// juntos. Si dos primarios se intercalaran, la regla de "el anterior es de otro
-// grupo" daría dos cabeceras para el mismo grupo y ninguna para el otro.
+// IsPrimaryHeader only works because Arrange keeps the members of a primary contiguous; interleaved groups would get two headers for one group and none for the other.
 func TestSecundarioOrdenaElArbolSinMezclarGrupos(t *testing.T) {
-	// El orden de ENTRADA va intercalado a propósito, que es lo que el escaneo
-	// produce: los proyectos llegan en orden de directorios, no de grupo.
+	// The input order is interleaved on purpose, because the scan yields projects in directory order, not group order.
 	proyectos := []scanner.Project{
 		proyectoConGrupos("tienda", "", "api"),
 		proyectoConGrupos("blog", "", "api"),
@@ -155,16 +121,12 @@ func TestSecundarioOrdenaElArbolSinMezclarGrupos(t *testing.T) {
 	if len(cabeceras) != 2 {
 		t.Errorf("se abrieron %d cabeceras (%v), want 2: una por grupo", len(cabeceras), cabeceras)
 	}
-	// MEDIDO: el orden de los bloques es el de PRIMERA APARICIÓN, no el alfabético.
-	// Con "tienda" llegando antes que "blog" en la entrada, el árbol empieza por
-	// "tienda" — que es lo que quiere el usuario: sus proyectos en el orden en el que
-	// los recorre. Ordenar alfabéticamente sería más bonito y menos útil.
+	// MEDIDO: block order is first appearance, not alphabetical, so the tree follows the order in which the user walks their projects.
 	if cabeceras[0] != "tienda" {
 		t.Errorf("la primera cabecera es %q, want tienda: el orden es el de primera aparición", cabeceras[0])
 	}
 }
 
-// proyectoConGrupos construye un proyecto con nombre y los dos grupos.
 func proyectoConGrupos(primary, secondary, name string) scanner.Project {
 	return scanner.Project{
 		Path: "/" + name, Name: name,

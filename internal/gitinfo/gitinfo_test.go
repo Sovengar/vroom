@@ -16,7 +16,6 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-// Rama normal.
 func TestBranchNormal(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".git", "HEAD"), "ref: refs/heads/main\n")
@@ -25,7 +24,6 @@ func TestBranchNormal(t *testing.T) {
 	}
 }
 
-// Rama con slashes se muestra completa.
 func TestBranchWithSlashes(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".git", "HEAD"), "ref: refs/heads/feature/dashboard\n")
@@ -34,7 +32,6 @@ func TestBranchWithSlashes(t *testing.T) {
 	}
 }
 
-// Detached HEAD → sha corto.
 func TestBranchDetached(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".git", "HEAD"), "e83c5163316f89bfbde7d9ab23ca2e25604af290\n")
@@ -43,11 +40,10 @@ func TestBranchDetached(t *testing.T) {
 	}
 }
 
-// Worktree con .git fichero (gitdir absoluto y relativo).
 func TestBranchWorktree(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".git"), "gitdir: /tmp/elsewhere/.git/worktrees/w\n")
-	// gitdir absoluto: HEAD bajo /tmp/elsewhere (creado como fixture)
+	// The absolute gitdir case needs its HEAD created under /tmp/elsewhere, outside the temp dir.
 	writeFile(t, filepath.Join("/tmp", "elsewhere", ".git", "worktrees", "w", "HEAD"), "ref: refs/heads/wt-branch\n")
 	if got := Branch(root); got != "wt-branch" {
 		t.Errorf("worktree absoluto: got %q", got)
@@ -61,14 +57,12 @@ func TestBranchWorktree(t *testing.T) {
 	}
 }
 
-// Sin repo no hay fila ni error.
 func TestBranchNoRepo(t *testing.T) {
 	if got := Branch(t.TempDir()); got != "" {
 		t.Errorf("got %q, want vacío", got)
 	}
 }
 
-// HEAD malformado → vacío sin crashear.
 func TestBranchMalformed(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".git", "HEAD"), "garbage\n")

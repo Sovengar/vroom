@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-// requireGit salta el test si el binario git no está disponible.
 func requireGit(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -16,7 +15,7 @@ func requireGit(t *testing.T) {
 	}
 }
 
-// runGit ejecuta git con identidad inline y falla el test si falla.
+// Inline identity and protocol.file.allow keep the fixture hermetic: no dependency on the developer's git config.
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	base := []string{"-c", "user.email=test@test", "-c", "user.name=test", "-c", "protocol.file.allow=always"}
@@ -27,8 +26,6 @@ func runGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// TestScanRealGitWorktrees cubre con git real la anotación repo/worktree
-// (main in-root, worktree linkeado y worktree detached).
 func TestScanRealGitWorktrees(t *testing.T) {
 	requireGit(t)
 	root := t.TempDir()
@@ -75,9 +72,6 @@ func TestScanRealGitWorktrees(t *testing.T) {
 	}
 }
 
-// TestScanRealBareRepoWithWorktree cubre el camino IsBareRepo + consulta
-// git real: un bare repo se detecta como fila contenedora y sus worktrees
-// se anotan (RepoRoot) para el anidado.
 func TestScanRealBareRepoWithWorktree(t *testing.T) {
 	requireGit(t)
 	root := t.TempDir()
@@ -118,8 +112,6 @@ func TestScanRealBareRepoWithWorktree(t *testing.T) {
 	}
 }
 
-// TestScanRealGitSubmoduleNotWorktree verifica que un submodule no se
-// anida como worktree de su repo padre.
 func TestScanRealGitSubmoduleNotWorktree(t *testing.T) {
 	requireGit(t)
 	root := t.TempDir()
