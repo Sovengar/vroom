@@ -113,6 +113,15 @@ func descendantsFrom(snap map[int]procInfo, pid int) []int {
 		cur := queue[0]
 		queue = queue[1:]
 		for _, kid := range children[cur] {
+			// El guard de `seen` NO es un guard de nodo repetido: cada proceso tiene
+			// un único `ppid`, así que un mismo hijo no puede aparecer dos veces bajo
+			// el mismo padre y el diametro es imposible por construcción.
+			//
+			// Lo único que lo dispara es un CICLO —a aparece como hijo de b y b como
+			// hijo de a—, que en un `/proc` real no ocurre pero que este recorrido, que
+			// sólo recibe un mapa, no puede descartar por su cuenta. Sin este `continue`
+			// el bucle no pararía nunca, y un `Stop` colgado mata la sesión de quien
+			// intenta parar su servicio.
 			if seen[kid] {
 				continue
 			}
@@ -135,24 +144,38 @@ func descendantsFrom(snap map[int]procInfo, pid int) []int {
 // degrades to signalling the group alone, which is the pre-existing
 // behaviour.
 func captureLineage(spec StopSpec) (int, []int) {
+	return captureLineageWith(spec, procRoot)
+}
+
+// captureLineageWith es `captureLineage` con la raíz de `/proc` inyectada.
+//
+// El motivo es el mismo que en `descendantsAt`: `captureLineage` degrada a
+// `(0, nil)` cuando no puede leer el árbol de procesos, y ese `if err != nil` sólo se
+// dispara con un `/proc` ilegible, que no se puede montar en un test sin tocar el
+// sistema entero. Con la raíz por parámetro, la degradación se prueba con un
+// directorio vacío.
+//
+// Y esa degradación es un contrato, no un detalle: `Stop` pasa entonces a señalar
+// sólo el grupo, que es el único camino que le queda, y no se equivoca de servicio.
+func captureLineageWith(spec StopSpec, root string) (int, []int) {
 	if spec.Pgid <= 0 && spec.Pid <= 0 {
 		return 0, nil
 	}
-	snap, err := procSnapshotAt(procRoot)
+	snap, err := procSnapshotAt(root)
 	if err != nil {
 		return 0, nil
 	}
 
-	root := spec.Pid
-	if info, ok := snap[root]; !ok || (spec.Pgid > 0 && info.pgid != spec.Pgid) {
+	root0 := spec.Pid
+	if info, ok := snap[root0]; !ok || (spec.Pgid > 0 && info.pgid != spec.Pgid) {
 		if leader, ok := snap[spec.Pgid]; !ok || leader.pgid != spec.Pgid {
 			return 0, nil
 		}
-		root = spec.Pgid
+		root0 = spec.Pgid
 	}
 
-	lineage := descendantsFrom(snap, root)
-	return root, append([]int{root}, lineage...)
+	lineage := descendantsFrom(snap, root0)
+	return root0, append([]int{root0}, lineage...)
 }
 
 // lineageRunning reports whether any pid of the captured lineage is still

@@ -184,19 +184,7 @@ func Start(req Request) (Result, error) {
 		if mode == manifest.PortModeFixed {
 			applyRoute(req, &base, req.Manifest.Port, &out)
 		}
-		if err := req.Store.SaveMeta(req.Path, base); err != nil {
-			// MEDIDO (bug): se devolvía `Result{}` sin detener el hijo que ya se
-			// había arrancado. El caller recibía un error y NINGÚN PID, así que no
-			// tenía forma de pararlo: el proceso quedaba vivo sin registro, `vroom
-			// list` lo mostraba parado y el siguiente `vroom start` arrancaba un
-			// segundo por encima del mismo puerto. Lo detectó el guard de higiene de
-			// la suite, que cuenta los procesos de este binario que sobreviven a los
-			// tests.
-			//
-			// Se para antes de propagar el error porque el servicio no llegó a existir:
-			// sin meta no hay nada que gestionar, y un proceso que su gestor no conoce
-			// es peor que un arranque fallido.
-			stopAfterPersistFailure(req, res)
+		if err := persistOrKill(req, base, res); err != nil {
 			return Result{}, err
 		}
 		_ = req.Store.RegisterPid(req.Path, res.Pid, res.Pgid)
@@ -215,22 +203,7 @@ func resolveDynamicPort(req Request, attempt state.Meta, reserved int) (Result, 
 	attempt.Port = reserved
 	attempt.ReservedPort = reserved
 	attempt.State = state.StatePortPending
-	if err := req.Store.SaveMeta(req.Path, attempt); err != nil {
-		// No se libera el PUERTO aquí: Manager.Start ya devolvió y el hijo está
-		// vivo usándolo. Devolverlo al set reabriría la carrera de H1 en este camino
-		// mientras el hijo sigue ahí. La reserva se queda hasta el stop, como
-		// cualquier otra.
-		//
-		// El HIJO sí se para, y antes el comentario aceptaba lo contrario —"dejaría
-		// un hijo vivo sin registrar"— como consecuencia necesaria. No lo es: `Result{}`
-		// no lleva PID, así que el caller no tiene forma de pararlo, y el proceso se
-		// queda ocupando el puerto reservado para siempre. Lo detectó el guard de
-		// higiene de la suite.
-		//
-		// Parar el hijo y NO liberar el puerto es coherente: el puerto queda
-		// deservido un rato, que es el coste, frente a un proceso zombi que lo ocupa
-		// para siempre.
-		stopAfterPersistFailure(req, process.StartResult{Pid: attempt.Pid, Pgid: attempt.Pgid})
+	if err := persistOrKill(req, attempt, process.StartResult{Pid: attempt.Pid, Pgid: attempt.Pgid}); err != nil {
 		return Result{}, err
 	}
 	_ = req.Store.RegisterPid(req.Path, attempt.Pid, attempt.Pgid)
@@ -295,10 +268,7 @@ func resolveDynamicPort(req Request, attempt state.Meta, reserved int) (Result, 
 		applyRoute(req, &final, final.Port, &out)
 		out.Meta = final
 	}
-	if err := req.Store.SaveMeta(req.Path, final); err != nil {
-		// Ídem del camino fixed: el hijo ya está vivo y `Result{}` no lleva PID, así
-		// que sin esto el proceso se fuga irrecuperablemente.
-		stopAfterPersistFailure(req, process.StartResult{Pid: final.Pid, Pgid: final.Pgid})
+	if err := persistOrKill(req, final, process.StartResult{Pid: final.Pid, Pgid: final.Pgid}); err != nil {
 		return Result{}, err
 	}
 	return out, nil
@@ -355,6 +325,37 @@ func applyRoute(req Request, meta *state.Meta, port int, out *Result) {
 	if warn := portless.Warn(res); warn != "" {
 		out.Warnings = append(out.Warnings, warn)
 	}
+}
+
+// persistOrKill guarda el meta del servicio recién arrancado, y si el guardado falla
+// detiene al hijo antes de propagar el error.
+//
+// MEDIDO (bug): se devolvía `Result{}` sin detener al hijo. El caller recibía un error
+// y NINGÚN PID, así que no tenía forma de pararlo: el proceso quedaba vivo sin
+// registro, `vroom list` lo mostraba parado y el siguiente `vroom start` arrancaba un
+// segundo por encima del mismo puerto. Lo detectó el guard de higiene de la suite, que
+// cuenta los procesos de este binario que sobreviven a los tests.
+//
+// Se para antes de propagar el error porque el servicio no llegó a existir: sin meta
+// no hay nada que gestionar, y un proceso que su gestor no conoce es peor que un
+// arranque fallido.
+//
+// Y no se libera el puerto reservado, ni en dynamic: `Manager.Start` ya devolvió y el
+// hijo lo estaba usando. Devolverlo al set reabriría la carrera de H1 mientras el hijo
+// sigue ahí. La reserva se queda hasta el stop, como cualquier otra; parar el hijo y
+// NO liberar el puerto es coherente, porque un puerto deservido un rato es el precio
+// frente a un proceso zombi que lo ocupa para siempre.
+//
+// Los tres sitios que guardan después del spawn —el meta inicial de dynamic, el final
+// de dynamic y el de fixed— comparten esta función. Antes eran tres copias del mismo
+// bloque, y una copia es un sitio donde el arreglo del siguiente bug se aplica a dos y
+// se olvida del tercero.
+func persistOrKill(req Request, meta state.Meta, res process.StartResult) error {
+	if err := req.Store.SaveMeta(req.Path, meta); err != nil {
+		stopAfterPersistFailure(req, res)
+		return err
+	}
+	return nil
 }
 
 // stopAfterPersistFailure detiene el hijo cuando la persistencia falla DESPUÉS del

@@ -3,6 +3,7 @@
 package process
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -50,15 +51,13 @@ func (u *unixManager) Start(spec StartSpec) (StartResult, error) {
 	}
 	defer func() { _ = stderr.Close() }()
 
-	devNull, err := os.OpenFile(os.DevNull, os.O_RDONLY, 0)
-	if err != nil {
-		return StartResult{}, fmt.Errorf("could not open /dev/null: %w", err)
-	}
-	defer func() { _ = devNull.Close() }()
-
 	cmd := exec.Command("sh", "-c", spec.Command)
 	cmd.Dir = spec.WorkDir
-	cmd.Stdin = devNull
+	// `Stdin` se deja nil a propósito, y eso ya es "el hijo lee del null device":
+	// lo dice el doc de `os/exec.Cmd`. Antes se abría `/dev/null` a mano para
+	// exactamente lo mismo, con su `defer Close` y su rama de error. La razón de
+	// que haga falta: el hijo no puede leer el stdin de vroom, que en la TUI es el
+	// terminal del usuario.
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
@@ -140,15 +139,32 @@ func (u *unixManager) Stop(spec StopSpec) error {
 
 	root, lineage := captureLineage(spec)
 
-	if root > 0 && !terminate(root, spec.Pgid, lineage, timeout) {
-		spec.warnf("stop: quedan procesos vivos tras SIGKILL (%s)", lineageDesc(root, lineage))
-	}
+	// La escalera se agota aquí, y el aviso de "se agotó" vive en `avisaSiSeAgotó`
+	// para separar dos cosas que se mezclaban: la PREGUNTA —¿sobrevivió alguien tras
+	// el SIGKILL?— y la DECISIÓN —¿hay que avisar?—. La pregunta sólo tiene respuesta
+	// con un proceso de otro usuario, que desde una cuenta normal no se puede montar en
+	// un test; la decisión sí, y es la que dice qué lee el usuario en su log.
+	spec.avisaSiSeAgotó(root, lineage, root > 0 && !terminate(root, spec.Pgid, lineage, timeout))
 
 	// Último recurso: liberar el puerto, pero sólo con prueba de propiedad.
 	if spec.Port > 0 && PortOpen(spec.Port) {
 		killPortHolderWith(spec.Port, root, lineage, PortOwnerPIDs, spec.Warn)
 	}
 	return nil
+}
+
+// avisaSiSeAgotó es el último aviso de la parada, y la decisión va separada de la
+// comprobación a propósito.
+//
+// La condición tiene dos partes y las dos importan. `huboRoot` porque sin un proceso
+// raíz no había nada que parar y `terminate` ni se llama: avisar de un linaje vacío
+// sería mentir. `noMurio` porque el aviso es lo único que le queda al usuario para
+// entender por qué su proceso sigue ahí después de SIGTERM y SIGKILL, y un `Stop` que
+// funcionó no debe dejar ruido en el log.
+func (s StopSpec) avisaSiSeAgotó(root int, lineage []int, noMurio bool) {
+	if root > 0 && noMurio {
+		s.warnf("stop: quedan procesos vivos tras SIGKILL (%s)", lineageDesc(root, lineage))
+	}
 }
 
 // terminate es la escalera de parada, y es la ÚNICA implementación: la vía del
@@ -342,13 +358,27 @@ func pgidAlive(pgid int) bool {
 	if pgid <= 0 {
 		return false
 	}
-	err := syscall.Kill(-pgid, syscall.Signal(0))
-	switch err {
-	case nil:
+	return grupoExiste(syscall.Kill(-pgid, syscall.Signal(0)))
+}
+
+// grupoExiste traduce el errno de `kill(-pgid, 0)` a "¿queda alguien?".
+//
+// Es una TABLA, y por eso tiene su propia función: los dos casos que importan no se
+// pueden provocar desde un test sin otro usuario en la máquina —`EPERM` es un grupo
+// ajeno, y `ESRCH` un grupo que ya no existe—, pero el significado de cada uno
+// tampoco es obvvio y equivocarse invierte la decisión.
+//
+// La asimetría de EPERM y ESRCH es deliberada: EPERM significa que el grupo EXISTE y
+// que el kernel se niega a decirnos de quién es, así que se responde "true" —hay
+// procesos vivos que quizá no son nuestros—. ESRCH significa que no hay nadie, y
+// cualquier otro errno es un fallo de la consulta, no una respuesta sobre el grupo.
+func grupoExiste(err error) bool {
+	switch {
+	case err == nil:
 		return true
-	case syscall.ESRCH:
+	case errors.Is(err, syscall.ESRCH):
 		return false
-	case syscall.EPERM:
+	case errors.Is(err, syscall.EPERM):
 		return true // existe pero no es nuestro
 	default:
 		return false

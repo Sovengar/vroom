@@ -57,6 +57,21 @@ const (
 // TOCTOU, documented: bind(127.0.0.1:port) + close returns the port to the
 // pool before the child gets to bind. The window exists.
 func ReservePort() (int, error) {
+	return reserveWith(net.Listen)
+}
+
+// reserveWith es `ReservePort` con la apertura del puerto inyectada.
+//
+// La razón es que el `Close` que hay justo después de abrir sólo puede fallar si el
+// listener ya estaba cerrado, y este se acaba de abrir: la rama era inalcanzable. Con
+// la apertura inyectada, el contrato entero queda comprobable, incluida la parte que
+// más importa y que antes no se podía ver: un puerto que se abre y no se puede
+// devolver NO se marca como reservado.
+//
+// Eso no es un detalle. Si se marcara, el siguiente `ReservePort` lo saltaría
+// para siempre y el rango se encogería un hueco por cada cierre fallido, sin que nadie
+// supiera por qué.
+func reserveWith(abrir func(network, addr string) (net.Listener, error)) (int, error) {
 	reserveMu.Lock()
 	defer reserveMu.Unlock()
 
@@ -64,7 +79,7 @@ func ReservePort() (int, error) {
 		if reservedPorts[port] {
 			continue // already handed out to another start in this process
 		}
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		ln, err := abrir("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 		if err != nil {
 			continue // taken or unavailable; try the next in range
 		}
