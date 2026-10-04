@@ -4,6 +4,7 @@
 package tail
 
 import (
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -15,6 +16,37 @@ import (
 // vacío sin error. Si el fichero quedó más pequeño que offset (rotación o
 // truncado) se relee desde el principio.
 func ReadNew(path string, offset int64) (data string, newOffset int64, err error) {
+	return readNew(path, offset, tamanoDe)
+}
+
+// tamanoDe pregunta el tamaño por el descriptor ya abierto, y no por el nombre.
+//
+// Va inyectado porque su error sí se puede provocar: entre el `os.Open` y la
+// pregunta, el log puede rotarse o desaparecer, y `Stat` devuelve ENOENT. Antes
+// esto estaba en la línea de `f.Stat()` con su error, que era una comprobación que
+// nadie había podido ejecutar; ahora es una función, y su fallo tiene un test.
+func tamanoDe(f *os.File) (int64, error) {
+	info, err := f.Stat()
+	if err != nil {
+		return 0, err
+	}
+	return info.Size(), nil
+}
+
+// readNew es `ReadNew` con la pregunta por el tamaño inyectada.
+//
+// MEDIDO (bug, encontrado en CI): la versión anterior preguntaba el tamaño con
+// `f.Seek(0, io.SeekEnd)`, que parece más elegante porque hace las dos cosas que
+// hacían `Stat` y `Seek` a la vez. No sirve: sobre un descriptor de DIRECTORIO,
+// `Seek` al final devuelve un tamaño enorme —en ext4, del orden de 2^63—, así que
+// `make([]byte, tamano-offset)` reventaba con "len out of range". Y un log que es un
+// directorio es un caso real: el log se crea, alguien lo sustituye por un directorio,
+// y el tick de la consola lo lee.
+//
+// El panic es peor que el error que el código anterior daba. `Stat` sobre un
+// directorio devuelve su tamaño de bloque, que es pequeño, y el `ReadAt` posterior
+// falla con EISDIR como debe.
+func readNew(path string, offset int64, tamano func(*os.File) (int64, error)) (string, int64, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -24,38 +56,34 @@ func ReadNew(path string, offset int64) (data string, newOffset int64, err error
 	}
 	defer func() { _ = f.Close() }()
 
-	// El tamaño se saca del descriptor y no del nombre. La razón no es el rendimiento:
-	// un `f.Stat()` tiene su propio error, y como `f` viene de un `os.Open` que acaba
-	// de devolver nil, ese error no se puede provocar nunca. Es decir, la línea que
-	// lo comprobaba era código muerto con aspecto de comprobación.
-	//
-	// `Seek(0, io.SeekEnd)` es la forma de preguntar "cuánto tiene" por el descriptor
-	// que ya está abierto, así que devuelve la posición y hace las dos cosas que
-	// hacían `Stat` y `Seek` juntos. `Seek` sí puede fallar de verdad —un fichero que
-	// se borra o se cierra entre medias—, y por eso su error se comprueba.
-	//
-	// La lectura va con `ReadAt` y no con `Read` porque `ReadAt` no mueve el
-	// descriptor: el `Seek(0, io.SeekEnd)` de arriba lo dejó al final, y un `Read`
-	// de ahí no leería nada. `io.EOF` está permitido porque es lo que devuelve la
-	// última lectura de un fichero: no es un fallo, es que se acabó.
-	tamano, err := f.Seek(0, io.SeekEnd)
+	size, err := tamano(f)
 	if err != nil {
 		return "", offset, err
 	}
-	if tamano < offset {
-		offset = 0 // truncado/rotación: releer completo
+	// Tres suelos, y los tres importan para que el `make` de abajo no pueda reventar.
+	// El primero es la rotación: un log truncado por debajo del offset se relee entero.
+	if size < offset {
+		offset = 0
 	}
-	buf := make([]byte, tamano-offset)
-	// El error de `ReadAt` se descarta a propósito, y no por descuido. Con un log
-	// rotándose o truncándose entre el `Seek` y el `Read` —que es justo lo que pasa
-	// con un reinicio de servicio— `ReadAt` devuelve menos bytes de los pedidos, o un
-	// error, y lo único que importa es devolver lo que se pudo leer. `ReadAt`
-	// garantiza `0 <= n <= len(buf)`, así que `buf[:n]` es siempre válido.
-	//
-	// La otra alternativa —propagar el error— dejaría la consola en blanco por un
-	// fichero que se movió mientras lo leíamos, y el próximo tick lo volvería a
-	// tener: un parpadeo por algo que no es un fallo del servicio.
-	n, _ := f.ReadAt(buf, offset)
+	// El segundo es un offset negativo o desbordado. Nadie lo produce hoy —el offset
+	// viene de la vuelta anterior de esta misma función—, pero un entero con signo que
+	// se cuela por un desbordamiento en la suma `offset + n` haría que `size-offset`
+	// fuera enorme, y eso es un panic en la TUI en vez de un log vacío.
+	if offset < 0 {
+		offset = 0
+	}
+	// El tercero, para que el buffer sea válido por construcción.
+	buf := make([]byte, max(size-offset, 0))
+
+	// `ReadAt` y no `Read`: no mueve el descriptor, así que no depende de en qué
+	// posición quedó. `io.EOF` NO es un fallo —es lo que devuelve la última lectura de
+	// un fichero, y también una lectura que se topó con una rotación a medio camino—.
+	// Cualquier otro error sí se propaga, y aquí hay uno que de verdad importa: `EISDIR`
+	// cuando el log es un directorio.
+	n, err := f.ReadAt(buf, offset)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", offset, err
+	}
 	return string(buf[:n]), offset + int64(n), nil
 }
 
