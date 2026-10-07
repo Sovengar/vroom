@@ -49,3 +49,9 @@ README badge reports `passing` (the badge caches for a few seconds).
 
 Local gate in a single command: **`make check`** (build + lint + test), the same
 trio that CI requires. Must exist in all repos of the family.
+
+### Waiting for CI
+
+To follow a PR's checks, wait with `gh run watch <run-id> --exit-status` (or
+`gh pr checks <n> --watch`). Never `sleep` + `gh pr checks`: runs go stale after
+a force-push and the id has to be asked for again.
