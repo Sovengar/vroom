@@ -10,232 +10,232 @@ import (
 	"vroom/internal/tail"
 )
 
-func TestFilterMatchTraePorNombreYPorGrupo(t *testing.T) {
+func TestFilterMatchMatchesByNameAndByGroup(t *testing.T) {
 	tests := []struct {
-		nombre string
-		p      scanner.Project
-		q      string
-		want   bool
-		porQue string
+		name     string
+		p        scanner.Project
+		q        string
+		want     bool
+		because  string
 	}{
 		{
-			"exacto por nombre", scanner.Project{Name: "tienda-api"}, "tienda-api", true, "",
+			"exact by name", scanner.Project{Name: "tienda-api"}, "tienda-api", true, "",
 		},
 		{
-			"prefijo del nombre", scanner.Project{Name: "tienda-api"}, "tienda", true, "",
+			"prefix of name", scanner.Project{Name: "tienda-api"}, "tienda", true, "",
 		},
 		{
-			"sin distinguir mayúsculas", scanner.Project{Name: "Tienda-Api"}, "tienda", true, "",
+			"case insensitive", scanner.Project{Name: "Tienda-Api"}, "tienda", true, "",
 		},
 		{
-			"por grupo primario", scanner.Project{Name: "api", Manifest: manifestGroup("tienda", "")}, "tienda", true,
-			"filtrar por grupo tiene que traer a un miembro que no se llama como el grupo",
+			"by primary group", scanner.Project{Name: "api", Manifest: manifestGroup("tienda", "")}, "tienda", true,
+			"filtering by group must return a member that is not named after the group",
 		},
 		{
-			"por grupo secundario", scanner.Project{Name: "api", Manifest: manifestGroup("tienda", "backend")}, "backend", true,
-			"el secundario también matchea: es lo que distingue dos 'api' del mismo primario",
+			"by secondary group", scanner.Project{Name: "api", Manifest: manifestGroup("tienda", "backend")}, "backend", true,
+			"the secondary also matches: it is what distinguishes two 'api' from the same primary",
 		},
 		{
-			"otro grupo", scanner.Project{Name: "api", Manifest: manifestGroup("tienda", "backend")}, "blog", false, "",
+			"other group", scanner.Project{Name: "api", Manifest: manifestGroup("tienda", "backend")}, "blog", false, "",
 		},
 		{
-			"cadena vacía trae todo", scanner.Project{Name: "cualquiera"}, "", true,
-			"un filtro vacío no puede filtrar nada: se abriría el filtro y desaparecerían todas las filas",
+			"empty string returns all", scanner.Project{Name: "any"}, "", true,
+			"an empty filter cannot filter anything: the filter would open and all rows would disappear",
 		},
 		{
-			"proyecto sin grupo ni nombre coincidente", scanner.Project{Name: "api"}, "web", false, "",
+			"project without group or matching name", scanner.Project{Name: "api"}, "web", false, "",
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.nombre, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			if got := filterMatch(tt.p, tt.q); got != tt.want {
-				t.Errorf("filterMatch(%q, %q) = %v, want %v. %s", tt.p.Name, tt.q, got, tt.want, tt.porQue)
+				t.Errorf("filterMatch(%q, %q) = %v, want %v. %s", tt.p.Name, tt.q, got, tt.want, tt.because)
 			}
 		})
 	}
 }
 
-func TestFilterMatchNoTraeLoQueNoDebeYElConteoCuadra(t *testing.T) {
-	proyectos := []scanner.Project{
+func TestFilterMatchDoesNotMatchWhatItShouldNotAndCountChecksOut(t *testing.T) {
+	projects := []scanner.Project{
 		{Name: "tienda-api", Manifest: manifestGroup("tienda", "backend")},
 		{Name: "tienda-web", Manifest: manifestGroup("tienda", "frontend")},
 		{Name: "blog-api", Manifest: manifestGroup("blog", "")},
 		{Name: "suelto"},
 	}
 
-	for _, q := range []string{"tienda", "api", "backend", "blog", "suelto", "nada-de-esto", ""} {
-		var conMatch []string
-		for _, p := range proyectos {
+	for _, q := range []string{"tienda", "api", "backend", "blog", "suelto", "none-of-this", ""} {
+		var withMatch []string
+		for _, p := range projects {
 			if filterMatch(p, q) {
-				conMatch = append(conMatch, p.Name)
+				withMatch = append(withMatch, p.Name)
 			}
 		}
 		// Names in this fixture are unique, so set equality with the filter result is an exact check.
-		for _, p := range proyectos {
-			tiene := false
-			for _, n := range conMatch {
+		for _, p := range projects {
+			has := false
+			for _, n := range withMatch {
 				if n == p.Name {
-					tiene = true
+					has = true
 				}
 			}
-			if tiene != filterMatch(p, q) {
-				t.Errorf("q=%q: la lista y filterMatch discrepan sobre %q", q, p.Name)
+			if has != filterMatch(p, q) {
+				t.Errorf("q=%q: the list and filterMatch disagree on %q", q, p.Name)
 			}
 		}
 	}
 
 	var tienda []string
-	for _, p := range proyectos {
+	for _, p := range projects {
 		if filterMatch(p, "tienda") {
 			tienda = append(tienda, p.Name)
 		}
 	}
 	if len(tienda) != 2 || tienda[0] != "tienda-api" || tienda[1] != "tienda-web" {
-		t.Errorf("el filtro tienda trae %v, want los dos del grupo y nada más", tienda)
+		t.Errorf("the tienda filter returns %v, want the two from the group and nothing more", tienda)
 	}
 
 	var api []string
-	for _, p := range proyectos {
+	for _, p := range projects {
 		if filterMatch(p, "api") {
 			api = append(api, p.Name)
 		}
 	}
 	if len(api) != 2 {
-		t.Errorf("el filtro api trae %v, want los dos", api)
+		t.Errorf("the api filter returns %v, want the two", api)
 	}
 }
 
 // The example manifest carries no port on purpose: an example port belongs to a twin worktree, so the health probe would hit that other service.
-func TestExampleManifestEsValidoYNoSeColisionaConNada(t *testing.T) {
-	got := exampleManifest("mi-proyecto")
+func TestExampleManifestIsValidAndDoesNotCollideWithAnything(t *testing.T) {
+	got := exampleManifest("my-project")
 
 	if strings.Contains(got, "port = 80") || strings.Contains(got, "port = 3000") {
-		t.Errorf("el manifiesto de ejemplo trae un puerto inventado: %q", got)
+		t.Errorf("the example manifest carries an invented port: %q", got)
 	}
 
 	// Names with quotes or backslashes must still yield quoted, parseable TOML, hence the odd inputs below.
-	for _, nombre := range []string{"normal", `con "comillas"`, "con\\barra", "acentuado-ñ"} {
-		txt := exampleManifest(nombre)
+	for _, name := range []string{"normal", `with "quotes"`, "with\\slash", "accented-λ"} {
+		txt := exampleManifest(name)
 		if !strings.Contains(txt, `name = "`) {
-			t.Errorf("exampleManifest(%q) no entrecomilla el nombre: %q", nombre, txt)
+			t.Errorf("exampleManifest(%q) does not quote the name: %q", name, txt)
 		}
 		if !strings.Contains(txt, "command_start") {
-			t.Errorf("exampleManifest(%q) no trae command_start, que es el campo obligatorio: %q", nombre, txt)
+			t.Errorf("exampleManifest(%q) does not carry command_start, which is the required field: %q", name, txt)
 		}
 	}
 }
 
-func TestTreeDotCobreLosEstadosYElDesconocido(t *testing.T) {
-	configurada := scanner.Project{Path: "/p", Name: "p", Configured: true, Manifest: manifestWithPort(4321)}
-	sinManifiesto := scanner.Project{Path: "/p", Name: "p", Configured: false}
-	manifiestoRoto := scanner.Project{Path: "/p", Name: "p", Configured: true, ManifestErr: "falta command_start"}
+func TestTreeDotCoversStatesAndUnknown(t *testing.T) {
+	configured := scanner.Project{Path: "/p", Name: "p", Configured: true, Manifest: manifestWithPort(4321)}
+	noManifest := scanner.Project{Path: "/p", Name: "p", Configured: false}
+	brokenManifest := scanner.Project{Path: "/p", Name: "p", Configured: true, ManifestErr: "missing command_start"}
 
 	tests := []struct {
-		nombre string
+		name   string
 		p      scanner.Project
 		sv     *ServiceState
-		quiere string
+		wants  string
 	}{
-		{"corriendo", configurada, &ServiceState{Status: statusRunning}, "●"},
-		{"arrancando", configurada, &ServiceState{Status: statusStarting}, "◌"},
-		{"parando", configurada, &ServiceState{Status: statusStopping}, "○"},
-		{"desconocido", configurada, &ServiceState{Status: statusUnknown}, "◐"},
-		{"parado", configurada, &ServiceState{Status: statusStopped}, "·"},
-		// MEDIDO (bug): all three fell into the default so a live service rendered with the stopped dot; port_pending also contradicted its own row badge and the "s" action that treats it as live.
-		{"port pending", configurada, &ServiceState{Status: statusPortPending}, "◌"},
-		{"port unresolved", configurada, &ServiceState{Status: statusPortUnresolved}, "●"},
-		{"no port", configurada, &ServiceState{Status: statusNoPort}, "●"},
-		{"sin manifiesto", sinManifiesto, &ServiceState{Status: statusRunning}, "⚠"},
-		{"manifiesto inválido", manifiestoRoto, &ServiceState{Status: statusStopped}, "⚠"},
-		{"estado nuevo de process", configurada, &ServiceState{Status: uiStatus("inventado")}, "·"},
+		{"running", configured, &ServiceState{Status: statusRunning}, "●"},
+		{"starting", configured, &ServiceState{Status: statusStarting}, "◌"},
+		{"stopping", configured, &ServiceState{Status: statusStopping}, "○"},
+		{"unknown", configured, &ServiceState{Status: statusUnknown}, "◐"},
+		{"stopped", configured, &ServiceState{Status: statusStopped}, "·"},
+		// MEASURED (bug): all three fell into the default so a live service rendered with the stopped dot; port_pending also contradicted its own row badge and the "s" action that treats it as live.
+		{"port pending", configured, &ServiceState{Status: statusPortPending}, "◌"},
+		{"port unresolved", configured, &ServiceState{Status: statusPortUnresolved}, "●"},
+		{"no port", configured, &ServiceState{Status: statusNoPort}, "●"},
+		{"no manifest", noManifest, &ServiceState{Status: statusRunning}, "⚠"},
+		{"invalid manifest", brokenManifest, &ServiceState{Status: statusStopped}, "⚠"},
+		{"new process status", configured, &ServiceState{Status: uiStatus("invented")}, "·"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.nombre, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			got := tail.StripANSI(treeDot(tt.p, tt.sv, "◐", "◌"))
-			if !strings.Contains(got, tt.quiere) {
-				t.Errorf("treeDot(%s) = %q, want %q", tt.nombre, got, tt.quiere)
+			if !strings.Contains(got, tt.wants) {
+				t.Errorf("treeDot(%s) = %q, want %q", tt.name, got, tt.wants)
 			}
 		})
 	}
 
-	t.Run("el punto nunca contradice al badge de su fila", func(t *testing.T) {
+	t.Run("the dot never contradicts its row badge", func(t *testing.T) {
 		for _, st := range []uiStatus{
 			statusRunning, statusStarting, statusPortPending, statusPortUnresolved, statusNoPort,
 		} {
-			punto := tail.StripANSI(treeDot(configurada, &ServiceState{Status: st}, "◐", "◌"))
-			if punto == "·" {
-				t.Errorf("el estado %q es vivo pero el árbol lo pinta como parado", st)
+			dot := tail.StripANSI(treeDot(configured, &ServiceState{Status: st}, "◐", "◌"))
+			if dot == "·" {
+				t.Errorf("the status %q is live but the tree paints it as stopped", st)
 			}
 		}
 	})
 
-	t.Run("sin estado conocido", func(t *testing.T) {
-		got := tail.StripANSI(treeDot(configurada, nil, "◐", "◌"))
+	t.Run("no known status", func(t *testing.T) {
+		got := tail.StripANSI(treeDot(configured, nil, "◐", "◌"))
 		if !strings.Contains(got, "·") {
-			t.Errorf("sin estado = %q, want el punto de parado: no se ha preguntado, no se puede decir que vive", got)
+			t.Errorf("no status = %q, want the stopped dot: it has not been asked, it cannot be said to be alive", got)
 		}
 	})
 }
 
-func TestElArbolEmiteElHeaderDeComposersSoloConStacksAhi(t *testing.T) {
+func TestTreeEmitsComposersHeaderOnlyWithStacksThere(t *testing.T) {
 	// The stackTree fixture mixes stacks and plain projects under one primary.
 	m := newStackModel(t)
 
-	var conComposers, conStack, conProject bool
+	var withComposers, withStack, withProject bool
 	for _, it := range m.tree {
 		if it.kind == itemSecondary && it.secondary == composersGroup {
-			conComposers = true
+			withComposers = true
 		}
 		if it.kind == itemStack {
-			conStack = true
+			withStack = true
 		}
 		if it.kind == itemProject {
-			conProject = true
+			withProject = true
 		}
 	}
-	if !conComposers || !conStack || !conProject {
-		t.Errorf("con stacks el árbol tiene que emitir los tres: composers=%v stack=%v project=%v",
-			conComposers, conStack, conProject)
+	if !withComposers || !withStack || !withProject {
+		t.Errorf("with stacks the tree must emit all three: composers=%v stack=%v project=%v",
+			withComposers, withStack, withProject)
 	}
 
-	t.Run("el header de composers lleva el grupo y el marcador", func(t *testing.T) {
-		var encontrado bool
+	t.Run("the composers header carries the group and the marker", func(t *testing.T) {
+		var found bool
 		for _, it := range m.tree {
 			if it.kind == itemSecondary && it.secondary == composersGroup {
-				encontrado = true
+				found = true
 				if it.primary == "" {
-					t.Error("el header de composers sin primary: no se sabe a qué grupo pertenece")
+					t.Error("the composers header without primary: it is not known which group it belongs to")
 				}
 			}
 		}
-		if !encontrado {
-			t.Error("no se encontró el header de composers")
+		if !found {
+			t.Error("the composers header was not found")
 		}
 	})
 
-	t.Run("primario sin stacks no emite header de composers", func(t *testing.T) {
-		sinStacks, _ := newTestModel(t)
-		for _, it := range sinStacks.tree {
+	t.Run("primary without stacks does not emit composers header", func(t *testing.T) {
+		noStacks, _ := newTestModel(t)
+		for _, it := range noStacks.tree {
 			if it.kind == itemSecondary && it.secondary == composersGroup {
-				t.Error("sin compose file el árbol no puede emitir un header de composers: sería una fila vacía")
+				t.Error("without a compose file the tree cannot emit a composers header: it would be an empty row")
 			}
 		}
 	})
 }
 
-func TestGroupPrimaryYSecondaryDeUnProyectoSinManifiestoNoRevientan(t *testing.T) {
-	varios := []scanner.Project{
+func TestGroupPrimaryAndSecondaryOfProjectWithoutManifestDoNotPanic(t *testing.T) {
+	various := []scanner.Project{
 		{},
-		{Name: "sin-manifiesto"},
-		{Name: "con-manifest-nil", Manifest: nil},
-		{Name: "con-grupo", Manifest: manifestGroup("tienda", "backend")},
-		{Name: "solo-primario", Manifest: manifestGroup("tienda", "")},
+		{Name: "no-manifest"},
+		{Name: "with-nil-manifest", Manifest: nil},
+		{Name: "with-group", Manifest: manifestGroup("tienda", "backend")},
+		{Name: "primary-only", Manifest: manifestGroup("tienda", "")},
 	}
-	for _, p := range varios {
+	for _, p := range various {
 		_ = group.PrimaryOf(p)
 		_ = group.SecondaryOf(p)
 		if got := filterMatch(p, "tienda"); got && p.Manifest == nil {
-			t.Errorf("un proyecto sin manifiesto matcheó por un grupo que no tiene: %+v", p)
+			t.Errorf("a project without a manifest matched by a group it does not have: %+v", p)
 		}
 	}
 }

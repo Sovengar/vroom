@@ -24,19 +24,19 @@ func TestAwaitPortDynamicSondeaLentoCuandoElDiscoveryNoEstaEnVuelo(t *testing.T)
 	elapsed := time.Since(start)
 
 	if err == nil {
-		t.Fatal("un puerto cerrado no puede darse por sano")
+		t.Fatal("a closed port cannot be considered healthy")
 	}
 	if errors.Is(err, ErrPortPending) {
-		t.Errorf("err = %v: sin discovery en vuelo la causa no es puerto pendiente", err)
+		t.Errorf("err = %v: without discovery in flight the cause is not pending port", err)
 	}
 	if !strings.Contains(err.Error(), "not open") {
-		t.Errorf("err = %q, want un mensaje que diga que el puerto no abrió", err)
+		t.Errorf("err = %q, want a message saying the port did not open", err)
 	}
 	if elapsed < 500*time.Millisecond {
-		t.Errorf("tardó %s: el sondeo de 500ms no llegó a completarse", elapsed)
+		t.Errorf("took %s: the 500ms probe did not complete", elapsed)
 	}
 	if elapsed > 3*time.Second {
-		t.Errorf("tardó %s con un timeout de 600ms: AwaitPort ignora su presupuesto", elapsed)
+		t.Errorf("took %s with a 600ms timeout: AwaitPort ignores its budget", elapsed)
 	}
 }
 
@@ -58,10 +58,10 @@ func TestAwaitPortDynamicSondeaFinoConDiscoveryEnVueloYAbre(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if err != nil {
-		t.Fatalf("un puerto que abre a los 150ms tiene que pasar el health check: %v", err)
+		t.Fatalf("a port that opens at 150ms must pass the health check: %v", err)
 	}
 	if elapsed >= 500*time.Millisecond {
-		t.Errorf("tardó %s: el sondeo fino de discovery en vuelo no está sondando cada 100ms", elapsed)
+		t.Errorf("took %s: the fine probe of discovery in flight is not probing every 100ms", elapsed)
 	}
 }
 
@@ -73,7 +73,7 @@ func TestParseComposeRechazaEtapaSinNombreYTimeoutInvalido(t *testing.T) {
 		wantErr string
 	}{
 		{
-			"etapa sin nombre",
+			"stage without name",
 			`
 primary_group = "g1"
 
@@ -86,7 +86,7 @@ services = ["api"]
 			"name",
 		},
 		{
-			"timeout que no es una duración",
+			"timeout that is not a duration",
 			`
 primary_group = "g1"
 
@@ -101,7 +101,7 @@ timeout = "pronto"
 			"timeout",
 		},
 		{
-			"timeout numérico sin unidad",
+			"numeric timeout without unit",
 			`
 primary_group = "g1"
 
@@ -116,7 +116,7 @@ timeout = 30
 			"timeout",
 		},
 		{
-			"etapa sin servicios",
+			"stage without services",
 			`
 primary_group = "g1"
 
@@ -135,10 +135,10 @@ name = "build"
 			writeCompose(t, dir, tt.content)
 			_, err := ParseComposeFile(dir)
 			if err == nil {
-				t.Fatal("un compose con este error tiene que rechazarse en el parseo, no en el arranque")
+				t.Fatal("a compose with this error must be rejected at parse time, not at launch")
 			}
 			if !strings.Contains(err.Error(), tt.wantErr) {
-				t.Errorf("err = %q, want que mencione %q: el mensaje tiene que decir QUÉ está mal", err, tt.wantErr)
+				t.Errorf("err = %q, want it to mention %q: the message has to say WHAT is wrong", err, tt.wantErr)
 			}
 		})
 	}
@@ -149,13 +149,13 @@ func TestStopStackConUnNombreQueNoResuelvePropagaElError(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	engine := NewEngine(&mockManager{}, store)
 
-	stack := &Stack{Name: "s", Stages: []Stage{{Name: "e", Services: []string{"no-existe"}}}}
+	stack := &Stack{Name: "s", Stages: []Stage{{Name: "e", Services: []string{"does-not-exist"}}}}
 	err := engine.StopStack(stack, nil)
 	if err == nil {
-		t.Fatal("parar un servicio que no existe tiene que dar error")
+		t.Fatal("stopping a service that does not exist must produce an error")
 	}
-	if !strings.Contains(err.Error(), "no-existe") {
-		t.Errorf("err = %q, want que nombre el servicio: es lo que el usuario tiene que corregir", err)
+	if !strings.Contains(err.Error(), "does-not-exist") {
+		t.Errorf("err = %q, want it to name the service: it is what the user has to fix", err)
 	}
 
 	ambos := []scanner.Project{
@@ -164,14 +164,14 @@ func TestStopStackConUnNombreQueNoResuelvePropagaElError(t *testing.T) {
 	}
 	dup := &Stack{Name: "s", Stages: []Stage{{Name: "e", Services: []string{"api"}}}}
 	if err := engine.StopStack(dup, ambos); err == nil {
-		t.Error("con dos proyectos llamados api hay que preguntar, no parar uno al azar")
+		t.Error("with two projects named api you must ask, not stop one at random")
 	}
 }
 
 // What matters is that it does not try to launch: without the directory there is no log to write, and a process with no log leaves the user nothing to read when it breaks.
 func TestStartServiceConStoreNoEscribibleReportaElError(t *testing.T) {
 	if os.Geteuid() == 0 {
-		t.Skip("root puede escribir en un directorio sin permiso: el caso no se puede provocar")
+		t.Skip("root can write in a directory without permission: the case cannot be triggered")
 	}
 
 	root := t.TempDir()
@@ -195,13 +195,13 @@ func TestStartServiceConStoreNoEscribibleReportaElError(t *testing.T) {
 
 	got := engine.startService(svc, time.Second)
 	if got.Error == "" {
-		t.Errorf("con el store inservible tiene que haber error, no un servicio arrancado: %+v", got)
+		t.Errorf("with an unusable store there must be an error, not a started service: %+v", got)
 	}
 	if got.Pid != 0 {
-		t.Errorf("Pid = %d con el store inservible, want 0: nada arrancó", got.Pid)
+		t.Errorf("Pid = %d with an unusable store, want 0: nothing started", got.Pid)
 	}
 	if got.Action == "started" {
-		t.Error("Action = started con el store inservible: el servicio no llegó a arrancar")
+		t.Error("Action = started with an unusable store: the service never started")
 	}
 }
 
@@ -216,7 +216,7 @@ func TestLaunchConServicioQueArrancaPeroNoAbreElPuertoFallaLaEtapaYLoDejaMuerto(
 		Name:       "api",
 		Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "api", Command: "sleep 300 # marcador-vroom", Port: port, PortMode: manifest.PortModeFixed,
+			Name: "api", Command: "sleep 300 # vroom-marker", Port: port, PortMode: manifest.PortModeFixed,
 		},
 	}
 	stack := &Stack{Name: "app", Stages: []Stage{
@@ -228,16 +228,16 @@ func TestLaunchConServicioQueArrancaPeroNoAbreElPuertoFallaLaEtapaYLoDejaMuerto(
 		t.Fatalf("Launch: %v", err)
 	}
 	if result.OK {
-		t.Errorf("un servicio que no abre su puerto tiene que fallar la etapa: %+v", result)
+		t.Errorf("a service that does not open its port must fail the stage: %+v", result)
 	}
 	if !strings.Contains(result.Error, "api") {
-		t.Errorf("err = %q, want que nombre el servicio culpable", result.Error)
+		t.Errorf("err = %q, want it to name the guilty service", result.Error)
 	}
 	if len(result.Stages) != 1 || len(result.Stages[0].Services) != 1 {
-		t.Fatalf("la etapa tiene que reportar su servicio aunque falle: %+v", result.Stages)
+		t.Fatalf("the stage must report its service even if it fails: %+v", result.Stages)
 	}
 	if result.Stages[0].Services[0].Error == "" {
-		t.Error("el servicio fallido tiene que traer su motivo: el error de la etapa no lo desglosa")
+		t.Error("the failed service must carry its reason: the stage error does not break it down")
 	}
 
 	// The meta must not claim alive, or the next vroom status shows it up and vroom stop goes looking for it.
@@ -246,9 +246,9 @@ func TestLaunchConServicioQueArrancaPeroNoAbreElPuertoFallaLaEtapaYLoDejaMuerto(
 		t.Fatal(err)
 	}
 	if meta.Pid != 0 {
-		t.Errorf("Pid = %d tras un launch fallido, want 0: el servicio se paró pero el meta lo dice vivo", meta.Pid)
+		t.Errorf("Pid = %d after a failed launch, want 0: the service was stopped but the meta says it is alive", meta.Pid)
 	}
 	if meta.State == state.StateRunning {
-		t.Errorf("State = %q tras un launch fallido: el servicio no está corriendo", meta.State)
+		t.Errorf("State = %q after a failed launch: the service is not running", meta.State)
 	}
 }

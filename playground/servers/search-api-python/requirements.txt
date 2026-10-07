@@ -1,1 +1,1 @@
-# Marker: este proyecto usa Python. Sin dependencias externas.
+# Marker: this project uses Python. No external dependencies.

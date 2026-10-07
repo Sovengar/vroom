@@ -15,7 +15,7 @@ func TestResolveBuiltins(t *testing.T) {
 		t.Fatalf("agents = %d, want 4", len(got))
 	}
 	if got[0].Name != "opencode" || got[1].Name != "pi" || got[2].Name != "hermes" || got[3].Name != "jcode" {
-		t.Errorf("orden/identidad incorrecta: %+v", got)
+		t.Errorf("wrong order/identity: %+v", got)
 	}
 	if !reflect.DeepEqual(got[2].Cmd, []string{"hermes", "chat", "-q", "{prompt}"}) {
 		t.Errorf("cmd hermes = %v", got[2].Cmd)
@@ -32,10 +32,10 @@ func TestResolveOverrides(t *testing.T) {
 		"codex":  {Cmd: "codex --full-auto {prompt}"},
 	})
 	if len(got) != 2 {
-		t.Fatalf("agents = %d, want 2 (override reemplaza)", len(got))
+		t.Fatalf("agents = %d, want 2 (override replaces)", len(got))
 	}
 	if got[0].Name != "claude" || got[1].Name != "codex" {
-		t.Errorf("orden alfabético roto: %+v", got)
+		t.Errorf("alphabetical order broken: %+v", got)
 	}
 	if !reflect.DeepEqual(got[1].Cmd, []string{"codex", "--full-auto", "{prompt}"}) {
 		t.Errorf("cmd codex = %v", got[1].Cmd)
@@ -51,11 +51,11 @@ func TestAvailable(t *testing.T) {
 
 	list := []Agent{
 		{Name: "fake-agent", Cmd: []string{"fake-agent", "{prompt}"}},
-		{Name: "ghost", Cmd: []string{"no-existe-xyz", "{prompt}"}},
+		{Name: "ghost", Cmd: []string{"does-not-exist-xyz", "{prompt}"}},
 	}
 	got := Available(list)
 	if len(got) != 1 || got[0].Name != "fake-agent" {
-		t.Errorf("Available = %+v, want solo fake-agent", got)
+		t.Errorf("Available = %+v, want only fake-agent", got)
 	}
 }
 
@@ -69,11 +69,11 @@ func TestBuildArgs(t *testing.T) {
 	}
 
 	if got := a.BuildArgs(""); !reflect.DeepEqual(got, []string{"opencode"}) {
-		t.Errorf("BuildArgs vacío = %q, want sin placeholder", got)
+		t.Errorf("empty BuildArgs = %q, want without placeholder", got)
 	}
 
 	b := Agent{Name: "pi", Cmd: []string{"pi", "{prompt}", "--yolo"}}
-	if got := b.BuildArgs("hola"); !reflect.DeepEqual(got, []string{"pi", "hola", "--yolo"}) {
+	if got := b.BuildArgs("hello"); !reflect.DeepEqual(got, []string{"pi", "hello", "--yolo"}) {
 		t.Errorf("BuildArgs = %q", got)
 	}
 }

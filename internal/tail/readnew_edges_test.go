@@ -9,179 +9,179 @@ import (
 )
 
 // A path under a regular file yields ENOTDIR, which is "there but unreadable" rather than NotExist; the offset comes back untouched because the caller decides whether that is terminal.
-func TestReadNewDevuelveElErrorCuandoElLogEsIlegible(t *testing.T) {
-	fichero := filepath.Join(t.TempDir(), "soy-un-fichero")
-	if err := os.WriteFile(fichero, []byte("no soy un directorio"), 0o644); err != nil {
+func TestReadNewReturnsErrorWhenLogIsUnreadable(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "i-am-a-file")
+	if err := os.WriteFile(file, []byte("i am not a directory"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	const offset = 4096
-	data, nuevo, err := ReadNew(filepath.Join(fichero, "stdout.log"), offset)
+	data, newOff, err := ReadNew(filepath.Join(file, "stdout.log"), offset)
 	if err == nil {
-		t.Fatalf("ReadNew = %q sin error con una ruta debajo de un fichero: un log ilegible se "+
-			"confunde con uno que no existe y la consola se queda vacía sin decir por qué", data)
+		t.Fatalf("ReadNew = %q without error on a path under a file: an unreadable log is "+
+			"confused with a non-existent one and the console stays blank without saying why", data)
 	}
 	if data != "" {
-		t.Errorf("data = %q con un error de apertura, want vacío", data)
+		t.Errorf("data = %q with an open error, want empty", data)
 	}
-	if nuevo != offset {
-		t.Errorf("offset = %d, want %d (el que entró): devolver 0 haría que el siguiente tick "+
-			"releyera el log entero desde el principio", nuevo, offset)
+	if newOff != offset {
+		t.Errorf("offset = %d, want %d (the one passed in): returning 0 would make the next tick "+
+			"replay the entire log from the beginning", newOff, offset)
 	}
 }
 
 // A short read is not a failure: the log moved, the service is fine, and an error here would blank the console for one tick.
-func TestReadNewSobreUnLogQueCambiaDebajoDevuelveLoQuePudoLeer(t *testing.T) {
+func TestReadNewOnLogThatChangesUnderneathReturnsWhatItCouldRead(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stdout.log")
-	if err := os.WriteFile(path, []byte("primera linea\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("first line\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	primero, nuevo, err := ReadNew(path, 0)
+	first, newOff, err := ReadNew(path, 0)
 	if err != nil {
 		t.Fatalf("ReadNew: %v", err)
 	}
-	if primero != "primera linea\n" {
-		t.Fatalf("primera lectura = %q, want %q", primero, "primera linea\n")
+	if first != "first line\n" {
+		t.Fatalf("first read = %q, want %q", first, "first line\n")
 	}
 
 	if err := os.Truncate(path, 0); err != nil {
 		t.Fatal(err)
 	}
 
-	trasRotacion, nuevo2, err := ReadNew(path, nuevo)
+	afterRotation, newOff2, err := ReadNew(path, newOff)
 	if err != nil {
-		t.Errorf("ReadNew tras truncar el log = %v, want nil: un log que se movió no es un fallo "+
-			"del servicio, y un error aquí vacía la consola un tick", err)
+		t.Errorf("ReadNew after truncating the log = %v, want nil: a log that moved is not a "+
+			"service failure, and an error here blanks the console for one tick", err)
 	}
-	if trasRotacion != "" {
-		t.Errorf("data = %q tras truncar a cero, want vacío: el fichero está vacío, y eso es lo "+
-			"que hay", trasRotacion)
+	if afterRotation != "" {
+		t.Errorf("data = %q after truncating to zero, want empty: the file is empty, and that is "+
+			"what there is", afterRotation)
 	}
-	if nuevo2 != 0 {
-		t.Errorf("offset = %d tras releer un log vacío, want 0", nuevo2)
+	if newOff2 != 0 {
+		t.Errorf("offset = %d after re-reading an empty log, want 0", newOff2)
 	}
 }
 
-func TestReadNewNoDevuelveMasDeLoQueHay(t *testing.T) {
+func TestReadNewDoesNotReturnMoreThanWhatIsThere(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stdout.log")
-	const contenido = "linea uno\nlinea dos\n"
-	if err := os.WriteFile(path, []byte(contenido), 0o644); err != nil {
+	const content = "line one\nline two\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	data, nuevo, err := ReadNew(path, 0)
+	data, newOff, err := ReadNew(path, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if data != contenido {
-		t.Errorf("data = %q, want %q: leer desde el principio tiene que devolver el fichero entero",
-			data, contenido)
+	if data != content {
+		t.Errorf("data = %q, want %q: reading from the start must return the entire file",
+			data, content)
 	}
-	if nuevo != int64(len(contenido)) {
-		t.Errorf("offset = %d, want %d", nuevo, len(contenido))
+	if newOff != int64(len(content)) {
+		t.Errorf("offset = %d, want %d", newOff, len(content))
 	}
 
-	cola, nuevo2, err := ReadNew(path, 9)
+	tail, newOff2, err := ReadNew(path, 9)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(contenido, cola) {
-		t.Errorf("cola = %q, want la cola del contenido a partir del offset 9", cola)
+	if !strings.HasSuffix(content, tail) {
+		t.Errorf("tail = %q, want the tail of the content starting at offset 9", tail)
 	}
-	if nuevo2 != int64(len(contenido)) {
-		t.Errorf("offset = %d, want %d", nuevo2, len(contenido))
+	if newOff2 != int64(len(content)) {
+		t.Errorf("offset = %d, want %d", newOff2, len(content))
 	}
 }
 
-// The log becoming a directory is not hypothetical: it gets deleted and something makes a directory in its place, and the next console tick reads it. MEDIDO: on ext4 ReadAt returns EISDIR when it has bytes to ask for and nil when the buffer comes out empty, because a zero-byte read never reaches the disk; an offset at the exact size is not a failure but exactly what a tail is asked for when the log has not grown, so only "never panics, never leaves the offset above" is asserted.
-func TestReadNewNoRevientaConUnLogQueEsUnDirectorio(t *testing.T) {
-	asDir := filepath.Join(t.TempDir(), "log-es-un-directorio")
-	if err := os.MkdirAll(filepath.Join(asDir, "con-contenido"), 0o755); err != nil {
+// The log becoming a directory is not hypothetical: it gets deleted and something makes a directory in its place, and the next console tick reads it. MEASURED: on ext4 ReadAt returns EISDIR when it has bytes to ask for and nil when the buffer comes out empty, because a zero-byte read never reaches the disk; an offset at the exact size is not a failure but exactly what a tail is asked for when the log has not grown, so only "never panics, never leaves the offset above" is asserted.
+func TestReadNewDoesNotPanicWithALogThatIsADirectory(t *testing.T) {
+	asDir := filepath.Join(t.TempDir(), "log-is-a-directory")
+	if err := os.MkdirAll(filepath.Join(asDir, "with-content"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(asDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tam := fi.Size()
+	size := fi.Size()
 
 	defer func() {
 		if r := recover(); r != nil {
-			t.Fatalf("ReadNew reventó con un log que es un directorio: %v. Un panic aquí se come "+
-				"la TUI, y un error de lectura es algo que el tick ya sabe manejar", r)
+			t.Fatalf("ReadNew panicked with a log that is a directory: %v. A panic here takes "+
+				"down the TUI, and a read error is something the tick already knows how to handle", r)
 		}
 	}()
 
-	for _, off := range []int64{0, 1, tam, tam + 4096} {
-		data, nuevo, err := ReadNew(asDir, off)
+	for _, off := range []int64{0, 1, size, size + 4096} {
+		data, newOff, err := ReadNew(asDir, off)
 		if data != "" {
-			t.Errorf("ReadNew(%d) devolvió %q con un directorio, want vacío: no hay log que leer", off, data)
+			t.Errorf("ReadNew(%d) returned %q with a directory, want empty: there is no log to read", off, data)
 		}
-		if nuevo > off {
-			t.Errorf("ReadNew(%d) dejó el offset en %d: avanzar sobre una lectura que no ha leído "+
-				"nada perdería los bytes que no se leyeron", off, nuevo)
+		if newOff > off {
+			t.Errorf("ReadNew(%d) left the offset at %d: advancing over a read that read "+
+				"nothing would lose the bytes that were not read", off, newOff)
 		}
-		if off < tam && err == nil {
-			t.Errorf("ReadNew(%d) = nil con un directorio y %d bytes que pedir, want EISDIR: un log "+
-				"que es un directorio tiene que decir algo, o el servicio parecerá callado", off, tam)
+		if off < size && err == nil {
+			t.Errorf("ReadNew(%d) = nil with a directory and %d bytes to ask for, want EISDIR: a "+
+				"log that is a directory must say something, or the service will appear silent", off, size)
 		}
 	}
 }
 
-func TestReadNewPropagaElFalloDePreguntarElTamaño(t *testing.T) {
+func TestReadNewPropagatesFailureOfAskingSize(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stdout.log")
-	if err := os.WriteFile(path, []byte("contenido\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("content\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	const offset = 3
-	data, nuevo, err := readNew(path, offset, func(*os.File) (int64, error) {
-		return 0, errors.New("el log se rotó justo antes de preguntar")
+	data, newOff, err := readNew(path, offset, func(*os.File) (int64, error) {
+		return 0, errors.New("the log rotated right before asking")
 	})
 	if err == nil {
-		t.Fatal("readNew = nil cuando no se puede preguntar el tamaño: el buffer se haría con un " +
-			"tamaño inventado")
+		t.Fatal("readNew = nil when the size cannot be asked: the buffer would be made with an " +
+			"invented size")
 	}
 	if data != "" {
-		t.Errorf("data = %q con un fallo al preguntar, want vacío", data)
+		t.Errorf("data = %q with a failure on asking, want empty", data)
 	}
-	if nuevo != offset {
-		t.Errorf("offset = %d tras un fallo al preguntar, want %d", nuevo, offset)
+	if newOff != offset {
+		t.Errorf("offset = %d after a failure on asking, want %d", newOff, offset)
 	}
 }
 
 // Nobody produces a negative offset today, but a signed overflow in offset+n would make size-offset enormous, so the floor must exist even for a hypothetical case.
-func TestReadNewConUnOffsetNegativoNoRevienta(t *testing.T) {
+func TestReadNewWithNegativeOffsetDoesNotPanic(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stdout.log")
-	const contenido = "linea\n"
-	if err := os.WriteFile(path, []byte(contenido), 0o644); err != nil {
+	const content = "line\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	defer func() {
 		if r := recover(); r != nil {
-			t.Fatalf("ReadNew reventó con un offset negativo: %v", r)
+			t.Fatalf("ReadNew panicked with a negative offset: %v", r)
 		}
 	}()
 
-	data, nuevo, err := ReadNew(path, -1)
+	data, newOff, err := ReadNew(path, -1)
 	if err != nil {
-		t.Fatalf("ReadNew con offset negativo = %v, want nil: un offset imposible se corrige, no "+
-			"se devuelve como error", err)
+		t.Fatalf("ReadNew with negative offset = %v, want nil: an impossible offset is corrected, "+
+			"not returned as an error", err)
 	}
-	if data != contenido {
-		t.Errorf("data = %q, want %q: el suelo a 0 hace que se lea el fichero entero", data, contenido)
+	if data != content {
+		t.Errorf("data = %q, want %q: the floor at 0 makes it read the entire file", data, content)
 	}
-	if nuevo != int64(len(contenido)) {
-		t.Errorf("offset = %d, want %d", nuevo, len(contenido))
+	if newOff != int64(len(content)) {
+		t.Errorf("offset = %d, want %d", newOff, len(content))
 	}
 }
 
-// MEDIDO: closing the descriptor under Stat makes it fail with EBADF, the state a descriptor is in when its file is deleted and the fd recycled, which happens on a machine with inode churn.
-func TestTamanoDeFallaCuandoElDescriptorYaNoSirve(t *testing.T) {
+// MEASURED: closing the descriptor under Stat makes it fail with EBADF, the state a descriptor is in when its file is deleted and the fd recycled, which happens on a machine with inode churn.
+func TestSizeFailsWhenDescriptorIsNoLongerValid(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stdout.log")
-	if err := os.WriteFile(path, []byte("contenido\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("content\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -193,8 +193,8 @@ func TestTamanoDeFallaCuandoElDescriptorYaNoSirve(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := tamanoDe(f); err == nil {
-		t.Error("tamanoDe = nil sobre un descriptor cerrado: un tamaño inventado a partir de un " +
-			"fd muerto es un buffer de tamaño arbitrario")
+	if _, err := sizeOf(f); err == nil {
+		t.Error("sizeOf = nil on a closed descriptor: an invented size from a " +
+			"dead fd is a buffer of arbitrary size")
 	}
 }

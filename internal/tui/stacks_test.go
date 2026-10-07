@@ -46,7 +46,7 @@ func newStackModel(t *testing.T) Model {
 	m.width, m.height = 100, 30
 	m.updateLayout()
 	if m.engine == nil {
-		t.Fatalf("New no construyó el engine: falta el compose file %s", orchestrate.ComposeFileName)
+		t.Fatalf("New did not build the engine: missing the compose file %s", orchestrate.ComposeFileName)
 	}
 	return m
 }
@@ -55,7 +55,7 @@ func TestStackStatsCuentaLosServiciosDelStackYNoLosDemas(t *testing.T) {
 	m := newStackModel(t)
 	stacks := m.stacksForPrimary("tienda")
 	if len(stacks) != 1 {
-		t.Fatalf("hay %d stacks, want 1", len(stacks))
+		t.Fatalf("there are %d stacks, want 1", len(stacks))
 	}
 	stack := &stacks[0]
 
@@ -64,10 +64,10 @@ func TestStackStatsCuentaLosServiciosDelStackYNoLosDemas(t *testing.T) {
 		t.Fatal(err)
 	}
 	if total != 2 {
-		t.Errorf("total = %d, want 2 (los dos servicios del stack)", total)
+		t.Errorf("total = %d, want 2 (the two services of the stack)", total)
 	}
 	if running != 0 {
-		t.Errorf("running = %d sin ningún servicio vivo", running)
+		t.Errorf("running = %d with no service alive", running)
 	}
 
 	markRunning(&m, projectPath(t, m, "tienda-web"), 4242)
@@ -102,11 +102,11 @@ primary_group = "tienda"
 	m.updateLayout()
 	stacks := m.stacksForPrimary("tienda")
 	if len(stacks) != 1 {
-		t.Fatalf("hay %d stacks, want 1", len(stacks))
+		t.Fatalf("there are %d stacks, want 1", len(stacks))
 	}
 
 	if _, _, err := m.stackStats(&stacks[0]); err == nil {
-		t.Error("un nombre ambiguo debería hacer fallar el recuento: el TUI no puede decidir con un recuento que no sabe a qué servicio corresponde")
+		t.Error("an ambiguous name should make the count fail: the TUI cannot decide with a count that doesn't know which service it corresponds to")
 	}
 }
 
@@ -120,14 +120,14 @@ func TestToggleStackArrancaUnStackParadoYAvisa(t *testing.T) {
 	got := out.(Model)
 
 	if cmd == nil {
-		t.Fatal("un stack parado debería devolver el Cmd de arranque")
+		t.Fatal("a stopped stack should return the launch Cmd")
 	}
 	if !strings.Contains(got.message, "launching stack front") {
-		t.Errorf("el aviso no dice que se está lanzando: %q", got.message)
+		t.Errorf("the message does not say it is launching: %q", got.message)
 	}
 	for path, sv := range got.services {
 		if sv.Status == statusStopping {
-			t.Errorf("%s quedó en stopping al lanzar el stack", path)
+			t.Errorf("%s was left in stopping when launching the stack", path)
 		}
 	}
 }
@@ -146,14 +146,14 @@ func TestToggleStackParaUnStackCompletoYAvisoYMarcaStopping(t *testing.T) {
 	got := out.(Model)
 
 	if cmd != nil {
-		t.Error("parar un stack es síncrono: el motor lo hace aquí y no devuelve Cmd")
+		t.Error("stopping a stack is synchronous: the engine does it here and does not return Cmd")
 	}
 	if !strings.Contains(got.message, "stopping stack front") {
-		t.Errorf("el aviso no dice que se está parando: %q", got.message)
+		t.Errorf("the message does not say it is stopping: %q", got.message)
 	}
 	for _, path := range []string{web, api} {
 		if got.services[path].Status != statusStopping {
-			t.Errorf("%s quedó en %q, want stopping: mientras se para hay que mostrar algo, no 'corriendo'", path, got.services[path].Status)
+			t.Errorf("%s was left in %q, want stopping: while stopping something must be shown, not 'running'", path, got.services[path].Status)
 		}
 	}
 }
@@ -185,13 +185,13 @@ primary_group = "tienda"
 	got := out.(Model)
 
 	if cmd != nil {
-		t.Error("con un conflicto no se debe lanzar nada")
+		t.Error("with a conflict nothing should be launched")
 	}
 	if !strings.Contains(got.message, "stack conflict") {
-		t.Errorf("el aviso no dice que hay conflicto: %q", got.message)
+		t.Errorf("the message does not say there is a conflict: %q", got.message)
 	}
 	if !strings.Contains(got.message, "ambiguous") {
-		t.Errorf("el aviso no explica la causa: %q", got.message)
+		t.Errorf("the message does not explain the cause: %q", got.message)
 	}
 }
 
@@ -202,13 +202,13 @@ func TestToggleComposersSinStacksLoDice(t *testing.T) {
 	got := out.(Model)
 
 	if cmd != nil {
-		t.Error("sin stacks no hay nada que lanzar")
+		t.Error("without stacks there is nothing to launch")
 	}
 	if !strings.Contains(got.message, "no stacks found") {
-		t.Errorf("el aviso no explica que no hay stacks: %q", got.message)
+		t.Errorf("the message does not explain that there are no stacks: %q", got.message)
 	}
 	if !strings.Contains(got.message, "grupo-que-no-tiene-stacks") {
-		t.Errorf("el aviso no nombra el grupo: %q", got.message)
+		t.Errorf("the message does not name the group: %q", got.message)
 	}
 }
 
@@ -238,16 +238,16 @@ primary_group = "tienda"
 	m.width, m.height = 100, 30
 	m.updateLayout()
 	if len(m.stacksForPrimary("tienda")) != 2 {
-		t.Fatalf("el árbol de test no tiene 2 stacks: %v", namesOfStacks(m.stacksForPrimary("tienda")))
+		t.Fatalf("the test tree does not have 2 stacks: %v", namesOfStacks(m.stacksForPrimary("tienda")))
 	}
 
 	out, cmd := m.toggleComposers("tienda")
 	got := out.(Model)
 	if cmd == nil {
-		t.Fatal("con stacks parados debería devolver el Cmd de lanzamiento")
+		t.Fatal("with stopped stacks it should return the launch Cmd")
 	}
 	if !strings.Contains(got.message, "launching stacks in tienda") {
-		t.Errorf("el aviso no dice que se lanzan stacks: %q", got.message)
+		t.Errorf("the message does not say that stacks are being launched: %q", got.message)
 	}
 
 	// The criterion is ALL: with one of the two stacks alive it launches and restarts the stopped one, because stopping a half-raised group would leave a state nobody asked for.
@@ -259,10 +259,10 @@ primary_group = "tienda"
 	out, cmd = m.toggleComposers("tienda")
 	got = out.(Model)
 	if cmd == nil {
-		t.Error("con un stack a medias debería lanzar, no parar")
+		t.Error("with a half-started stack it should launch, not stop")
 	}
 	if !strings.Contains(got.message, "launching stacks") {
-		t.Errorf("con stacks a medias el aviso dice %q, want launching", got.message)
+		t.Errorf("with half-started stacks the message says %q, want launching", got.message)
 	}
 }
 
@@ -277,10 +277,10 @@ func TestToggleComposersParaCuandoTodosEstanVivos(t *testing.T) {
 	out, cmd := m.toggleStack(stack)
 	got := out.(Model)
 	if cmd != nil {
-		t.Error("un stack completo se para de forma síncrona, sin Cmd")
+		t.Error("a complete stack is stopped synchronously, without Cmd")
 	}
 	if !strings.Contains(got.message, "stopping stack front") {
-		t.Errorf("con todos los servicios vivos debería parar, no lanzar: %q", got.message)
+		t.Errorf("with all services alive it should stop, not launch: %q", got.message)
 	}
 }
 
@@ -308,7 +308,7 @@ primary_group = "tienda"
 		}
 	}
 	if stackIdx < 0 {
-		t.Skip("este árbol no expone el stack como item del árbol: el caso no se puede provocar")
+		t.Skip("this tree does not expose the stack as a tree item: the case cannot be triggered")
 	}
 	m.cursor = stackIdx
 
@@ -318,7 +318,7 @@ primary_group = "tienda"
 			out, _ := m.Update(keyPress(key))
 			got := out.(Model)
 			if !strings.Contains(got.message, "not available for stacks") {
-				t.Errorf("tecla %q sobre un stack dio %q, want el aviso de no disponible", key, got.message)
+				t.Errorf("key %q on a stack gave %q, want the not available message", key, got.message)
 			}
 		})
 	}
@@ -330,11 +330,11 @@ func TestHandleKeyAliasOAlwaysOpensTheEditor(t *testing.T) {
 	m.cursor = findCursor(m, "tienda-api")
 
 	if _, ok := m.keyActions["o"]; ok {
-		t.Skip("el config del harness reclama 'o': el alias cedido es el caso del config, no éste")
+		t.Skip("the harness config claims 'o': the alias case is the config case, not this one")
 	}
 	out, _ := m.Update(keyPress("o"))
 	got := out.(Model)
 	if got.message == "editor closed" {
-		t.Error("no se ejecutó el cmd del editor: la aserción se apoyaría en nada")
+		t.Error("the editor cmd was not executed: the assertion would rest on nothing")
 	}
 }

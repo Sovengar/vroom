@@ -15,12 +15,12 @@ func TestLosAccesoresNoRevientanConUnProyectoSinManifiesto(t *testing.T) {
 		primario   string
 		secundario string
 	}{
-		{"sin manifiesto en absoluto", scanner.Project{Name: "suelto"}, "", ""},
-		{"manifiesto a nil explícito", scanner.Project{Name: "x", Manifest: nil}, "", ""},
-		{"con ambos grupos", proyectoConGrupos("tienda", "backend", "api"), "tienda", "backend"},
-		{"sólo primario", proyectoConGrupos("tienda", "", "api"), "tienda", ""},
-		{"sólo secundario", proyectoConGrupos("", "backend", "api"), "", "backend"},
-		{"sin ningún grupo", proyectoConGrupos("", "", "x"), "", ""},
+		{"no manifest at all", scanner.Project{Name: "loose"}, "", ""},
+		{"manifest explicitly nil", scanner.Project{Name: "x", Manifest: nil}, "", ""},
+		{"with both groups", proyectoConGrupos("shop", "backend", "api"), "shop", "backend"},
+		{"primary only", proyectoConGrupos("shop", "", "api"), "shop", ""},
+		{"secondary only", proyectoConGrupos("", "backend", "api"), "", "backend"},
+		{"with no groups", proyectoConGrupos("", "", "x"), "", ""},
 	}
 	for _, tt := range casos {
 		t.Run(tt.nombre, func(t *testing.T) {
@@ -38,40 +38,40 @@ func TestLosAccesoresNoRevientanConUnProyectoSinManifiesto(t *testing.T) {
 func TestElGrupoVacioNoEsUnGrupoNiComoPrimaryNiComoSecundario(t *testing.T) {
 	p := proyectoConGrupos("", "", "x")
 	if PrimaryOf(p) != "" {
-		t.Errorf("un primary vacío devolvió %q: el agrupamiento lo trataría como un grupo llamado %q", PrimaryOf(p), "")
+		t.Errorf("an empty primary returned %q: grouping would treat it as a group named %q", PrimaryOf(p), "")
 	}
 	if SecondaryOf(p) != "" {
-		t.Errorf("un secondary vacío devolvió %q", SecondaryOf(p))
+		t.Errorf("an empty secondary returned %q", SecondaryOf(p))
 	}
 }
 
 // Entries arrive already sorted by group, so opening a block is literally "the previous entry is a different group".
 func TestIsPrimaryHeaderAbreUnBloqueSoloEnSuPrimeraEntrada(t *testing.T) {
 	entradas := []Entry{
-		{Primary: "tienda"},
-		{Primary: "tienda"},
-		{Primary: "tienda"},
+		{Primary: "shop"},
+		{Primary: "shop"},
+		{Primary: "shop"},
 		{Primary: "blog"},
 		{Primary: "blog"},
-		{Primary: ""}, // inline: no abre bloque
-		{Primary: ""}, // inline: tampoco
-		{Primary: "otro"},
+		{Primary: ""}, // inline: does not open a block
+		{Primary: ""}, // inline: neither does this
+		{Primary: "other"},
 	}
 
 	want := []bool{
-		true,  // la primera de tienda
-		false, // la segunda ya está dentro
-		false, // la tercera también
-		true,  // cambio de grupo
-		false, // dentro de blog
-		false, // sin grupo: no abre bloque
-		false, // sin grupo: tampoco
-		true,  // vuelta a haber grupo
+		true,  // first of shop
+		false, // second is already inside
+		false, // third as well
+		true,  // group change
+		false, // inside blog
+		false, // no group: does not open a block
+		false, // no group: neither does this
+		true,  // group again
 	}
 
 	for i := range entradas {
 		if got := IsPrimaryHeader(entradas, i); got != want[i] {
-			t.Errorf("IsPrimaryHeader(%d) = %v, want %v (grupo %q)", i, got, want[i], entradas[i].Primary)
+			t.Errorf("IsPrimaryHeader(%d) = %v, want %v (group %q)", i, got, want[i], entradas[i].Primary)
 		}
 	}
 }
@@ -80,14 +80,14 @@ func TestIsPrimaryHeaderAbreUnBloqueSoloEnSuPrimeraEntrada(t *testing.T) {
 func TestUnBloqueDeUnSoloMiembroSiAbreCabecera(t *testing.T) {
 	entradas := []Entry{
 		{Primary: "blog"},
-		{Primary: "tienda"},
+		{Primary: "shop"},
 	}
 	if !IsPrimaryHeader(entradas, 1) {
-		t.Error("un grupo con un solo miembro tiene que abrir cabecera: si no, el proyecto " +
-			"aparece suelto en el árbol y su grupo desaparece")
+		t.Error("a group with a single member must open a header: otherwise the project " +
+			"appears loose in the tree and its group disappears")
 	}
 	if !IsPrimaryHeader(entradas, 0) {
-		t.Error("la primera entrada tiene que abrir cabecera aunque no tenga anterior")
+		t.Error("the first entry must open a header even without a previous one")
 	}
 }
 
@@ -95,9 +95,9 @@ func TestUnBloqueDeUnSoloMiembroSiAbreCabecera(t *testing.T) {
 func TestSecundarioOrdenaElArbolSinMezclarGrupos(t *testing.T) {
 	// The input order is interleaved on purpose, because the scan yields projects in directory order, not group order.
 	proyectos := []scanner.Project{
-		proyectoConGrupos("tienda", "", "api"),
+		proyectoConGrupos("shop", "", "api"),
 		proyectoConGrupos("blog", "", "api"),
-		proyectoConGrupos("tienda", "", "web"),
+		proyectoConGrupos("shop", "", "web"),
 	}
 	entradas := Arrange(proyectos)
 
@@ -106,24 +106,24 @@ func TestSecundarioOrdenaElArbolSinMezclarGrupos(t *testing.T) {
 	for i := range entradas {
 		if !IsPrimaryHeader(entradas, i) {
 			if entradas[i].Primary != grupoActual {
-				t.Errorf("la entrada %d (%s) dice que no abre bloque pero es del grupo %q y el anterior era %q: "+
-					"los grupos no están ordenados", i, entradas[i].Project.Name, entradas[i].Primary, grupoActual)
+				t.Errorf("entry %d (%s) says it does not open a block but belongs to group %q and the previous was %q: "+
+					"groups are not sorted", i, entradas[i].Project.Name, entradas[i].Primary, grupoActual)
 			}
 			continue
 		}
 		if cabeceras != nil && cabeceras[len(cabeceras)-1] == entradas[i].Primary {
-			t.Errorf("el grupo %q abre dos cabeceras: los miembros no están contiguos", entradas[i].Primary)
+			t.Errorf("group %q opens two headers: members are not contiguous", entradas[i].Primary)
 		}
 		cabeceras = append(cabeceras, entradas[i].Primary)
 		grupoActual = entradas[i].Primary
 	}
 
 	if len(cabeceras) != 2 {
-		t.Errorf("se abrieron %d cabeceras (%v), want 2: una por grupo", len(cabeceras), cabeceras)
+		t.Errorf("%d headers were opened (%v), want 2: one per group", len(cabeceras), cabeceras)
 	}
-	// MEDIDO: block order is first appearance, not alphabetical, so the tree follows the order in which the user walks their projects.
-	if cabeceras[0] != "tienda" {
-		t.Errorf("la primera cabecera es %q, want tienda: el orden es el de primera aparición", cabeceras[0])
+	// MEASURED: block order is first appearance, not alphabetical, so the tree follows the order in which the user walks their projects.
+	if cabeceras[0] != "shop" {
+		t.Errorf("the first header is %q, want shop: the order is first appearance", cabeceras[0])
 	}
 }
 

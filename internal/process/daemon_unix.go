@@ -106,7 +106,7 @@ func (u *unixManager) Stop(spec StopSpec) error {
 	root, lineage := captureLineage(spec)
 
 	// Only the decision (warn or stay silent) is exercisable in a test; whether anything survived SIGKILL needs a foreign user's process.
-	spec.avisaSiSeAgotó(root, lineage, root > 0 && !terminate(root, spec.Pgid, lineage, timeout))
+	spec.warnIfExhausted(root, lineage, root > 0 && !terminate(root, spec.Pgid, lineage, timeout))
 
 	// Last resort: free the port, but only on proof of ownership.
 	if spec.Port > 0 && PortOpen(spec.Port) {
@@ -115,10 +115,10 @@ func (u *unixManager) Stop(spec StopSpec) error {
 	return nil
 }
 
-// root > 0 because terminate is not called at all without a root; noMurio because a Stop that worked must leave no noise in the log.
-func (s StopSpec) avisaSiSeAgotó(root int, lineage []int, noMurio bool) {
-	if root > 0 && noMurio {
-		s.warnf("stop: quedan procesos vivos tras SIGKILL (%s)", lineageDesc(root, lineage))
+// root > 0 because terminate is not called at all without a root; didNotDie because a Stop that worked must leave no noise in the log.
+func (s StopSpec) warnIfExhausted(root int, lineage []int, didNotDie bool) {
+	if root > 0 && didNotDie {
+		s.warnf("stop: processes still alive after SIGKILL (%s)", lineageDesc(root, lineage))
 	}
 }
 
@@ -146,7 +146,7 @@ func lineageDesc(root int, lineage []int) string {
 	if len(lineage) <= 1 {
 		return "pgid " + strconv.Itoa(root)
 	}
-	return "pgid " + strconv.Itoa(root) + " y " + strconv.Itoa(len(lineage)-1) + " descendiente(s)"
+	return "pgid " + strconv.Itoa(root) + " and " + strconv.Itoa(len(lineage)-1) + " descendant(s)"
 }
 
 func (u *unixManager) Evaluate(spec EvalSpec) Status {
@@ -247,11 +247,11 @@ func pgidAlive(pgid int) bool {
 	if pgid <= 0 {
 		return false
 	}
-	return grupoExiste(syscall.Kill(-pgid, syscall.Signal(0)))
+	return groupExists(syscall.Kill(-pgid, syscall.Signal(0)))
 }
 
 // EPERM means the group exists but is not ours (alive, maybe not our processes), ESRCH means nobody is left; swapping them inverts the decision.
-func grupoExiste(err error) bool {
+func groupExists(err error) bool {
 	switch {
 	case err == nil:
 		return true
@@ -272,12 +272,12 @@ func killPortHolderWith(port, rootPid int, lineage []int, owners func(int) []int
 
 	candidates := distinctOwners(owners(port))
 	if len(candidates) != 1 {
-		warn("puerto %d ocupado pero vroom no puede probar quién lo tiene: no se mata nada", port)
+		warn("port %d occupied but vroom cannot prove who holds it: nothing is killed", port)
 		return
 	}
 	owner := candidates[0]
 	if owner != rootPid && !containsPid(lineage, owner) {
-		warn("puerto %d lo tiene el pid %d, fuera del linaje de este servicio: no se mata nada", port, owner)
+		warn("port %d is held by pid %d, outside this service's lineage: nothing is killed", port, owner)
 		return
 	}
 
@@ -289,7 +289,7 @@ func killPortHolderWith(port, rootPid int, lineage []int, owners func(int) []int
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	warn("puerto %d sigue ocupado tras kill: hay un proceso que no se deja matar", port)
+	warn("port %d still occupied after kill: there is a process that refuses to die", port)
 }
 
 func distinctOwners(pids []int32) []int {

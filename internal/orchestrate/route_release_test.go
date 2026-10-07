@@ -50,7 +50,7 @@ func TestEngineStopProcessRemovesTheServiceRoute(t *testing.T) {
 	})
 
 	if len(rec.removed) != 1 || rec.removed[0] != "p-route" {
-		t.Errorf("stopProcess debe retirar la ruta del servicio, got %v", rec.removed)
+		t.Errorf("stopProcess must remove the service route, got %v", rec.removed)
 	}
 }
 
@@ -71,7 +71,7 @@ func TestEngineAbortCleanupRemovesRoutes(t *testing.T) {
 	e.abortAndCleanup([]string{dir})
 
 	if len(rec.removed) != 1 || rec.removed[0] != "ruta-de-la-sesion" {
-		t.Errorf("el rollback de la sesión debe retirar la ruta, got %v", rec.removed)
+		t.Errorf("session rollback must remove the route, got %v", rec.removed)
 	}
 }
 
@@ -83,7 +83,7 @@ func TestEngineStopWithoutRouteDoesNotCallRelease(t *testing.T) {
 	e.stopProcess("/tmp/proyecto", &state.Meta{Name: "p", Pid: 1, Port: 4321})
 
 	if len(rec.removed) != 0 {
-		t.Errorf("sin ruta registrada no debe retirarse nada, got %v", rec.removed)
+		t.Errorf("with no registered route nothing should be removed, got %v", rec.removed)
 	}
 }
 
@@ -107,14 +107,14 @@ func TestStopServiceDeadServiceRemovesRoute(t *testing.T) {
 	e.stopService(scanner.Project{Path: dir, Configured: true, Manifest: &manifest.Manifest{Name: "p"}})
 
 	if len(rec.removed) != 1 || rec.removed[0] != "ruta-heredada" {
-		t.Errorf("stopService debe retirar la ruta del servicio ya muerto, got %v", rec.removed)
+		t.Errorf("stopService must remove the route of the already-dead service, got %v", rec.removed)
 	}
 	meta, err := e.store.LoadMeta(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if meta.RouteOwned {
-		t.Error("tras retirar la ruta la propiedad debe quedar revocada")
+		t.Error("after removing the route, ownership must be revoked")
 	}
 }
 
@@ -138,14 +138,14 @@ func TestAbortCleanupDeadServiceRemovesRoute(t *testing.T) {
 	e.abortAndCleanup([]string{dir})
 
 	if len(rec.removed) != 1 || rec.removed[0] != "ruta-de-sesion" {
-		t.Errorf("abortAndCleanup debe retirar la ruta del servicio ya muerto, got %v", rec.removed)
+		t.Errorf("abortAndCleanup must remove the route of the already-dead service, got %v", rec.removed)
 	}
 	meta, err := e.store.LoadMeta(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if meta.RouteOwned {
-		t.Error("tras retirar la ruta la propiedad debe quedar revocada")
+		t.Error("after removing the route, ownership must be revoked")
 	}
 }
 
@@ -162,6 +162,6 @@ func TestEngineDoesNotRemoveAForeignRoute(t *testing.T) {
 	})
 
 	if len(rec.removed) != 0 {
-		t.Errorf("el stop no puede retirar una ruta que nunca fue nuestra, got %v", rec.removed)
+		t.Errorf("stop cannot remove a route that was never ours, got %v", rec.removed)
 	}
 }

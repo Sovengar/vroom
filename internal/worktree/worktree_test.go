@@ -68,16 +68,16 @@ prunable gitdir file points to non-existent location
 		t.Fatalf("worktrees = %d, want 4: %+v", len(wts), wts)
 	}
 	if wts[0].Path != "/repo" || wts[0].Branch != "main" || wts[0].Detached {
-		t.Errorf("main entry mal parseada: %+v", wts[0])
+		t.Errorf("main entry badly parsed: %+v", wts[0])
 	}
 	if wts[1].Branch != "feature" {
 		t.Errorf("branch = %q, want feature", wts[1].Branch)
 	}
 	if !wts[2].Detached || wts[2].Branch != "" {
-		t.Errorf("detached mal parseado: %+v", wts[2])
+		t.Errorf("detached badly parsed: %+v", wts[2])
 	}
 	if !wts[3].Prunable {
-		t.Errorf("prunable no detectado: %+v", wts[3])
+		t.Errorf("prunable not detected: %+v", wts[3])
 	}
 }
 
@@ -88,20 +88,20 @@ func TestParsePorcelainBare(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(wts) != 1 || !wts[0].Bare {
-		t.Fatalf("esperaba 1 bare, got %+v", wts)
+		t.Fatalf("expected 1 bare, got %+v", wts)
 	}
 }
 
 func TestParsePorcelainEmpty(t *testing.T) {
 	wts, err := ParsePorcelain("")
 	if err != nil || len(wts) != 0 {
-		t.Fatalf("vacío debe dar lista vacía sin error, got %v %v", wts, err)
+		t.Fatalf("empty must yield an empty list without error, got %v %v", wts, err)
 	}
 }
 
 func TestParsePorcelainMalformed(t *testing.T) {
 	if _, err := ParsePorcelain("garbage without blocks\n"); err == nil {
-		t.Fatal("salida malformada debe devolver error")
+		t.Fatal("malformed output must return an error")
 	}
 }
 
@@ -112,11 +112,11 @@ func TestParsePorcelainIgnoresEmptyWorktreePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(wts) != 1 {
-		t.Fatalf("worktrees = %d, want 1 (bloque sin ruta ignorado): %+v", len(wts), wts)
+		t.Fatalf("worktrees = %d, want 1 (block without path ignored): %+v", len(wts), wts)
 	}
 	for _, wt := range wts {
 		if wt.Path == "" {
-			t.Errorf("no debe haber entradas con Path vacío: %+v", wts)
+			t.Errorf("there must be no entries with empty Path: %+v", wts)
 		}
 	}
 }
@@ -132,7 +132,7 @@ func TestIsBareRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !IsBareRepo(bare) {
-		t.Error("bare repo con marcador debe detectarse")
+		t.Error("bare repo with marker must be detected")
 	}
 
 	noMarker := t.TempDir()
@@ -145,7 +145,7 @@ func TestIsBareRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	if IsBareRepo(noMarker) {
-		t.Error("sin marcador bare no debe detectarse")
+		t.Error("without bare marker it must not be detected")
 	}
 
 	normal := t.TempDir()
@@ -159,7 +159,7 @@ func TestIsBareRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	if IsBareRepo(normal) {
-		t.Error("un dir con .git no debe tratarse como bare")
+		t.Error("a dir with .git must not be treated as bare")
 	}
 
 	wt := t.TempDir()
@@ -173,7 +173,7 @@ func TestIsBareRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	if IsBareRepo(wt) {
-		t.Error("un dir con .git file no debe tratarse como bare")
+		t.Error("a dir with a .git file must not be treated as bare")
 	}
 }
 
@@ -188,12 +188,12 @@ func TestIsBareRepoScopesMarkerToCore(t *testing.T) {
 		t.Fatal(err)
 	}
 	if IsBareRepo(dir) {
-		t.Error("bare fuera de [core] no debe detectarse como bare repo")
+		t.Error("bare outside [core] must not be detected as a bare repo")
 	}
 
 	writeFile(t, filepath.Join(dir, "config"), "[core]\n\tbare = true # bare repo\n")
 	if !IsBareRepo(dir) {
-		t.Error("bare = true dentro de [core] debe detectarse")
+		t.Error("bare = true inside [core] must be detected")
 	}
 }
 
@@ -207,7 +207,7 @@ func TestListGitUnavailable(t *testing.T) {
 func TestListGitFailure(t *testing.T) {
 	t.Setenv("PATH", fakeGit(t, "boom\n", 1))
 	if _, err := List(t.TempDir()); err == nil {
-		t.Fatal("exit != 0 debe devolver error")
+		t.Fatal("exit != 0 must return an error")
 	}
 }
 
@@ -219,7 +219,7 @@ func TestListFakeGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(wts) != 1 || wts[0].Path != "/repo" || wts[0].Branch != "main" {
-		t.Fatalf("worktrees inesperados: %+v", wts)
+		t.Fatalf("unexpected worktrees: %+v", wts)
 	}
 }
 
@@ -228,10 +228,10 @@ func TestListSeparatesStdoutFromStderr(t *testing.T) {
 	t.Setenv("PATH", fakeGitStreams(t, out, "warning: something on stderr\n", 0))
 	wts, err := List("/whatever")
 	if err != nil {
-		t.Fatalf("stderr no debe romper el parseo: %v", err)
+		t.Fatalf("stderr must not break parsing: %v", err)
 	}
 	if len(wts) != 1 || wts[0].Path != "/repo" {
-		t.Fatalf("worktrees inesperados: %+v", wts)
+		t.Fatalf("unexpected worktrees: %+v", wts)
 	}
 }
 
@@ -239,10 +239,10 @@ func TestListFailureIncludesStderr(t *testing.T) {
 	t.Setenv("PATH", fakeGitStreams(t, "", "fatal: not a git repository\n", 1))
 	_, err := List("/whatever")
 	if err == nil {
-		t.Fatal("exit != 0 debe devolver error")
+		t.Fatal("exit != 0 must return an error")
 	}
 	if !strings.Contains(err.Error(), "not a git repository") {
-		t.Errorf("el error debe incluir el stderr: %v", err)
+		t.Errorf("the error must include stderr: %v", err)
 	}
 }
 
@@ -265,12 +265,12 @@ func TestListTimeoutIsBounded(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if err == nil {
-		t.Fatal("el timeout debe devolver error de degradación")
+		t.Fatal("the timeout must return a degradation error")
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("err = %v, want context.DeadlineExceeded", err)
 	}
 	if elapsed > 1500*time.Millisecond {
-		t.Errorf("timeout no acotado: %v", elapsed)
+		t.Errorf("unbounded timeout: %v", elapsed)
 	}
 }

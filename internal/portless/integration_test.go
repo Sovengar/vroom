@@ -28,27 +28,27 @@ func TestIntegrationRealPortless(t *testing.T) {
 	// The hermetic suite cannot show this: there the proxy is a double.
 	res := c.Apply("vroom.integration", 4321, portless.Ownership{})
 	if res.Succeeded() {
-		t.Fatalf("sin un proxy propio no debe publicarse url, got %+v", res)
+		t.Fatalf("without its own proxy no url must be published, got %+v", res)
 	}
 	if res.Url != "" {
-		t.Errorf("una ruta no verificada no publica url, got %q", res.Url)
+		t.Errorf("an unverified route does not publish url, got %q", res.Url)
 	}
 	port, found, err := c.Lookup("vroom.integration")
 	if err != nil {
-		t.Skipf("portless no responde como se espera (%s): %v", bin, err)
+		t.Skipf("portless does not respond as expected (%s): %v", bin, err)
 	}
 	if !found || port != 4321 {
-		t.Fatalf("la ruta debe quedar registrada para cuando vuelva el proxy: port=%d found=%v", port, found)
+		t.Fatalf("the route must remain registered for when the proxy returns: port=%d found=%v", port, found)
 	}
 
 	if err := c.Remove("vroom.integration"); err != nil {
-		t.Errorf("parar debe retirar la ruta: %v", err)
+		t.Errorf("stopping must remove the route: %v", err)
 	}
 	if err := c.Remove("vroom.integration"); err != nil {
-		t.Errorf("un stop repetido no puede fallar: %v", err)
+		t.Errorf("a repeated stop cannot fail: %v", err)
 	}
 	if _, still, _ := c.Lookup("vroom.integration"); still {
-		t.Error("la ruta debe desaparecer tras el stop")
+		t.Error("the route must disappear after the stop")
 	}
 }
 
@@ -69,10 +69,10 @@ func TestLiveProbeDistinguishesNotServedFromBackendDown(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	status, err := probeOnce("http", "app.localhost", port)
 	if err != nil {
-		t.Fatalf("el proxy de prueba debe responder: %v", err)
+		t.Fatalf("the test proxy must respond: %v", err)
 	}
 	if status != 502 {
-		t.Fatalf("se esperaba 502, got %d", status)
+		t.Fatalf("expected 502, got %d", status)
 	}
 
 	ln2, err := net.Listen("tcp", "127.0.0.1:0")
@@ -87,12 +87,12 @@ func TestLiveProbeDistinguishesNotServedFromBackendDown(t *testing.T) {
 		t.Fatal(err)
 	}
 	if status2 != 404 {
-		t.Fatalf("se esperaba 404, got %d", status2)
+		t.Fatalf("expected 404, got %d", status2)
 	}
 
 	// A dead port is a third category, a connection failure, and it means no proxy.
 	if _, err := probeOnce("http", "app.localhost", closedPort(t)); err == nil {
-		t.Error("un puerto cerrado debe fallar, no devolver un status")
+		t.Error("a closed port must fail, not return a status")
 	}
 }
 
@@ -139,7 +139,7 @@ func integrationBin(t *testing.T) string {
 	if bin := portless.ResolveBinary(); bin != "" {
 		return bin
 	}
-	t.Skip("no hay portless instalado")
+	t.Skip("no portless installed")
 	return ""
 }
 
@@ -147,7 +147,7 @@ func integrationBin(t *testing.T) string {
 func requireIntegration(t *testing.T) {
 	t.Helper()
 	if os.Getenv("VROOM_PORTLESS_INTEGRATION") != "1" {
-		t.Skip("integración real: pon VROOM_PORTLESS_INTEGRATION=1 (aísla el estado en un temporal)")
+		t.Skip("real integration: set VROOM_PORTLESS_INTEGRATION=1 (isolates state in a temp dir)")
 	}
 }
 
@@ -165,7 +165,7 @@ func TestRouteSurvivesAProxyRestart(t *testing.T) {
 		portless.WithTimeout(15*time.Second),
 	)
 	if res := c.Apply("vroom.restart", backend, portless.Ownership{}); !res.Succeeded() {
-		t.Skipf("sin proxy propio no hay nada que verificar: %+v", res)
+		t.Skipf("without its own proxy there is nothing to verify: %+v", res)
 	}
 
 	pid := readProxyPID(t, iso)
@@ -176,15 +176,15 @@ func TestRouteSurvivesAProxyRestart(t *testing.T) {
 
 	port, found, err := c.Lookup("vroom.restart")
 	if err != nil || !found {
-		t.Fatalf("tras el reinicio la ruta debe seguir registrada: found=%v err=%v", found, err)
+		t.Fatalf("after the restart the route must remain registered: found=%v err=%v", found, err)
 	}
 	if port != backend {
-		t.Errorf("la ruta debe seguir apuntando a %d, got %d", backend, port)
+		t.Errorf("the route must still point to %d, got %d", backend, port)
 	}
 
 	status := probeHTTP(t, "http", "vroom.restart.localhost", proxyPort)
 	if status == 0 {
-		t.Errorf("el proxy debe servir la ruta tras el reinicio, no hubo respuesta")
+		t.Errorf("the proxy must serve the route after the restart, there was no response")
 	}
 
 	portless.Release(c, "vroom.restart")
@@ -198,12 +198,12 @@ func TestIntegrationDoesNotEvictLivePortlessRoutes(t *testing.T) {
 
 	liveName := "vroom-live-app"
 	if err := runPortlessApp(t, bin, liveName); err != nil {
-		t.Skipf("no se pudo arrancar la app viva de portless: %v", err)
+		t.Skipf("could not start the portless live app: %v", err)
 	}
 
 	liveHost := liveName + ".localhost"
 	if !waitServes(t, liveHost, proxyPort) {
-		t.Skip("la app viva no llegó a servirse; el entorno no sirve para esta prueba")
+		t.Skip("the live app never got served; the environment is not suitable for this test")
 	}
 
 	c := portless.New(
@@ -215,31 +215,31 @@ func TestIntegrationDoesNotEvictLivePortlessRoutes(t *testing.T) {
 	// The port the app really hears on is the one portless assigned, not the one requested.
 	appPort, found, err := c.Lookup(liveName)
 	if err != nil || !found {
-		t.Fatalf("la app viva debe tener ruta registrada: found=%v err=%v", found, err)
+		t.Fatalf("the live app must have a registered route: found=%v err=%v", found, err)
 	}
 
 	if res := c.Apply("vroom-other", 4321, portless.Ownership{}); !res.Succeeded() {
-		t.Fatalf("la ruta de vroom debe registrarse: %+v", res)
+		t.Fatalf("the vroom route must register: %+v", res)
 	}
 
 	published, stillThere, err := c.Lookup(liveName)
 	if err != nil || !stillThere {
-		t.Fatalf("la ruta de la app viva debe seguir existiendo: found=%v err=%v", stillThere, err)
+		t.Fatalf("the live app's route must still exist: found=%v err=%v", stillThere, err)
 	}
 	if published != appPort {
-		t.Errorf("la ruta de la app viva debe seguir en %d, got %d", appPort, published)
+		t.Errorf("the live app's route must still be at %d, got %d", appPort, published)
 	}
 
 	if status := probeHTTP(t, "http", liveHost, proxyPort); status == 0 {
-		t.Error("la app viva dejó de servirse tras el alias de vroom")
+		t.Error("the live app stopped being served after the vroom alias")
 	}
 
 	portless.Release(c, "vroom-other")
 	if _, still, _ := c.Lookup(liveName); !still {
-		t.Error("parar lo nuestro no puede expulsar la ruta de la app viva")
+		t.Error("stopping our own cannot evict the live app's route")
 	}
 	if status := probeHTTP(t, "http", liveHost, proxyPort); status == 0 {
-		t.Error("la app viva dejó de servirse tras retirar la ruta de vroom")
+		t.Error("the live app stopped being served after removing the vroom route")
 	}
 }
 
@@ -255,7 +255,7 @@ func startIsolatedProxy(t *testing.T, iso, bin string) int {
 	cmd := exec.Command(bin, "proxy", "start", "-p", strconv.Itoa(proxyPort))
 	cmd.Env = append(os.Environ(), "PORTLESS_STATE_DIR="+iso)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Skipf("no se pudo arrancar un proxy aislado: %v: %s", err, out)
+		t.Skipf("could not start an isolated proxy: %v: %s", err, out)
 	}
 	waitPortOpen(t, proxyPort)
 	return proxyPort
@@ -342,7 +342,7 @@ func waitPortOpen(t *testing.T, port int) {
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	t.Skipf("el proxy aislado no abrió el puerto %d", port)
+	t.Skipf("the isolated proxy did not open port %d", port)
 }
 
 func waitPortClosed(t *testing.T, port int) {
@@ -355,7 +355,7 @@ func waitPortClosed(t *testing.T, port int) {
 		_ = c.Close()
 		time.Sleep(150 * time.Millisecond)
 	}
-	t.Skipf("el puerto %d siguió abierto tras parar el proxy", port)
+	t.Skipf("port %d remained open after stopping the proxy", port)
 }
 
 // MEASURED: 4 bytes with no trailing newline, and the only source of the proxy port; a stopped proxy has no file.
@@ -370,6 +370,6 @@ func TestProxyPortFileShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(data) != 4 || strings.TrimSpace(string(data)) != "1399" {
-		t.Errorf("proxy.port debe ser el número pelado, got %q", data)
+		t.Errorf("proxy.port must be the bare number, got %q", data)
 	}
 }

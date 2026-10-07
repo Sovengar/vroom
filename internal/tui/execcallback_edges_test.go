@@ -10,7 +10,7 @@ import (
 func TestEditorDoneMsgDistingueCierreDeFallo(t *testing.T) {
 	msg, ok := editorDoneMsg(nil).(statusMsg)
 	if !ok {
-		t.Fatalf("editorDoneMsg(nil) devolvió %T, want statusMsg", editorDoneMsg(nil))
+		t.Fatalf("editorDoneMsg(nil) returned %T, want statusMsg", editorDoneMsg(nil))
 	}
 	if msg.message != "editor closed" {
 		t.Errorf("message = %q, want \"editor closed\"", msg.message)
@@ -19,15 +19,15 @@ func TestEditorDoneMsgDistingueCierreDeFallo(t *testing.T) {
 	fallo := editorDoneMsg(errors.New("exec: nvim: no encontrado"))
 	msg, ok = fallo.(statusMsg)
 	if !ok {
-		t.Fatalf("editorDoneMsg(err) devolvió %T, want statusMsg", fallo)
+		t.Fatalf("editorDoneMsg(err) returned %T, want statusMsg", fallo)
 	}
 	if !strings.Contains(msg.message, "exited with error") {
-		t.Errorf("message = %q, want que diga que el editor falló", msg.message)
+		t.Errorf("message = %q, want it to say the editor failed", msg.message)
 	}
 	// The reason must ride inside the message: "exited with error" alone cannot tell a bad PATH from a missing binary.
 	if !strings.Contains(msg.message, "no encontrado") {
-		t.Errorf("message = %q, want que incluya el motivo del fallo: sin él el usuario no sabe "+
-			"si tiene que arreglar el PATH o el editor", msg.message)
+		t.Errorf("message = %q, want it to include the reason for the failure: without it the user doesn't know "+
+			"whether to fix the PATH or the editor", msg.message)
 	}
 }
 
@@ -36,7 +36,7 @@ func TestInlineAgentDoneMsgNombraAlAgenteQueFallo(t *testing.T) {
 
 	msg, ok := cb(nil).(statusMsg)
 	if !ok {
-		t.Fatalf("cb(nil) devolvió %T, want statusMsg", cb(nil))
+		t.Fatalf("cb(nil) returned %T, want statusMsg", cb(nil))
 	}
 	if msg.message != "claude closed" {
 		t.Errorf("message = %q, want \"claude closed\"", msg.message)
@@ -44,14 +44,14 @@ func TestInlineAgentDoneMsgNombraAlAgenteQueFallo(t *testing.T) {
 
 	msg, ok = cb(errors.New("status 127")).(statusMsg)
 	if !ok {
-		t.Fatal("cb(err) no devolvió statusMsg")
+		t.Fatal("cb(err) did not return statusMsg")
 	}
 	if !strings.Contains(msg.message, "claude") {
-		t.Errorf("message = %q, want el nombre del agente", msg.message)
+		t.Errorf("message = %q, want the agent name", msg.message)
 	}
 	if !strings.Contains(msg.message, "status 127") {
-		t.Errorf("message = %q, want el motivo: el código de salida es lo que distingue un "+
-			"comando que no existe de uno que falló", msg.message)
+		t.Errorf("message = %q, want the reason: the exit code is what distinguishes a "+
+			"nonexistent command from one that failed", msg.message)
 	}
 }
 
@@ -67,14 +67,14 @@ func TestStartSessionPropagaElFalloDeAbrirElPty(t *testing.T) {
 
 	s, err := startSessionWith(0, 0, t.TempDir(), []string{"/bin/sh"}, abrir)
 	if !errors.Is(err, querido) {
-		t.Fatalf("err = %v, want %v: el fallo del PTY tiene que llegar tal cual", err, querido)
+		t.Fatalf("err = %v, want %v: the PTY failure must arrive as-is", err, querido)
 	}
 	if s != nil {
-		t.Error("con el PTY sin abrir hay que devolver nil: un termSession a medias lo daría " +
-			"`Update` por una sesión viva")
+		t.Error("with the PTY not open, nil must be returned: a half-built termSession would make " +
+			"Update treat it as a live session")
 	}
 	// The 1x1 floor is applied before asking for the PTY, because xpty.NewPty given size 0 does not error, it just misbehaves in a rare way.
 	if pedidoW != 1 || pedidoH != 1 {
-		t.Errorf("se pidió un PTY de %dx%d, want 1x1: el tamaño se corrige antes de abrir", pedidoW, pedidoH)
+		t.Errorf("a PTY of %dx%d was requested, want 1x1: the size is corrected before opening", pedidoW, pedidoH)
 	}
 }

@@ -16,133 +16,133 @@ import (
 	"vroom/internal/tail"
 )
 
-type msgDesconocido struct{ algo int }
+type unknownMsg struct{ something int }
 
-func TestUpdateConUnMensajeQueNoConoceDevuelveElModeloIntacto(t *testing.T) {
+func TestUpdateWithUnknownMessageReturnsModelIntact(t *testing.T) {
 	m, _ := newTestModel(t)
-	antes := m
+	before := m
 
-	nuevo, cmd := m.Update(msgDesconocido{algo: 1})
+	new, cmd := m.Update(unknownMsg{something: 1})
 	if cmd != nil {
-		t.Error("un mensaje desconocido no puede lanzar un comando: el comando sería del TUI, " +
-			"nuestro, y no hay ninguno")
+		t.Error("an unknown message cannot return a command: the command would be the TUI's, " +
+			"not ours, and there is none")
 	}
-	got, ok := nuevo.(Model)
+	got, ok := new.(Model)
 	if !ok {
-		t.Fatalf("Update devolvió %T, want Model", nuevo)
+		t.Fatalf("Update returned %T, want Model", new)
 	}
-	if got.message != antes.message {
-		t.Errorf("message pasó de %q a %q: un mensaje que no es nuestro no puede hablar", antes.message, got.message)
+	if got.message != before.message {
+		t.Errorf("message changed from %q to %q: a message that is not ours cannot speak", before.message, got.message)
 	}
-	if got.cursor != antes.cursor {
-		t.Errorf("el cursor se movió de %d a %d sin ninguna tecla", antes.cursor, got.cursor)
+	if got.cursor != before.cursor {
+		t.Errorf("cursor moved from %d to %d without any key", before.cursor, got.cursor)
 	}
 }
 
 // The editor is never launched here: tea.ExecProcess returns its ExecMsg without starting anything.
-func TestLaAccionLogsAbreElEditorConUnProyectoSeleccionado(t *testing.T) {
+func TestLogsActionOpensEditorWithProjectSelected(t *testing.T) {
 	// Remapped to a free key because the default collides with another binding.
 	m, store := newTestModelWithConfig(t, "[keybindings]\nlogs = \"y\"\n")
 
-	p := primerProyectoConfigurado(t, m)
-	m = seleccionar(t, m, p.Path)
+	p := firstConfiguredProject(t, m)
+	m = selectProject(t, m, p.Path)
 
-	_, cmd := m.Update(tecla("y"))
+	_, cmd := m.Update(key("y"))
 	if cmd == nil {
-		t.Fatal("la tecla de logs tiene que devolver el comando del editor")
+		t.Fatal("the logs key must return the editor command")
 	}
 	// ExecMsg is private to bubbletea, so the only thing assertable here is that a message came back; nil would skip suspending the TUI and the editor would open on top of it.
 	msg := cmd()
 	if msg == nil {
-		t.Fatal("logs devolvió un comando que no produce mensaje: la TUI no se suspendería y el " +
-			"editor se abriría encima de la interfaz")
+		t.Fatal("logs returned a command that produces no message: the TUI would not suspend and the " +
+			"editor would open on top of the interface")
 	}
 	// Editor choice and arguments are asserted in TestBuildEditorCmd, where the *exec.Cmd is inspectable.
 	_ = store
 }
 
-func TestLaAccionRefreshLanzaElRefrescoSinCambiarDeVista(t *testing.T) {
+func TestRefreshActionLaunchesRefreshWithoutChangingView(t *testing.T) {
 	m, _ := newTestModelWithConfig(t, "[keybindings]\nrefresh = \"y\"\n")
 	m.activeTab = tabThreads
-	antes := m.activeTab
+	before := m.activeTab
 
-	nuevo, cmd := m.Update(tecla("y"))
+	new, cmd := m.Update(key("y"))
 	if cmd == nil {
-		t.Fatal("refresh tiene que devolver el lote de refrescos")
+		t.Fatal("refresh must return the refresh batch")
 	}
-	got, ok := nuevo.(Model)
+	got, ok := new.(Model)
 	if !ok {
-		t.Fatalf("Update devolvió %T, want Model", nuevo)
+		t.Fatalf("Update returned %T, want Model", new)
 	}
-	if got.activeTab != antes {
-		t.Errorf("refresh cambió la pestaña de %d a %d: refrescar no es cambiar de vista", antes, got.activeTab)
+	if got.activeTab != before {
+		t.Errorf("refresh changed the tab from %d to %d: refreshing is not switching views", before, got.activeTab)
 	}
 	if got.message != "" {
-		t.Errorf("message = %q tras un refresco correcto, want vacío", got.message)
+		t.Errorf("message = %q after a correct refresh, want empty", got.message)
 	}
 }
 
 // The tab guard exists so a resize outside the console leaves no stale buffer for the console to show later.
-func TestSyncConsoleViewNoHaceNadaFueraDeLaPestañaDeConsola(t *testing.T) {
+func TestSyncConsoleViewDoesNothingOutsideConsoleTab(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.activeTab = tabGit
 
-	antes := m.consoleView.View()
+	before := m.consoleView.View()
 	if cmd := m.syncConsoleView(); cmd != nil {
-		t.Error("syncConsoleView fuera de la consola no puede devolver comando: no hay nada que leer")
+		t.Error("syncConsoleView outside the console cannot return a command: there is nothing to read")
 	}
-	if despues := m.consoleView.View(); despues != antes {
-		t.Errorf("el viewport cambió fuera de la pestaña de consola:\n-- antes --\n%s\n-- después --\n%s",
-			antes, despues)
+	if after := m.consoleView.View(); after != before {
+		t.Errorf("the viewport changed outside the console tab:\n-- before --\n%s\n-- after --\n%s",
+			before, after)
 	}
 }
 
 // Unreachable through the UI (tree items always carry a stack), but toggleStack(nil) would nil-deref on the start/stop path.
-func TestToggleSobreUnStackSinStackNoRevienta(t *testing.T) {
+func TestToggleOnStackWithoutStackDoesNotPanic(t *testing.T) {
 	m, _ := newTestModel(t)
-	m.tree = []treeItem{{kind: itemStack, primary: "vacio"}}
+	m.tree = []treeItem{{kind: itemStack, primary: "empty"}}
 	m.cursor = 0
 
-	nuevo, cmd := m.toggleSelected()
+	new, cmd := m.toggleSelected()
 	if cmd != nil {
-		t.Error("un stack sin stack no puede arrancar nada")
+		t.Error("a stack without a stack cannot start anything")
 	}
-	if nuevo == nil {
-		t.Fatal("Update devolvió nil")
+	if new == nil {
+		t.Fatal("Update returned nil")
 	}
 }
 
-// MEDIDO: a directory with no .vroom.toml never enters the scan, so a broken manifest is the only way to get an unconfigured project; the message must name the manifest, not say "you can't".
-func TestRestartSobreUnProyectoConManifiestoRotoLoDice(t *testing.T) {
+// MEASURED: a directory with no .vroom.toml never enters the scan, so a broken manifest is the only way to get an unconfigured project; the message must name the manifest, not say "you can't".
+func TestRestartOnProjectWithBrokenManifestSaysSo(t *testing.T) {
 	m, _ := newTestModel(t)
 
-	m, roto := proyectoRoto(t, m)
-	m = seleccionar(t, m, roto.Path)
+	m, broken := brokenProject(t, m)
+	m = selectProject(t, m, broken.Path)
 
 	// The default restart key is capital "R" because it is the only stop-then-start action, so it stays apart from "r".
-	nuevo, _ := m.Update(tea.KeyPressMsg{Code: 'R', Text: "R"})
-	got, ok := nuevo.(Model)
+	new, _ := m.Update(tea.KeyPressMsg{Code: 'R', Text: "R"})
+	got, ok := new.(Model)
 	if !ok {
-		t.Fatalf("Update devolvió %T, want Model", nuevo)
+		t.Fatalf("Update returned %T, want Model", new)
 	}
 	if !strings.Contains(got.message, "No manifest") {
-		t.Errorf("message = %q, want que diga que falta el manifiesto: el mensaje tiene que "+
-			"distinguir \"no hay nada que reiniciar\" de \"no puedes\"", got.message)
+		t.Errorf("message = %q, want it to say the manifest is missing: the message has to "+
+			"distinguish \"there is nothing to restart\" from \"you can't\"", got.message)
 	}
-	if sv := got.services[roto.Path]; sv != nil && sv.Status == statusStopping {
-		t.Error("el servicio pasó a stopping con el manifiesto roto: no hay nada que parar")
+	if sv := got.services[broken.Path]; sv != nil && sv.Status == statusStopping {
+		t.Error("the service transitioned to stopping with a broken manifest: there is nothing to stop")
 	}
 }
 
 // Kept out of writeTestTree because the rest of the suite assumes every project starts and its row counts depend on that.
-func proyectoRoto(t *testing.T, m Model) (Model, scanner.Project) {
+func brokenProject(t *testing.T, m Model) (Model, scanner.Project) {
 	t.Helper()
-	path := filepath.Join(m.projects[0].Path, "roto")
+	path := filepath.Join(m.projects[0].Path, "broken")
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// Invalid TOML on purpose: the trailing comma after the value.
-	if err := os.WriteFile(filepath.Join(path, ".vroom.toml"), []byte("name = \"roto\",\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(path, ".vroom.toml"), []byte("name = \"broken\",\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -151,30 +151,31 @@ func proyectoRoto(t *testing.T, m Model) (Model, scanner.Project) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var roto scanner.Project
+	var broken scanner.Project
 	for _, p := range sig.Projects {
-		if filepath.Base(p.Path) == "roto" {
-			roto = p
+		if filepath.Base(p.Path) == "broken" {
+			broken = p
 			break
 		}
 	}
-	if roto.Path == "" {
-		t.Fatal("el escaneo no trajo el proyecto recién creado")
+	if broken.Path == "" {
+		t.Fatal("the scan did not bring the newly created project")
 	}
-	if roto.Configured {
-		t.Fatalf("el proyecto %s tiene Configured=true con un manifiesto inválido: este test "+
-			"no está probando el caso que cree probar", roto.Path)
+
+	if broken.Configured {
+		t.Fatalf("project %s has Configured=true with an invalid manifest: this test "+
+			"is not testing the case it intended to test", broken.Path)
 	}
 
 	// The whole model is rebuilt because what changes here is the project list, not a status.
 	m2 := New(m.store, &stubManager{}, root)
 	m2.width, m2.height = m.width, m.height
 	m2.updateLayout()
-	return m2, roto
+	return m2, broken
 }
 
 // A group can carry members the model does not know, so without the continue a nil sv would nil-deref mid group start.
-func TestToggleDeGrupoIgnoraLosMiembrosQueNoTienenEstadoConocido(t *testing.T) {
+func TestToggleGroupIgnoresMembersWithoutKnownState(t *testing.T) {
 	m, _ := newTestModel(t)
 
 	idx := -1
@@ -185,7 +186,7 @@ func TestToggleDeGrupoIgnoraLosMiembrosQueNoTienenEstadoConocido(t *testing.T) {
 		}
 	}
 	if idx < 0 {
-		t.Skip("el árbol de test no trae grupos")
+		t.Skip("the test tree has no groups")
 	}
 	m.cursor = idx
 
@@ -197,31 +198,31 @@ func TestToggleDeGrupoIgnoraLosMiembrosQueNoTienenEstadoConocido(t *testing.T) {
 		}
 	}
 	if target == "" {
-		t.Fatal("el árbol de test tiene que traer proyectos")
+		t.Fatal("the test tree must bring projects")
 	}
 	delete(m.services, target)
 
-	nuevo, _ := m.toggleSelected()
-	if nuevo == nil {
-		t.Fatal("toggleSelected devolvió nil: un miembro sin estado no puede tumbar el grupo")
+	new, _ := m.toggleSelected()
+	if new == nil {
+		t.Fatal("toggleSelected returned nil: a member without state cannot take down the group")
 	}
 }
 
 // Only the selected member's console is cleared: emptying a service nobody is looking at would discard its history for nothing.
-func TestToggleDeGrupoLimpiaLaConsolaDelMiembroSeleccionado(t *testing.T) {
+func TestToggleGroupClearsConsoleOfSelectedMember(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.activeTab = tabConsole
 
-	prim := ""
+	primary := ""
 	for i, e := range m.tree {
 		if e.kind == itemPrimary {
-			prim = e.primary
+			primary = e.primary
 			m.cursor = i
 			break
 		}
 	}
-	if prim == "" {
-		t.Skip("el árbol de test no trae grupos")
+	if primary == "" {
+		t.Skip("the test tree has no groups")
 	}
 
 	for _, p := range m.projects {
@@ -232,135 +233,135 @@ func TestToggleDeGrupoLimpiaLaConsolaDelMiembroSeleccionado(t *testing.T) {
 
 	sel := ""
 	for i, e := range m.tree {
-		if e.kind == itemProject && group.PrimaryOf(e.project) == prim {
+		if e.kind == itemProject && group.PrimaryOf(e.project) == primary {
 			sel = e.project.Path
 			m.cursor = i
 			break
 		}
 	}
 	if sel == "" {
-		t.Skip("el grupo de test no tiene proyectos")
+		t.Skip("the test group has no projects")
 	}
 
-	otro := ""
+	other := ""
 	for _, e := range m.tree {
-		if e.kind == itemProject && group.PrimaryOf(e.project) == prim && e.project.Path != sel {
-			otro = e.project.Path
+		if e.kind == itemProject && group.PrimaryOf(e.project) == primary && e.project.Path != sel {
+			other = e.project.Path
 			break
 		}
 	}
-	if otro == "" {
-		t.Skip("el grupo de test tiene un solo miembro")
+	if other == "" {
+		t.Skip("the test group has only one member")
 	}
-	csOtro := m.consoleStateFor(otro)
-	csOtro.stdout = "salida del hermano anterior"
+	csOther := m.consoleStateFor(other)
+	csOther.stdout = "output from previous sibling"
 
 	cs := m.consoleStateFor(sel)
-	cs.stdout = "salida del servicio anterior"
+	cs.stdout = "output from previous service"
 
-	_, _ = m.toggleNode(prim, "")
+	_, _ = m.toggleNode(primary, "")
 
 	if cs := m.consoleStateFor(sel); cs.stdout != "" {
-		t.Errorf("la consola de %s sigue con %q tras arrancar el grupo: el usuario vería la salida "+
-			"del servicio anterior como si fuera del nuevo", sel, cs.stdout)
+		t.Errorf("the console of %s still has %q after starting the group: the user would see the output "+
+			"from the previous service as if it were from the new one", sel, cs.stdout)
 	}
 	// The sibling's in-memory buffer is cleared too: every member restarts tailing from the current offset, so stale text would mix two runs; the viewport of an unselected service is not rewritten, because painting an empty console where the user is not looking looks like a regression.
-	if cs := m.consoleStateFor(otro); cs.stdout != "" {
-		t.Errorf("el buffer en memoria de %s = %q tras arrancar el grupo, want vacío: el offset "+
-			"se reinició, así que el texto viejo pertenece a una ejecución anterior", otro, cs.stdout)
+	if cs := m.consoleStateFor(other); cs.stdout != "" {
+		t.Errorf("the in-memory buffer of %s = %q after starting the group, want empty: the offset "+
+			"was reset, so the old text belongs to a previous run", other, cs.stdout)
 	}
-	if v := tail.StripANSI(m.consoleView.View()); strings.Contains(v, "salida del hermano anterior") {
-		t.Errorf("el viewport se reescribió con la salida de un servicio que no está seleccionado:\n%s", v)
+	if v := tail.StripANSI(m.consoleView.View()); strings.Contains(v, "output from previous sibling") {
+		t.Errorf("the viewport was rewritten with the output of a service that is not selected:\n%s", v)
 	}
 }
 
-// MEDIDO: these heights are subtractions that can go negative and strings.Repeat panics on a negative count; updateLayout is pure, so any size can be fed without a real tiny terminal.
-func TestElLayoutNoDejaQueElAltoInteriorSeaNegativo(t *testing.T) {
-	casos := []struct {
-		nombre      string
-		ancho, alto int
+// MEASURED: these heights are subtractions that can go negative and strings.Repeat panics on a negative count; updateLayout is pure, so any size can be fed without a real tiny terminal.
+func TestLayoutPreventsNegativeInnerHeight(t *testing.T) {
+	cases := []struct {
+		name       string
+		width, height int
 	}{
-		{"terminal de 1x1", 1, 1},
-		{"una columna y una fila", 1, 1},
-		{"alto 3 con detalle", 40, 3},
-		{"ancho 0", 0, 24},
-		{"alto negativo", 80, -5},
-		{"todo negativo", -1, -1},
+		{"1x1 terminal", 1, 1},
+		{"one column and one row", 1, 1},
+		{"height 3 with detail", 40, 3},
+		{"width 0", 0, 24},
+		{"negative height", 80, -5},
+		{"all negative", -1, -1},
 	}
-	for _, tt := range casos {
-		t.Run(tt.nombre, func(t *testing.T) {
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
 			m, _ := newTestModel(t)
-			m.width, m.height = tt.ancho, tt.alto
+			m.width, m.height = tt.width, tt.height
 			m.detailsShown = true
 			m.updateLayout()
 
 			if m.bodyH < 1 {
-				t.Errorf("bodyH = %d con %dx%d: un interior de 0 o menos hace que el compositor de "+
-					"cajas reciba un número negativo de filas", m.bodyH, tt.ancho, tt.alto)
+				t.Errorf("bodyH = %d with %dx%d: an interior of 0 or less makes the box compositor "+
+					"receive a negative number of rows", m.bodyH, tt.width, tt.height)
 			}
 			if m.contentH < 0 {
-				t.Errorf("contentH = %d con %dx%d: el viewport recibiría una altura negativa", m.contentH, tt.ancho, tt.alto)
+				t.Errorf("contentH = %d with %dx%d: the viewport would receive a negative height", m.contentH, tt.width, tt.height)
 			}
 			if s := tail.StripANSI(m.View().Content); strings.TrimSpace(s) == "" {
-				t.Error("View() no dibujó nada")
+				t.Error("View() drew nothing")
 			}
 		})
 	}
 }
 
 // The command must not launch at all, and the mkdir error must reach the caller unwrapped because whoever reads it needs the errno.
-func TestRunLoggedPropagaElFalloDeCrearElDirectorioDeLogs(t *testing.T) {
+func TestRunLoggedPropagatesLogDirCreationFailure(t *testing.T) {
 	// A regular file where the log directory goes, so mkdir fails with ENOTDIR.
-	bloqueo := filepath.Join(t.TempDir(), "logs")
-	if err := os.WriteFile(bloqueo, []byte("soy un fichero"), 0o644); err != nil {
+	block := filepath.Join(t.TempDir(), "logs")
+	if err := os.WriteFile(block, []byte("I am a file"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	_, code, err := runLogged("build", "echo hola", t.TempDir(), filepath.Join(bloqueo, "out.log"), "")
+	_, code, err := runLogged("build", "echo hello", t.TempDir(), filepath.Join(block, "out.log"), "")
 	if err == nil {
-		t.Fatal("con el directorio de logs inservible el comando no se puede lanzar")
+		t.Fatal("with the log directory unusable the command cannot be launched")
 	}
 	if code != 0 {
-		t.Errorf("exit code = %d con un fallo de lanzamiento, want 0: no llegó a ejecutarse nada", code)
+		t.Errorf("exit code = %d with a launch failure, want 0: nothing got to execute", code)
 	}
-	info, serr := os.Stat(bloqueo)
+	info, serr := os.Stat(block)
 	if serr != nil {
 		t.Fatal(serr)
 	}
 	if !info.Mode().IsRegular() {
-		t.Errorf("el bloqueo dejó de ser un fichero (mode %s): el comando escribió donde no podía", info.Mode())
+		t.Errorf("the block stopped being a regular file (mode %s): the command wrote where it could not", info.Mode())
 	}
 }
 
 // stdout is created earlier by appendLine, so stderr's open is the first that can really fail, and it must fail before launch or the child writes to the inherited fd, which is the TUI.
-func TestRunLoggedFallaSiElStderrNoSePuedeAbrir(t *testing.T) {
+func TestRunLoggedFailsIfStderrCannotBeOpened(t *testing.T) {
 	dir := t.TempDir()
 	stderrPath := filepath.Join(dir, "no-existe", "err.log")
 
-	_, code, err := runLogged("build", "echo hola", dir, filepath.Join(dir, "out.log"), stderrPath)
+	_, code, err := runLogged("build", "echo hello", dir, filepath.Join(dir, "out.log"), stderrPath)
 	if err == nil {
-		t.Fatal("con el stderr imposible de abrir el comando no se puede lanzar")
+		t.Fatal("with stderr impossible to open the command cannot be launched")
 	}
 	if code != 0 {
-		t.Errorf("exit code = %d con un fallo de lanzamiento, want 0", code)
+		t.Errorf("exit code = %d with a launch failure, want 0", code)
 	}
 	// The stdout banner is written before stderr is opened, so the log names the job even when stderr fails.
 	out, rerr := os.ReadFile(filepath.Join(dir, "out.log"))
 	if rerr != nil {
-		t.Fatalf("el banner del stdout tiene que estar escrito aunque el stderr falle: %v", rerr)
+		t.Fatalf("the stdout banner must be written even if stderr fails: %v", rerr)
 	}
 	if !strings.Contains(string(out), "build") {
-		t.Errorf("el banner del stdout = %q, want que nombre el job", string(out))
+		t.Errorf("the stdout banner = %q, want it to name the job", string(out))
 	}
 }
 
-// MEDIDO (bug): with 40 projects and treeTop at the end, growing the window from 100x30 to 200x400 left the scroll in place and rendered one row of tree over hundreds of blank lines.
-func TestResizeConElArbolMasAltoQueLaVentanaLoDejaEnSuSitio(t *testing.T) {
-	m := modeloConArbolDe(t, 40)
+// MEASURED (bug): with 40 projects and treeTop at the end, growing the window from 100x30 to 200x400 left the scroll in place and rendered one row of tree over hundreds of blank lines.
+func TestResizeWithTreeTallerThanWindowKeepsItInPlace(t *testing.T) {
+	m := modelWithTreeOf(t, 40)
 	m.width, m.height = 100, 30
 	m.updateLayout()
 	if m.treeVis() >= len(m.tree) {
-		t.Skipf("el árbol de test cabe entero en %d filas: no hay nada que desplazar", m.treeVis())
+		t.Skipf("the test tree fits entirely in %d rows: there is nothing to scroll", m.treeVis())
 	}
 
 	m.cursor = len(m.tree) - 1
@@ -369,106 +370,106 @@ func TestResizeConElArbolMasAltoQueLaVentanaLoDejaEnSuSitio(t *testing.T) {
 	m2, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	got, ok := m2.(Model)
 	if !ok {
-		t.Fatalf("Update devolvió %T, want Model", m2)
+		t.Fatalf("Update returned %T, want Model", m2)
 	}
 	// The clamp floors at len(tree)-visible, not at the cursor, so the cursor row ends up last visible instead of first.
 	wantTop := len(got.tree) - got.treeVis()
 	if got.treeTop != wantTop {
-		t.Errorf("treeTop = %d tras el resize, want %d (las filas del árbol menos las visibles): "+
-			"con el desplazamiento más alto, la fila del cursor queda la primera de la ventana "+
-			"y las %d de arriba desaparecen", got.treeTop, wantTop, got.treeTop)
+		t.Errorf("treeTop = %d after resize, want %d (the tree rows minus the visible ones): "+
+			"with the highest scroll, the cursor row ends up first in the window "+
+			"and the %d above disappear", got.treeTop, wantTop, got.treeTop)
 	}
 	if got.cursor != m.cursor {
-		t.Errorf("el cursor pasó de %d a %d al redimensionar", m.cursor, got.cursor)
+		t.Errorf("the cursor changed from %d to %d on resize", m.cursor, got.cursor)
 	}
 
 	m3, _ := got.Update(tea.WindowSizeMsg{Width: 200, Height: 400})
-	grande, ok := m3.(Model)
+	large, ok := m3.(Model)
 	if !ok {
-		t.Fatalf("Update devolvió %T, want Model", m3)
+		t.Fatalf("Update returned %T, want Model", m3)
 	}
-	if grande.treeVis() < len(m.tree) {
-		t.Skipf("con %dx%d el árbol sigue sin caber entero (%d filas visibles, %d líneas)",
-			200, 400, grande.treeVis(), len(m.tree))
+	if large.treeVis() < len(m.tree) {
+		t.Skipf("with %dx%d the tree still does not fit entirely (%d visible rows, %d lines)",
+			200, 400, large.treeVis(), len(m.tree))
 	}
-	if grande.treeTop != 0 {
-		t.Errorf("treeTop = %d con la ventana crecida hasta que cabe el árbol entero, want 0: "+
-			"el árbol se dibuja desplazado y con un hueco en blanco debajo", grande.treeTop)
+	if large.treeTop != 0 {
+		t.Errorf("treeTop = %d with the window grown until the tree fits entirely, want 0: "+
+			"the tree is drawn scrolled and with a blank gap below", large.treeTop)
 	}
 
-	columna := grande.treeColumnLines()
-	if len(columna) != len(grande.tree) {
-		t.Errorf("la columna del árbol dibujó %d filas de un árbol de %d: al crecer la ventana "+
-			"hasta que cabe entero, tienen que salir todas", len(columna), len(grande.tree))
+	column := large.treeColumnLines()
+	if len(column) != len(large.tree) {
+		t.Errorf("the tree column drew %d rows for a tree of %d: when growing the window "+
+			"until it fits entirely, all of them must appear", len(column), len(large.tree))
 	}
 }
 
 // A project whose manifest fails to parse must be shown unconfigured, not stopped, or the UI offers a start button that does nothing.
-func TestElArranqueMarcaComoSinConfigurarLoQueNoParsea(t *testing.T) {
+func TestBootMarksUnparsableAsUnconfigured(t *testing.T) {
 	m0, _ := newTestModel(t)
-	m, roto := proyectoRoto(t, m0)
+	m, broken := brokenProject(t, m0)
 
-	vistos := map[uiStatus]int{}
+	seen := map[uiStatus]int{}
 	for _, p := range m.projects {
 		sv := m.services[p.Path]
 		if sv == nil {
-			t.Fatalf("el proyecto %s no tiene ServiceState tras el arranque", p.Name)
+			t.Fatalf("project %s has no ServiceState after startup", p.Name)
 		}
-		vistos[sv.Status]++
+		seen[sv.Status]++
 		if p.Configured && sv.Status != statusStopped {
-			t.Errorf("%s tiene manifiesto pero su estado es %q, want parado", p.Name, sv.Status)
+			t.Errorf("%s has a manifest but its status is %q, want stopped", p.Name, sv.Status)
 		}
 		if !p.Configured && sv.Status != statusUnconfigured {
-			t.Errorf("%s no tiene manifiesto pero su estado es %q, want sin configurar", p.Name, sv.Status)
+			t.Errorf("%s has no manifest but its status is %q, want unconfigured", p.Name, sv.Status)
 		}
 	}
-	if vistos[statusUnconfigured] == 0 {
-		t.Fatal("el árbol de test no trajo ningún proyecto sin manifiesto: este test no está probando nada")
+	if seen[statusUnconfigured] == 0 {
+		t.Fatal("the test tree brought no project without a manifest: this test is not testing anything")
 	}
-	seleccionar(t, m, roto.Path)
-	if sv := m.services[roto.Path]; sv == nil || sv.Status != statusUnconfigured {
-		t.Errorf("el servicio de %s = %v, want sin configurar: sin esta fila el aviso del manifiesto "+
-			"roto no se ve nunca", roto.Path, sv)
+	selectProject(t, m, broken.Path)
+	if sv := m.services[broken.Path]; sv == nil || sv.Status != statusUnconfigured {
+		t.Errorf("the service of %s = %v, want unconfigured: without this row the broken manifest "+
+			"warning is never seen", broken.Path, sv)
 	}
 }
 
 // The default test tree is 6 rows and fits in a 30-row window, so without a taller tree the scroll clamp has nothing to correct.
-func modeloConArbolDe(t *testing.T, proyectos int) Model {
+func modelWithTreeOf(t *testing.T, projects int) Model {
 	t.Helper()
 	isolateConfig(t)
 	root := t.TempDir()
-	for i := range proyectos {
+	for i := range projects {
 		dir := filepath.Join(root, fmt.Sprintf("p%02d", i))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		manifiesto := fmt.Sprintf("name = \"p%02d\"\ncommand_start = \"true\"\nprimary_group = \"g\"\nsecondary_group = \"s%02d\"\n", i, i)
-		if err := os.WriteFile(filepath.Join(dir, ".vroom.toml"), []byte(manifiesto), 0o644); err != nil {
+		manifest := fmt.Sprintf("name = \"p%02d\"\ncommand_start = \"true\"\nprimary_group = \"g\"\nsecondary_group = \"s%02d\"\n", i, i)
+		if err := os.WriteFile(filepath.Join(dir, ".vroom.toml"), []byte(manifest), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	m := New(state.NewStoreAt(t.TempDir()), &stubManager{}, root)
 	m.width, m.height = 100, 30
 	m.updateLayout()
-	if len(m.tree) <= proyectos {
-		t.Fatalf("el árbol tiene %d filas para %d proyectos: no se está generando un header por grupo",
-			len(m.tree), proyectos)
+	if len(m.tree) <= projects {
+		t.Fatalf("the tree has %d rows for %d projects: a header per group is not being generated",
+			len(m.tree), projects)
 	}
 	return m
 }
 
-func primerProyectoConfigurado(t *testing.T, m Model) scanner.Project {
+func firstConfiguredProject(t *testing.T, m Model) scanner.Project {
 	t.Helper()
 	for _, p := range m.projects {
 		if p.Configured {
 			return p
 		}
 	}
-	t.Fatal("el árbol de test no tiene proyectos configurados")
+	t.Fatal("the test tree has no configured projects")
 	return scanner.Project{}
 }
 
-func seleccionar(t *testing.T, m Model, path string) Model {
+func selectProject(t *testing.T, m Model, path string) Model {
 	t.Helper()
 	for i, e := range m.tree {
 		if e.kind == itemProject && e.project.Path == path {
@@ -476,10 +477,10 @@ func seleccionar(t *testing.T, m Model, path string) Model {
 			return m
 		}
 	}
-	t.Fatalf("no hay ninguna entrada de proyecto para %s", path)
+	t.Fatalf("there is no project entry for %s", path)
 	return m
 }
 
-func tecla(name string) tea.KeyMsg {
+func key(name string) tea.KeyMsg {
 	return tea.KeyPressMsg{Code: rune(name[0]), Text: name}
 }

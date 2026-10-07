@@ -16,32 +16,32 @@ func TestRegistrarForDevuelveNilDeVerdadYNoUnPunteriorDentroDeUnaInterfaz(t *tes
 		manifiesto *manifest.Manifest
 		quiereNil  bool
 	}{
-		{"sin manifiesto", nil, true},
-		{"route_mode ausente (el default)", &manifest.Manifest{Name: "api", Command: "./api"}, true},
-		{"route_mode off explícito", &manifest.Manifest{Name: "api", Command: "./api", RouteMode: manifest.RouteModeOff}, true},
-		{"route_mode inválido", &manifest.Manifest{Name: "api", Command: "./api", RouteMode: "inventado"}, true},
+		{"no manifest", nil, true},
+		{"route_mode absent (the default)", &manifest.Manifest{Name: "api", Command: "./api"}, true},
+		{"explicit route_mode off", &manifest.Manifest{Name: "api", Command: "./api", RouteMode: manifest.RouteModeOff}, true},
+		{"invalid route_mode", &manifest.Manifest{Name: "api", Command: "./api", RouteMode: "invented"}, true},
 	}
 	for _, tt := range casos {
 		t.Run(tt.nombre, func(t *testing.T) {
 			reg := RegistrarFor(tt.manifiesto)
 			if reg != nil && tt.quiereNil {
-				t.Errorf("RegistrarFor = %T no-nil, want interfaz nil: el consumidor no puede distinguirlo de una ruta activa", reg)
+				t.Errorf("RegistrarFor = %T non-nil, want nil interface: the consumer cannot distinguish it from an active route", reg)
 			}
 			if tt.quiereNil && reg != nil {
 				if _, ok := reg.(*portless.Client); ok {
-					t.Error("es un *portless.Client nil envuelto en una interfaz: el guard `req.Routes == nil` no se cumplirá")
+					t.Error("it is a nil *portless.Client wrapped in an interface: the guard `req.Routes == nil` will not hold")
 				}
 			}
 		})
 	}
 
-	t.Run("route_mode activo devuelve un cliente real", func(t *testing.T) {
+	t.Run("active route_mode returns a real client", func(t *testing.T) {
 		reg := RegistrarFor(&manifest.Manifest{Name: "api", Command: "./api", RouteMode: manifest.RouteModeAuto})
 		if reg == nil {
-			t.Error("con route_mode = auto tiene que haber seam: si no, el servicio arranca sin ruta sin avisar")
+			t.Error("with route_mode = auto there must be a seam: otherwise, the service starts without a route without warning")
 		}
 		if _, ok := reg.(*portless.Client); !ok {
-			t.Errorf("se esperaba un *portless.Client, got %T", reg)
+			t.Errorf("expected a *portless.Client, got %T", reg)
 		}
 	})
 }
@@ -77,7 +77,7 @@ func TestArrancarSinRouteModeNoEscribeElAvisoDeRutaEnElLog(t *testing.T) {
 
 	for _, w := range out.Warnings {
 		if strings.Contains(w, "route_mode") {
-			t.Errorf("un servicio sin route_mode no puede recibir un aviso de ruta: %q", w)
+			t.Errorf("a service without route_mode cannot receive a route warning: %q", w)
 		}
 	}
 }
@@ -118,7 +118,7 @@ func TestConRouteModeAutoSeIntentaLaRuta(t *testing.T) {
 	}
 	for _, w := range out.Warnings {
 		if strings.Contains(w, `unknown route_mode "off"`) {
-			t.Errorf("apareció el aviso del bug con route_mode = auto: %q", w)
+			t.Errorf("the bug warning appeared with route_mode = auto: %q", w)
 		}
 	}
 }

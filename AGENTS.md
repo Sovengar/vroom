@@ -1,51 +1,51 @@
 # AGENTS.md — vroom
 
-## Paso crucial tras cualquier cambio de código
+## Crucial step after any code change
 
-**Desplegar el binario** (los tests/smoke con `go run` no actualizan el
-instalado; el usuario ejecuta el bin de `~/.local/bin`, no el repo):
+**Deploy the binary** (tests/smoke with `go run` do not update the
+installed one; the user runs the binary from `~/.local/bin`, not the repo):
 
 ```bash
 make install
 ```
 
-`make install` **verifica** que el binario desplegado lleve el sello de la
-revisión que se acaba de compilar, y **aborta si no**. No uses
-`go build -o ~/.local/bin/vroom` a mano: sin esa comprobación nada distingue el
-binario viejo del nuevo, y ya se desplegó una revisión equivocada sin que nadie
-lo notara. Motivo en el `Makefile` (`install`), junto a la medición que lo
-sustenta.
+`make install` **verifies** that the deployed binary carries the revision
+stamp that was just compiled, and **aborts if not**. Do not use
+`go build -o ~/.local/bin/vroom` by hand: without that check nothing distinguishes
+the old binary from the new one, and a wrong revision has already been deployed
+without anyone noticing. Reason in the `Makefile` (`install`), along with the
+measurement that supports it.
 
-Sin este paso, cualquier verificación que haga el usuario sobre la TUI usa la
-versión vieja. Ejecutarlo SIEMPRE al terminar una tarea de código, después de
-la verificación (`make check`).
+Without this step, any verification the user does on the TUI uses the
+old version. Run it ALWAYS at the end of a code task, after
+verification (`make check`).
 
-## CI y protección de `main`
+## CI and `main` protection
 
-CI vive en `.github/workflows/ci.yml` y corre en **todo PR** y en **todo push
-a `main`** (sin filtros `paths`: un workflow skipeado deja los required checks
-en pending para siempre y bloquea todos los PRs). Tres jobs:
+CI lives in `.github/workflows/ci.yml` and runs on **every PR** and on **every push
+to `main`** (no `paths` filters: a skipped workflow leaves the required checks
+in pending forever and blocks all PRs). Three jobs:
 
-- **`Build`**: `go build ./...` y `go vet ./...`.
-- **`Lint`**: `make lint` → golangci-lint **v2.13.2** (versión pineada en el
-  `Makefile`; no hay `.golangci.yml`, corre el set por defecto).
-- **`Test`**: `go test -race -covermode=atomic -coverprofile=… ./...` (suite
-  completo, sin `-short`), previa instalación de **fd** en el runner: el
-  scanner prefiere `fd --hidden` y los tests de scanner asumen que existe
-  (`make test` local también lo da por supuesto).
+- **`Build`**: `go build ./...` and `go vet ./...`.
+- **`Lint`**: `make lint` → golangci-lint **v2.13.2** (version pinned in the
+  `Makefile`; there is no `.golangci.yml`, the default set runs).
+- **`Test`**: `go test -race -covermode=atomic -coverprofile=… ./...` (full
+  suite, without `-short`), with **fd** installed on the runner beforehand: the
+  scanner prefers `fd --hidden` and the scanner tests assume it exists
+  (local `make test` also takes it for granted).
 
-Reglas de la rama `main` (ruleset **`protect-main`**, reproducible con
+Rules for the `main` branch (ruleset **`protect-main`**, reproducible with
 `scripts/setup-repo-protection.sh`):
 
-- Merge **solo vía PR**, con los tres checks en verde; force-push y borrado de
-  `main` bloqueados.
-- Existe **bypass de admin** y es **deliberado** (aprobado por el usuario): un
-  admin *podría* pushear directo, pero la intención de trabajo es siempre el
-  camino PR. Ningún actor no-admin puede hacerlo.
-- `delete_branch_on_merge=true`: GitHub borra la rama remota al mergear.
+- Merge **only via PR**, with the three checks green; force-push and deletion of
+  `main` blocked.
+- **Admin bypass** exists and is **deliberate** (approved by the user): an
+  admin *could* push directly, but the working intention is always the
+  PR path. No non-admin actor can do it.
+- `delete_branch_on_merge=true`: GitHub deletes the remote branch on merge.
 
-Ante un merge: verificar que el workflow `push` de `main` quedó verde y que el
-badge del README reporta `passing` (el badge cachea unos segundos).
+Before a merge: verify that the `push` workflow on `main` stayed green and that the
+README badge reports `passing` (the badge caches for a few seconds).
 
-Gate local en un solo comando: **`make check`** (build + lint + test), el mismo
-trío que exige CI. Debe existir en todos los repos de la familia.
+Local gate in a single command: **`make check`** (build + lint + test), the same
+trio that CI requires. Must exist in all repos of the family.

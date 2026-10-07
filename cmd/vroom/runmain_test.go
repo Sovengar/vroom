@@ -18,11 +18,11 @@ func TestRunMainConUnSubcomandoNoLlegaALaTUI(t *testing.T) {
 	llamada := false
 	falso := func() error { llamada = true; return nil }
 
-	if code := runMain([]string{"help"}, falso, func(int) { t.Fatal("help no debe pedir salir") }); code != 0 {
+	if code := runMain([]string{"help"}, falso, func(int) { t.Fatal("help must not ask to exit") }); code != 0 {
 		t.Errorf("runMain(help) = %d, want 0", code)
 	}
 	if llamada {
-		t.Error("con un subcomando se arrancó la TUI: `cli.Run` ya resolvió el trabajo")
+		t.Error("the TUI was started with a subcommand: `cli.Run` already resolved the work")
 	}
 }
 
@@ -31,9 +31,9 @@ func TestRunMainDevuelveCeroCuandoLaTUIArrancaYSale(t *testing.T) {
 	t.Setenv("VROOM_CONFIG", filepath.Join(t.TempDir(), "ausente.toml"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), "state"))
 
-	if code := runMain(nil, func() error { return nil }, func(int) { t.Fatal("una TUI que arranca bien no pide salir") }); code != 0 {
-		t.Errorf("runMain sin subcomando y con la TUI bien = %d, want 0: un `vroom` sin argumentos "+
-			"que el usuario cierra con q tiene que salir como éxito", code)
+	if code := runMain(nil, func() error { return nil }, func(int) { t.Fatal("a TUI that starts fine does not ask to exit") }); code != 0 {
+		t.Errorf("runMain without subcommand and with the TUI fine = %d, want 0: a `vroom` without arguments "+
+			"that the user closes with q must exit as success", code)
 	}
 }
 
@@ -46,13 +46,13 @@ func TestRunMainConAYSinSubcomandoEsElRepartoQueDecideElModo(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
 
 	var pedidos []int
-	if code := runMain([]string{"--no-existe"}, func() error { return errors.New("sin TTY") },
+	if code := runMain([]string{"--no-existe"}, func() error { return errors.New("no TTY") },
 		func(c int) { pedidos = append(pedidos, c) }); code != 1 {
-		t.Errorf("runMain(--no-existe) = %d, want 1: si la TUI no arranca, el proceso tiene que morir "+
-			"con 1 y no volver con 0, que un script leería como éxito", code)
+		t.Errorf("runMain(--no-existe) = %d, want 1: if the TUI cannot start, the process must die "+
+			"with 1 and not return with 0, which a script would read as success", code)
 	}
 	if len(pedidos) != 0 {
-		t.Errorf("exit = %v, want ninguna llamada: un flag desconocido no es un subcomando fallido", pedidos)
+		t.Errorf("exit = %v, want no calls: an unknown flag is not a failed subcommand", pedidos)
 	}
 }
 
@@ -81,23 +81,23 @@ func TestRunMainPropagaElCodigoDeSalidaDeUnSubcomandoQueFalla(t *testing.T) {
 		func(c int) { pedidos = append(pedidos, c) })
 
 	if arrancada {
-		t.Error("se arrancó la TUI después de un subcomando que sí se reconoció")
+		t.Error("the TUI was started after a subcommand that was recognized")
 	}
 	if len(pedidos) != 1 {
-		t.Fatalf("exit = %v, want exactamente una llamada: el código de un subcomando fallido lo "+
-			"aplica `cli.Run`, no `runMain`", pedidos)
+		t.Fatalf("exit = %v, want exactly one call: the code of a failed subcommand is "+
+			"applied by `cli.Run`, not `runMain`", pedidos)
 	}
 	if pedidos[0] == 0 {
-		t.Errorf("exit = %d por un subcomando fallido: 0 haría que un script leyera un fallo como "+
-			"un éxito", pedidos[0])
+		t.Errorf("exit = %d for a failed subcommand: 0 would make a script read a failure as "+
+			"a success", pedidos[0])
 	}
 	if code != 0 {
-		t.Errorf("runMain = %d con un subcomando fallido, want 0: para `runMain` el subcomando ya "+
-			"está resuelto, y su código lo aplicó `cli.Run`", code)
+		t.Errorf("runMain = %d with a failed subcommand, want 0: for `runMain` the subcommand is "+
+			"already resolved, and its code was applied by `cli.Run`", code)
 	}
 }
 
-// MEDIDO: os.Getwd only returns ENOENT when the working directory is deleted, which is the real case of a project dir renamed from another terminal; t.Chdir restores the process so the rest of the suite does not notice.
+// MEASURED: os.Getwd only returns ENOENT when the working directory is deleted, which is the real case of a project dir renamed from another terminal; t.Chdir restores the process so the rest of the suite does not notice.
 func TestRunTUIFallaSinDirectorioDeTrabajo(t *testing.T) {
 	t.Setenv("VROOM_CONFIG", filepath.Join(t.TempDir(), "ausente.toml"))
 
@@ -113,8 +113,8 @@ func TestRunTUIFallaSinDirectorioDeTrabajo(t *testing.T) {
 
 	_, err := os.Getwd()
 	if err == nil {
-		t.Skip("el directorio de trabajo sigue ahí: este host no deja borrar el CWD y el test no " +
-			"está probando el fallo que dice probar")
+		t.Skip("the working directory is still there: this host does not let you delete the CWD and the test is " +
+			"not testing the failure it claims to test")
 	}
 
 	// Isolated because inside a deleted CWD NewStore can fail first on HOME and mask the Getwd error.
@@ -122,12 +122,12 @@ func TestRunTUIFallaSinDirectorioDeTrabajo(t *testing.T) {
 
 	err = runTUI(&procesoFalso{})
 	if err == nil {
-		t.Fatal("con el directorio de trabajo desaparecido la TUI no puede arrancar, y eso tiene " +
-			"que salir como error")
+		t.Fatal("with the working directory gone the TUI cannot start, and that must " +
+			"come out as an error")
 	}
 	if !strings.Contains(err.Error(), "no such file") && !strings.Contains(err.Error(), "getwd") &&
 		!strings.Contains(err.Error(), "no existe") && !strings.Contains(err.Error(), "archivo") {
-		t.Logf("el error fue %q: viene del %s, que es el fallo de entorno que tocaba", err, err)
+		t.Logf("the error was %q: it comes from the %s, which is the environment failure in question", err, err)
 	}
 }
 

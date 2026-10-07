@@ -43,16 +43,16 @@ func fakeThreadTree(t *testing.T, pid int, threads map[int][2]string) string {
 
 // A task dir with no readable stat is a dying thread, and listing it would show a half-filled row the user cannot interpret.
 func TestListThreadsAtSaltaLoQueNoEsUnHilo(t *testing.T) {
-	good := "99 (hilo) " + strings.TrimSuffix(strings.Repeat("1 ", 13), " ")
+	good := "99 (thread) " + strings.TrimSuffix(strings.Repeat("1 ", 13), " ")
 	root := fakeThreadTree(t, 99, map[int][2]string{
-		100: {"principal", good},
+		100: {"main", good},
 		// comm without stat: the thread is dying, so it is skipped.
-		101: {"muriendo", ""},
+		101: {"dying", ""},
 		// stat without comm: the name comes from the stat.
 		102: {"", good},
 	})
 	// A task dir whose name is not a tid.
-	if err := os.MkdirAll(filepath.Join(root, "99", "task", "no-es-un-tid"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "99", "task", "not-a-tid"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -66,23 +66,23 @@ func TestListThreadsAtSaltaLoQueNoEsUnHilo(t *testing.T) {
 		byTID[ti.TID] = ti
 	}
 	if _, ok := byTID[101]; ok {
-		t.Error("un hilo sin stat legible entró en la lista: está muriendo y daría una fila a medio llenar")
+		t.Error("a thread without readable stat entered the list: it is dying and would show a half-filled row")
 	}
 	if _, ok := byTID[0]; ok {
-		t.Error("un directorio de task llamado 'no-es-un-tid' entró en la lista")
+		t.Error("a task directory named 'not-a-tid' entered the list")
 	}
 	if len(got) != 2 {
-		t.Errorf("hay %d hilos, want 2 (los dos legibles)", len(got))
+		t.Errorf("there are %d threads, want 2 (the two readable ones)", len(got))
 	}
-	if byTID[102].Name != "hilo" {
-		t.Errorf("el nombre del hilo 102 = %q, want 'hilo' (del stat)", byTID[102].Name)
+	if byTID[102].Name != "thread" {
+		t.Errorf("the name of thread 102 = %q, want 'thread' (from stat)", byTID[102].Name)
 	}
-	if byTID[100].Name != "principal" {
-		t.Errorf("el nombre del hilo 100 = %q, want 'principal' (de comm)", byTID[100].Name)
+	if byTID[100].Name != "main" {
+		t.Errorf("the name of thread 100 = %q, want 'main' (from comm)", byTID[100].Name)
 	}
 	for i := 1; i < len(got); i++ {
 		if got[i-1].TID > got[i].TID {
-			t.Errorf("los hilos no vienen ordenados por tid: %v", got)
+			t.Errorf("threads are not sorted by tid: %v", got)
 			break
 		}
 	}
@@ -95,9 +95,9 @@ func TestListThreadsAtSinTaskDaError(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := listThreadsAt(root, 5); err == nil {
-		t.Error("sin task/ debería dar error, no una lista vacía de hilos")
+		t.Error("without task/ it should give an error, not an empty list of threads")
 	} else if !strings.Contains(err.Error(), "thread sampling") {
-		t.Errorf("err = %q, want el prefijo 'thread sampling'", err)
+		t.Errorf("err = %q, want the prefix 'thread sampling'", err)
 	}
 }
 
@@ -113,7 +113,7 @@ func TestParseThreadStatSumaUtimeYStime(t *testing.T) {
 	full[12] = "20"
 
 	path := filepath.Join(t.TempDir(), "stat")
-	if err := os.WriteFile(path, []byte("1 (nombre) "+strings.Join(full, " ")), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("1 (name) "+strings.Join(full, " ")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -129,12 +129,12 @@ func TestParseThreadStatSumaUtimeYStime(t *testing.T) {
 	}
 
 	// A stat short of the CPU fields: an error, not zeros.
-	short := filepath.Join(t.TempDir(), "corto")
+	short := filepath.Join(t.TempDir(), "short")
 	if err := os.WriteFile(short, []byte("1 (x) S 1 1 1 0 -1 0 0 0 0 0"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := parseThreadStat(short); err == nil {
-		t.Error("un stat incompleto debería dar error, no ceros que parecen 'este hilo no consume CPU'")
+		t.Error("an incomplete stat should give an error, not zeros that look like 'this thread consumes no CPU'")
 	}
 
 	// A non-numeric utime is also an error: zeros would be a false reading.
@@ -143,32 +143,32 @@ func TestParseThreadStatSumaUtimeYStime(t *testing.T) {
 		bad[i] = "1"
 	}
 	bad[0] = "R"
-	bad[11] = "mucho"
+	bad[11] = "lots"
 	bad[12] = "0"
 	badPath := filepath.Join(t.TempDir(), "bad")
 	if err := os.WriteFile(badPath, []byte("1 (x) "+strings.Join(bad, " ")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := parseThreadStat(badPath); err == nil {
-		t.Error("un utime no numérico debería dar error")
+		t.Error("a non-numeric utime should give an error")
 	}
 
-	sinComm := filepath.Join(t.TempDir(), "sin-comm")
+	sinComm := filepath.Join(t.TempDir(), "without-comm")
 	if err := os.WriteFile(sinComm, []byte("1 sin-parentesis 1 1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := parseThreadStat(sinComm); err == nil {
-		t.Error("un stat sin paréntesis no se puede parsear")
+		t.Error("a stat without parentheses cannot be parsed")
 	}
-	if _, _, err := parseThreadStat(filepath.Join(t.TempDir(), "nada")); err == nil {
-		t.Error("un stat inexistente debería dar error")
+	if _, _, err := parseThreadStat(filepath.Join(t.TempDir(), "nothing")); err == nil {
+		t.Error("a non-existent stat should give an error")
 	}
 }
 
 func TestThreadNameFromStatCaeAlUltimoParentesis(t *testing.T) {
 	dir := t.TempDir()
 
-	t.Run("nombre con espacios", func(t *testing.T) {
+	t.Run("name with spaces", func(t *testing.T) {
 		p := filepath.Join(dir, "a")
 		if err := os.WriteFile(p, []byte("42 (Web Content (tab)) S 1 1"), 0o644); err != nil {
 			t.Fatal(err)
@@ -178,23 +178,23 @@ func TestThreadNameFromStatCaeAlUltimoParentesis(t *testing.T) {
 			t.Fatal(err)
 		}
 		if got != "Web Content (tab)" {
-			t.Errorf("nombre = %q, want 'Web Content (tab)'", got)
+			t.Errorf("name = %q, want 'Web Content (tab)'", got)
 		}
 	})
 
-	t.Run("stat sin paréntesis", func(t *testing.T) {
+	t.Run("stat without parentheses", func(t *testing.T) {
 		p := filepath.Join(dir, "b")
 		if err := os.WriteFile(p, []byte("42 sin-nombre 1 1"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := threadNameFromStat(p); err == nil {
-			t.Error("un stat sin paréntesis no tiene nombre de hilo recuperable")
+			t.Error("a stat without parentheses has no recoverable thread name")
 		}
 	})
 
-	t.Run("fichero inexistente", func(t *testing.T) {
-		if _, err := threadNameFromStat(filepath.Join(dir, "nada")); err == nil {
-			t.Error("un stat inexistente debería dar error")
+	t.Run("non-existent file", func(t *testing.T) {
+		if _, err := threadNameFromStat(filepath.Join(dir, "nothing")); err == nil {
+			t.Error("a non-existent stat should give an error")
 		}
 	})
 }
@@ -207,11 +207,11 @@ func TestParseVmRSSDevuelveCeroSinElCampo(t *testing.T) {
 		want   int64
 	}{
 		{"normal", "Name:\tbash\nVmRSS:\t   12345 kB\nThreads:\t2\n", 12345},
-		{"sin el campo", "Name:\tbash\nThreads:\t2\n", 0},
-		{"campo vacío", "VmRSS:\t\n", 0},
-		{"campo no numérico", "VmRSS:\t   mucho kB\n", 0},
-		{"sin unidades pero numérico", "VmRSS:\t99\n", 99},
-		{"vacío", "", 0},
+		{"without the field", "Name:\tbash\nThreads:\t2\n", 0},
+		{"empty field", "VmRSS:\t\n", 0},
+		{"non-numeric field", "VmRSS:\t   lots kB\n", 0},
+		{"without units but numeric", "VmRSS:\t99\n", 99},
+		{"empty", "", 0},
 	}
 	for _, tt := range tests {
 		if got := parseVmRSS(tt.status); got != tt.want {
@@ -222,16 +222,16 @@ func TestParseVmRSSDevuelveCeroSinElCampo(t *testing.T) {
 
 func TestProbeStatusDevuelveCeroSiNoContesta(t *testing.T) {
 	if got := probeStatus(closedPortForTest(t), "/"); got != 0 {
-		t.Errorf("probeStatus de un puerto muerto = %d, want 0", got)
+		t.Errorf("probeStatus of a dead port = %d, want 0", got)
 	}
 
 	port, stop := statusListener(t, http.StatusOK)
 	defer stop()
 	if got := probeStatus(port, ""); got != http.StatusOK {
-		t.Errorf("probeStatus de un servidor real = %d, want 200", got)
+		t.Errorf("probeStatus of a real server = %d, want 200", got)
 	}
 	if got := probeStatus(port, "/health"); got != http.StatusOK {
-		t.Errorf("probeStatus con healthPath = %d, want 200", got)
+		t.Errorf("probeStatus with healthPath = %d, want 200", got)
 	}
 }
 
@@ -245,8 +245,8 @@ func TestSamePortsComparaElConjuntoEntero(t *testing.T) {
 		{nil, []int{}, true},
 		{[]int{1}, []int{1}, true},
 		{[]int{1, 2}, []int{1, 2}, true},
-		{[]int{1, 2}, []int{2, 1}, false}, // mismo conjunto, otro orden
-		{[]int{1, 2}, []int{1}, false},    // subconjunto no es el mismo conjunto
+		{[]int{1, 2}, []int{2, 1}, false}, // same set, different order
+		{[]int{1, 2}, []int{1}, false},    // subset is not the same set
 		{[]int{1}, []int{2}, false},
 	}
 	for _, tt := range tests {
@@ -257,46 +257,46 @@ func TestSamePortsComparaElConjuntoEntero(t *testing.T) {
 }
 
 func TestDecidePortRespetaElPuertoReservadoYElUnicoListener(t *testing.T) {
-	t.Run("el reservado está en la lista", func(t *testing.T) {
+	t.Run("the reserved one is in the list", func(t *testing.T) {
 		got := decidePort([]int{8080, 9090}, 9090, "")
 		if got.Port != 9090 {
-			t.Errorf("Port = %d, want el reservado 9090", got.Port)
+			t.Errorf("Port = %d, want the reserved 9090", got.Port)
 		}
 		if !got.HonoredReserved {
-			t.Error("HonoredReserved = false: el Meta dejaría constancia de que la reserva NO se respetó")
+			t.Error("HonoredReserved = false: Meta would record that the reservation was NOT honored")
 		}
 		if !got.Verified {
-			t.Error("Verified = false con un solo listener real: no hay nada que decidir")
+			t.Error("Verified = false with a single real listener: there is nothing to decide")
 		}
 		if len(got.All) != 2 {
-			t.Errorf("All = %v, want los dos listeners: el usuario tiene que ver la ambigüedad aunque se resuelva", got.All)
+			t.Errorf("All = %v, want both listeners: the user has to see the ambiguity even if it is resolved", got.All)
 		}
 	})
 
-	t.Run("el reservado no está en la lista", func(t *testing.T) {
+	t.Run("the reserved one is not in the list", func(t *testing.T) {
 		got := decidePort([]int{8080, 9090}, 7000, "")
 		if got.Port == 7000 {
-			t.Error("eligió un puerto que no está escuchando")
+			t.Error("chose a port that is not listening")
 		}
 		if got.HonoredReserved {
-			t.Error("HonoredReserved = true sin que el reservado esté en la lista")
+			t.Error("HonoredReserved = true without the reserved one being in the list")
 		}
 	})
 
-	t.Run("un solo listener: no hay decisión que tomar", func(t *testing.T) {
+	t.Run("a single listener: no decision to make", func(t *testing.T) {
 		got := decidePort([]int{8080}, 0, "")
 		if got.Port != 8080 || !got.Verified {
-			t.Errorf("un solo listener dio %+v, want Port 8080 y Verified", got)
+			t.Errorf("a single listener gave %+v, want Port 8080 and Verified", got)
 		}
 		if len(got.All) != 1 {
-			t.Errorf("All = %v, want un elemento", got.All)
+			t.Errorf("All = %v, want one element", got.All)
 		}
 	})
 
-	t.Run("sin listeners: nada que declarar", func(t *testing.T) {
+	t.Run("no listeners: nothing to declare", func(t *testing.T) {
 		got := decidePort(nil, 0, "")
 		if got.Port != 0 || got.Verified {
-			t.Errorf("sin listeners dio %+v, want Port 0 y Verified false", got)
+			t.Errorf("no listeners gave %+v, want Port 0 and Verified false", got)
 		}
 	})
 }
@@ -304,7 +304,7 @@ func TestDecidePortRespetaElPuertoReservadoYElUnicoListener(t *testing.T) {
 // Declaring a port without evidence would publish an address nobody checked, which is the same damage as an unconfirmed port_verified.
 func TestLineageListenersAtSinProcNoDeclaraNada(t *testing.T) {
 	if got := lineageListenersAt(t.TempDir(), os.Getpid()); got != nil {
-		t.Errorf("lineageListenersAt sin /proc dio %v, want nil", got)
+		t.Errorf("lineageListenersAt without /proc gave %v, want nil", got)
 	}
 }
 
@@ -314,8 +314,8 @@ func TestListenSocketsAtSaltaLasFilasQueNoSonListen(t *testing.T) {
 	body := "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n" +
 		"   0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 12345 1 0000 100 0 0 10 0\n" + // LISTEN 8080
 		"   1: 0100007F:1F91 0100007F:C000 01 00000000:00000000 00:00000000 00000000  1000        0 12346 1 0000 100 0 0 10 0\n" + // ESTABLISHED 8081
-		"   2: NOPE 0\n" + // sin separación addr:port
-		"   3: 0100007F:ZZZZ 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 12347 1\n" + // puerto no hex
+		"   2: NOPE 0\n" + // no addr:port separation
+		"   3: 0100007F:ZZZZ 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 12347 1\n" + // non-hex port
 		"   4: 0100007F:1F92 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 12348 1\n" // LISTEN 8082
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
@@ -323,21 +323,21 @@ func TestListenSocketsAtSaltaLasFilasQueNoSonListen(t *testing.T) {
 
 	got := listenSocketsAt(path)
 	if len(got) != 2 {
-		t.Fatalf("se leyeron %d sockets, want 2 (sólo los LISTEN con puerto hex válido): %+v", len(got), got)
+		t.Fatalf("%d sockets were read, want 2 (only LISTEN with valid hex port): %+v", len(got), got)
 	}
 	ports := map[int]bool{}
 	for _, s := range got {
 		ports[s.port] = true
 	}
 	if !ports[8080] || !ports[8082] {
-		t.Errorf("faltan listeners: %v", ports)
+		t.Errorf("missing listeners: %v", ports)
 	}
 	if ports[8081] {
-		t.Error("una conexión ESTABLISHED se contó como listener: el puerto atribuido sería el del cliente")
+		t.Error("an ESTABLISHED connection was counted as a listener: the attributed port would be the client's")
 	}
 
-	if got := listenSocketsAt(filepath.Join(dir, "nada")); got != nil {
-		t.Errorf("listenSocketsAt de un fichero inexistente dio %v, want nil", got)
+	if got := listenSocketsAt(filepath.Join(dir, "nothing")); got != nil {
+		t.Errorf("listenSocketsAt of a non-existent file gave %v, want nil", got)
 	}
 }
 
@@ -356,7 +356,7 @@ func TestEvaluateConEstadoDePuertoPersistido(t *testing.T) {
 		Port: 65001, PortPending: true,
 	})
 	if got != StatusPortPending {
-		t.Errorf("con PortPending = %q, want %q", got, StatusPortPending)
+		t.Errorf("with PortPending = %q, want %q", got, StatusPortPending)
 	}
 
 	got = m.Evaluate(EvalSpec{
@@ -364,7 +364,7 @@ func TestEvaluateConEstadoDePuertoPersistido(t *testing.T) {
 		NoPort: true,
 	})
 	if got != StatusNoPort {
-		t.Errorf("con NoPort = %q, want %q", got, StatusNoPort)
+		t.Errorf("with NoPort = %q, want %q", got, StatusNoPort)
 	}
 
 	got = m.Evaluate(EvalSpec{
@@ -372,7 +372,7 @@ func TestEvaluateConEstadoDePuertoPersistido(t *testing.T) {
 		PortUnresolved: true,
 	})
 	if got != StatusPortUnresolved {
-		t.Errorf("con PortUnresolved = %q, want %q", got, StatusPortUnresolved)
+		t.Errorf("with PortUnresolved = %q, want %q", got, StatusPortUnresolved)
 	}
 
 	// The declared port must come from a real listener, because Evaluate requires it to accept and a free port reads as a different state.
@@ -382,7 +382,7 @@ func TestEvaluateConEstadoDePuertoPersistido(t *testing.T) {
 		Pid: res.Pid, CreationTimeMs: res.CreationTimeMs, Port: open,
 	})
 	if got != StatusRunning {
-		t.Errorf("con el puerto abierto = %q, want running", got)
+		t.Errorf("with the open port = %q, want running", got)
 	}
 }
 
@@ -395,22 +395,22 @@ func TestEvaluateConPidMuertoYPuertoDeOtroNoLoDaPorVivo(t *testing.T) {
 	// Unknown or ambiguous owner -> undecided, never running.
 	got := m.Evaluate(EvalSpec{Pid: dead, CreationTimeMs: 0, Port: port})
 	if got == StatusRunning {
-		t.Error("un puerto abierto cuyo dueño no se puede probar se resolvió a running: el twin de otro worktree aparecería vivo")
+		t.Error("an open port whose owner cannot be proven resolved to running: the twin from another worktree would appear alive")
 	}
 
 	if got := m.Evaluate(EvalSpec{}); got != StatusStopped {
-		t.Errorf("sin ninguna señal = %q, want stopped", got)
+		t.Errorf("without any signal = %q, want stopped", got)
 	}
 }
 
 // MEDIDO: the pid != myPid filter exists because pgrep -f matches the full command line, which carries vroom's own pattern; the positive case must therefore be a real child.
 func TestPatternMatchEncuentraUnHijoRealYExcluyeALosPropios(t *testing.T) {
 	if _, err := exec.LookPath("pgrep"); err != nil {
-		t.Skip("pgrep no está en esta máquina: sin él PatternMatch devuelve false siempre")
+		t.Skip("pgrep is not on this machine: without it PatternMatch always returns false")
 	}
 
 	m := NewManager()
-	marker := "vroom-marcador-unico-9911-" + strconv.Itoa(os.Getpid())
+	marker := "vroom-marker-unique-9911-" + strconv.Itoa(os.Getpid())
 	// The trailing "; true" keeps sh from exec-replacing itself, which is what leaves the marker on its own command line.
 	res := startSleep(t, m, StartSpec{
 		Command:    "sleep 30; true # " + marker,
@@ -422,31 +422,31 @@ func TestPatternMatchEncuentraUnHijoRealYExcluyeALosPropios(t *testing.T) {
 	})
 
 	if !PatternMatch(marker) {
-		t.Errorf("PatternMatch(%q) = false con un hijo vivo cuyo command line lo contiene", marker)
+		t.Errorf("PatternMatch(%q) = false with a live child whose command line contains it", marker)
 	}
 
-	if PatternMatch("vroom-este-patron-no-lo-tiene-nadie-" + strconv.Itoa(os.Getpid()+1)) {
-		t.Error("PatternMatch de un patrón inexistente dio true: algún proceso propio se está contando")
+	if PatternMatch("vroom-this-pattern-nobody-has-" + strconv.Itoa(os.Getpid()+1)) {
+		t.Error("PatternMatch of a non-existent pattern gave true: some own process is being counted")
 	}
 
 	// The test process never counts even though its binary contains the pattern, which is the whole point of the filter.
 	if PatternMatch(uniqueProcessMarker(t)) {
-		t.Error("PatternMatch encontró al propio proceso de test: el filtro myPid no está haciendo su trabajo")
+		t.Error("PatternMatch found the test process itself: the myPid filter is not doing its job")
 	}
 }
 
 func TestReservePortNoDevuelveElMismoPuertoDosVeces(t *testing.T) {
 	a, err := ReservePort()
 	if err != nil {
-		t.Skipf("no hay puertos libres en el rango: %v", err)
+		t.Skipf("no free ports in the range: %v", err)
 	}
 	b, err := ReservePort()
 	if err != nil {
 		ReleasePort(a)
-		t.Skipf("no hay puertos libres suficientes: %v", err)
+		t.Skipf("not enough free ports: %v", err)
 	}
 	if a == b {
-		t.Errorf("dos reservas seguidas dieron el mismo puerto %d: dos servicios lo ocuparían a la vez", a)
+		t.Errorf("two consecutive reservations gave the same port %d: two services would occupy it at once", a)
 	}
 	ReleasePort(a)
 	ReleasePort(b)
@@ -464,18 +464,18 @@ func TestReservePortNuncaDevuelveUnPuertoQueAlguienTiene(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		p, err := ReservePort()
 		if err != nil {
-			t.Skipf("no hay puertos libres suficientes: %v", err)
+			t.Skipf("not enough free ports: %v", err)
 		}
 		reserved = append(reserved, p)
 		if PortOpen(p) {
-			t.Errorf("ReservePort devolvió el puerto %d, que ya tiene un listener: el bind del servicio va a fallar", p)
+			t.Errorf("ReservePort returned port %d, which already has a listener: the service bind will fail", p)
 		}
 	}
 
 	seen := map[int]bool{}
 	for _, p := range reserved {
 		if seen[p] {
-			t.Errorf("el puerto %d salió dos veces del pool", p)
+			t.Errorf("port %d came out of the pool twice", p)
 		}
 		seen[p] = true
 	}
@@ -522,7 +522,7 @@ func uniqueProcessMarker(t *testing.T) string {
 	t.Helper()
 	self, err := os.Executable()
 	if err != nil {
-		t.Skipf("no se puede resolver el propio binario: %v", err)
+		t.Skipf("cannot resolve own binary: %v", err)
 	}
 	return filepath.Base(self)
 }
@@ -549,7 +549,7 @@ func TestStopEscalaASigkillCuandoElHijoIgnoraSigterm(t *testing.T) {
 
 	// The warning is reserved for what could not be stopped, so a successful SIGKILL escalation must produce none.
 	if len(warns) > 0 {
-		t.Logf("avisos del stop (no deberían ser fallos): %v", warns)
+		t.Logf("stop warnings (they should not be failures): %v", warns)
 	}
 }
 
@@ -566,24 +566,24 @@ func TestStartFallaSiNoPuedeAbrirElStderr(t *testing.T) {
 		StdoutPath: filepath.Join(dir, "stdout.log"), StderrPath: blocked,
 	})
 	if err == nil {
-		t.Fatal("un stderr.log que es un directorio debería hacer fallar el arranque")
+		t.Fatal("a stderr.log that is a directory should make startup fail")
 	}
 	if !strings.Contains(err.Error(), "stderr.log") {
-		t.Errorf("err = %q, want que nombre el fichero que no pudo abrir", err)
+		t.Errorf("err = %q, want it to name the file it could not open", err)
 	}
 }
 
 func TestAliveConUnPidQueNoSePuedeConstruir(t *testing.T) {
 	if Alive(1<<30, 0) {
-		t.Error("un pid enorme no puede ser un proceso vivo")
+		t.Error("a huge pid cannot be a live process")
 	}
 }
 
 func TestPortOwnerPIDsConUnPuertoQueNoExisteEsVacio(t *testing.T) {
 	if got := PortOwnerPIDs(closedPortForTest(t)); len(got) != 0 {
-		t.Errorf("un puerto libre tiene dueños %v, want ninguno", got)
+		t.Errorf("a free port has owners %v, want none", got)
 	}
 	if got := PortOwnerPID(closedPortForTest(t)); got != 0 {
-		t.Errorf("PortOwnerPID de un puerto libre = %d, want 0", got)
+		t.Errorf("PortOwnerPID of a free port = %d, want 0", got)
 	}
 }

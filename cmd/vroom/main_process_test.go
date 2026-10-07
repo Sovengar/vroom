@@ -37,7 +37,7 @@ func ejecutarMainComoHijo(t *testing.T, args ...string) (code int, stderr string
 	if err := cmd.Run(); err != nil {
 		var salida *exec.ExitError
 		if !errors.As(err, &salida) {
-			t.Fatalf("no se pudo ejecutar el hijo %s: %v", self, err)
+			t.Fatalf("could not run the child %s: %v", self, err)
 		}
 		return salida.ExitCode(), salidaErr.String()
 	}
@@ -50,7 +50,7 @@ func TestMainDevuelveCeroConUnSubcomandoQueVaBien(t *testing.T) {
 
 	code, _ := ejecutarMainComoHijo(t, "help")
 	if code != 0 {
-		t.Errorf("código de salida = %d con un subcomando que va bien, want 0", code)
+		t.Errorf("exit code = %d with a subcommand that works fine, want 0", code)
 	}
 }
 
@@ -63,15 +63,15 @@ func TestMainSaleConUnoCuandoLaTUINoPuedeArrancar(t *testing.T) {
 
 	code, stderr := ejecutarMainComoHijo(t)
 	if code != 1 {
-		t.Errorf("código de salida = %d sin TTY y sin subcomando, want 1: un `vroom` que no puede "+
-			"arrancar su TUI tiene que parecer un fallo, no un éxito silencioso", code)
+		t.Errorf("exit code = %d without TTY and without subcommand, want 1: a `vroom` that cannot "+
+			"start its TUI must look like a failure, not a silent success", code)
 	}
 	if !strings.Contains(stderr, "vroom:") {
-		t.Errorf("stderr = %q, want que empiece por \"vroom:\": sin el prefijo y el motivo, el "+
-			"usuario ve un fallo sin saber de quién es", stderr)
+		t.Errorf("stderr = %q, want it to start with \"vroom:\": without the prefix and the reason, the "+
+			"user sees a failure without knowing whose it is", stderr)
 	}
 	if !strings.Contains(stderr, "TTY") && !strings.Contains(stderr, "tty") {
-		t.Errorf("stderr = %q, want que nombre el motivo del fallo —el terminal—: \"vroom: error\" "+
-			"a secas no dice qué hacer", stderr)
+		t.Errorf("stderr = %q, want it to name the reason for the failure —the terminal—: \"vroom: error\" "+
+			"alone does not say what to do", stderr)
 	}
 }

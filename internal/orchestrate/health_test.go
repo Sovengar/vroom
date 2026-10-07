@@ -24,7 +24,7 @@ func TestWaitForPortOpensInTime(t *testing.T) {
 	port, release := listenOn(t)
 	defer release()
 	if err := WaitForPort(port, 2*time.Second); err != nil {
-		t.Errorf("puerto abierto debe pasar: %v", err)
+		t.Errorf("open port must pass: %v", err)
 	}
 }
 
@@ -39,22 +39,22 @@ func TestWaitForPortTimeout(t *testing.T) {
 	start := time.Now()
 	err = WaitForPort(port, time.Second)
 	if err == nil {
-		t.Fatal("un puerto que nunca abre debe fallar")
+		t.Fatal("a port that never opens must fail")
 	}
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
-		t.Errorf("el timeout no se respetó: %s", elapsed)
+		t.Errorf("the timeout was not respected: %s", elapsed)
 	}
 }
 
-// Riesgo 8 (legacy half): port = 0 stays a short sleep returning nil, with no new state, warning or extra hold.
+// Risk 8 (legacy half): port = 0 stays a short sleep returning nil, with no new state, warning or extra hold.
 func TestWaitForPortZeroIsLegacyShortSleep(t *testing.T) {
 	start := time.Now()
 	if err := WaitForPort(0, 30*time.Second); err != nil {
-		t.Errorf("port = 0 debe devolver nil: %v", err)
+		t.Errorf("port = 0 must return nil: %v", err)
 	}
 	elapsed := time.Since(start)
 	if elapsed > 3*time.Second {
-		t.Errorf("port = 0 debe ser un sleep corto, tardó %s", elapsed)
+		t.Errorf("port = 0 must be a short sleep, took %s", elapsed)
 	}
 }
 
@@ -62,10 +62,10 @@ func TestAwaitPortFixedZeroMatchesLegacy(t *testing.T) {
 	start := time.Now()
 	err := AwaitPort(PortWait{Port: 0, Mode: manifest.PortModeFixed}, 30*time.Second)
 	if err != nil {
-		t.Errorf("fixed con port = 0 debe devolver nil: %v", err)
+		t.Errorf("fixed with port = 0 must return nil: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
-		t.Errorf("fixed con port = 0 no debe retener: tardó %s", elapsed)
+		t.Errorf("fixed with port = 0 must not hold: took %s", elapsed)
 	}
 }
 
@@ -75,10 +75,10 @@ func TestAwaitPortFixedWithoutPortModeDeclaration(t *testing.T) {
 
 	start := time.Now()
 	if err := AwaitPort(PortWait{Port: 0, Mode: mode}, 30*time.Second); err != nil {
-		t.Errorf("sin port_mode debe comportarse como fixed: %v", err)
+		t.Errorf("without port_mode it must behave like fixed: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
-		t.Errorf("sin port_mode no debe retener: tardó %s", elapsed)
+		t.Errorf("without port_mode it must not hold: took %s", elapsed)
 	}
 }
 
@@ -86,7 +86,7 @@ func TestAwaitPortFixedGatesOnPort(t *testing.T) {
 	port, release := listenOn(t)
 	defer release()
 	if err := AwaitPort(PortWait{Port: port, Mode: manifest.PortModeFixed}, 2*time.Second); err != nil {
-		t.Errorf("fixed debe gatear contra el puerto real: %v", err)
+		t.Errorf("fixed must gate against the real port: %v", err)
 	}
 }
 
@@ -101,33 +101,33 @@ func TestAwaitPortFixedNeverOpensFailsLikeToday(t *testing.T) {
 
 	err = AwaitPort(PortWait{Port: port, Mode: manifest.PortModeFixed}, 800*time.Millisecond)
 	if err == nil {
-		t.Fatal("fixed con puerto cerrado debe fallar")
+		t.Fatal("fixed with closed port must fail")
 	}
 	if errors.Is(err, ErrPortPending) {
-		t.Error("fixed no gana semántica de puerto pendiente")
+		t.Error("fixed does not gain pending-port semantics")
 	}
 }
 
 func TestAwaitPortNoneDoesNotWait(t *testing.T) {
 	start := time.Now()
 	if err := AwaitPort(PortWait{Port: 0, Mode: manifest.PortModeNone}, 30*time.Second); err != nil {
-		t.Errorf("none debe avanzar sin espera: %v", err)
+		t.Errorf("none must proceed without waiting: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
-		t.Errorf("none no debe esperar: tardó %s", elapsed)
+		t.Errorf("none must not wait: took %s", elapsed)
 	}
 }
 
 func TestAwaitPortDynamicPendingReportsDistinctCause(t *testing.T) {
 	err := AwaitPort(PortWait{Mode: manifest.PortModeDynamic, PortPending: true}, 700*time.Millisecond)
 	if err == nil {
-		t.Fatal("dynamic con puerto sin resolver no debe darse por bueno")
+		t.Fatal("dynamic with unresolved port must not be considered good")
 	}
 	if !errors.Is(err, ErrPortPending) {
-		t.Errorf("la causa debe ser puerto pendiente, no un timeout genérico: %v", err)
+		t.Errorf("the cause must be pending port, not a generic timeout: %v", err)
 	}
 	if err := AwaitPort(PortWait{Mode: manifest.PortModeDynamic, Port: 1, PortPending: true}, 400*time.Millisecond); !errors.Is(err, ErrPortPending) {
-		t.Errorf("puerto reservado que no abre: causa pendiente esperada, got %v", err)
+		t.Errorf("reserved port that does not open: expected pending cause, got %v", err)
 	}
 }
 
@@ -137,10 +137,10 @@ func TestAwaitPortDynamicNoPortIsBounded(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if !errors.Is(err, ErrNoPort) {
-		t.Errorf("dynamic sin puerto debe reportarse como sin puerto: %v", err)
+		t.Errorf("dynamic without port must be reported as no port: %v", err)
 	}
 	if elapsed > 2*time.Second {
-		t.Errorf("dynamic sin puerto no puede colgarse hasta un timeout crudo: %s", elapsed)
+		t.Errorf("dynamic without port cannot hang until a raw timeout: %s", elapsed)
 	}
 }
 
@@ -148,10 +148,10 @@ func TestAwaitPortDynamicGatesOnResolvedPort(t *testing.T) {
 	port, release := listenOn(t)
 	defer release()
 	if err := AwaitPort(PortWait{Mode: manifest.PortModeDynamic, Port: port}, 2*time.Second); err != nil {
-		t.Errorf("dynamic debe gatear contra el puerto resuelto: %v", err)
+		t.Errorf("dynamic must gate against the resolved port: %v", err)
 	}
 	if process.PortOpen(port) != true {
-		t.Fatal("precondición: el listener debe seguir abierto")
+		t.Fatal("precondition: the listener must remain open")
 	}
 	_ = strconv.Itoa(port)
 }

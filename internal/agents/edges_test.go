@@ -11,31 +11,31 @@ func TestAvailableFiltraPorBinarioInstaladoYNoDaErrores(t *testing.T) {
 	// The test binary itself serves as the "installed" command, since it exists by definition.
 	self, err := os.Executable()
 	if err != nil {
-		t.Skipf("no se puede resolver el propio binario: %v", err)
+		t.Skipf("cannot resolve the binary itself: %v", err)
 	}
 
 	list := []Agent{
-		{Name: "instalado", Cmd: strings.Fields(self)},
-		{Name: "instalado-con-args", Cmd: append(strings.Fields(self), "--algo")},
-		{Name: "no-instalado", Cmd: []string{"vroom-agente-que-no-existe-nunca-9911"}},
-		{Name: "sin-comando", Cmd: nil},
-		{Name: "argv-vacio", Cmd: []string{}},
+		{Name: "installed", Cmd: strings.Fields(self)},
+		{Name: "installed-with-args", Cmd: append(strings.Fields(self), "--something")},
+		{Name: "not-installed", Cmd: []string{"vroom-agent-that-never-exists-9911"}},
+		{Name: "no-command", Cmd: nil},
+		{Name: "empty-argv", Cmd: []string{}},
 	}
 
 	got := Available(list)
 
-	want := []string{"instalado", "instalado-con-args"}
+	want := []string{"installed", "installed-with-args"}
 	if len(got) != len(want) {
-		t.Fatalf("Available devolvió %d agentes %v, want %d %v", len(got), names(got), len(want), want)
+		t.Fatalf("Available returned %d agents %v, want %d %v", len(got), names(got), len(want), want)
 	}
 	for i := range want {
 		if got[i].Name != want[i] {
-			t.Errorf("Available[%d] = %q, want %q: el orden de la entrada tiene que conservarse", i, got[i].Name, want[i])
+			t.Errorf("Available[%d] = %q, want %q: the input order must be preserved", i, got[i].Name, want[i])
 		}
 	}
 
 	if got := Available(nil); len(got) != 0 {
-		t.Errorf("Available(nil) = %v, want vacío", names(got))
+		t.Errorf("Available(nil) = %v, want empty", names(got))
 	}
 }
 
@@ -43,22 +43,22 @@ func TestAvailableFiltraPorBinarioInstaladoYNoDaErrores(t *testing.T) {
 func TestAvailableDevuelveUnSliceNuevoNoElDeEntrada(t *testing.T) {
 	self, err := os.Executable()
 	if err != nil {
-		t.Skipf("no se puede resolver el propio binario: %v", err)
+		t.Skipf("cannot resolve the binary itself: %v", err)
 	}
 	in := []Agent{
-		{Name: "no-instalado", Cmd: []string{"vroom-agente-inexistente-9911"}},
-		{Name: "instalado", Cmd: strings.Fields(self)},
+		{Name: "not-installed", Cmd: []string{"vroom-nonexistent-agent-9911"}},
+		{Name: "installed", Cmd: strings.Fields(self)},
 	}
 
 	got := Available(in)
 	if len(got) != 1 {
-		t.Fatalf("Available devolvió %d, want 1", len(got))
+		t.Fatalf("Available returned %d, want 1", len(got))
 	}
 	if len(in) != 2 {
-		t.Errorf("Available modificó la entrada: %d agentes en vez de 2", len(in))
+		t.Errorf("Available modified the input: %d agents instead of 2", len(in))
 	}
 	if &got[0] == &in[0] {
-		t.Error("Available devolvió el mismo elemento que la entrada")
+		t.Error("Available returned the same element as the input")
 	}
 }
 
@@ -69,20 +69,20 @@ func TestSortStringsOrdenaInSituSinImportarSort(t *testing.T) {
 		in   []string
 		want []string
 	}{
-		{"vacío", nil, nil},
-		{"uno", []string{"b"}, []string{"b"}},
-		{"ya ordenado", []string{"a", "b", "c"}, []string{"a", "b", "c"}},
-		{"al revés", []string{"c", "b", "a"}, []string{"a", "b", "c"}},
-		{"intercalado", []string{"m", "a", "z", "b"}, []string{"a", "b", "m", "z"}},
-		{"duplicados", []string{"b", "a", "b"}, []string{"a", "b", "b"}},
-		{"mayúsculas antes", []string{"b", "A"}, []string{"A", "b"}},
+		{"empty", nil, nil},
+		{"one", []string{"b"}, []string{"b"}},
+		{"already sorted", []string{"a", "b", "c"}, []string{"a", "b", "c"}},
+		{"reversed", []string{"c", "b", "a"}, []string{"a", "b", "c"}},
+		{"interleaved", []string{"m", "a", "z", "b"}, []string{"a", "b", "m", "z"}},
+		{"duplicates", []string{"b", "a", "b"}, []string{"a", "b", "b"}},
+		{"uppercase first", []string{"b", "A"}, []string{"A", "b"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := append([]string(nil), tt.in...)
 			sortStrings(got)
 			if len(got) != len(tt.want) {
-				t.Fatalf("longitud %d, want %d", len(got), len(tt.want))
+				t.Fatalf("length %d, want %d", len(got), len(tt.want))
 			}
 			for i := range got {
 				if got[i] != tt.want[i] {
@@ -97,7 +97,7 @@ func TestSortStringsOrdenaElSliceDelCaller(t *testing.T) {
 	in := []string{"c", "a", "b"}
 	sortStrings(in)
 	if in[0] != "a" || in[1] != "b" || in[2] != "c" {
-		t.Errorf("sortStrings no ordenó el slice del caller: %v", in)
+		t.Errorf("sortStrings did not sort the caller's slice: %v", in)
 	}
 }
 

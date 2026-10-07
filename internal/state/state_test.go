@@ -14,13 +14,13 @@ func TestPathKeyDeterministicAndDistinct(t *testing.T) {
 
 	ka1, ka2 := PathKey(a), PathKey(a)
 	if ka1 != ka2 {
-		t.Fatalf("hash no determinista: %q vs %q", ka1, ka2)
+		t.Fatalf("non-deterministic hash: %q vs %q", ka1, ka2)
 	}
 	if ka1 == PathKey(b) {
-		t.Fatal("paths distintos produjeron la misma clave")
+		t.Fatal("distinct paths produced the same key")
 	}
 	if len(ka1) != 8 {
-		t.Fatalf("clave debe tener 8 hex chars, got %d (%q)", len(ka1), ka1)
+		t.Fatalf("key must have 8 hex chars, got %d (%q)", len(ka1), ka1)
 	}
 }
 
@@ -44,14 +44,14 @@ func TestServiceDirLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	if dir != filepath.Join(base, "services", PathKey("/home/user/dev/vsocial")) {
-		t.Errorf("service dir inesperado: %s", dir)
+		t.Errorf("unexpected service dir: %s", dir)
 	}
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
-		t.Fatalf("directorio no creado: %v", err)
+		t.Fatalf("directory not created: %v", err)
 	}
 	if info.Mode().Perm() != 0o755 {
-		t.Errorf("permisos = %v, want 0755", info.Mode().Perm())
+		t.Errorf("permissions = %v, want 0755", info.Mode().Perm())
 	}
 }
 
@@ -77,7 +77,7 @@ func TestMetaRoundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != want {
-		t.Errorf("meta desigual:\n got %+v\nwant %+v", got, want)
+		t.Errorf("meta mismatch:\n got %+v\nwant %+v", got, want)
 	}
 }
 
@@ -92,17 +92,17 @@ func TestLoadMetaCorrupt(t *testing.T) {
 	}
 	_, err := s.LoadMeta(path)
 	if err == nil {
-		t.Fatal("esperaba error por meta.json corrupto, sin crashear")
+		t.Fatal("expected error for corrupt meta.json, without crashing")
 	}
 	if !strings.Contains(err.Error(), "corrupt") {
-		t.Errorf("error %q no indica corrupción", err.Error())
+		t.Errorf("error %q does not indicate corruption", err.Error())
 	}
 }
 
 func TestLoadMetaMissing(t *testing.T) {
 	s := NewStoreAt(t.TempDir())
 	if _, err := s.LoadMeta("/home/user/dev/none"); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("esperaba os.ErrNotExist, got %v", err)
+		t.Errorf("expected os.ErrNotExist, got %v", err)
 	}
 }
 
@@ -132,10 +132,10 @@ func TestRegisterAndClearPid(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(s.PidFile(path)); !os.IsNotExist(err) {
-		t.Errorf("pid file debería eliminarse, got %v", err)
+		t.Errorf("pid file should be deleted, got %v", err)
 	}
 	if err := s.ClearPid(path); err != nil {
-		t.Errorf("ClearPid no idempotente: %v", err)
+		t.Errorf("ClearPid not idempotent: %v", err)
 	}
 }
 
@@ -143,10 +143,10 @@ func TestLogPaths(t *testing.T) {
 	s := NewStoreAt(t.TempDir())
 	path := "/home/user/dev/logs-proj"
 	if s.StdoutLog(path) != filepath.Join(s.ServiceDir(path), "stdout.log") {
-		t.Error("ruta stdout.log incorrecta")
+		t.Error("incorrect stdout.log path")
 	}
 	if s.StderrLog(path) != filepath.Join(s.ServiceDir(path), "stderr.log") {
-		t.Error("ruta stderr.log incorrecta")
+		t.Error("incorrect stderr.log path")
 	}
 }
 
@@ -176,7 +176,7 @@ func TestCollapsedMissing(t *testing.T) {
 	s := NewStoreAt(t.TempDir())
 	got := s.LoadCollapsed()
 	if got != nil {
-		t.Errorf("esperaba nil para fichero inexistente, got %v", got)
+		t.Errorf("expected nil for nonexistent file, got %v", got)
 	}
 }
 
@@ -187,7 +187,7 @@ func TestCollapsedCorrupt(t *testing.T) {
 	}
 	got := s.LoadCollapsed()
 	if got != nil {
-		t.Errorf("esperaba nil por JSON corrupto, got %v", got)
+		t.Errorf("expected nil for corrupt JSON, got %v", got)
 	}
 }
 
@@ -198,6 +198,6 @@ func TestCollapsedAtomicWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(s.CollapsedFile() + ".tmp"); !os.IsNotExist(err) {
-		t.Error("fichero .tmp residual tras escritura atómica")
+		t.Error("residual .tmp file after atomic write")
 	}
 }

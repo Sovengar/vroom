@@ -55,7 +55,7 @@ func TestResolveExplicitHerdrFallback(t *testing.T) {
 	cfg := config.Defaults().Ask
 	cfg.Launcher = "herdr"
 	l, _ := newTestLauncher(t, cfg)
-	l.env = func(string) string { return "" } // HERDR_ENV fuera
+	l.env = func(string) string { return "" } // HERDR_ENV out
 	strategy, warn := l.Resolve()
 	if strategy != StrategyInline {
 		t.Errorf("strategy = %s, want inline", strategy)
@@ -103,7 +103,7 @@ func TestLaunchHerdrTab(t *testing.T) {
 		t.Fatalf("calls = %v", calls)
 	}
 	if strings.Contains(calls[0], "--no-focus") {
-		t.Error("focus=true no debe añadir --no-focus")
+		t.Error("focus=true must not add --no-focus")
 	}
 	if !strings.Contains(calls[1], "pane run w1:p3") {
 		t.Errorf("run = %q", calls[1])

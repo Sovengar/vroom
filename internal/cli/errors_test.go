@@ -18,7 +18,7 @@ import (
 // brokenStateHome points XDG_STATE_HOME at a FILE: a file where a directory is expected fails for every uid, while a chmod-less directory does not (CI may run as root).
 func brokenStateHome(t *testing.T) {
 	t.Helper()
-	t.Setenv("XDG_STATE_HOME", filepath.Join(writeFile(t, filepath.Join(t.TempDir(), "bloqueado"), "x"), "sub"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(writeFile(t, filepath.Join(t.TempDir(), "blocked"), "x"), "sub"))
 }
 
 // TestStoreIlegibleSeDistingueDeUnProyectoInexistente: an unreadable store must say "state directory" and never "project not found" (the agent would hunt for a typo) nor "scan error" (the store does not scan), because it picks where to look from that message.
@@ -31,16 +31,16 @@ func TestStoreIlegibleSeDistingueDeUnProyectoInexistente(t *testing.T) {
 		t.Run(cmd, func(t *testing.T) {
 			_, _, err := dispatch([]string{cmd, "api"})
 			if err == nil {
-				t.Fatalf("%s con un state dir inutilizable debería fallar", cmd)
+				t.Fatalf("%s should fail with an unusable state dir", cmd)
 			}
 			if strings.Contains(err.Error(), "project not found") {
-				t.Errorf("%s: un store ilegible se disfrazo de proyecto inexistente: %q", cmd, err)
+				t.Errorf("%s: an unreadable store disguised itself as a nonexistent project: %q", cmd, err)
 			}
 			if strings.Contains(err.Error(), "scan error") {
-				t.Errorf("%s: un store ilegible no es un fallo de escaneo: %q", cmd, err)
+				t.Errorf("%s: an unreadable store is not a scan failure: %q", cmd, err)
 			}
 			if !strings.Contains(err.Error(), "state directory") {
-				t.Errorf("%s: el error no explica que el problema es el directorio de estado: %q", cmd, err)
+				t.Errorf("%s: the error does not explain that the problem is the state directory: %q", cmd, err)
 			}
 		})
 	}
@@ -51,7 +51,7 @@ func TestEscaneoFallidoLlevaSuPropioPrefijo(t *testing.T) {
 	root := cliEnv(t)
 	t.Chdir(root)
 
-	notADir := filepath.Join(t.TempDir(), "fichero")
+	notADir := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(notADir, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -59,31 +59,31 @@ func TestEscaneoFallidoLlevaSuPropioPrefijo(t *testing.T) {
 
 	_, _, err := dispatch([]string{"start", "api"})
 	if err == nil {
-		t.Fatal("un root que no es un directorio debería fallar")
+		t.Fatal("a root that is not a directory should fail")
 	}
 	if !strings.Contains(err.Error(), "scan error") {
-		t.Errorf("err = %q, want el prefijo 'scan error'", err)
+		t.Errorf("err = %q, want the prefix 'scan error'", err)
 	}
 	if !strings.Contains(err.Error(), "not a directory") {
-		t.Errorf("el error no conserva la causa del fallo de escaneo: %q", err)
+		t.Errorf("the error does not preserve the cause of the scan failure: %q", err)
 	}
 
 	if _, err := cmdList(); err == nil || !strings.Contains(err.Error(), "scan error") {
-		t.Errorf("list con un root inválido = %v, want el error de escaneo", err)
+		t.Errorf("list with an invalid root = %v, want the scan error", err)
 	}
 }
 
 func TestCmdListConEscaneoFallidoNoDevuelveFilaVacia(t *testing.T) {
 	root := cliEnv(t)
 	t.Chdir(root)
-	writeConfigScannerRoot(t, filepath.Join(root, "api", ".vroom.toml")) // un fichero
+	writeConfigScannerRoot(t, filepath.Join(root, "api", ".vroom.toml")) // a file
 
 	payload, err := cmdList()
 	if err == nil {
-		t.Fatalf("list devolvió %+v: un fallo de escaneo no puede ser una lista vacía", payload)
+		t.Fatalf("list returned %+v: a scan failure cannot be an empty list", payload)
 	}
 	if payload != nil {
-		t.Errorf("con error no debe devolverse payload: %+v", payload)
+		t.Errorf("with error no payload should be returned: %+v", payload)
 	}
 }
 
@@ -105,14 +105,14 @@ func TestCmdStartPropagaElFalloDeArranque(t *testing.T) {
 
 	payload, err := cmdStart("api", "")
 	if err == nil {
-		t.Fatalf("un manifiesto sin command_start no puede arrancar: devolvió %+v", payload)
+		t.Fatalf("a manifest without command_start cannot start: returned %+v", payload)
 	}
 	if !strings.Contains(err.Error(), "start failed") {
-		t.Errorf("err = %q, want el prefijo 'start failed' del contrato", err)
+		t.Errorf("err = %q, want the prefix 'start failed' from the contract", err)
 	}
 	meta, merr := store.LoadMeta(apiPath)
 	if merr == nil && meta.Pid != 0 {
-		t.Errorf("meta.Pid = %d tras un arranque fallido: se afirmaría un proceso que no existe", meta.Pid)
+		t.Errorf("meta.Pid = %d after a failed start: it would claim a process that does not exist", meta.Pid)
 	}
 }
 
@@ -123,26 +123,26 @@ func TestCmdStartConDirectorioDeServicioIlegible(t *testing.T) {
 
 	// A file at services/<hash> makes EnsureServiceDir's MkdirAll fail for any uid.
 	apiPath := filepath.Join(root, "api")
-	if err := os.WriteFile(store.ServiceDir(apiPath), []byte("bloquea el mkdir"), 0o644); err != nil {
+	if err := os.WriteFile(store.ServiceDir(apiPath), []byte("blocks the mkdir"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	_, err := cmdStart("api", "")
 	if err == nil {
-		t.Fatal("con services/<hash> ocupado por un fichero el arranque debería fallar")
+		t.Fatal("with services/<hash> occupied by a file, start should fail")
 	}
 	if !strings.Contains(err.Error(), "could not create service dir") {
-		t.Errorf("err = %q, want el prefijo del directorio de servicio", err)
+		t.Errorf("err = %q, want the service directory prefix", err)
 	}
 	if strings.Contains(err.Error(), "start failed") {
-		t.Errorf("un fallo de disco no es un fallo del comando de arranque: %q", err)
+		t.Errorf("a disk failure is not a start command failure: %q", err)
 	}
 }
 
 // TestCmdStopPropagaElFalloDeClearPid: the one unrecoverable stopCleanup failure, because the Meta would keep advertising a live PID for an already-stopped service and the next list would publish a service that does not exist.
 func TestCmdStopPropagaElFalloDeClearPid(t *testing.T) {
 	if os.Geteuid() == 0 {
-		t.Skip("root puede escribir en un directorio sin permiso: el fallo de ClearPid no se puede provocar")
+		t.Skip("root can write to a directory without permission: the ClearPid failure cannot be provoked")
 	}
 	root := cliEnv(t)
 	store := mustStore(t)
@@ -167,17 +167,17 @@ func TestCmdStopPropagaElFalloDeClearPid(t *testing.T) {
 
 	_, err := cmdStop("api", "")
 	if err == nil {
-		t.Fatal("con un Meta que no se puede limpiar, stop debería fallar y no afirmar que paró")
+		t.Fatal("with a Meta that cannot be cleaned, stop should fail and not claim it stopped")
 	}
 	if !strings.Contains(err.Error(), "could not clear pid") {
-		t.Errorf("err = %q, want el prefijo del contrato", err)
+		t.Errorf("err = %q, want the contract prefix", err)
 	}
 	payload, _, derr := dispatch([]string{"stop", "api"})
 	if derr == nil {
-		t.Fatal("stop debería propagar el fallo")
+		t.Fatal("stop should propagate the failure")
 	}
 	if payload != nil {
-		t.Errorf("con error no debe devolverse payload: %+v", payload)
+		t.Errorf("with error no payload should be returned: %+v", payload)
 	}
 }
 
@@ -200,18 +200,18 @@ func TestStopCleanupRegistraLosAvisosDelKillEnElLog(t *testing.T) {
 	}
 
 	if len(mgr.stopped) != 1 {
-		t.Fatalf("Stop se llamó %d veces, want 1", len(mgr.stopped))
+		t.Fatalf("Stop was called %d times, want 1", len(mgr.stopped))
 	}
 	if got := mgr.stopped[0].Pid; got != 424242 {
-		t.Errorf("Stop recibió Pid %d, want el del Meta", got)
+		t.Errorf("Stop received Pid %d, want the one from Meta", got)
 	}
 
 	log := readFileString(t, store.StderrLog(apiPath))
 	if !strings.Contains(log, "stopped pid 424242") {
-		t.Errorf("el aviso del kill no llegó al log del servicio:\n%s", log)
+		t.Errorf("the kill notice did not reach the service log:\n%s", log)
 	}
 	if !strings.Contains(log, "service stopped") {
-		t.Errorf("falta la marca de fin de stop en el log:\n%s", log)
+		t.Errorf("missing the stop end marker in the log:\n%s", log)
 	}
 }
 
@@ -233,14 +233,14 @@ func TestStopCleanupSinProcesoNoTocaElManager(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(mgr.stopped) != 0 {
-		t.Errorf("Stop se llamó sin proceso que parar: %v", mgr.stopped)
+		t.Errorf("Stop was called with no process to stop: %v", mgr.stopped)
 	}
 	meta, err := store.LoadMeta(apiPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if meta.State != state.StateStopped {
-		t.Errorf("meta.State = %q, want stopped: parar normaliza aunque no hubiera nada que parar", meta.State)
+		t.Errorf("meta.State = %q, want stopped: stopping normalizes even if there was nothing to stop", meta.State)
 	}
 }
 
@@ -256,10 +256,10 @@ func TestStopCleanupConMetaAusenteIgualNormaliza(t *testing.T) {
 
 	mgr := &aliveManager{}
 	if err := stopCleanup(store, mgr, apiPath); err != nil {
-		t.Errorf("sin Meta el cleanup no puede fallar: %v", err)
+		t.Errorf("without Meta the cleanup cannot fail: %v", err)
 	}
 	if len(mgr.stopped) != 0 {
-		t.Errorf("Stop se llamó sin Meta: %v", mgr.stopped)
+		t.Errorf("Stop was called without Meta: %v", mgr.stopped)
 	}
 }
 
@@ -267,26 +267,26 @@ func TestStopCleanupConMetaAusenteIgualNormaliza(t *testing.T) {
 func TestReleaseRouteOnStopSoloRevocaSiLaRetiradaSurtioEfecto(t *testing.T) {
 	installCLIReleaser(t, &recordingReleaser{})
 
-	meta := state.Meta{Name: "p", RouteName: "ruta", RouteOwned: true}
+	meta := state.Meta{Name: "p", RouteName: "route", RouteOwned: true}
 	releaseRouteOnStop(&meta)
 
 	if meta.RouteOwned {
-		t.Error("tras una retirada efectiva la propiedad debe revocarse")
+		t.Error("after an effective removal the ownership must be revoked")
 	}
 	// RouteName survives the revocation because next-boot reconciliation looks the handle up there.
-	if meta.RouteName != "ruta" {
-		t.Errorf("RouteName = %q: el handle de reconcilización debe conservarse", meta.RouteName)
+	if meta.RouteName != "route" {
+		t.Errorf("RouteName = %q: the reconciliation handle must be preserved", meta.RouteName)
 	}
 }
 
 func TestReleaseRouteOnStopConservaLaPropiedadSiRetiradaFalla(t *testing.T) {
 	installCLIFailingReleaser(t)
 
-	meta := state.Meta{Name: "p", RouteName: "ruta", RouteOwned: true}
+	meta := state.Meta{Name: "p", RouteName: "route", RouteOwned: true}
 	releaseRouteOnStop(&meta)
 
 	if !meta.RouteOwned {
-		t.Error("una retirada fallida no revoca: la ruta puede seguir viva y sin dueño que la limpie")
+		t.Error("a failed removal does not revoke: the route can stay alive with no owner to clean it up")
 	}
 }
 
@@ -294,11 +294,11 @@ func TestReleaseRouteOnStopNoRetiraLoQueNoEsNuestro(t *testing.T) {
 	rec := &recordingReleaser{}
 	installCLIReleaser(t, rec)
 
-	meta := state.Meta{Name: "p", RouteName: "ajena", RouteOwned: false}
+	meta := state.Meta{Name: "p", RouteName: "foreign", RouteOwned: false}
 	releaseRouteOnStop(&meta)
 
 	if len(rec.removed) != 0 {
-		t.Errorf("una ruta nunca nuestra no se toca: %v", rec.removed)
+		t.Errorf("a route that is never ours is not touched: %v", rec.removed)
 	}
 }
 
@@ -309,24 +309,24 @@ func TestCliRouteReleaserDevuelveNilFueraDeUnBinarioDeTest(t *testing.T) {
 
 	os.Args[0] = "/usr/local/bin/vroom"
 	if got := cliRouteReleaser(); got != nil {
-		t.Error("en producción el releaser es nil: nil significa 'construye el cliente real'")
+		t.Error("in production the releaser is nil: nil means 'build the real client'")
 	}
 
 	// Outside a test binary the releaser stays inert, so a test that forgets installCLIReleaser cannot rewrite the developer's routes.json.
 	os.Args[0] = "/tmp/vroom.test"
 	got := cliRouteReleaser()
 	if got == nil {
-		t.Fatal("en un binario de test el releaser no puede ser nil: construiría el cliente real")
+		t.Fatal("in a test binary the releaser cannot be nil: it would build the real client")
 	}
-	if err := got.RemoveAbsent("lo-que-sea"); err != nil {
-		t.Errorf("el releaser inerte devolvió %v, debe ser nil siempre", err)
+	if err := got.RemoveAbsent("whatever"); err != nil {
+		t.Errorf("the inert releaser returned %v, it must always be nil", err)
 	}
 
 	rec := &recordingReleaser{}
 	installCLIReleaser(t, rec)
 	os.Args[0] = "/usr/local/bin/vroom"
 	if got := cliRouteReleaser(); got == nil {
-		t.Error("con el seam instalado el seam manda sobre el entorno")
+		t.Error("with the seam installed the seam takes precedence over the environment")
 	}
 }
 
@@ -351,22 +351,22 @@ func TestBuildProjectInfoColapsaElGrupoSecundario(t *testing.T) {
 	store := mustStore(t)
 
 	conSecundario := &fakeProject{
-		name: "api", primary: "tienda", secondary: "backend",
+		name: "api", primary: "shop", secondary: "backend",
 	}
 	sinSecundario := &fakeProject{
-		name: "web", primary: "tienda",
+		name: "web", primary: "shop",
 	}
 
-	collapsed := map[string]bool{"tienda/backend": true, "tienda": false}
+	collapsed := map[string]bool{"shop/backend": true, "shop": false}
 	if got := buildProjectInfo(nil, store, collapsed, conSecundario.project(t)); !got.Collapsed {
-		t.Error("con grupo secundario la clave es primary/secondary: el collapse tenía que salir true")
+		t.Error("with secondary group the key is primary/secondary: collapse should be true")
 	}
 	if got := buildProjectInfo(nil, store, collapsed, sinSecundario.project(t)); got.Collapsed {
-		t.Error("sin grupo secundario la clave es primary a secas, y aquí no está colapsada")
+		t.Error("without secondary group the key is just primary, and here it is not collapsed")
 	}
 
-	if got := buildProjectInfo(nil, store, map[string]bool{"tienda": true}, conSecundario.project(t)); got.Collapsed {
-		t.Error("colapsar primary no puede colapsar primary/secondary: son grupos distintos")
+	if got := buildProjectInfo(nil, store, map[string]bool{"shop": true}, conSecundario.project(t)); got.Collapsed {
+		t.Error("collapsing primary cannot collapse primary/secondary: they are distinct groups")
 	}
 }
 
@@ -391,16 +391,16 @@ func TestOutputJSONConFalloDeEscrituraSaleConUno(t *testing.T) {
 	var errBuf bytes.Buffer
 	handled, code := runInto(failingWriter{}, &errBuf, []string{"list"})
 	if !handled {
-		t.Fatal("el comando sí se manejó")
+		t.Fatal("the command was handled")
 	}
 	if code != 1 {
-		t.Errorf("code = %d, want 1: el agente necesita saber que no hay respuesta", code)
+		t.Errorf("code = %d, want 1: the agent needs to know there is no response", code)
 	}
 	if !strings.Contains(errBuf.String(), "could not write response") {
-		t.Errorf("stderr no dice que no se pudo escribir: %q", errBuf.String())
+		t.Errorf("stderr does not say it could not write: %q", errBuf.String())
 	}
 	if strings.Contains(errBuf.String(), "projects") {
-		t.Errorf("stderr no debe llevar la respuesta: %q", errBuf.String())
+		t.Errorf("stderr must not carry the response: %q", errBuf.String())
 	}
 }
 
@@ -411,7 +411,7 @@ func TestRunLoggedPropagaLosFallosDeEscrituraAntesDeEjecutar(t *testing.T) {
 	if err := os.MkdirAll(work, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	marker := filepath.Join(work, "ejecutado")
+	marker := filepath.Join(work, "executed")
 
 	tests := []struct {
 		name       string
@@ -419,19 +419,19 @@ func TestRunLoggedPropagaLosFallosDeEscrituraAntesDeEjecutar(t *testing.T) {
 		stderrPath string
 	}{
 		{
-			name:       "directorio de log bloqueado por un fichero",
-			stdoutPath: filepath.Join(writeFile(t, filepath.Join(base, "bloque1"), "x"), "sub", "stdout.log"),
-			stderrPath: filepath.Join(base, "caso1", "stderr.log"),
+			name:       "log directory blocked by a file",
+			stdoutPath: filepath.Join(writeFile(t, filepath.Join(base, "block1"), "x"), "sub", "stdout.log"),
+			stderrPath: filepath.Join(base, "case1", "stderr.log"),
 		},
 		{
-			name:       "stdout.log es un directorio",
+			name:       "stdout.log is a directory",
 			stdoutPath: makeDir(t, filepath.Join(base, "stdout.log")),
-			stderrPath: filepath.Join(base, "caso2", "stderr.log"),
+			stderrPath: filepath.Join(base, "case2", "stderr.log"),
 		},
 		{
 			// The banner fits, so only the second OpenFile of stdout.log would fail; the failure is provoked on stderr.log's own OpenFile instead.
-			name:       "stderr.log es un directorio",
-			stdoutPath: filepath.Join(base, "caso3", "stdout.log"),
+			name:       "stderr.log is a directory",
+			stdoutPath: filepath.Join(base, "case3", "stdout.log"),
 			stderrPath: makeDir(t, filepath.Join(base, "stderr.log")),
 		},
 	}
@@ -441,13 +441,13 @@ func TestRunLoggedPropagaLosFallosDeEscrituraAntesDeEjecutar(t *testing.T) {
 			_ = os.Remove(marker)
 			elapsed, code, err := runLogged("build", "touch "+marker, work, tt.stdoutPath, tt.stderrPath)
 			if err == nil {
-				t.Fatalf("runLogged con %s debería fallar", tt.name)
+				t.Fatalf("runLogged with %s should fail", tt.name)
 			}
 			if elapsed != 0 || code != 0 {
-				t.Errorf("un fallo de escritura devuelve elapsed=%v code=%d, want 0,0", elapsed, code)
+				t.Errorf("a write failure returns elapsed=%v code=%d, want 0,0", elapsed, code)
 			}
 			if _, statErr := os.Stat(marker); statErr == nil {
-				t.Error("el comando se ejecutó pese a no poder escribir el log: el agente vería ok sin salida")
+				t.Error("the command executed despite not being able to write the log: the agent would see ok with no output")
 			}
 		})
 	}
@@ -458,27 +458,27 @@ func TestRunLoggedDaElCodigoDeSalidaRealYLoAnotaEnElLog(t *testing.T) {
 	out := filepath.Join(dir, "stdout.log")
 	errLog := filepath.Join(dir, "stderr.log")
 
-	elapsed, code, err := runLogged("build", "echo fuera; echo dentro >&2; exit 42", dir, out, errLog)
+	elapsed, code, err := runLogged("build", "echo outside; echo inside >&2; exit 42", dir, out, errLog)
 	if code != 42 {
 		t.Errorf("code = %d, want 42", code)
 	}
 	if err == nil {
-		t.Fatal("un exit 42 debe ser error: el comando NO se hizo")
+		t.Fatal("an exit 42 must be an error: the command did NOT run")
 	}
 	// MEDIDO: a 3ms command rounds to 0 elapsed, so elapsed cannot prove the command ran; only the rounding itself is asserted.
 	if elapsed%10*time.Millisecond != 0 {
-		t.Errorf("elapsed = %v no está redondeado a 10ms", elapsed)
+		t.Errorf("elapsed = %v is not rounded to 10ms", elapsed)
 	}
 
-	if got := readFileString(t, errLog); !strings.Contains(got, "dentro") {
-		t.Errorf("el stderr del comando no llegó a su log: %q", got)
+	if got := readFileString(t, errLog); !strings.Contains(got, "inside") {
+		t.Errorf("the command's stderr did not reach its log: %q", got)
 	}
 	body := readFileString(t, out)
 	if !strings.Contains(body, "vroom ▶ build") {
-		t.Errorf("falta el banner del comando:\n%s", body)
+		t.Errorf("missing the command banner:\n%s", body)
 	}
 	if !strings.Contains(body, "vroom ✗ build failed (exit 42") {
-		t.Errorf("el log no dice que el build falló con 42:\n%s", body)
+		t.Errorf("the log does not say the build failed with 42:\n%s", body)
 	}
 }
 
@@ -489,13 +489,13 @@ func TestRunLoggedRedondeaElTiempoADiezesDeMil(t *testing.T) {
 		t.Fatal(err)
 	}
 	if elapsed%10*time.Millisecond != 0 {
-		t.Errorf("elapsed = %v no está redondeado a 10ms: dos ejecuciones darían números distintos", elapsed)
+		t.Errorf("elapsed = %v is not rounded to 10ms: two runs would give different numbers", elapsed)
 	}
 }
 
 // TestCmdLaunchPropagaElFalloDeSesionYDeEscaneo: launch resolves the stack first and builds store and scan only afterwards, which is why these two failures surface here and not in --list.
 func TestCmdLaunchPropagaElFalloDeSesionYDeEscaneo(t *testing.T) {
-	t.Run("store ilegible", func(t *testing.T) {
+	t.Run("unreadable store", func(t *testing.T) {
 		root := cliEnv(t)
 		t.Chdir(root)
 		composeStack(t, root, "front", [2]string{"front", `"web"`})
@@ -503,25 +503,25 @@ func TestCmdLaunchPropagaElFalloDeSesionYDeEscaneo(t *testing.T) {
 
 		_, err := cmdLaunch([]string{"front"})
 		if err == nil {
-			t.Fatal("con un state dir inutilizable, launch debería fallar")
+			t.Fatal("with an unusable state dir, launch should fail")
 		}
 		if strings.Contains(err.Error(), "scan error") {
-			t.Errorf("un store ilegible no es un fallo de escaneo: %q", err)
+			t.Errorf("an unreadable store is not a scan failure: %q", err)
 		}
 	})
 
-	t.Run("escaneo fallido", func(t *testing.T) {
+	t.Run("failed scan", func(t *testing.T) {
 		root := cliEnv(t)
 		t.Chdir(root)
 		composeStack(t, root, "front", [2]string{"front", `"web"`})
-		writeConfigScannerRoot(t, filepath.Join(root, "api", ".vroom.toml")) // un fichero
+		writeConfigScannerRoot(t, filepath.Join(root, "api", ".vroom.toml")) // a file
 
 		_, err := cmdLaunch([]string{"front"})
 		if err == nil {
-			t.Fatal("con un root que no es un directorio, launch debería fallar")
+			t.Fatal("with a root that is not a directory, launch should fail")
 		}
 		if !strings.Contains(err.Error(), "scan error") {
-			t.Errorf("err = %q, want el prefijo 'scan error'", err)
+			t.Errorf("err = %q, want the prefix 'scan error'", err)
 		}
 	})
 }
@@ -536,10 +536,10 @@ func TestDispatchReparteLaunchYHelp(t *testing.T) {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			payload, handled, err := dispatch(args)
 			if !handled || err != nil {
-				t.Fatalf("dispatch(%v) = handled %v, err %v; si un comando cae en default abre la TUI en vez de responder", args, handled, err)
+				t.Fatalf("dispatch(%v) = handled %v, err %v; if a command falls into default it opens the TUI instead of responding", args, handled, err)
 			}
 			if payload == nil {
-				t.Errorf("dispatch(%v) devolvió payload nil", args)
+				t.Errorf("dispatch(%v) returned nil payload", args)
 			}
 		})
 	}
@@ -549,21 +549,21 @@ func TestDispatchReparteLaunchYHelp(t *testing.T) {
 func TestCmdLaunchDryConUnServicioInexistenteEsError(t *testing.T) {
 	root := cliEnv(t)
 	_ = chdirTree(t, root)
-	composeStack(t, root, "front", [2]string{"front", `"no-existe"`})
+	composeStack(t, root, "front", [2]string{"front", `"does-not-exist"`})
 
 	payload, err := cmdLaunch([]string{"front", "--dry"})
 	if err == nil {
-		t.Fatalf("un --dry con un servicio inexistente debería fallar, devolvió %+v", payload)
+		t.Fatalf("a --dry with a nonexistent service should fail, returned %+v", payload)
 	}
-	if !strings.Contains(err.Error(), "no-existe") {
-		t.Errorf("err = %q, want el nombre del servicio que no se encuentra", err)
+	if !strings.Contains(err.Error(), "does-not-exist") {
+		t.Errorf("err = %q, want the name of the service that is not found", err)
 	}
 	if payload != nil {
-		t.Errorf("con error no debe devolverse plan: %+v", payload)
+		t.Errorf("with error no plan should be returned: %+v", payload)
 	}
 
 	if _, err := cmdLaunch([]string{"front"}); err == nil {
-		t.Error("el launch real del mismo stack debería fallar con el mismo servicio inexistente")
+		t.Error("the real launch of the same stack should fail with the same nonexistent service")
 	}
 }
 
@@ -572,16 +572,16 @@ func TestRunLoggedSinShDevuelveElErrorDeEjecucion(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PATH", "")
 
-	_, code, err := runLogged("build", "echo hola", dir,
+	_, code, err := runLogged("build", "echo hello", dir,
 		filepath.Join(dir, "o.log"), filepath.Join(dir, "e.log"))
 	if err == nil {
-		t.Fatal("sin intérprete el comando no puede ejecutarse")
+		t.Fatal("without interpreter the command cannot execute")
 	}
 	if code != 0 {
-		t.Errorf("code = %d, want 0: no hubo exit code porque no hubo proceso", code)
+		t.Errorf("code = %d, want 0: there was no exit code because there was no process", code)
 	}
 	if body := readFileString(t, filepath.Join(dir, "o.log")); !strings.Contains(body, "build failed") {
-		t.Errorf("el log no anota el fallo:\n%s", body)
+		t.Errorf("the log does not record the failure:\n%s", body)
 	}
 }
 
@@ -594,14 +594,14 @@ func TestRunConUnComandoQueNoFallaDevuelveQueLoManejo(t *testing.T) {
 	exit := func(int) { salidas++ }
 
 	if !Run([]string{"help"}, exit) {
-		t.Fatal("Run(help) debería manejar el comando")
+		t.Fatal("Run(help) should handle the command")
 	}
 	if Run(nil, exit) {
-		t.Error("Run sin argumentos no debe manejar nada: main lanzaría la TUI dos veces")
+		t.Error("Run without arguments should not handle anything: main would launch the TUI twice")
 	}
 	if salidas != 0 {
-		t.Errorf("se pidió salir %d veces, want 0: un comando que va bien y un arranque sin "+
-			"subcomando no matan el proceso", salidas)
+		t.Errorf("exit was requested %d times, want 0: a command that goes well and a start without "+
+			"subcommand do not kill the process", salidas)
 	}
 }
 
@@ -613,15 +613,15 @@ func TestRunPideSalirConElCodigoDelSubcomandoQueFalla(t *testing.T) {
 	handled := Run([]string{"stop", "servicio-que-no-existe"}, func(c int) { pedidos = append(pedidos, c) })
 
 	if !handled {
-		t.Fatal("stop es un subcomando conocido: tiene que decir que lo manejó aunque falle")
+		t.Fatal("stop is a known subcommand: it must say it handled it even if it fails")
 	}
 	if len(pedidos) != 1 {
-		t.Fatalf("exit = %v, want exactamente una llamada: un subcomando que falla mata el "+
-			"proceso una sola vez", pedidos)
+		t.Fatalf("exit = %v, want exactly one call: a failing subcommand kills the "+
+			"process only once", pedidos)
 	}
 	if pedidos[0] == 0 {
-		t.Errorf("exit = 0 por un subcomando fallido: un 0 le dice al shell y al agente que todo " +
-			"fue bien, y el servicio sigue como estaba")
+		t.Errorf("exit = 0 for a failed subcommand: a 0 tells the shell and the agent that everything " +
+			"went well, and the service remains as it was")
 	}
 }
 
@@ -635,21 +635,21 @@ func TestNormalizePathConUnDirectorioBorradoNoFalla(t *testing.T) {
 
 	got := normalizePath("api")
 	if got != "api" {
-		t.Errorf("normalizePath = %q sin CWD, want el path tal cual", got)
+		t.Errorf("normalizePath = %q without CWD, want the path as-is", got)
 	}
 
 	t.Chdir(t.TempDir())
 	full := filepath.Join(mustGetwd(t), "api")
 	if got := normalizePath("api"); got != full {
-		t.Errorf("normalizePath = %q con CWD válido, want %q", got, full)
+		t.Errorf("normalizePath = %q with valid CWD, want %q", got, full)
 	}
 	real := t.TempDir()
-	link := filepath.Join(filepath.Dir(real), "enlace")
+	link := filepath.Join(filepath.Dir(real), "link")
 	if err := os.Symlink(real, link); err != nil {
 		t.Fatal(err)
 	}
 	if got := normalizePath(link); got != real {
-		t.Errorf("normalizePath(symlink) = %q, want el destino %q", got, real)
+		t.Errorf("normalizePath(symlink) = %q, want the destination %q", got, real)
 	}
 
 }

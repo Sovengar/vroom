@@ -1,346 +1,346 @@
-# todolist.md — cobertura de tests de 72.9% → ≥98%
+# todolist.md — test coverage from 72.9% → ≥98%
 
-Baseline medido el 2026-10-02 con paridad exacta de CI:
+Baseline measured on 2026-10-02 with exact CI parity:
 
 ```bash
 go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
 ```
 
-**4409 statements, 1199 sin cubrir → 72.9%.** Idéntico con y sin `-race`.
-544 tests en 60 archivos. 18 paquetes.
+**4409 statements, 1199 uncovered → 72.9%.** Identical with and without `-race`.
+544 tests in 60 files. 18 packages.
 
 ---
 
-## 0. La matemática del objetivo (léase antes de aceptar el 98%)
+## 0. The math of the goal (read before accepting 98%)
 
-| | statements | sin cubrir |
+| | statements | uncovered |
 |---|---|---|
 | `internal/tui` | 1978 | 558 |
-| resto (17 paquetes) | 2431 | 641 |
+| rest (17 packages) | 2431 | 641 |
 
-Para 98% total hacen falta **≤88 statements sin cubrir**. Dos hechos
-condicionan todo el plan:
+To reach 98% total you need **≤88 uncovered statements**. Two facts
+condition the entire plan:
 
-1. **El 98% total depende íntegramente del TUI.** Si los otros 17 paquetes
-   llegan al 98% (≈49 sin cubrir) y el TUI se queda en 71.8%, el total queda en
-   **86.2%**. Con el TUI al 90% → 94.4%. Con el TUI al 95% → 96.6%. El TUI tiene
-   que llegar a ~98% para que el total llegue a 98%. No hay atajo: no es "subir la
-   cobertura de los paquetes fáciles".
+1. **The total 98% depends entirely on the TUI.** If the other 17 packages
+   reach 98% (≈49 uncovered) and the TUI stays at 71.8%, the total lands at
+   **86.2%**. With the TUI at 90% → 94.4%. With the TUI at 95% → 96.6%. The TUI has
+   to reach ~98% for the total to reach 98%. There is no shortcut: it is not "raising the
+   coverage of the easy packages".
 
-2. **Aun así es alcanzable, y por un motivo estructural**: el 90% de
-   `internal/tui` son funciones de render puras con receptor por valor que
-   devuelven `[]string` (`metricsLines`, `gitLines`, `treeLines`,
-   `detailsLines`, `stackDetailsLines`, `rightColumnLines`…). No son un Bubbletea
-   `Program` que haya que conducir. Son funciones testeares con table-driven y
-   golden, sin seam nuevo. La parte que sí es un `Program` (`Init`, `Update`) es
-   una fracción del peso.
+2. **Even so it is achievable, and for a structural reason**: 90% of
+   `internal/tui` are pure render functions with value receiver that
+   return `[]string` (`metricsLines`, `gitLines`, `treeLines`,
+   `detailsLines`, `stackDetailsLines`, `rightColumnLines`…). They are not a Bubbletea
+   `Program` that has to be driven. They are testable functions with table-driven and
+   golden tests, no new seam needed. The part that *is* a `Program` (`Init`, `Update`) is
+   a fraction of the weight.
 
-Por eso el plan es ejecutable. La Fase 4 es la cara, las Fases 1–3 son las
-baratas.
-
----
-
-## 1. Doctrina del repo — obligatoria, no negociable
-
-Extraída de los comentarios ya existentes en el código. Un PR que la contradiga
-debería rechazarse.
-
-- **Probar la cosa real, no un stub.** `removeabsent_test.go`: *"Estos casos NO
-  pasan por Release: se exertan contra el RemoveAbsent REAL, con el exec
-  inyectado, porque Release delega en un stub y un test que sólo mira el stub no
-  probaría nada del código bajo prueba."*
-- **No introducir variables globales intercambiables como seam.** `apply.go`
-  documenta `IsTestBinary()` como *"No depende de una variable que un test pueda
-  no poner."* Por eso la Fase 3 usa **subproceso real**, no `var exit = os.Exit`.
-- **Table-driven** para casos múltiples, `t.Run(tt.name, ...)`, nombrado por
-  escenario y no por mecánica del input.
-- **`t.TempDir()`** para todo lo que toque disco. Nunca el home real.
-- **Integración con `testing.Short()`** cuando ejecute comandos externos.
-- **Golden determinista**, actualizable solo por un path `-update` del repo, y
-  re-verificado sin `-update` después.
-- **Commenté en español, explica el porqué** (es la convención dominante del
-  repo; los tests existentes documentan el bug que previenen).
+That is why the plan is executable. Phase 4 is the expensive one, Phases 1–3 are the
+cheap ones.
 
 ---
 
-## Fase 0 — Infraestructura de test (bloquea Fases 3 y 4)
+## 1. Repo doctrine — mandatory, non-negotiable
 
-Sin esto no se puede escribir ni un test de CLI ni de TUI. **Cero delta de
-cobertura**, es enabling work.
+Extracted from the existing comments in the code. A PR that contradicts it
+should be rejected.
 
-- [ ] **0.1 Harness de golden en `internal/tui`.**
-  Helper `assertGolden(t, name, lines []string)` que compare contra
-  `internal/tui/testdata/<name>.golden`. Flags `-update` para regenerar.
-  Determinismo: **ninguna línea puede contener reloj, PID real ni ruta
-  absoluta** — los `*Lines` reciben `time.Time`/pid del Model como dato, así que
-  los tests fijan el tiempo con `t.Setenv`/campos del Model, no con `time.Now()`
-  dentro del render. Si un golden resulta no determinista, el culpable es un
-  `time.Now()` en el render y hay que inyectarlo, no sanear el golden.
-  Aceptación: golden inexistente falla el test con un mensaje que dice cómo
-  generarlo; `-update` regenera y el rerun sin `-update` pasa.
-
-- [ ] **0.2 Helper de subprocess con cobertura de hijo.**
-  `internal/testsub` (paquete nuevo, solo test): Given un comando, lo ejecuta y
-  recoge su cobertura vía `GOCOVERDIR`. Requiere compilar el binario de vroom
-  con `go build -cover -o <tmp>/vroom ./cmd/vroom` (soportado desde Go 1.20; el
-  repo está en go 1.26.3) y ejecutar con `GOCOVERDIR` apuntando a un dir
-  temporal. Aceptación: el test ve statements de `main()` y de `outputError`,
-  que hoy son inalcanzables in-process.
-
-- [ ] **0.3 Fusión de perfiles en el informe.**
-  Fusión (`go tool covdata`) de los perfiles de los procesos hijos dentro del
-  perfil del padre, para que `coverage.out` dé el total real y no solo el del
-  proceso de test. Sin esto el gate de la Fase 6 mide mal.
-
-- [ ] **0.4 Objetivo de tiempo de suite documentado.** Hoy el perfil es de
-  60s (`internal/startsvc`). Las Fases 3 y 4 suben eso. Medir y dejar escrito el
-  presupuesto; si se dispara, la respuesta es `testing.Short()`, no subir el
-  timeout de CI a ciegas.
+- **Test the real thing, not a stub.** `removeabsent_test.go`: *"These cases do NOT
+  go through Release: they exercise the REAL RemoveAbsent, with the exec
+  injected, because Release delegates to a stub and a test that only looks at the stub would not
+  test anything of the code under test."*
+- **Do not introduce swappable global variables as a seam.** `apply.go`
+  documents `IsTestBinary()` as *"Does not depend on a variable that a test can
+  unset."* That is why Phase 3 uses a **real subprocess**, not `var exit = os.Exit`.
+- **Table-driven** for multiple cases, `t.Run(tt.name, ...)`, named by
+  scenario and not by input mechanics.
+- **`t.TempDir()`** for everything that touches disk. Never the real home.
+- **Integration with `testing.Short()`** when running external commands.
+- **Deterministic golden**, updatable only via a repo `-update` path, and
+  re-verified without `-update` afterwards.
+- **Comment in Spanish, explain the why** (it is the dominant convention of the
+  repo; existing tests document the bug they prevent).
 
 ---
 
-## Fase 1 — Funciones puras al 0%, sin infraestructura (barata)
+## Phase 0 — Test infrastructure (blocks Phases 3 and 4)
 
-Todo esto es table-driven sobre funciones puras. **~197 statements.**
-Esperado: **72.9% → ~77.3%**
+Without this, not even a CLI or TUI test can be written. **Zero coverage
+delta**, it is enabling work.
 
-- [ ] **1.1 `internal/tui/bordered` (82 sin cubrir, el peor ratio: 42.7%).**
-  `parseAnsiSegments`, `wrapLine`, `isResetStyle` — las tres al 0%. Funciones de
-  texto puras y deterministas sobre el renderer: cero excusas. Casos:
-  secuencias SGR válidas, secuencia malformada a mitad de línea, reset
-  `ESC[0m` vs `ESC[m`, texto sin escapes, línea más ancha que el ancho ( wrap en
-  punto de palabra y en punto duro), ancho 0 y ancho 1, tabulador y caracteres
-  de ancho doble (CJK) en el wrap. **Ojo: es el renderer, un bug aquí es
-  corrupción visual en la TUI, y hoy no lo detecta nadie.**
-  Aceptación: ≥98% del paquete.
+- [ ] **0.1 Golden harness in `internal/tui`.**
+  Helper `assertGolden(t, name, lines []string)` that compares against
+  `internal/tui/testdata/<name>.golden`. `-update` flags to regenerate.
+  Determinism: **no line may contain a clock, real PID or absolute
+  path** — the `*Lines` receive `time.Time`/pid from the Model as data, so
+  tests fix the time with `t.Setenv`/Model fields, not with `time.Now()`
+  inside the render. If a golden turns out non-deterministic, the culprit is a
+  `time.Now()` in the render and it must be injected, not sanitizing the golden.
+  Acceptance: nonexistent golden fails the test with a message saying how
+  to generate it; `-update` regenerates and the rerun without `-update` passes.
 
-- [ ] **1.2 `internal/tui/outputtabs` — los `apply*` al 0%.**
+- [ ] **0.2 Subprocess helper with child coverage.**
+  `internal/testsub` (new package, test-only): Given a command, it executes it and
+  collects its coverage via `GOCOVERDIR`. Requires compiling the vroom
+  binary with `go build -cover -o <tmp>/vroom ./cmd/vroom` (supported since Go 1.20; the
+  repo is on go 1.26.3) and running with `GOCOVERDIR` pointing to a temp
+  dir. Acceptance: the test sees statements from `main()` and from `outputError`,
+  which are currently unreachable in-process.
+
+- [ ] **0.3 Profile merging in the report.**
+  Merging (`go tool covdata`) of child process profiles into the
+  parent's profile, so that `coverage.out` gives the real total and not just the
+  test process's. Without this, the Phase 6 gate measures wrong.
+
+- [ ] **0.4 Documented suite time budget.** Today the profile is
+  60s (`internal/startsvc`). Phases 3 and 4 raise that. Measure and write down the
+  budget; if it blows up, the answer is `testing.Short()`, not raising the
+  CI timeout blindly.
+
+---
+
+## Phase 1 — Pure functions at 0%, no infrastructure (cheap)
+
+All of this is table-driven over pure functions. **~197 statements.**
+Expected: **72.9% → ~77.3%**
+
+- [ ] **1.1 `internal/tui/bordered` (82 uncovered, worst ratio: 42.7%).**
+  `parseAnsiSegments`, `wrapLine`, `isResetStyle` — all three at 0%. Pure
+  deterministic text functions over the renderer: zero excuses. Cases:
+  valid SGR sequences, malformed sequence mid-line, reset
+  `ESC[0m` vs `ESC[m`, text without escapes, line wider than the width (wrap at
+  word boundary and hard break), width 0 and width 1, tab and double-width
+  characters (CJK) in the wrap. **Careful: it is the renderer, a bug here is
+  visual corruption in the TUI, and today nobody catches it.**
+  Acceptance: ≥98% of the package.
+
+- [ ] **1.2 `internal/tui/outputtabs` — the `apply*` at 0%.**
   `applyMetrics`, `applyGit`, `applyEnv`, `firstLine`, `probeHealth`,
-  `recordStackEventByName`. Los tests existentes (`outputtabs_test.go`) afirman
-  `metricsLines`/`gitLines` **pre-poblando la caché del Model**: se prueba la
-  mitad pura del sistema y se ignora la mitad transición. Estos tests pasan
-  aunque el pipeline que llena la caché esté roto. Tests: cada `cmd` (42.9%)
-  inyectando el seam de exec y disparando el `tea.Msg` resultante; cada `apply*`
-  con msg de éxito, msg de error, y msg de servicio que ya no existe.
-  Aceptación: la caché se llena probando el `cmd`, no)a mano.
+  `recordStackEventByName`. The existing tests (`outputtabs_test.go`) exercise
+  `metricsLines`/`gitLines` **pre-populating the Model cache**: they test the
+  pure half of the system and ignore the transition half. These tests pass
+  even if the pipeline that fills the cache is broken. Tests: each `cmd` (42.9%)
+  injecting the exec seam and firing the resulting `tea.Msg`; each `apply*`
+  with success msg, error msg, and msg for a service that no longer exists.
+  Acceptance: the cache is filled by testing the `cmd`, not by hand.
 
 - [ ] **1.3 `internal/state` (68.9%).**
-  `NewStore` y `Base` al 0% porque los tests construyen el Store directamente y
-  saltan el constructor. Cubrir `NewStore` con `t.Setenv("HOME", tmp)` +
-  `t.TempDir()`: creación de dir base, permisos, error si el base dir es un
-  fichero. `DefaultBaseDir` (33.3%) con y sin `HOME`. `EnsureServiceDir`,
-  `SaveMeta`, `RegisterPid`, `ClearPid`, `SaveCollapsed` están en 62–75%: cubrir
-  sus ramas de error (dir no escribible, meta corrupto, pid ya registrado).
-  Aceptación: ≥98%.
+  `NewStore` and `Base` at 0% because tests build the Store directly and
+  skip the constructor. Cover `NewStore` with `t.Setenv("HOME", tmp)` +
+  `t.TempDir()`: base dir creation, permissions, error if the base dir is a
+  file. `DefaultBaseDir` (33.3%) with and without `HOME`. `EnsureServiceDir`,
+  `SaveMeta`, `RegisterPid`, `ClearPid`, `SaveCollapsed` are at 62–75%: cover
+  their error branches (non-writable dir, corrupt meta, already-registered pid).
+  Acceptance: ≥98%.
 
-- [ ] **1.4 `internal/portless` — los huecos reales, no los stubs.**
-  `Warn` está al **18.2%** y es el agujero de verdad. Los 0% de `RemoveAbsent`
-  (adaptador `ReleaserFunc`), `InertReleaser`, `IsTestBinary` y `ClientFor` son
-  deliberados: son guardas de seguridad, no deuda. Cubrir `Binary`, `Default`,
-  `StateDir` con `t.Setenv("PATH")` y `HOME` redirecidos (y **verificar con
-  `IsTestBinary` que el test no puede tocar el portless real del desarrollador**),
-  y `withReason`.
-  Aceptación: ≥98%, o el resto de 0% documentado en un comentario como
-  intencionado.
+- [ ] **1.4 `internal/portless` — the real gaps, not the stubs.**
+  `Warn` is at **18.2%** and is the real hole. The 0% of `RemoveAbsent`
+  (`ReleaserFunc` adapter), `InertReleaser`, `IsTestBinary` and `ClientFor` are
+  deliberate: they are safety guards, not debt. Cover `Binary`, `Default`,
+  `StateDir` with `t.Setenv("PATH")` and `HOME` redirected (and **verify with
+  `IsTestBinary` that the test cannot touch the developer's real portless**),
+  and `withReason`.
+  Acceptance: ≥98%, or the remaining 0% documented in a comment as
+  intentional.
 
-- [ ] **1.5 Stubs al 0% de un statement en paquetes ya altos.**
+- [ ] **1.5 Stubs at 0% of a single statement in already-high packages.**
   `manifest.Exists`, `orchestrate.LaunchAsync`, `scanner.IsNestedRow`,
   `agents` (2), `group` (1), `worktree` (5), `gitinfo` (3), `tail` (5),
-  `config` (7), `launcher` (10), `startsvc` (10). Todo table-driven, bajo
-  riesgo, sube el total casi gratis.
+  `config` (7), `launcher` (10), `startsvc` (10). All table-driven, low
+  risk, raises the total almost for free.
 
-- [ ] **1.6 `internal/process` — lo alcanzable.**
-  `warnf` (2), `lineageDesc` (2). `ReadEnviron`/`ReadMetrics` (82.9%) leen
-  `/proc`: o se cubren contra el `/proc` real del propio proceso de test (que
-  siempre está y es determinista en Linux), o se marca como integración con
+- [ ] **1.6 `internal/process` — the reachable part.**
+  `warnf` (2), `lineageDesc` (2). `ReadEnviron`/`ReadMetrics` (82.9%) read
+  `/proc`: either cover them against the real `/proc` of the test process itself (which
+  is always there and is deterministic on Linux), or mark as integration with
   `testing.Short()`.
 
 ---
 
-## Fase 2 — Barrido de render del TUI con golden (la mayor de las baratas)
+## Phase 2 — TUI render sweep with golden (the biggest of the cheap ones)
 
-Cierra `*Lines`, `*ContentLines`, `fitLines`, `clipLines`, `padLines`,
+Closes `*Lines`, `*ContentLines`, `fitLines`, `clipLines`, `padLines`,
 `frameBoxLines`, `treeLines`, `rightColumnLines`, `detailsContentLines`,
 `consoleContentLines`, `groupDetailsLines`, `allDetailsLines`, `threadsLines`,
 `timelineLines`, `dashboard.go`, `projectlist.go`, `serviceview.go`
-(`stackDetailsLines` al 0%), `tui/route.go` (63.6%), `tui/term.go` (87.7%).
+(`stackDetailsLines` at 0%), `tui/route.go` (63.6%), `tui/term.go` (87.7%).
 
-**~300 statements.** Esperado acumulado: **~84.1%**
+**~300 statements.** Expected cumulative: **~84.1%**
 
-- [ ] **2.1 Un golden por estado del Model, no por función.** El error a evitar
-  es un golden por cada una de las ~20 funciones `*Lines`: eso no prueba nada,
-  porque las funciones se llaman unas a otras y el mismo estado se repetiría 20
-  veces. Lo correcto es un golden por **escenario de pantalla**: servicio
-  parado / corriendo / arrancando /Parando / con error, con y sin grupo, con y
-  sin stack, servicio seleccionado y no seleccionado, log vacío y log con
-  líneas, viewport con scroll y sin scroll, ancho mínimo y ancho amplio. Eso
-  ejercita las ~20 funciones a la vez y cubre de verdad.
-- [ ] **2.2 Casos límite de layout**, que es donde se Concentran las ramas sin
-  cubrir: ancho 0/1/2, altura 0/1, líneas más largas que el panel, truncado con
-  elipsis, texto multibyte, panel oculto (`full` toggles), resize.
-- [ ] **2.3 `tui/route.go` (63.6%)** — `tuiRouteReleaser` al 40%: es la
-  integración TUI↔portless, es decir donde se decide la propiedad de una ruta.
-  Mismo rigor que en `internal/portless`: stub no vale, hay que ejercer el
-  liberador real.
+- [ ] **2.1 One golden per Model state, not per function.** The error to avoid
+  is a golden for each of the ~20 `*Lines` functions: that proves nothing,
+  because the functions call each other and the same state would repeat 20
+  times. The right thing is one golden per **screen scenario**: service
+  stopped / running / starting / stopping / with error, with and without group, with and
+  without stack, selected and unselected service, empty log and log with
+  lines, viewport with scroll and without scroll, minimum width and wide width. That
+  exercises the ~20 functions at once and truly covers.
+- [ ] **2.2 Layout edge cases**, which is where the uncovered
+  branches concentrate: width 0/1/2, height 0/1, lines longer than the panel, truncation with
+  ellipsis, multibyte text, hidden panel (`full` toggles), resize.
+- [ ] **2.3 `tui/route.go` (63.6%)** — `tuiRouteReleaser` at 40%: it is the
+  TUI↔portless integration, i.e. where route ownership is decided.
+  Same rigor as in `internal/portless`: stub is not enough, the
+  real releaser must be exercised.
 
 ---
 
-## Fase 3 — `internal/cli`: de 30.1% a ≥98% (288 statements)
+## Phase 3 — `internal/cli`: from 30.1% to ≥98% (288 statements)
 
-El paquete tiene **un solo `os.Exit`**: `outputError` (cli.go:152). Todo lo
-demás son funciones que escriben en `os.Stdout` por `outputJSON`. Los 4 test
-files actuales (`cli_test.go`, `portjson_test.go`, `port_test.go`,
-`route_test.go`, `route_release_test.go`) solo cubren helpers de búsqueda de
-proyecto y de puerto.
+The package has **a single `os.Exit`**: `outputError` (cli.go:152). Everything
+else are functions that write to `os.Stdout` via `outputJSON`. The 4 current test
+files (`cli_test.go`, `portjson_test.go`, `port_test.go`,
+`route_test.go`, `route_release_test.go`) only cover project and port lookup
+helpers.
 
-**Esperado acumulado: ~90.2%**
+**Expected cumulative: ~90.2%**
 
-- [ ] **3.1 `outputJSON` / `outputError`.** El formato JSON **es la interfaz
-  pública para agentes** (el propio repo se describe como "JSON interface for
-  AI agents"). Hoy está al 0% y nadie lo verifica: un cambio de nombre de campo
-  rompe a cada consumidor y CI sigue verde. Probar el shape exacto del JSON
-  (indentación de 2 espacios, `omitempty` de `Stdout`/`Stderr`, clave `error`)
-  decodificando a `map[string]any` y comparando contra el struct, no contra
-  string literal.
-- [ ] **3.2 `resolveRoot` (0%).** Rama `~` con `UserHomeDir`, rama
-  relativa→absoluta con `filepath.Join`, y la config vacía. La expansión de `~`
-  es lógica de ruta y un bug ahí manda al scanner al sitio equivocado en
-  silencio.
-- [ ] **3.3 `Run` — tabla de dispatch por subcomando.**
+- [ ] **3.1 `outputJSON` / `outputError`.** The JSON format **is the public
+  interface for agents** (the repo itself is described as "JSON interface for
+  AI agents"). Today it is at 0% and nobody verifies it: a field name change
+  breaks every consumer and CI stays green. Test the exact JSON
+  shape (2-space indentation, `omitempty` on `Stdout`/`Stderr`, `error` key)
+  by decoding into `map[string]any` and comparing against the struct, not against
+  literal strings.
+- [ ] **3.2 `resolveRoot` (0%).** `~` branch with `UserHomeDir`,
+  relative→absolute branch with `filepath.Join`, and empty config. The `~`
+  expansion is path logic and a bug there sends the scanner to the wrong place
+  silently.
+- [ ] **3.3 `Run` — dispatch table by subcommand.**
   `list`/`status`, `start`, `stop`, `build`, `install`, `oneshot`, `logs`,
-  `help`, `launch`, y el caso `len(args)==0 → false` (que significa "lanza la
-  TUI"). Verificar dos cosas distintas y ambas importantes: **a qué
-  subcomando enruta**, y **qué devuelve** (true = manejado, false = TUI). Sin
-  este test, un typo en el `switch` enruta `stop` a `start` y nada falla.
-- [ ] **3.4 Los nueve `cmd*` (todos al 0%).** Casos por subcomando: happy path,
-  proyecto inexistente, **proyecto ambiguo** (el `findProject` ya devuelve
-  ambigüedad y el mensaje es accionable — hay que probarlo), `--path`
-  desambiguando, flags desconocidos, y argumentos de menos (cada uno debe dar
-  el `usage:` correcto, no un panic).
-- [ ] **3.5 `runLogged`.** Es el camino que captura stdout/stderr de un comando
-  one-shot y lo mete en `appendLine`. El log es lo que el usuario va a leer
-  cuando algo falle: necesita caso de éxito, de comando que falla, de output
-  interleaving, y de log que no se puede abrir.
-- [ ] **3.6 `cmd/vroom/main.go` (0%, 14 statements).** inalcanzable in-process
-  por los tres `os.Exit`. Solo se cubren con el harness de subprocess de 0.2:
-  caso TUI (sin args) no es automatizable — se documenta la exclusión —, pero
-  los tres caminos de error sí son (`NewStore` fallando, `Getwd` fallando,
-  `tea.Run` fallando) con `HOME`/cwd manipulados.
-- [ ] **3.7 `loadConfig`.** Trivial pero hoy es un 0% dentro de un paquete al
-  30%; entra solo.
+  `help`, `launch`, and the `len(args)==0 → false` case (which means "launch the
+  TUI"). Verify two different and both important things: **which
+  subcommand it routes to**, and **what it returns** (true = handled, false = TUI). Without
+  this test, a typo in the `switch` routes `stop` to `start` and nothing fails.
+- [ ] **3.4 The nine `cmd*` (all at 0%).** Cases per subcommand: happy path,
+  nonexistent project, **ambiguous project** (`findProject` already returns
+  ambiguity and the message is actionable — it must be tested), `--path`
+  disambiguating, unknown flags, and missing arguments (each must give
+  the correct `usage:`, not a panic).
+- [ ] **3.5 `runLogged`.** It is the path that captures stdout/stderr from a
+  one-shot command and feeds it into `appendLine`. The log is what the user will read
+  when something fails: it needs success case, failing command,
+  output interleaving, and log that cannot be opened.
+- [ ] **3.6 `cmd/vroom/main.go` (0%, 14 statements).** Unreachable in-process
+  because of the three `os.Exit`. Only covered with the 0.2 subprocess
+  harness: TUI case (no args) is not automatable — the exclusion is documented —, but
+  the three error paths are (`NewStore` failing, `Getwd` failing,
+  `tea.Run` failing) with manipulated `HOME`/cwd.
+- [ ] **3.7 `loadConfig`.** Trivial but today it is a 0% inside a package at
+  30%; included for free.
 
 ---
 
-## Fase 4 — `internal/tui/app.go`: transiciones (la fase cara)
+## Phase 4 — `internal/tui/app.go`: transitions (the expensive phase)
 
-558 statements sin cubrir en el TUI, la mayoría aquí. **Esta fase es la que
-decide si el total llega a 98%.**
+558 uncovered statements in the TUI, most of them here. **This phase is the one
+that decides whether the total reaches 98%.**
 
-**Esperado acumulado: ~95.1%**
+**Expected cumulative: ~95.1%**
 
-- [ ] **4.1 `Model.Init` (0%)** y `tickCmd`/`consoleTickCmd`/`threadsCmd` (0%):
-  los `tea.Cmd`. Probar el `cmd` con el seam de exec inyectado y afirmar el
-  `tea.Msg` que produce; `Init` se despacha y se afirma el batch inicial.
-- [ ] **4.2 `Update` está al 36.5%** — es un solo `switch` enorme y es el
-  mayor bloque sin cubrir de todo el repo. Table-driven: **un caso por `tea.Msg`
-  y por tecla**, afirmando la transición de estado, no el render. Mensajes que
-  faltan: ticks, resultados de `metricsCmd`/`gitCmd`/`envCmd`/`healthCmd`,
-  `consoleMsg`, `threadsMsg`, `editLogs`. Teclas: navegación, `q`/esc,
-  shortcuts de vista, resize, cada toggle.
-- [ ] **4.3 Los toggles al 0%:** `toggleStack`, `toggleComposers`,
-  `markStackStopping`, `scrollDetails`. Los toggles son exactamente donde un
-  estado queda desincronizado: el síntoma es "la TUI muestra algo que ya no es
-  cierto", que no lo detecta ningún otro test.
-- [ ] **4.4 `refreshBatch` (0%)** — es elnamen de la carga inicial del
-  dashboard. Un 0% aquí significa que **la primera pantalla después de abrir
-  vroom no tiene test**. Prioridad máxima dentro de la fase.
-- [ ] **4.5 `stateOfMeta` (0%)** — traduce `Meta` a estado de UI. Si se
-  equivoca, la UI miente sobre un servicio real.
-- [ ] **4.6 `scrollDetails` + viewport.** Scroll con logs más largos que el
-  panel, saturación en los extremos, resize que invalida el offset.
+- [ ] **4.1 `Model.Init` (0%)** and `tickCmd`/`consoleTickCmd`/`threadsCmd` (0%):
+  the `tea.Cmd`s. Test the `cmd` with the exec seam injected and assert the
+  `tea.Msg` it produces; `Init` is dispatched and the initial batch is asserted.
+- [ ] **4.2 `Update` is at 36.5%** — it is a single enormous `switch` and is the
+  largest uncovered block in the entire repo. Table-driven: **one case per `tea.Msg`
+  and per key**, asserting the state transition, not the render. Missing
+  messages: ticks, results of `metricsCmd`/`gitCmd`/`envCmd`/`healthCmd`,
+  `consoleMsg`, `threadsMsg`, `editLogs`. Keys: navigation, `q`/esc,
+  view shortcuts, resize, every toggle.
+- [ ] **4.3 The toggles at 0%:** `toggleStack`, `toggleComposers`,
+  `markStackStopping`, `scrollDetails`. Toggles are exactly where a
+  state gets out of sync: the symptom is "the TUI shows something that is no
+  longer true", which no other test catches.
+- [ ] **4.4 `refreshBatch` (0%)** — it is the name of the initial dashboard
+  load. A 0% here means that **the first screen after opening
+  vroom has no test**. Maximum priority within the phase.
+- [ ] **4.5 `stateOfMeta` (0%)** — translates `Meta` to UI state. If it is
+  wrong, the UI lies about a real service.
+- [ ] **4.6 `scrollDetails` + viewport.** Scroll with logs longer than the
+  panel, saturation at the extremes, resize that invalidates the offset.
 
 ---
 
-## Fase 5 — Colas de los paquetes ya altos (144 statements)
+## Phase 5 — Leftovers of already-high packages (144 statements)
 
 `process` (69), `scanner` (27), `orchestrate` (28), `launcher` (10),
 `startsvc` (10).
 
-**Esperado acumulado: ~97.6%**
+**Expected cumulative: ~97.6%**
 
-- [ ] **5.1 `internal/process`** es el más grande: `daemon_unix.go` (83.1%),
+- [ ] **5.1 `internal/process`** is the largest: `daemon_unix.go` (83.1%),
   `dynamic_unix.go` (91.5%), `lineage_unix.go` (87.0%), `threads_unix.go`
-  (84.0%), `metrics_unix.go`. Usa procesos reales y `/proc` real. Lo no
-  alcanzable de forma determinista (lectura de `/proc` de un proceso ya
-  muerto, carrera entre `kill` y `wait`) va a `testing.Short()` o se declara
-  excluido, pero **cada rama de error real se prueba**.
-- [ ] **5.2 `internal/scanner`** (86.7%): fallback de `WalkDir` cuando falta
-  `fd` — es una ruta que CI ejercita en un runner sin `fd` instalado y en local
-  nunca, así que hoy está verde sin ejecutarse de verdad. Probar ambas rutas.
+  (84.0%), `metrics_unix.go`. Uses real processes and real `/proc`. What is not
+  deterministically reachable (reading `/proc` of an already-dead
+  process, race between `kill` and `wait`) goes to `testing.Short()` or is declared
+  excluded, but **every real error branch is tested**.
+- [ ] **5.2 `internal/scanner`** (86.7%): `WalkDir` fallback when `fd` is
+  missing — it is a path that CI exercises on a runner without `fd` installed and locally
+  never, so today it is green without actually running. Test both paths.
 - [ ] **5.3 `internal/orchestrate`** (89.7%): `engine.go` (87.7%),
-  `compose.go`, `health.go`. Estos tests tardan 38s: son los que peor relación
-  coste/beneficio dan de todo el plan, por eso van los últimos.
+  `compose.go`, `health.go`. These tests take 38s: they are the worst cost/benefit
+  ratio in the entire plan, which is why they go last.
 
 ---
 
-## Fase 6 — Gate: que el 98% no se deshaga
+## Phase 6 — Gate: so the 98% does not come undone
 
-- [ ] **6.1 Umbral en CI.** Hoy `.github/workflows/ci.yml` **solo reporta**
-  cobertura en el step summary; no bloquea nada. Con el gate de mutación
-  existente (`mutation.yml`, bloquea supervivientes nuevos en el diff) hay una
-  asimetría: la mutación previene que la cobertura **baje**, pero no sube el
-  piso. Añadir umbral destatements y, preferiblemente, **no bajar del valor
-  registrado en el propio repo** (`coverage.floor` en un fichero versionado), no
-  un número fijo en el YAML que se queda viejo sin que nadie lo note.
-- [ ] **6.2 Reproducibilidad del número.** Documentar en `Makefile` el comando
-  exacto (`make cover`) que produce el perfil, e incluir los perfiles de
-  subproceso (Fase 0.3). Un gate que mide distinto a como se midió el baseline
-  es un gate que miente.
-- [ ] **6.3 Integrar con el gate de mutación.** Cobertura por statements **y**
-  supervivencia de mutantes son dos señales distintas: la primera mide cuánto
-  código se ejecuta, la segunda mide si algún test lo verifica de verdad. Un
-  suite puede tener 98% de cobertura y cero poder de detección — todo código
-  ejecutado, nada afirmado. Los dos gates juntos, no uno.
-
----
-
-## 7. La cola final: los últimos ~2%
-
-Llegar a 98% exige ≤88 statements sin cubrir de 4409. Los últimos son, por
-naturaleza, ramas de sistema: `/proc` de un proceso en carrera, un `syscall`
-que solo falla bajo permisos concretos, un `os.Exit` que solo se alcanza con un
-`HOME` corrupto.
-
-**Regla, para que esto no se convierta en una pelea de números:**
-
-- Cada exclusión se documenta en el propio punto del código, con un comentario
-  que diga **por qué no es alcanzable**, como ya se hace en `apply.go` con
-  `IsTestBinary`. Sin razón escrita, no es exclusión: es deuda.
-- Si al terminar las Fases 0–5 el total queda entre 96% y 98%, **el número se
-  publica tal cual y el objetivo se revisa con datos**, no se maquilla
-  bajando el umbral ni subiendo el número con exclusiones infladas. Un 96%
-  honesto con exclusiones justificadas vale más que un 98% con hueco.
+- [ ] **6.1 Threshold in CI.** Today `.github/workflows/ci.yml` **only reports**
+  coverage in the step summary; it blocks nothing. With the existing mutation
+  gate (`mutation.yml`, blocks new survivors in the diff) there is an
+  asymmetry: mutation prevents coverage from **dropping**, but does not raise the
+  floor. Add a statements threshold and, preferably, **do not go below the value
+  recorded in the repo itself** (`coverage.floor` in a versioned file), not a
+  fixed number in the YAML that goes stale without anyone noticing.
+- [ ] **6.2 Reproducibility of the number.** Document in the `Makefile` the exact
+  command (`make cover`) that produces the profile, and include subprocess
+  profiles (Phase 0.3). A gate that measures differently from how the baseline
+  was measured is a gate that lies.
+- [ ] **6.3 Integrate with the mutation gate.** Statement coverage **and**
+  mutant survival are two distinct signals: the first measures how much
+  code is executed, the second measures whether any test truly verifies it. A
+  suite can have 98% coverage and zero detection power — all code
+  executed, nothing asserted. Both gates together, not one.
 
 ---
 
-## Orden de ejecución y por qué en este orden
+## 7. The final stretch: the last ~2%
 
-1. **Fase 0** — no produce cobertura, pero sin 0.1 no hay golden y sin 0.2 no hay
-   CLI ni `main`. Todo lo demás depende de esto.
-2. **Fase 1** — la más barata: funciones puras ya al 0%, sin seam nuevo, riesgo
-   bajo. Baja el número ya y valida que el harness de golden de 0.1 funciona
-   (1.1 es el banco de pruebas de 0.1).
-3. **Fase 2** — el mayor volumen y el menor riesgo, gracias a que los renders
-   son puros. Sube el TUI de 71.8% a ~85%.
-4. **Fase 3** — el CLI, que es superficie pública para agentes y está al 30%.
-   Depende de 0.2.
-5. **Fase 4** — la cara. Se hace con la confianza de que 1–3 ya están verdes y
-   el golden harness está probado.
-6. **Fase 5** — colas de los paquetes que ya están altos: es donde queda menos
-   por ganar, así que va el último.
-7. **Fase 6** — el gate, cuando el número ya es defendible. Poner el umbral
-   antes solo provoca que se bajen las exclusiones para que pase.
+Reaching 98% requires ≤88 uncovered statements out of 4409. The last ones are, by
+nature, system branches: `/proc` of a racing process, a `syscall`
+that only fails under specific permissions, an `os.Exit` that is only reached with a
+corrupt `HOME`.
 
-Cada fase es un PR. La regla de `AGENTS.md` se aplica **al terminar cada uno**:
-`make check` y después `make install`, que verifica el sello de revisión del
-binario desplegado.
+**Rule, so this does not become a number fight:**
+
+- Each exclusion is documented at the exact point in the code, with a comment
+  that says **why it is not reachable**, as is already done in `apply.go` with
+  `IsTestBinary`. Without a written reason, it is not an exclusion: it is debt.
+- If at the end of Phases 0–5 the total lands between 96% and 98%, **the number is
+  published as-is and the goal is revisited with data**, not
+  cosmetically lowered by lowering the threshold or inflating the number with inflated exclusions. An honest 96%
+  with justified exclusions is worth more than a 98% with a gap.
+
+---
+
+## Execution order and why in this order
+
+1. **Phase 0** — produces no coverage, but without 0.1 there is no golden and without 0.2 there is no
+   CLI nor `main`. Everything else depends on this.
+2. **Phase 1** — the cheapest: pure functions already at 0%, no new seam, low
+   risk. Lowers the number right away and validates that the 0.1 golden harness works
+   (1.1 is the test bench for 0.1).
+3. **Phase 2** — the largest volume and the lowest risk, thanks to the renders
+   being pure. Raises the TUI from 71.8% to ~85%.
+4. **Phase 3** — the CLI, which is public surface for agents and is at 30%.
+   Depends on 0.2.
+5. **Phase 4** — the expensive one. Done with the confidence that 1–3 are already green and
+   the golden harness is proven.
+6. **Phase 5** — leftovers of packages that are already high: it is where the least
+   remains to be gained, so it goes last.
+7. **Phase 6** — the gate, when the number is already defensible. Putting the threshold
+   earlier only causes exclusions to be lowered to make it pass.
+
+Each phase is a PR. The `AGENTS.md` rule applies **at the end of each one**:
+`make check` and then `make install`, which verifies the revision stamp of the
+deployed binary.

@@ -12,25 +12,25 @@ func TestWriteJSONAtomicRevientaConUnTipoNoSerializable(t *testing.T) {
 	defer func() {
 		r := recover()
 		if r == nil {
-			t.Fatal("writeJSONAtomic con un float64 NaN no saltó: un tipo que json no sabe " +
-				"serializar es un error de programación, y tiene queVerse como tal")
+			t.Fatal("writeJSONAtomic with a float64 NaN did not panic: a type that json cannot " +
+				"serialize is a programming error, and it must be seen as such")
 		}
 		msg, ok := r.(string)
 		if !ok {
-			t.Fatalf("el panic es de tipo %T, want string con el motivo", r)
+			t.Fatalf("the panic is of type %T, want string with the reason", r)
 		}
 		if !strings.Contains(msg, "float64") {
-			t.Errorf("el panic dice %q, want que nombre el tipo que falló: sin el tipo, quien lo "+
-				"lee no sabe qué campo añadir o quitar", msg)
+			t.Errorf("the panic says %q, want it to name the type that failed: without the type, whoever "+
+				"reads it does not know which field to add or remove", msg)
 		}
 		if !strings.Contains(msg, "NaN") {
-			t.Errorf("el panic dice %q, want que incluya el error de json: \"tipo\" sin \"por qué\" "+
-				"deja el trabajo a medias", msg)
+			t.Errorf("the panic says %q, want it to include the json error: \"type\" without \"why\" "+
+				"leaves the job half done", msg)
 		}
 	}()
 
-	// MEDIDO: NaN is the only value encoding/json rejects here, and the one a stray numeric field would smuggle in.
-	_ = writeJSONAtomic(filepath.Join(t.TempDir(), "nunca.json"), map[string]float64{"x": nan()})
+	// MEASURED: NaN is the only value encoding/json rejects here, and the one a stray numeric field would smuggle in.
+	_ = writeJSONAtomic(filepath.Join(t.TempDir(), "never.json"), map[string]float64{"x": nan()})
 }
 
 func nan() float64 {
@@ -46,7 +46,7 @@ func TestSaveMetaYSaveCollapsedCompartenElEscribidoAtomico(t *testing.T) {
 	if err := s.SaveMeta(proyecto, Meta{Name: "api", Pid: 42, State: StateRunning}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SaveCollapsed(map[string]bool{"tienda": true}); err != nil {
+	if err := s.SaveCollapsed(map[string]bool{"shop": true}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -55,11 +55,11 @@ func TestSaveMetaYSaveCollapsedCompartenElEscribidoAtomico(t *testing.T) {
 		s.CollapsedFile(),
 	} {
 		if _, err := os.Stat(f); err != nil {
-			t.Errorf("%s no existe: %v", f, err)
+			t.Errorf("%s does not exist: %v", f, err)
 		}
 		tmp := f + ".tmp"
 		if _, err := os.Stat(tmp); !os.IsNotExist(err) {
-			t.Errorf("quedó el temporal %s detrás (err=%v): el rename no lo limpia", tmp, err)
+			t.Errorf("the temp file %s was left behind (err=%v): rename does not clean it up", tmp, err)
 		}
 	}
 
@@ -70,8 +70,8 @@ func TestSaveMetaYSaveCollapsedCompartenElEscribidoAtomico(t *testing.T) {
 	if meta.Pid != 42 || meta.Name != "api" {
 		t.Errorf("meta = %+v, want Name=api Pid=42", meta)
 	}
-	if !s.LoadCollapsed()["tienda"] {
-		t.Error("collapsed.json no se guardó: el grupo plegado se despliega en el siguiente arranque")
+	if !s.LoadCollapsed()["shop"] {
+		t.Error("collapsed.json was not saved: the collapsed group expands on the next boot")
 	}
 }
 
@@ -85,16 +85,16 @@ func TestSaveMetaPropagaElFalloDeEscribirElTemporal(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A non-empty meta.json directory lets the tmp write succeed and fails the rename with EISDIR.
-	if err := os.MkdirAll(filepath.Join(dir, "meta.json", "bloqueo"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "meta.json", "lock"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	err = s.SaveMeta(proyecto, Meta{Name: "api"})
 	if err == nil {
-		t.Fatal("SaveMeta con un destino que no es un fichero tiene que fallar")
+		t.Fatal("SaveMeta with a destination that is not a file must fail")
 	}
 	if !strings.Contains(err.Error(), "meta.json") {
-		t.Errorf("err = %q, want que nombre el fichero: el mensaje es lo que le dice al usuario "+
-			"que su directorio de estado está en mal estado", err)
+		t.Errorf("err = %q, want it to name the file: the message is what tells the user "+
+			"that their state directory is in a bad state", err)
 	}
 }

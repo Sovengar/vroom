@@ -17,10 +17,10 @@ func TestDisplayRouteURLOnlyWhenVerified(t *testing.T) {
 		meta state.Meta
 		want string
 	}{
-		{"verificada", state.Meta{RouteStatus: portless.StatusRegistered, RouteURL: "https://api.localhost"}, "https://api.localhost"},
-		{"degradada", state.Meta{RouteStatus: portless.StatusDegraded, RouteReason: portless.ReasonProxyNotRunning}, ""},
-		{"escrita pero no verificada", state.Meta{RouteName: "api", RouteURL: "https://api.localhost"}, ""},
-		{"sin ruta", state.Meta{}, ""},
+		{"verified", state.Meta{RouteStatus: portless.StatusRegistered, RouteURL: "https://api.localhost"}, "https://api.localhost"},
+		{"degraded", state.Meta{RouteStatus: portless.StatusDegraded, RouteReason: portless.ReasonProxyNotRunning}, ""},
+		{"written but not verified", state.Meta{RouteName: "api", RouteURL: "https://api.localhost"}, ""},
+		{"no route", state.Meta{}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -36,7 +36,7 @@ func TestDisplayRouteURLOnlyWhenVerified(t *testing.T) {
 func TestDisplayRouteURLToleratesNilServiceState(t *testing.T) {
 	p := scanner.Project{Path: "/p", Name: "p", Configured: true, Manifest: &manifest.Manifest{Name: "p"}}
 	if got := displayRouteURL(p, nil); got != "" {
-		t.Errorf("sin ServiceState no hay url, got %q", got)
+		t.Errorf("no ServiceState means no url, got %q", got)
 	}
 }
 
@@ -57,10 +57,10 @@ func TestDetailsShowVerifiedURLNextToPort(t *testing.T) {
 
 	joined := strings.Join(m.detailsLines(m.rightW), "\n")
 	if !strings.Contains(joined, "https://api.localhost") {
-		t.Errorf("una ruta verificada debe verse en el panel de detalles:\n%s", joined)
+		t.Errorf("a verified route must be visible in the details panel:\n%s", joined)
 	}
 	if !strings.Contains(joined, "4321") {
-		t.Errorf("el puerto debe seguir viéndose:\n%s", joined)
+		t.Errorf("the port must still be visible:\n%s", joined)
 	}
 }
 
@@ -75,9 +75,9 @@ func TestDetailsHideDegradedURL(t *testing.T) {
 
 	joined := strings.Join(m.detailsLines(m.rightW), "\n")
 	if strings.Contains(joined, "url:") {
-		t.Errorf("una ruta degradada no debe mostrar url:\n%s", joined)
+		t.Errorf("a degraded route must not show url:\n%s", joined)
 	}
 	if !strings.Contains(joined, "4321") {
-		t.Errorf("el puerto debe seguir viéndose aunque la ruta degrade:\n%s", joined)
+		t.Errorf("the port must still be visible even if the route degrades:\n%s", joined)
 	}
 }

@@ -32,23 +32,23 @@ func TestScanDaErrorCuandoElRootNoExiste(t *testing.T) {
 
 	_, err := Scan(missing, 3)
 	if err == nil {
-		t.Fatal("un root inexistente debería dar error")
+		t.Fatal("a nonexistent root should produce an error")
 	}
 	if !strings.Contains(err.Error(), missing) {
-		t.Errorf("el error no nombra la ruta que no se pudo leer: %q", err)
+		t.Errorf("the error does not name the path that could not be read: %q", err)
 	}
 	if !strings.Contains(err.Error(), "could not access") {
-		t.Errorf("el error no dice que el problema es de acceso: %q", err)
+		t.Errorf("the error does not say the problem is access: %q", err)
 	}
 }
 
 // The two root failures are fixed differently, so they must not share a message.
 func TestScanDaErrorCuandoElRootNoEsUnDirectorio(t *testing.T) {
-	root := writeTree(t, map[string]string{"un-fichero.txt": "x"})
+	root := writeTree(t, map[string]string{"a-file.txt": "x"})
 
-	_, err := Scan(filepath.Join(root, "un-fichero.txt"), 3)
+	_, err := Scan(filepath.Join(root, "a-file.txt"), 3)
 	if err == nil {
-		t.Fatal("un root que es un fichero debería dar error")
+		t.Fatal("a root that is a file should produce an error")
 	}
 	if !strings.Contains(err.Error(), "not a directory") {
 		t.Errorf("err = %q, want 'not a directory'", err)
@@ -58,46 +58,46 @@ func TestScanDaErrorCuandoElRootNoEsUnDirectorio(t *testing.T) {
 // Parity is what makes "the CI runner has no fd" the same fact as "my machine has fd"; divergence would only show up on the other machine.
 func TestScanSinFdDaLaMismaRespuestaQueConFd(t *testing.T) {
 	files := map[string]string{
-		"api/go.mod":               "module api\n",
-		"api/.vroom.toml":          "name = \"api\"\ncommand_start = \"go run .\"\n",
-		"api/.git/HEAD":            "ref: refs/heads/main\n",
-		"api/.git/config":          "[core]\n",
-		"web/package.json":         "{}\n",
-		"web/.vroom.toml":          "name = \"web\"\ncommand_start = \"node .\"\n",
-		"groupe/admin/.vroom.toml": "name = \"admin\"\ncommand_start = \"./admin\"\n",
-		"groupe/admin/.git/config": "[core]\n",
-		"sin-manifiesto/go.mod":    "module x\n",
-		"oculto/.vroom.toml":       "name = \"oculto\"\ncommand_start = \"./x\"\n",
+		"api/go.mod":              "module api\n",
+		"api/.vroom.toml":         "name = \"api\"\ncommand_start = \"go run .\"\n",
+		"api/.git/HEAD":           "ref: refs/heads/main\n",
+		"api/.git/config":         "[core]\n",
+		"web/package.json":        "{}\n",
+		"web/.vroom.toml":         "name = \"web\"\ncommand_start = \"node .\"\n",
+		"group/admin/.vroom.toml": "name = \"admin\"\ncommand_start = \"./admin\"\n",
+		"group/admin/.git/config": "[core]\n",
+		"no-manifest/go.mod":      "module x\n",
+		"hidden/.vroom.toml":      "name = \"hidden\"\ncommand_start = \"./x\"\n",
 	}
 	root := writeTree(t, files)
 
 	conFD, err := Scan(root, 3)
 	if err != nil {
-		t.Fatalf("con fd: %v", err)
+		t.Fatalf("with fd: %v", err)
 	}
 	if !conFD.UsedFD {
-		t.Skip("no hay fd en este sistema: sólo se puede comparar la ruta de WalkDir consigo misma")
+		t.Skip("no fd on this system: only the WalkDir path can be compared with itself")
 	}
 
 	// scanWith with fd == "" forces the WalkDir path; t.Setenv cannot reach the absolute fallbacks fdPath also checks.
 	sinFD, err := scanWith(root, 3, "")
 	if err != nil {
-		t.Fatalf("sin fd: %v", err)
+		t.Fatalf("without fd: %v", err)
 	}
 	if sinFD.UsedFD {
-		t.Fatal("scanWith con fd vacío dice que usó fd")
+		t.Fatal("scanWith with empty fd says it used fd")
 	}
 
 	if got, want := pathsOf(sinFD.Projects), pathsOf(conFD.Projects); !equalStrings(got, want) {
-		t.Errorf("las dos rutas de escaneo difieren:\n con fd: %v\nsin fd: %v", want, got)
+		t.Errorf("the two scan paths differ:\n with fd: %v\nwithout fd: %v", want, got)
 	}
 }
 
 func TestScanRespetaLaProfundidad(t *testing.T) {
 	files := map[string]string{
-		"nivel1/.vroom.toml":           "name = \"nivel1\"\ncommand_start = \"./a\"\n",
-		"nivel1/nivel2/.vroom.toml":    "name = \"nivel2\"\ncommand_start = \"./b\"\n",
-		"nivel1/nivel2/nivel3/.v.toml": "",
+		"level1/.vroom.toml":           "name = \"level1\"\ncommand_start = \"./a\"\n",
+		"level1/level2/.vroom.toml":    "name = \"level2\"\ncommand_start = \"./b\"\n",
+		"level1/level2/level3/.v.toml": "",
 	}
 	root := writeTree(t, files)
 
@@ -105,9 +105,9 @@ func TestScanRespetaLaProfundidad(t *testing.T) {
 		depth int
 		want  []string
 	}{
-		{1, []string{"nivel1"}},
-		{2, []string{"nivel1", "nivel2"}},
-		{3, []string{"nivel1", "nivel2"}}, // nivel3 holds .v.toml, not a manifest
+		{1, []string{"level1"}},
+		{2, []string{"level1", "level2"}},
+		{3, []string{"level1", "level2"}}, // level3 holds .v.toml, not a manifest
 		{0, nil},
 	}
 	for _, tt := range tests {
@@ -121,12 +121,12 @@ func TestScanRespetaLaProfundidad(t *testing.T) {
 		}
 		if tt.depth == 0 {
 			if len(names) != 0 {
-				t.Errorf("depth 0 dio %v, want ninguno: el root solo no es un proyecto", names)
+				t.Errorf("depth 0 yielded %v, want none: the root alone is not a project", names)
 			}
 			continue
 		}
 		if !equalStrings(names, tt.want) {
-			t.Errorf("depth %d dio %v, want %v", tt.depth, names, tt.want)
+			t.Errorf("depth %d yielded %v, want %v", tt.depth, names, tt.want)
 		}
 	}
 }
@@ -136,8 +136,8 @@ func TestScanSaltaDirectoriosOcultosYDeDependencias(t *testing.T) {
 	files := map[string]string{
 		"api/.vroom.toml":                  "name = \"api\"\ncommand_start = \"./a\"\n",
 		"api/node_modules/dep/.vroom.toml": "name = \"dep\"\ncommand_start = \"./d\"\n",
-		"api/.cache/cosa/.vroom.toml":      "name = \"cache\"\ncommand_start = \"./c\"\n",
-		"api/.git/modules/x/.vroom.toml":   "name = \"modulo\"\ncommand_start = \"./m\"\n",
+		"api/.cache/thing/.vroom.toml":     "name = \"cache\"\ncommand_start = \"./c\"\n",
+		"api/.git/modules/x/.vroom.toml":   "name = \"module\"\ncommand_start = \"./m\"\n",
 		"api/target/classes/.vroom.toml":   "name = \"target\"\ncommand_start = \"./t\"\n",
 	}
 	root := writeTree(t, files)
@@ -148,7 +148,7 @@ func TestScanSaltaDirectoriosOcultosYDeDependencias(t *testing.T) {
 	}
 	names := namesOf(res.Projects)
 	if len(names) != 1 || names[0] != "api" {
-		t.Errorf("se encontraron %v, want sólo api: los directorios de dependencias y ocultos no se recorren", names)
+		t.Errorf("found %v, want only api: hidden and dependency directories are not traversed", names)
 	}
 }
 
@@ -175,13 +175,13 @@ func TestScanDetectaBareReposComoFilasContenedoras(t *testing.T) {
 		}
 	}
 	if found == nil {
-		t.Fatalf("no salió ninguna fila contenedora: %v", namesOf(res.Projects))
+		t.Fatalf("no container row came out: %v", namesOf(res.Projects))
 	}
 	if found.Configured {
-		t.Error("una fila contenedora no está configurada: no tiene .vroom.toml")
+		t.Error("a container row is not configured: it has no .vroom.toml")
 	}
 	if !found.IsNestedRow() {
-		t.Error("una fila contenedora es una fila anidada: se renderiza bajo su repo, no en el grupo")
+		t.Error("a container row is a nested row: it renders under its repo, not in the group")
 	}
 }
 
@@ -189,27 +189,27 @@ func TestScanDetectaBareReposComoFilasContenedoras(t *testing.T) {
 func TestReadGitDirRechazaLoQueNoEsUnPunteroAGit(t *testing.T) {
 	dir := t.TempDir()
 
-	t.Run("fichero que no existe", func(t *testing.T) {
-		if _, ok := readGitDir(dir, filepath.Join(dir, "nada")); ok {
-			t.Error("un .git inexistente no es un puntero")
+	t.Run("nonexistent file", func(t *testing.T) {
+		if _, ok := readGitDir(dir, filepath.Join(dir, "nothing")); ok {
+			t.Error("a nonexistent .git is not a pointer")
 		}
 	})
 
-	t.Run("sin el prefijo gitdir:", func(t *testing.T) {
-		p := writeStr(t, filepath.Join(dir, "a"), "/ruta/al/git\n")
+	t.Run("without the gitdir: prefix", func(t *testing.T) {
+		p := writeStr(t, filepath.Join(dir, "a"), "/path/to/git\n")
 		if _, ok := readGitDir(dir, p); ok {
-			t.Error("un .git sin 'gitdir:' no es un puntero válido")
+			t.Error("a .git without 'gitdir:' is not a valid pointer")
 		}
 	})
 
-	t.Run("puntero sin ruta", func(t *testing.T) {
+	t.Run("pointer without path", func(t *testing.T) {
 		p := writeStr(t, filepath.Join(dir, "b"), "gitdir:   \n")
 		if _, ok := readGitDir(dir, p); ok {
-			t.Error("'gitdir:' sin ruta no es un puntero válido")
+			t.Error("'gitdir:' without a path is not a valid pointer")
 		}
 	})
 
-	t.Run("ruta relativa: se resuelve contra el propio directorio", func(t *testing.T) {
+	t.Run("relative path: resolved against the directory itself", func(t *testing.T) {
 		sub := filepath.Join(dir, "rel")
 		if err := os.MkdirAll(sub, 0o755); err != nil {
 			t.Fatal(err)
@@ -217,19 +217,19 @@ func TestReadGitDirRechazaLoQueNoEsUnPunteroAGit(t *testing.T) {
 		p := writeStr(t, filepath.Join(dir, "c"), "gitdir: rel\n")
 		gd, ok := readGitDir(dir, p)
 		if !ok {
-			t.Fatal("un puntero relativo válido fue rechazado")
+			t.Fatal("a valid relative pointer was rejected")
 		}
 		if gd != filepath.Clean(sub) {
 			t.Errorf("gitdir = %q, want %q", gd, filepath.Clean(sub))
 		}
 	})
 
-	t.Run("ruta absoluta: se respeta tal cual", func(t *testing.T) {
-		abs := filepath.Join(dir, "absoluto")
+	t.Run("absolute path: respected as-is", func(t *testing.T) {
+		abs := filepath.Join(dir, "absolute")
 		p := writeStr(t, filepath.Join(dir, "d"), "gitdir: "+abs+"\n")
 		gd, ok := readGitDir(dir, p)
 		if !ok {
-			t.Fatal("un puntero absoluto válido fue rechazado")
+			t.Fatal("a valid absolute pointer was rejected")
 		}
 		if gd != filepath.Clean(abs) {
 			t.Errorf("gitdir = %q, want %q", gd, filepath.Clean(abs))
@@ -241,35 +241,35 @@ func TestReadGitDirRechazaLoQueNoEsUnPunteroAGit(t *testing.T) {
 func TestCommonDirResuelveElRepoPrincipalDeUnWorktree(t *testing.T) {
 	dir := t.TempDir()
 
-	t.Run("sin commondir: el propio gitdir", func(t *testing.T) {
+	t.Run("without commondir: the gitdir itself", func(t *testing.T) {
 		if got := commonDir(dir); got != dir {
-			t.Errorf("commonDir = %q, want el propio gitdir %q", got, dir)
+			t.Errorf("commonDir = %q, want the gitdir itself %q", got, dir)
 		}
 	})
 
-	t.Run("commondir vacío: el propio gitdir", func(t *testing.T) {
+	t.Run("empty commondir: the gitdir itself", func(t *testing.T) {
 		writeStr(t, filepath.Join(dir, "commondir"), "   \n")
 		if got := commonDir(dir); got != dir {
-			t.Errorf("commonDir = %q con un commondir vacío, want el propio gitdir", got)
+			t.Errorf("commonDir = %q with an empty commondir, want the gitdir itself", got)
 		}
 	})
 
-	t.Run("commondir relativo: se resuelve contra el gitdir", func(t *testing.T) {
+	t.Run("relative commondir: resolved against the gitdir", func(t *testing.T) {
 		wtDir := filepath.Join(dir, ".git", "worktrees", "wt")
 		if err := os.MkdirAll(wtDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		// MEDIDO in a real repo: <repo>/.git/worktrees/<name>/commondir is "../.."; "../../.." climbs one level too far.
+		// MEASURED in a real repo: <repo>/.git/worktrees/<name>/commondir is "../.."; "../../.." climbs one level too far.
 		writeStr(t, filepath.Join(wtDir, "commondir"), "../..\n")
 		want := filepath.Clean(filepath.Join(dir, ".git"))
 		if got := commonDir(wtDir); got != want {
-			t.Errorf("commonDir = %q, want el .git del main %q", got, want)
+			t.Errorf("commonDir = %q, want the .git of main %q", got, want)
 		}
 	})
 
-	t.Run("commondir absoluto: se respeta", func(t *testing.T) {
-		abs := filepath.Join(dir, "compartido")
-		wtDir := filepath.Join(dir, "otro")
+	t.Run("absolute commondir: respected", func(t *testing.T) {
+		abs := filepath.Join(dir, "shared")
+		wtDir := filepath.Join(dir, "other")
 		if err := os.MkdirAll(wtDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -290,8 +290,8 @@ func TestWithinRootNoDejaSalirAlArbol(t *testing.T) {
 		{"/srv/work/api", true},
 		{"/srv/work", true},
 		{"/srv/work/grupo/api", true},
-		{"/srv/work/../otro", false},
-		{"/srv/work-otro/api", false}, // mismo prefijo, fuera
+		{"/srv/work/../other", false},
+		{"/srv/work-other/api", false}, // same prefix, outside
 		{"/etc/passwd", false},
 	}
 	for _, tt := range tests {
@@ -302,7 +302,7 @@ func TestWithinRootNoDejaSalirAlArbol(t *testing.T) {
 
 	// A Rel that cannot be computed counts as outside, the closed failure.
 	if withinRoot("relativo", "/absoluto") {
-		t.Error("una comparación que no se puede hacer no puede decir 'dentro'")
+		t.Error("a comparison that cannot be made cannot say 'inside'")
 	}
 }
 
@@ -313,11 +313,11 @@ func TestIsNestedRowCubreLasDosFormasDeFilaAnidada(t *testing.T) {
 		p    Project
 		want bool
 	}{
-		{"proyecto normal", Project{}, false},
-		{"proyecto normal con repo", Project{RepoRoot: "/repo"}, false},
-		{"worktree linkeado", Project{IsWorktree: true}, true},
-		{"fila contenedora de bare", Project{IsBareContainer: true}, true},
-		{"worktree que además es repo raíz", Project{IsWorktree: true, IsBareContainer: true}, true},
+		{"normal project", Project{}, false},
+		{"normal project with repo", Project{RepoRoot: "/repo"}, false},
+		{"linked worktree", Project{IsWorktree: true}, true},
+		{"bare container row", Project{IsBareContainer: true}, true},
+		{"worktree that is also a root repo", Project{IsWorktree: true, IsBareContainer: true}, true},
 	}
 	for _, tt := range tests {
 		if got := tt.p.IsNestedRow(); got != tt.want {
@@ -329,42 +329,42 @@ func TestIsNestedRowCubreLasDosFormasDeFilaAnidada(t *testing.T) {
 func TestFdPathDevuelveAlgoDistintoDeCadenaVaciaOElFichero(t *testing.T) {
 	got := fdPath()
 	if got == "" {
-		t.Skip("no hay fd en este sistema: sólo se puede probar la rama de ausencia")
+		t.Skip("no fd on this system: only the absence branch can be tested")
 	}
 	info, err := os.Stat(got)
 	if err != nil {
-		t.Fatalf("fdPath devolvió %q, que no existe: %v", got, err)
+		t.Fatalf("fdPath returned %q, which does not exist: %v", got, err)
 	}
 	if info.IsDir() {
-		t.Errorf("fdPath devolvió un directorio: %q", got)
+		t.Errorf("fdPath returned a directory: %q", got)
 	}
 	if !strings.Contains(got, "fd") {
-		t.Errorf("fdPath devolvió %q, que no parece fd", got)
+		t.Errorf("fdPath returned %q, which does not look like fd", got)
 	}
 }
 
 // A normal repo with worktrees has a .git directory; read as bare, its worktree becomes the parent row and the manifested repo drops out of its group.
 func TestIsBareRepoDeVerdadYDeMentira(t *testing.T) {
-	t.Run("un repo normal no es bare", func(t *testing.T) {
+	t.Run("a normal repo is not bare", func(t *testing.T) {
 		root := writeTree(t, map[string]string{
 			"repo/.git/HEAD":   "ref: refs/heads/main\n",
 			"repo/.git/config": "[core]\n\tbare = false\n",
 		})
 		if worktree.IsBareRepo(filepath.Join(root, "repo")) {
-			t.Error("un repo con worktree (.git es directorio) no es bare")
+			t.Error("a repo with worktree (.git is a directory) is not bare")
 		}
 	})
 
-	t.Run("un bare repo de verdad sí lo es", func(t *testing.T) {
+	t.Run("a real bare repo is", func(t *testing.T) {
 		bare := t.TempDir()
 		if !worktree.IsBareRepo(bare) {
-			t.Skip("el helper necesita un bare repo real: git no disponible o cambio de layout")
+			t.Skip("the helper needs a real bare repo: git not available or layout change")
 		}
 	})
 
-	t.Run("un directorio normal no es bare", func(t *testing.T) {
+	t.Run("a normal directory is not bare", func(t *testing.T) {
 		if worktree.IsBareRepo(t.TempDir()) {
-			t.Error("un directorio vacío no es un bare repo")
+			t.Error("an empty directory is not a bare repo")
 		}
 	})
 }
@@ -419,46 +419,46 @@ func initBare(t *testing.T) string {
 // A failing fd must not silently degrade to WalkDir, since a scan whose result depends on whether fd failed is the worst surprise; the error must carry fd's own output, otherwise the user has to reproduce the run by hand.
 func TestScanConFdQueFallaDaErrorConSuSalida(t *testing.T) {
 	root := writeTree(t, map[string]string{"api/.vroom.toml": "name = \"api\"\n"})
-	failing := writeStr(t, filepath.Join(t.TempDir(), "fd-roto"), "#!/bin/sh\necho 'boom en fd' >&2\nexit 2\n")
+	failing := writeStr(t, filepath.Join(t.TempDir(), "fd-broken"), "#!/bin/sh\necho 'boom in fd' >&2\nexit 2\n")
 	if err := os.Chmod(failing, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	_, err := scanWith(root, 3, failing)
 	if err == nil {
-		t.Fatal("con fd fallando el escaneo debería fallar, no degradar a WalkDir en silencio")
+		t.Fatal("with fd failing the scan should fail, not silently degrade to WalkDir")
 	}
 	if !strings.Contains(err.Error(), "fd failed") {
-		t.Errorf("err = %q, want el prefijo 'fd failed'", err)
+		t.Errorf("err = %q, want the prefix 'fd failed'", err)
 	}
-	if !strings.Contains(err.Error(), "boom en fd") {
-		t.Errorf("el error no incluye la salida de fd: %q", err)
+	if !strings.Contains(err.Error(), "boom in fd") {
+		t.Errorf("the error does not include fd's output: %q", err)
 	}
 
 	if _, err := scanBareReposWithFD(failing, root, 3); err == nil {
-		t.Error("scanBareReposWithFD con fd fallando debería dar error")
+		t.Error("scanBareReposWithFD with failing fd should produce an error")
 	} else if !strings.Contains(err.Error(), "fd (dirs) failed") {
-		t.Errorf("err = %q, want el prefijo de la segunda invocación", err)
+		t.Errorf("err = %q, want the prefix of the second invocation", err)
 	}
 }
 
 // An empty workspace is a valid result; treating it as an error would break vroom list on a freshly created directory.
 func TestScanConFdQueNoEncuentraNadaDaUnaListaVacia(t *testing.T) {
 	root := writeTree(t, map[string]string{"vacio.txt": "x"})
-	empty := writeStr(t, filepath.Join(t.TempDir(), "fd-vacio"), "#!/bin/sh\nexit 0\n")
+	empty := writeStr(t, filepath.Join(t.TempDir(), "fd-empty"), "#!/bin/sh\nexit 0\n")
 	if err := os.Chmod(empty, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	res, err := scanWith(root, 3, empty)
 	if err != nil {
-		t.Fatalf("fd que no encuentra nada no es un error: %v", err)
+		t.Fatalf("fd that finds nothing is not an error: %v", err)
 	}
 	if len(res.Projects) != 0 {
-		t.Errorf("se encontraron %v con un fd que no encuentra nada", namesOf(res.Projects))
+		t.Errorf("found %v with an fd that finds nothing", namesOf(res.Projects))
 	}
 	if !res.UsedFD {
-		t.Error("UsedFD = false: se usó fd, aunque no encontrara nada")
+		t.Error("UsedFD = false: fd was used, even if it found nothing")
 	}
 }
 
@@ -497,10 +497,10 @@ func TestScanPorWalkConBareRepoYProfundidad(t *testing.T) {
 		}
 	}
 	if containers != 1 {
-		t.Errorf("hay %d filas contenedoras, want 1 (el bare repo)", containers)
+		t.Errorf("there are %d container rows, want 1 (the bare repo)", containers)
 	}
 	if worktrees != 1 {
-		t.Errorf("hay %d worktrees, want 1: el walk tiene que reconocer el .git como fichero", worktrees)
+		t.Errorf("there are %d worktrees, want 1: the walk must recognize .git as a file", worktrees)
 	}
 
 	shallow, err := scanWith(root, 0, "")
@@ -508,7 +508,7 @@ func TestScanPorWalkConBareRepoYProfundidad(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(shallow.Projects) != 0 {
-		t.Errorf("con depth 0 aparecieron %v: el root solo no se inspecciona como proyecto", namesOf(shallow.Projects))
+		t.Errorf("with depth 0 %v appeared: the root alone is not inspected as a project", namesOf(shallow.Projects))
 	}
 }
 
@@ -516,7 +516,7 @@ func TestScanPorWalkConBareRepoYProfundidad(t *testing.T) {
 func TestScanPorWalkFallaSiElWalkFalla(t *testing.T) {
 	orig := walkDir
 	t.Cleanup(func() { walkDir = orig })
-	walkErr := errors.New("permiso denegado en un subdirectorio")
+	walkErr := errors.New("permission denied in a subdirectory")
 	calls := 0
 	walkDir = func(root string, fn fs.WalkDirFunc) error {
 		calls++
@@ -528,16 +528,16 @@ func TestScanPorWalkFallaSiElWalkFalla(t *testing.T) {
 	root := writeTree(t, map[string]string{"api/.vroom.toml": "name = \"api\"\n"})
 	res, err := scanWith(root, 3, "")
 	if calls != 1 {
-		t.Errorf("se llamó al walk %d veces, want 1: el escaneo no debe reintentar", calls)
+		t.Errorf("the walk was called %d times, want 1: the scan must not retry", calls)
 	}
 	if err == nil {
-		t.Fatal("un walk fallido debería dar error, no una lista parcial")
+		t.Fatal("a failed walk should produce an error, not a partial list")
 	}
 	if !strings.Contains(err.Error(), "error walking") {
-		t.Errorf("err = %q, want el prefijo 'error walking'", err)
+		t.Errorf("err = %q, want the prefix 'error walking'", err)
 	}
 	if len(res.Projects) != 0 {
-		t.Errorf("con error no debe devolverse una lista parcial: %v", namesOf(res.Projects))
+		t.Errorf("with an error a partial list must not be returned: %v", namesOf(res.Projects))
 	}
 }
 
@@ -547,7 +547,7 @@ func TestRepoKeyRechazaUnGitAMedioConstruir(t *testing.T) {
 		"repo/.git/HEAD": "ref: refs/heads/main\n",
 	})
 	if got := repoKey(filepath.Join(medio, "repo")); got != "" {
-		t.Errorf("repoKey = %q con un .git sin config, want \"\"", got)
+		t.Errorf("repoKey = %q with a .git without config, want \"\"", got)
 	}
 
 	completo := writeTree(t, map[string]string{
@@ -563,51 +563,51 @@ func TestRepoKeyRechazaUnGitAMedioConstruir(t *testing.T) {
 // A .git file that is not a pointer is what a badly copied repo looks like; accepting it groups the project under an empty root.
 func TestRepoKeyRechazaUnGitFicheroQueNoEsUnPuntero(t *testing.T) {
 	dir := writeTree(t, map[string]string{
-		"repo/.git":        "esto no es un puntero\n",
+		"repo/.git":        "this is not a pointer\n",
 		"repo/.vroom.toml": "name = \"repo\"\ncommand_start = \"./x\"\n",
 	})
 	if got := repoKey(filepath.Join(dir, "repo")); got != "" {
-		t.Errorf("repoKey = %q con un .git que no es un puntero, want \"\"", got)
+		t.Errorf("repoKey = %q with a .git that is not a pointer, want \"\"", got)
 	}
 }
 
 // Two rows for one service make stop leave the other claiming a PID.
 func TestFinalizeNoDuplicaLaFilaDeUnBareQueTambienEsProyecto(t *testing.T) {
-	dir := "/srv/doble"
-	projects := []Project{{Path: dir, Name: "doble", Configured: true}}
-	bare := []Project{{Path: dir, Name: "doble", IsBareContainer: true}}
+	dir := "/srv/double"
+	projects := []Project{{Path: dir, Name: "double", Configured: true}}
+	bare := []Project{{Path: dir, Name: "double", IsBareContainer: true}}
 
 	got := finalize(projects, bare, "/srv")
 	if len(got) != 1 {
-		t.Fatalf("hay %d filas, want 1: el mismo path no puede salir dos veces", len(got))
+		t.Fatalf("there are %d rows, want 1: the same path cannot appear twice", len(got))
 	}
 	// The manifest-scan row wins because it is the one carrying the Manifest.
 	if !got[0].Configured {
-		t.Error("la fila duplicada se quedó con la versión sin manifiesto: el servicio parecería no gestionable")
+		t.Error("the duplicated row kept the version without manifest: the service would look unmanageable")
 	}
 
 	dup := []Project{{Path: dir, IsBareContainer: true}, {Path: dir, IsBareContainer: true}}
 	if got := finalize(nil, dup, "/srv"); len(got) != 1 {
-		t.Errorf("hay %d filas con dos bares del mismo path, want 1", len(got))
+		t.Errorf("there are %d rows with two bares of the same path, want 1", len(got))
 	}
 }
 
 // Neither scan path repeats a path; finalize is where that is guaranteed.
 func TestFinalizeDedupsProyectosRepetidos(t *testing.T) {
-	dir := "/srv/doble"
+	dir := "/srv/double"
 	dup := []Project{
-		{Path: dir, Name: "doble", Configured: true},
-		{Path: dir, Name: "doble", Configured: true},
+		{Path: dir, Name: "double", Configured: true},
+		{Path: dir, Name: "double", Configured: true},
 	}
 	if got := finalize(dup, nil, "/srv"); len(got) != 1 {
-		t.Errorf("hay %d filas con dos proyectos del mismo path, want 1", len(got))
+		t.Errorf("there are %d rows with two projects of the same path, want 1", len(got))
 	}
 }
 
 func TestScanCortaElRecorridoCuandoSePasaDeProfundidad(t *testing.T) {
 	root := writeTree(t, map[string]string{
 		// The manifest sits 4 levels down and depth is 2, so it cannot show up.
-		"a/b/c/d/.vroom.toml": "name = \"profundo\"\ncommand_start = \"./x\"\n",
+		"a/b/c/d/.vroom.toml": "name = \"deep\"\ncommand_start = \"./x\"\n",
 		"a/.vroom.toml":       "name = \"a\"\ncommand_start = \"./x\"\n",
 	})
 
@@ -617,7 +617,7 @@ func TestScanCortaElRecorridoCuandoSePasaDeProfundidad(t *testing.T) {
 	}
 	names := namesOf(res.Projects)
 	if len(names) != 1 || names[0] != "a" {
-		t.Errorf("se encontraron %v con depth 2, want sólo a: el recorrido debe cortarse", names)
+		t.Errorf("found %v with depth 2, want only a: the traversal must be cut short", names)
 	}
 
 	zero, err := scanWith(root, 0, "")
@@ -625,7 +625,7 @@ func TestScanCortaElRecorridoCuandoSePasaDeProfundidad(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(zero.Projects) != 0 {
-		t.Errorf("con depth 0 aparecieron %v: no se puede entrar en ningún hijo", namesOf(zero.Projects))
+		t.Errorf("with depth 0 %v appeared: no child can be entered", namesOf(zero.Projects))
 	}
 
 	// The row name is the directory, not the manifest; both scan paths do that and findProject has a second pass.
@@ -634,7 +634,7 @@ func TestScanCortaElRecorridoCuandoSePasaDeProfundidad(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !contains(namesOf(more.Projects), "d") {
-		t.Errorf("con depth 5 tampoco salió el proyecto de 4 niveles: %v", namesOf(more.Projects))
+		t.Errorf("with depth 5 the 4-level project did not come out either: %v", namesOf(more.Projects))
 	}
 }
 
@@ -648,7 +648,7 @@ func TestScanConElCwdBorradoDaError(t *testing.T) {
 	t.Cleanup(func() { t.Chdir(t.TempDir()) })
 
 	if _, err := scanWith("relativo", 3, ""); err == nil {
-		t.Error("sin CWD, una ruta relativa no se puede resolver: debería dar error, no escanear otro directorio")
+		t.Error("without CWD, a relative path cannot be resolved: it should produce an error, not scan another directory")
 	}
 }
 

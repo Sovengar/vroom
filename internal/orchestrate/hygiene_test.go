@@ -79,8 +79,8 @@ func TestMain(m *testing.M) {
 		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
 	fmt.Fprintf(os.Stderr,
-		"\nHYGIENE: %d proceso(s) de este binario sobrevivieron a la suite: %v\n"+
-			"Revisa los cleanups: StopStack con un stack sin etapas no para nada.\n",
+		"\nHYGIENE: %d process(es) of this binary survived the suite: %v\n"+
+			"Check the cleanups: StopStack with a stage-less stack stops nothing.\n",
 		len(leaked), leaked)
 	os.Exit(1)
 }
@@ -117,16 +117,16 @@ func TestHygieneGuardMatchesOwnBinary(t *testing.T) {
 	self := testBinaryPath(t)
 
 	if !isTestBinary("/proc", self, os.Getpid()) {
-		t.Errorf("el guard tiene que reconocer su propio binario (pid %d)", os.Getpid())
+		t.Errorf("the guard must recognize its own binary (pid %d)", os.Getpid())
 	}
 	if isTestBinary("/proc", self, 1) {
-		t.Error("pid 1 no ejecuta este binario: el emparejamiento no discrimina")
+		t.Error("pid 1 does not run this binary: the matcher does not discriminate")
 	}
 	if isTestBinary("/proc", self, 999999999) {
-		t.Error("un pid inexistente no puede ser este binario")
+		t.Error("a nonexistent pid cannot be this binary")
 	}
 	if containsInt(leakedTestBinaries(), os.Getpid()) {
-		t.Error("el guard no puede listarse a sí mismo: se mataría al terminar")
+		t.Error("the guard cannot list itself: it would kill itself at exit")
 	}
 }
 

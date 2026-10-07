@@ -9,12 +9,12 @@ func TestEffectivePortModeDefaults(t *testing.T) {
 		m    Manifest
 		want string
 	}{
-		{"sin port_mode con puerto", Manifest{Port: 8080}, PortModeFixed},
-		{"sin port_mode sin puerto", Manifest{}, PortModeNone},
-		{"fixed explícito", Manifest{Port: 8080, PortMode: PortModeFixed}, PortModeFixed},
+		{"without port_mode with port", Manifest{Port: 8080}, PortModeFixed},
+		{"without port_mode without port", Manifest{}, PortModeNone},
+		{"explicit fixed", Manifest{Port: 8080, PortMode: PortModeFixed}, PortModeFixed},
 		{"dynamic", Manifest{Port: 8080, PortMode: PortModeDynamic}, PortModeDynamic},
-		{"none explícito", Manifest{Port: 8080, PortMode: PortModeNone}, PortModeNone},
-		{"inválido se propaga para que Validate lo rechace", Manifest{PortMode: "wat"}, "wat"},
+		{"explicit none", Manifest{Port: 8080, PortMode: PortModeNone}, PortModeNone},
+		{"invalid propagates so Validate rejects it", Manifest{PortMode: "wat"}, "wat"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -28,41 +28,41 @@ func TestEffectivePortModeDefaults(t *testing.T) {
 // HasPort tells "no port by design" apart from "not resolved yet".
 func TestHasPort(t *testing.T) {
 	if (&Manifest{Port: 8080}).HasPort() != true {
-		t.Error("fixed con puerto debe tener puerto")
+		t.Error("fixed with port must have port")
 	}
 	if (&Manifest{Port: 8080, PortMode: PortModeDynamic}).HasPort() != true {
-		t.Error("dynamic declara el default de la app, luego tiene puerto")
+		t.Error("dynamic declares the app default, so it has port")
 	}
 	if (&Manifest{PortMode: PortModeNone}).HasPort() {
-		t.Error("none no tiene puerto, aunque declare port")
+		t.Error("none has no port, even if port is declared")
 	}
 	if (&Manifest{}).HasPort() {
-		t.Error("sin puerto no tiene puerto")
+		t.Error("without port has no port")
 	}
 }
 
 func TestValidateRejectsUnknownPortMode(t *testing.T) {
 	m := Manifest{Name: "x", Command: "run", Port: 8080, PortMode: "random"}
 	if err := m.Validate(); err == nil {
-		t.Fatal("port_mode inválido debe rechazarse")
+		t.Fatal("invalid port_mode must be rejected")
 	}
 }
 
 // Riesgo 15: the cross-field rule the doc declared and the code never applied, now enforced as a genuine cross-field check.
 func TestValidateHealthPathCrossField(t *testing.T) {
 	rejected := []Manifest{
-		{Name: "x", Command: "run", HealthPath: "/healthz"},                   // sin puerto en ningún modo
+		{Name: "x", Command: "run", HealthPath: "/healthz"},                   // without port in any mode
 		{Name: "x", Command: "run", PortMode: PortModeNone, HealthPath: "/h"}, // none + health_path
-		{Name: "x", Command: "run", PortMode: PortModeDynamic},                // dynamic sin default
+		{Name: "x", Command: "run", PortMode: PortModeDynamic},                // dynamic without default
 	}
 	for i, m := range rejected {
 		if err := m.Validate(); err == nil {
-			t.Errorf("manifiesto %d debía rechazarse: %+v", i, m)
+			t.Errorf("manifest %d should have been rejected: %+v", i, m)
 		}
 	}
 	accept := Manifest{Name: "x", Command: "run", Port: 8080, HealthPath: "/healthz"}
 	if err := accept.Validate(); err != nil {
-		t.Errorf("health_path con puerto debe aceptarse: %v", err)
+		t.Errorf("health_path with port must be accepted: %v", err)
 	}
 }
 
@@ -74,7 +74,7 @@ func TestValidateBackwardsCompatible(t *testing.T) {
 	}
 	for i, m := range legacy {
 		if err := m.Validate(); err != nil {
-			t.Errorf("manifiesto legacy %d rechazado: %v", i, err)
+			t.Errorf("legacy manifest %d rejected: %v", i, err)
 		}
 	}
 }

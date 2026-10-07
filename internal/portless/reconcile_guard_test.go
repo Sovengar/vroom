@@ -13,8 +13,8 @@ func TestReconcileRevokedWithUnknownRouteLeavesItAlone(t *testing.T) {
 		name    string
 		noProxy bool // noProxy removes proxy.port, one of the two routeUnknown paths.
 	}{
-		{"proxy parado (sin proxy.port)", true},
-		{"proxy en marcha pero no sirve el host", false},
+		{"proxy stopped (no proxy port)", true},
+		{"proxy running but does not serve the host", false},
 	}
 
 	for _, tc := range cases {
@@ -32,10 +32,10 @@ func TestReconcileRevokedWithUnknownRouteLeavesItAlone(t *testing.T) {
 			warns := c.Reconcile("ajena", Ownership{Owned: false, Port: 4321}, "ajena-renombrada")
 
 			if _, still := f.routes[Hostname("ajena")]; !still {
-				t.Fatalf("la ruta de otro no puede borrarse sin propiedad (revoked=%v)", false)
+				t.Fatalf("another's route cannot be deleted without ownership (revoked=%v)", false)
 			}
 			if len(warns) == 0 {
-				t.Error("y debe avisar: el usuario tiene que saber que hay una ruta que no se limpia")
+				t.Error("and it must warn: the user needs to know there is a route that is not cleaned up")
 			}
 		})
 	}
@@ -60,10 +60,10 @@ func TestReconcileOwnedOrphanIsStillRemovedWithProxyDown(t *testing.T) {
 	warns := c.Reconcile("nuestra", Ownership{Owned: true, Port: 4321}, "nuestra-renombrada")
 
 	if _, still := f.routes[Hostname("nuestra")]; still {
-		t.Error("una huérfana propia con el proxy parado DEBE retirarse: es lo único que prune no hace")
+		t.Error("an owned orphan with the proxy stopped MUST be removed: it is the only thing prune does not do")
 	}
 	if len(warns) != 0 {
-		t.Errorf("retirar una huérfana propia no avisa: %v", warns)
+		t.Errorf("removing an owned orphan does not warn: %v", warns)
 	}
 }
 
@@ -76,7 +76,7 @@ func TestReconcileOwnedOrphanIsStillRemovedWhenNotServed(t *testing.T) {
 	c.Reconcile("nuestra", Ownership{Owned: true, Port: 4321}, "nuestra-renombrada")
 
 	if _, still := f.routes[Hostname("nuestra")]; still {
-		t.Error("una huérfana propia que el proxy no enruta DEBE retirarse")
+		t.Error("an owned orphan that the proxy does not route MUST be removed")
 	}
 }
 
@@ -88,10 +88,10 @@ func TestReconcileOwnedButNameIsFreeIsANoOp(t *testing.T) {
 	warns := c.Reconcile("nunca-existio", Ownership{Owned: true, Port: 4321}, "otro-nombre")
 
 	if len(warns) != 0 {
-		t.Errorf("sin ruta que limpiar no hay nada que avisar: %v", warns)
+		t.Errorf("with no route to clean up there is nothing to warn about: %v", warns)
 	}
 	if len(f.removedNames) != 0 {
-		t.Errorf("y no debe intentarse siquiera: %v", f.removedNames)
+		t.Errorf("and it should not even be attempted: %v", f.removedNames)
 	}
 }
 
@@ -103,10 +103,10 @@ func TestReconcileRevokedWithFreeNameIsANoOp(t *testing.T) {
 	warns := c.Reconcile("nunca-existio", Ownership{Owned: false, Port: 4321}, "otro-nombre")
 
 	if len(warns) == 0 {
-		t.Error("nombre libre y propiedad revocada: se avisa de que no se puede limpiar")
+		t.Error("free name and revoked ownership: it warns that it cannot be cleaned up")
 	}
 	if len(f.removedNames) != 0 {
-		t.Errorf("pero no debe intentarse la retirada: %v", f.removedNames)
+		t.Errorf("but the removal should not be attempted: %v", f.removedNames)
 	}
 }
 
@@ -119,7 +119,7 @@ func TestVerifyReportsRegisteredWhenTheRouteIsServed(t *testing.T) {
 	res := f.client(t).verify("sana", 4321)
 
 	if !res.Registered {
-		t.Error("una ruta que el proxy sirve con 200 esta registrada por definicion")
+		t.Error("a route that the proxy serves with 200 is registered by definition")
 	}
 }
 
@@ -129,6 +129,6 @@ func TestVerifyDoesNotInventRegistrationForAnUnknownName(t *testing.T) {
 	res := f.client(t).verify("nunca-registrada", 4321)
 
 	if res.Registered {
-		t.Error("verify no debe reclamar una escritura que no hizo")
+		t.Error("verify must not claim a write it did not do")
 	}
 }

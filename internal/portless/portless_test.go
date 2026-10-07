@@ -160,15 +160,15 @@ func TestPruneDoesNotDestroyAliasRoutes(t *testing.T) {
 	f.routes[Hostname("foreign.vroom")] = 9999
 
 	if pid := aliasRoutePid; pid != 0 {
-		t.Fatalf("una ruta de alias debe tener pid 0 para que prune no la toque, got %d", pid)
+		t.Fatalf("an alias route must have pid 0 so prune does not touch it, got %d", pid)
 	}
 
 	warns := c.Reconcile("foreign.vroom", Ownership{Owned: true, Port: 4321}, "mine.vroom")
 	if len(warns) == 0 {
-		t.Error("una ruta viva en otro puerto debe avisar, no retirarse en silencio")
+		t.Error("a live route on another port must warn, not be removed silently")
 	}
 	if _, still := f.routes[Hostname("foreign.vroom")]; !still {
-		t.Error("una ruta que responde y no es nuestra NUNCA se retira")
+		t.Error("a route that responds and is not ours is NEVER removed")
 	}
 }
 
@@ -183,18 +183,18 @@ func TestRouteWrittenWithProxyDownIsNotReportedAvailable(t *testing.T) {
 	res := c.Apply("down.vroom", 4321, Ownership{})
 
 	if res.Status != StatusDegraded {
-		t.Fatalf("una ruta escrita con el proxy parado NO puede reportarse disponible, got %q", res.Status)
+		t.Fatalf("a route written with the proxy stopped CANNOT be reported available, got %q", res.Status)
 	}
 	if res.Url != "" {
-		t.Errorf("una ruta no verificada no publica url, got %q", res.Url)
+		t.Errorf("an unverified route does not publish url, got %q", res.Url)
 	}
 	if res.Reason != ReasonProxyNotRunning && res.Reason != ReasonProxyUnreachable {
-		t.Errorf("el motivo debe explicar que el proxy no responde, got %q", res.Reason)
+		t.Errorf("the reason must explain that the proxy does not respond, got %q", res.Reason)
 	}
 
 	// The binary still exits 0, so this test must assert the Result and not the exit code.
 	if _, code, _ := f.exec(context.Background(), "portless", "alias", "down.vroom", "4321"); code != 0 {
-		t.Fatalf("alias debe salir 0 con el proxy parado (M1), got %d", code)
+		t.Fatalf("alias must exit 0 with the proxy stopped (M1), got %d", code)
 	}
 }
 
@@ -215,10 +215,10 @@ func TestRoutesFileAloneIsNotVerification(t *testing.T) {
 	)
 	res := c2.Apply("written-but-not-served.vroom", 4321, Ownership{})
 	if res.Succeeded() {
-		t.Error("un 404 significa que el proxy no enruta: no puede reportarse registered")
+		t.Error("a 404 means the proxy does not route: it cannot be reported registered")
 	}
 	if res.Url != "" {
-		t.Error("un 404 no publica url")
+		t.Error("a 404 does not publish url")
 	}
 }
 
@@ -233,14 +233,14 @@ func TestMissingProxyPortDegradesWithoutAssuming1355(t *testing.T) {
 
 	res := c.Apply("noproxy.vroom", 4321, Ownership{})
 	if res.Reason != ReasonProxyNotRunning {
-		t.Fatalf("sin proxy.port el motivo debe ser proxy_not_running, got %q", res.Reason)
+		t.Fatalf("without proxy.port the reason must be proxy_not_running, got %q", res.Reason)
 	}
 	if res.Url != "" {
-		t.Error("sin proxy no se publica url")
+		t.Error("without proxy no url is published")
 	}
 	for _, call := range f.calls {
 		if strings.Contains(call, ":1355") && strings.HasPrefix(call, "probe") {
-			t.Errorf("no se puede suponer el puerto del proxy, pero se sondeó %q", call)
+			t.Errorf("the proxy port cannot be assumed, but %q was probed", call)
 		}
 	}
 }
@@ -253,12 +253,12 @@ func TestCorruptProxyPortDegrades(t *testing.T) {
 	}
 	res := c.Apply("corrupt.vroom", 4321, Ownership{})
 	if res.Reason != ReasonProxyNotRunning {
-		t.Errorf("un proxy.port ilegible debe degradar como proxy parado, got %q", res.Reason)
+		t.Errorf("an unreadable proxy.port must degrade as proxy stopped, got %q", res.Reason)
 	}
 }
 
 func TestReconcileRemovesRenamedOrphanAndKeepsForeignLiveRoute(t *testing.T) {
-	t.Run("retira la huérfana que ya no responde", func(t *testing.T) {
+	t.Run("removes the orphan that no longer responds", func(t *testing.T) {
 		f := newFake()
 		c := f.client(t)
 		f.routes[Hostname("old-name")] = 39999
@@ -275,14 +275,14 @@ func TestReconcileRemovesRenamedOrphanAndKeepsForeignLiveRoute(t *testing.T) {
 
 		warns := c.Reconcile("old-name", Ownership{Owned: true, Port: 39999}, "new-name")
 		if len(warns) != 0 {
-			t.Errorf("retirar una huérfana propia no avisa: %v", warns)
+			t.Errorf("removing an owned orphan does not warn: %v", warns)
 		}
 		if _, still := f.routes[Hostname("old-name")]; still {
-			t.Error("la ruta renombrada debe retirarse: es de este servicio y no responde")
+			t.Error("the renamed route must be removed: it belongs to this service and does not respond")
 		}
 	})
 
-	t.Run("NO retira una ruta viva ajena", func(t *testing.T) {
+	t.Run("does NOT remove a live foreign route", func(t *testing.T) {
 		f := newFake()
 		c := f.client(t)
 		f.routes[Hostname("other-app")] = 5555
@@ -291,14 +291,14 @@ func TestReconcileRemovesRenamedOrphanAndKeepsForeignLiveRoute(t *testing.T) {
 		// Ownership.Port is the persisted one, so a live route on another port is not ours.
 		warns := c.Reconcile("other-app", Ownership{Owned: true, Port: 4321}, "mine")
 		if len(warns) == 0 {
-			t.Error("una ruta viva en otro puerto debe avisar del conflicto")
+			t.Error("a live route on another port must warn of the conflict")
 		}
 		if _, still := f.routes[Hostname("other-app")]; !still {
-			t.Error("el fallo cerrado también aplica a la limpieza: no se borra algo ajeno")
+			t.Error("fail-closed also applies to cleanup: something foreign is not deleted")
 		}
 	})
 
-	t.Run("retira la huérfana enruta pero sin backend", func(t *testing.T) {
+	t.Run("removes the orphan that is routed but has no backend", func(t *testing.T) {
 		// A real smoke found this: the proxy routes and answers 502 with nothing behind, the fingerprint of a vroom that died without stopping.
 		f := newFake()
 		c := f.client(t)
@@ -306,38 +306,38 @@ func TestReconcileRemovesRenamedOrphanAndKeepsForeignLiveRoute(t *testing.T) {
 		f.probeStatus = 502
 
 		if warns := c.Reconcile("orphan", Ownership{Owned: true, Port: 39997}, "current"); len(warns) != 0 {
-			t.Errorf("retirar una huérfana propia no avisa: %v", warns)
+			t.Errorf("removing an owned orphan does not warn: %v", warns)
 		}
 		if _, still := f.routes[Hostname("orphan")]; still {
-			t.Error("una ruta enruta sin backend es una huérfana y debe retirarse")
+			t.Error("a route that is routed without a backend is an orphan and must be removed")
 		}
 	})
 
-	t.Run("NO retira una ruta viva y propia", func(t *testing.T) {
+	t.Run("does NOT remove a live and owned route", func(t *testing.T) {
 		f := newFake()
 		c := f.client(t)
 		f.routes[Hostname("mine")] = 4321
 		f.probeStatus = 200
 
 		if warns := c.Reconcile("mine", Ownership{Owned: true, Port: 4321}, "other"); len(warns) != 0 {
-			t.Errorf("una ruta viva y propia no genera avisos: %v", warns)
+			t.Errorf("a live and owned route generates no warnings: %v", warns)
 		}
 		if _, still := f.routes[Hostname("mine")]; !still {
-			t.Error("una ruta viva y propia no se toca")
+			t.Error("a live and owned route is not touched")
 		}
 	})
 
-	t.Run("es idempotente con la ruta persistida", func(t *testing.T) {
+	t.Run("is idempotent with the persisted route", func(t *testing.T) {
 		f := newFake()
 		c := f.client(t)
 		f.routes[Hostname("same")] = 4321
 		for range 3 {
 			if warns := c.Reconcile("same", Ownership{Owned: true, Port: 4321}, "same"); len(warns) != 0 {
-				t.Errorf("la reconciliación debe ser silenciosa e idempotente: %v", warns)
+				t.Errorf("reconciliation must be silent and idempotent: %v", warns)
 			}
 		}
 		if len(f.routes) != 1 {
-			t.Errorf("no deben acumularse rutas duplicadas: %v", f.routes)
+			t.Errorf("duplicate routes must not accumulate: %v", f.routes)
 		}
 	})
 }
@@ -359,13 +359,13 @@ func TestReadBackDetectsNameTakenByAnotherPort(t *testing.T) {
 
 	res := c.Apply("taken", 4321, Ownership{})
 	if res.Succeeded() {
-		t.Fatal("una ruta cuyo nombre tiene otro puerto NO puede reportarse registrada")
+		t.Fatal("a route whose name has another port CANNOT be reported registered")
 	}
 	if res.Reason != ReasonRouteConflict {
-		t.Errorf("el motivo debe ser route_conflict, got %q", res.Reason)
+		t.Errorf("the reason must be route_conflict, got %q", res.Reason)
 	}
 	if res.Url != "" {
-		t.Error("en conflicto no se publica url")
+		t.Error("in conflict no url is published")
 	}
 }
 
@@ -374,13 +374,13 @@ func TestReadBackConfirmsOurs(t *testing.T) {
 	c := f.client(t)
 	res := c.Apply("mine.vroom", 4321, Ownership{})
 	if !res.Succeeded() {
-		t.Fatalf("la lectura de vuelta debía confirmar la ruta: %+v", res)
+		t.Fatalf("the read-back should have confirmed the route: %+v", res)
 	}
 	if res.Port != 4321 {
-		t.Errorf("la ruta debe apuntar al puerto real, got %d", res.Port)
+		t.Errorf("the route must point to the real port, got %d", res.Port)
 	}
 	if !strings.HasPrefix(res.Url, "http://") && !strings.HasPrefix(res.Url, "https://") {
-		t.Errorf("la url debe llevar el esquema comprobado, got %q", res.Url)
+		t.Errorf("the url must carry the verified scheme, got %q", res.Url)
 	}
 }
 
@@ -391,24 +391,24 @@ func TestBackendErrorStillCountsAsRouted(t *testing.T) {
 
 	res := c.Apply("502.vroom", 4321, Ownership{})
 	if !res.Succeeded() {
-		t.Fatalf("un 502 prueba que el proxy enruta la ruta: %+v", res)
+		t.Fatalf("a 502 proves the proxy routes the route: %+v", res)
 	}
 	if res.Url == "" {
-		t.Error("una ruta que enruta publica su url")
+		t.Error("a route that is routed publishes its url")
 	}
 }
 
 func TestSchemeIsProbedNotAssumed(t *testing.T) {
-	t.Run("http responde primero", func(t *testing.T) {
+	t.Run("http responds first", func(t *testing.T) {
 		f := newFake()
 		c := f.client(t)
 		res := c.Apply("plain.vroom", 4321, Ownership{})
 		if !strings.HasPrefix(res.Url, "http://") {
-			t.Errorf("un proxy sin TLS debe publicar http, got %q", res.Url)
+			t.Errorf("a proxy without TLS must publish http, got %q", res.Url)
 		}
 	})
 
-	t.Run("https responde y se publica https", func(t *testing.T) {
+	t.Run("https responds and https is published", func(t *testing.T) {
 		f := newFake()
 		c := f.client(t)
 		only := New(
@@ -424,7 +424,7 @@ func TestSchemeIsProbedNotAssumed(t *testing.T) {
 		)
 		res := only.Apply("tls.vroom", 4321, Ownership{})
 		if !strings.HasPrefix(res.Url, "https://") {
-			t.Errorf("si https responde se publica https, got %q", res.Url)
+			t.Errorf("if https responds then https is published, got %q", res.Url)
 		}
 	})
 }
@@ -438,10 +438,10 @@ func TestMissingBinaryDegradesWithoutInvokingPortless(t *testing.T) {
 
 	res := c.Apply("nobin.vroom", 4321, Ownership{})
 	if res.Reason != ReasonPortlessMissing {
-		t.Errorf("sin binario el motivo debe ser portless_not_found, got %q", res.Reason)
+		t.Errorf("without binary the reason must be portless_not_found, got %q", res.Reason)
 	}
 	if called {
-		t.Error("sin binario no se invoca a portless en absoluto")
+		t.Error("without binary portless is not invoked at all")
 	}
 }
 
@@ -452,13 +452,13 @@ func TestFailingBinaryDegrades(t *testing.T) {
 
 	res := c.Apply("nodeold.vroom", 4321, Ownership{})
 	if res.Reason != ReasonPortlessFailed {
-		t.Errorf("un binario que falla debe degradar, got %q", res.Reason)
+		t.Errorf("a failing binary must degrade, got %q", res.Reason)
 	}
 	if res.Url != "" {
-		t.Error("un binario que falla no publica url")
+		t.Error("a failing binary does not publish url")
 	}
 	if !strings.Contains(Warn(res), "Node") {
-		t.Errorf("el aviso debe nombrar el fallo concreto, got %q", Warn(res))
+		t.Errorf("the warning must name the concrete failure, got %q", Warn(res))
 	}
 }
 
@@ -479,18 +479,18 @@ func TestHangingBinaryIsBounded(t *testing.T) {
 	select {
 	case res := <-done:
 		if res.Reason != ReasonPortlessTimeout {
-			t.Errorf("un binario colgado debe degradar por timeout, got %q", res.Reason)
+			t.Errorf("a hung binary must degrade by timeout, got %q", res.Reason)
 		}
 		if res.Succeeded() {
-			t.Error("un binario colgado no puede publicar una ruta")
+			t.Error("a hung binary cannot publish a route")
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("Apply NO puede quedar bloqueado esperando al binario")
+		t.Fatal("Apply CANNOT remain blocked waiting for the binary")
 	}
 }
 
 func TestMissingBinaryIsDistinguishedFromFailingBinary(t *testing.T) {
-	t.Run("binario inexistente", func(t *testing.T) {
+	t.Run("nonexistent binary", func(t *testing.T) {
 		c := New(
 			WithBinary(filepath.Join(t.TempDir(), "no-existe")),
 			WithStateDir(t.TempDir()),
@@ -498,16 +498,16 @@ func TestMissingBinaryIsDistinguishedFromFailingBinary(t *testing.T) {
 		)
 		res := c.Apply("nada.vroom", 4321, Ownership{})
 		if res.Reason != ReasonPortlessMissing {
-			t.Errorf("un binario que no está debe ser portless_not_found, got %q", res.Reason)
+			t.Errorf("a binary that does not exist must be portless_not_found, got %q", res.Reason)
 		}
 	})
 
-	t.Run("binario que falla", func(t *testing.T) {
+	t.Run("failing binary", func(t *testing.T) {
 		f := newFake()
 		f.binErr = errors.New("Error: requires Node >= 24")
 		res := f.client(t).Apply("roto.vroom", 4321, Ownership{})
 		if res.Reason != ReasonPortlessFailed {
-			t.Errorf("un binario que sale con error debe ser portless_failed, got %q", res.Reason)
+			t.Errorf("a binary that exits with error must be portless_failed, got %q", res.Reason)
 		}
 	})
 }
@@ -516,7 +516,7 @@ func TestRemoveMissingIsBenign(t *testing.T) {
 	f := newFake()
 	c := f.client(t)
 	if err := c.Remove("nunca-existio"); err != nil {
-		t.Fatalf("quitar una ruta inexistente no puede ser un error: %v", err)
+		t.Fatalf("removing a nonexistent route cannot be an error: %v", err)
 	}
 }
 
@@ -530,10 +530,10 @@ func TestRemoveOnlyTouchesItsOwn(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, still := f.routes[Hostname("mine")]; still {
-		t.Error("la ruta propia debe desaparecer")
+		t.Error("the owned route must disappear")
 	}
 	if _, sibling := f.routes[Hostname("sibling")]; !sibling {
-		t.Error("las rutas de los servicios hermanos no se tocan")
+		t.Error("sibling services' routes are not touched")
 	}
 }
 
@@ -544,27 +544,27 @@ func TestFullRouteLifecycle(t *testing.T) {
 
 	res := c.Apply("app", 4321, Ownership{})
 	if !res.Succeeded() {
-		t.Fatalf("el registro debe verificarse contra el proxy vivo: %+v", res)
+		t.Fatalf("the registration must be verified against the live proxy: %+v", res)
 	}
 	if _, found, _ := c.Lookup("app"); !found {
-		t.Fatal("la ruta debe existir tras registrarla")
+		t.Fatal("the route must exist after registering it")
 	}
 
 	if err := c.Remove("app"); err != nil {
-		t.Fatalf("parar debe retirar la ruta: %v", err)
+		t.Fatalf("stopping must remove the route: %v", err)
 	}
 	if _, still := f.routes[Hostname("app")]; still {
-		t.Error("la ruta debe desaparecer al parar")
+		t.Error("the route must disappear when stopping")
 	}
 	if _, sib := f.routes[Hostname("sibling")]; !sib {
-		t.Error("las rutas de los servicios hermanos no se tocan")
+		t.Error("sibling services' routes are not touched")
 	}
 
 	if err := c.Remove("app"); err != nil {
-		t.Fatalf("un stop repetido no puede fallar: %v", err)
+		t.Fatalf("a repeated stop cannot fail: %v", err)
 	}
 	if _, sib := f.routes[Hostname("sibling")]; !sib {
-		t.Error("el hermano sigue intacto tras un stop repetido")
+		t.Error("the sibling remains intact after a repeated stop")
 	}
 }
 
@@ -573,21 +573,21 @@ func TestReRegisterMovesTheRouteToTheNewPort(t *testing.T) {
 	c := f.client(t)
 
 	if res := c.Apply("app", 4000, Ownership{}); !res.Succeeded() {
-		t.Fatalf("primer arranque: %+v", res)
+		t.Fatalf("first startup: %+v", res)
 	}
 	if res := c.Apply("app", 4321, Ownership{Owned: true, Port: 4000}); !res.Succeeded() {
-		t.Fatalf("segundo arranque: %+v", res)
+		t.Fatalf("second startup: %+v", res)
 	}
 
 	port, found, err := c.Lookup("app")
 	if err != nil || !found {
-		t.Fatalf("la ruta debe seguir existiendo: %v", err)
+		t.Fatalf("the route must continue to exist: %v", err)
 	}
 	if port != 4321 {
-		t.Errorf("la misma ruta debe pasar a apuntar al puerto nuevo, got %d", port)
+		t.Errorf("the same route must switch to pointing to the new port, got %d", port)
 	}
 	if len(f.routes) != 1 {
-		t.Errorf("no puede quedar más de una ruta para el mismo servicio: %v", f.routes)
+		t.Errorf("there cannot be more than one route for the same service: %v", f.routes)
 	}
 }
 
@@ -599,18 +599,18 @@ func TestRouteRegisteredWhileProxyDownIsServedWhenItReturns(t *testing.T) {
 
 	res := c.Apply("app", 4321, Ownership{})
 	if res.Succeeded() {
-		t.Fatal("con el proxy parado no se puede reportar disponible")
+		t.Fatal("with the proxy stopped it cannot be reported available")
 	}
 	if _, found, _ := c.Lookup("app"); !found {
-		t.Fatal("la ruta debe quedar registrada aunque el proxy esté parado")
+		t.Fatal("the route must remain registered even if the proxy is stopped")
 	}
 
 	f.noProxy = false
 	if port, found, _ := c.Lookup("app"); !found || port != 4321 {
-		t.Fatalf("al volver el proxy la ruta debe seguir ahí, got %d found=%v", port, found)
+		t.Fatalf("when the proxy returns the route must still be there, got %d found=%v", port, found)
 	}
 	if res := c.verify("app", 4321); !res.Succeeded() {
-		t.Errorf("con el proxy de vuelta la ruta debe verificarse: %+v", res)
+		t.Errorf("with the proxy back the route must verify: %+v", res)
 	}
 }
 
@@ -621,18 +621,18 @@ func TestSeamTouchesOnlyItsOwnRoute(t *testing.T) {
 	f.routes[Hostname("live-app")] = 4628
 
 	if res := c.Apply("vroom-app", 4321, Ownership{}); !res.Succeeded() {
-		t.Fatalf("la ruta de vroom debe registrarse: %+v", res)
+		t.Fatalf("the vroom route must register: %+v", res)
 	}
 
 	livePort, liveStill := f.routes[Hostname("live-app")]
 	if !liveStill || livePort != 4628 {
-		t.Errorf("la ruta de la app viva debe quedar intacta: %d %v", livePort, liveStill)
+		t.Errorf("the live app's route must remain intact: %d %v", livePort, liveStill)
 	}
 	if _, vroom := f.routes[Hostname("vroom-app")]; !vroom {
-		t.Error("la ruta de vroom debe existir")
+		t.Error("the vroom route must exist")
 	}
 	_ = c.Remove("vroom-app")
 	if _, still := f.routes[Hostname("live-app")]; !still {
-		t.Error("parar lo nuestro no puede expulsar la ruta de otro dueño")
+		t.Error("stopping our own cannot evict another owner's route")
 	}
 }

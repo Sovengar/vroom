@@ -33,11 +33,11 @@ func TestStopRevokesOwnershipAndKeepsHandle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if meta.RouteOwned {
-		t.Error("tras retirar la ruta la propiedad debe quedar revocada en el Meta")
+		t.Error("after revoking the route the ownership must remain revoked in the Meta")
 	}
 	// The handle is kept on purpose: if the removal failed the route may still be there, and without the handle reconciliation could not clean it up.
 	if meta.RouteName == "" || meta.RoutePort != 4321 {
-		t.Errorf("el handle de reconciliación debe conservarse, got name=%q port=%d",
+		t.Errorf("the reconciliation handle must be preserved, got name=%q port=%d",
 			meta.RouteName, meta.RoutePort)
 	}
 }
@@ -69,7 +69,7 @@ func TestStartAfterStopDoesNotEvictForeignRouteInOurOldPort(t *testing.T) {
 	f.cleanup(t, out)
 
 	if routes.saw.Owned {
-		t.Errorf("el arranque recibió una propiedad revocada por el stop, llegó %+v", routes.saw)
+		t.Errorf("the start received an ownership revoked by stop, got %+v", routes.saw)
 	}
 }
 
@@ -86,10 +86,10 @@ func TestStartGrantsRouteOwnership(t *testing.T) {
 	f.cleanup(t, out)
 
 	if !out.Meta.RouteOwned {
-		t.Error("tras registrar, la ruta es nuestra: la propiedad debe concederse")
+		t.Error("after registering, the route is ours: ownership must be granted")
 	}
 	if routes.saw.Owned {
-		t.Error("un arranque en frío no debe heredar propiedad: no había ruta previa")
+		t.Error("a cold start must not inherit ownership: there was no previous route")
 	}
 }
 

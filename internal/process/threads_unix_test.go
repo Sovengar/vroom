@@ -42,19 +42,19 @@ func TestListThreadsBasic(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(threads) != 2 {
-		t.Fatalf("esperaba 2 hilos, got %d", len(threads))
+		t.Fatalf("expected 2 threads, got %d", len(threads))
 	}
 	// Deterministic order by TID.
 	if threads[0].TID != 123 || threads[1].TID != 124 {
-		t.Errorf("orden por TID: %+v", threads)
+		t.Errorf("order by TID: %+v", threads)
 	}
 	main := threads[0]
 	if main.Name != "main" || main.State != "S" || main.Ticks != 2000 {
-		t.Errorf("hilo main: %+v", main)
+		t.Errorf("main thread: %+v", main)
 	}
 	thr := threads[1]
 	if thr.Name != "http-nio-8084-exec-1" || thr.State != "S" || thr.Ticks != 100 {
-		t.Errorf("hilo 124: %+v", thr)
+		t.Errorf("thread 124: %+v", thr)
 	}
 }
 
@@ -82,24 +82,24 @@ func TestListThreadsCommWithSpaces(t *testing.T) {
 
 func TestListThreadsMissingProcess(t *testing.T) {
 	if _, err := listThreadsAt(t.TempDir(), 999999); err == nil {
-		t.Error("proceso inexistente debe devolver error")
+		t.Error("nonexistent process must return an error")
 	}
 }
 
 func TestListThreadsRealProc(t *testing.T) {
 	if _, err := os.Stat("/proc/self/task"); err != nil {
-		t.Skip("no /proc en este entorno")
+		t.Skip("no /proc in this environment")
 	}
 	threads, err := ListThreads(os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(threads) < 1 {
-		t.Fatal("el proceso de test debe tener al menos un hilo")
+		t.Fatal("the test process must have at least one thread")
 	}
 	for _, th := range threads {
 		if th.TID <= 0 || th.Name == "" || th.State == "" {
-			t.Errorf("hilo mal parseado: %+v", th)
+			t.Errorf("thread parsed incorrectly: %+v", th)
 		}
 	}
 }
@@ -110,13 +110,13 @@ func TestCPUPercent(t *testing.T) {
 		t.Errorf("CPUPercent(100, 2) = %v, want 50", got)
 	}
 	if got := CPUPercent(0, 2); got != 0 {
-		t.Errorf("sin ticks = %v, want 0", got)
+		t.Errorf("no ticks = %v, want 0", got)
 	}
 	if got := CPUPercent(100, 0); got != 0 {
-		t.Errorf("elapsed 0 no debe dividir por cero, got %v", got)
+		t.Errorf("elapsed 0 must not divide by zero, got %v", got)
 	}
 	// Over 100% is valid on several cores.
 	if got := CPUPercent(400, 1); got != 400 {
-		t.Errorf("multinúcleo: got %v, want 400", got)
+		t.Errorf("multicore: got %v, want 400", got)
 	}
 }

@@ -13,7 +13,7 @@ import (
 
 func TestR1ReservedPortWinsOverEarlierMetricsPort(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	requireProc(t)
 
@@ -35,13 +35,13 @@ func TestR1ReservedPortWinsOverEarlierMetricsPort(t *testing.T) {
 
 	d := DiscoverPort(res.Pid, reserved, "/health", 8*time.Second)
 	if d.Port != reserved {
-		t.Errorf("R1 debe elegir el puerto reservado %d, eligió %d (listeners=%v)", reserved, d.Port, d.All)
+		t.Errorf("R1 must choose the reserved port %d, chose %d (listeners=%v)", reserved, d.Port, d.All)
 	}
 	if !d.Verified {
-		t.Error("R1 es determinista: el puerto está verificado")
+		t.Error("R1 is deterministic: the port is verified")
 	}
 	if !d.HonoredReserved {
-		t.Error("R1 significa que la app tomó el puerto ofrecido")
+		t.Error("R1 means the app took the offered port")
 	}
 }
 
@@ -51,10 +51,10 @@ func TestR1SingleListenerIsTrivial(t *testing.T) {
 
 	d := decidePort([]int{only}, 0, "/health")
 	if d.Port != only {
-		t.Errorf("con un solo listener debe ganar ese, got %d", d.Port)
+		t.Errorf("with a single listener that one must win, got %d", d.Port)
 	}
 	if !d.Verified {
-		t.Error("un único listener está verificado por construcción")
+		t.Error("a single listener is verified by construction")
 	}
 }
 
@@ -67,28 +67,28 @@ func TestR2HealthPathDecides(t *testing.T) {
 	d := decidePort([]int{bad, good}, 0, "/health")
 
 	if d.Port != good {
-		t.Errorf("R2 debe elegir el que mejor responde (%d), eligió %d", good, d.Port)
+		t.Errorf("R2 must choose the one that responds best (%d), chose %d", good, d.Port)
 	}
 	if !d.Verified {
-		t.Error("R2 verifica el puerto: alguien respondió")
+		t.Error("R2 verifies the port: someone responded")
 	}
 }
 
 func TestR2HealthRanking(t *testing.T) {
 	if healthRank(200) <= healthRank(301) {
-		t.Error("200 debe ganar al 3xx")
+		t.Error("200 must beat 3xx")
 	}
 	if healthRank(301) <= healthRank(503) {
-		t.Error("3xx debe ganar al 5xx")
+		t.Error("3xx must beat 5xx")
 	}
 	if healthRank(503) <= healthRank(404) {
-		t.Error("5xx debe ganar al 404")
+		t.Error("5xx must beat 404")
 	}
 	if healthRank(404) <= healthRank(0) {
-		t.Error("el 404 debe ganar a quien no respondió")
+		t.Error("404 must beat whoever did not respond")
 	}
 	if healthRank(0) != 0 {
-		t.Error("sin respuesta HTTP no hay rank")
+		t.Error("without an HTTP response there is no rank")
 	}
 }
 
@@ -100,7 +100,7 @@ func TestR2ServerErrorBeatsNotFound(t *testing.T) {
 
 	d := decidePort([]int{notFound, err5xx}, 0, "/health")
 	if d.Port != err5xx {
-		t.Errorf("el 5xx debe ganar al 404: eligió %d, esperaba %d", d.Port, err5xx)
+		t.Errorf("5xx must beat 404: chose %d, expected %d", d.Port, err5xx)
 	}
 }
 
@@ -113,10 +113,10 @@ func TestR3TiePicksLowestPort(t *testing.T) {
 	for i := 0; i < 3; i++ { // deterministic across runs
 		d := decidePort([]int{minPort(a, b), maxPort(a, b)}, 0, "/health")
 		if d.Port != minPort(a, b) {
-			t.Errorf("el empate debe ganar el menor puerto %d, eligió %d", minPort(a, b), d.Port)
+			t.Errorf("a tie must go to the lowest port %d, chose %d", minPort(a, b), d.Port)
 		}
 		if !d.Verified {
-			t.Error("R2 con respuesta válida verifica el puerto")
+			t.Error("R2 with a valid response verifies the port")
 		}
 	}
 }
@@ -131,10 +131,10 @@ func TestR3NonHTTPFallsBackToLowestAndDeclaresUnverified(t *testing.T) {
 	d := decidePort([]int{minPort(rawA, rawB), maxPort(rawA, rawB)}, 0, "/health")
 
 	if d.Port != minPort(rawA, rawB) {
-		t.Errorf("R3 debe elegir el menor puerto %d, eligió %d", minPort(rawA, rawB), d.Port)
+		t.Errorf("R3 must choose the lowest port %d, chose %d", minPort(rawA, rawB), d.Port)
 	}
 	if d.Verified {
-		t.Error("sin respuesta HTTP el puerto NO está verificado: eso hay que declararlo")
+		t.Error("without an HTTP response the port is NOT verified: that must be declared")
 	}
 }
 
@@ -150,7 +150,7 @@ func TestListenerEnumerationIsBoundedByProcNotByApp(t *testing.T) {
 
 	// Five full walks of this machine's process tree: if the cost scaled with the app's listeners this would not hide it.
 	if elapsed > 2*time.Second {
-		t.Errorf("enumerar listeners tardó %s: demasiado para el arranque", elapsed)
+		t.Errorf("enumerating listeners took %s: too much for startup", elapsed)
 	}
 }
 

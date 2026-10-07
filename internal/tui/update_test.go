@@ -24,7 +24,7 @@ func updateMsg(t *testing.T, m Model, msg tea.Msg) Model {
 	next, _ := m.Update(msg)
 	got, ok := next.(Model)
 	if !ok {
-		t.Fatalf("Update devolvió %T, want Model", next)
+		t.Fatalf("Update returned %T, want Model", next)
 	}
 	return got
 }
@@ -39,10 +39,10 @@ func TestUpdateRefreshedIgnoraLoQueNoEstabaEnElArbol(t *testing.T) {
 	}})
 
 	if len(got.services) != before {
-		t.Errorf("el poll creó %d filas nuevas: un servicio borrado del disco no puede volver", len(got.services)-before)
+		t.Errorf("poll created %d new rows: a service deleted from disk cannot come back", len(got.services)-before)
 	}
 	if got.services["/ruta/que/no/existe"] != nil {
-		t.Error("se inventó un servicio que el poll mención y el modelo no conoce")
+		t.Error("invented a service that the poll mentioned and the model does not know")
 	}
 }
 
@@ -57,10 +57,10 @@ func TestUpdateRefreshedIgnoraLosTransitoriosYPropagaLaRama(t *testing.T) {
 	}})
 
 	if got.services[path].Status != statusStarting {
-		t.Errorf("el poll pisó un estado transitorio: %q -> %q", statusStarting, got.services[path].Status)
+		t.Errorf("poll overwrote a transient state: %q -> %q", statusStarting, got.services[path].Status)
 	}
 	if got.branches[path] != "feature/nueva" {
-		t.Errorf("branches[%s] = %q, want feature/nueva: la rama se propaga aunque el estado sea transitorio", path, got.branches[path])
+		t.Errorf("branches[%s] = %q, want feature/nueva: the branch propagates even if the state is transient", path, got.branches[path])
 	}
 }
 
@@ -80,13 +80,13 @@ func TestUpdateRefreshedMuestraSoloElPrimerAviso(t *testing.T) {
 	got := updateMsg(t, m, refreshedMsg{results: results})
 
 	if got.message == "" {
-		t.Fatal("un aviso del poll no llegó a la barra de estado")
+		t.Fatal("a poll warning did not reach the status bar")
 	}
 	if !strings.HasPrefix(got.message, "aviso-") {
-		t.Errorf("el mensaje no es ninguno de los avisos: %q", got.message)
+		t.Errorf("message is none of the warnings: %q", got.message)
 	}
 	if got.messageExpiresAt.IsZero() {
-		t.Error("un aviso sin caducidad se queda pegado para siempre y tapa el siguiente")
+		t.Error("a warning without expiry stays stuck forever and covers the next one")
 	}
 }
 
@@ -98,10 +98,10 @@ func TestUpdateStartedConErrorDejaElServicioParadoYLoDice(t *testing.T) {
 	got := updateMsg(t, m, startedMsg{path: path, err: errors.New("no such file or directory")})
 
 	if got.services[path].Status != statusStopped {
-		t.Errorf("tras un arranque fallido el servicio quedó en %q, want stopped", got.services[path].Status)
+		t.Errorf("after a failed start the service ended up in %q, want stopped", got.services[path].Status)
 	}
 	if !strings.Contains(got.message, "error starting") || !strings.Contains(got.message, "no such file") {
-		t.Errorf("el aviso no dice qué falló: %q", got.message)
+		t.Errorf("the warning does not say what failed: %q", got.message)
 	}
 }
 
@@ -123,7 +123,7 @@ func TestUpdateStartedConExitoFijaElEstadoYLimpiaLaConsola(t *testing.T) {
 	})
 
 	if got.services[path].Status != statusRunning {
-		t.Errorf("Status = %q tras un arranque OK, want running", got.services[path].Status)
+		t.Errorf("Status = %q after a successful start, want running", got.services[path].Status)
 	}
 	if got.services[path].Meta.Pid != 4242 {
 		t.Errorf("Meta.Pid = %d, want 4242", got.services[path].Meta.Pid)
@@ -131,14 +131,14 @@ func TestUpdateStartedConExitoFijaElEstadoYLimpiaLaConsola(t *testing.T) {
 
 	gotCS := got.consoleStateFor(path)
 	if gotCS.stdout != "" || gotCS.stderr != "" || gotCS.merged != "" {
-		t.Errorf("la consola en memoria no se limpió: %q / %q", gotCS.stdout, gotCS.stderr)
+		t.Errorf("the in-memory console was not cleared: %q / %q", gotCS.stdout, gotCS.stderr)
 	}
 	if gotCS.off[0] != 0 || gotCS.off[1] != 0 {
-		t.Errorf("los offsets quedaron en %d/%d: con el log truncado hay que releer desde 0", gotCS.off[0], gotCS.off[1])
+		t.Errorf("offsets ended up at %d/%d: with the log truncated you must re-read from 0", gotCS.off[0], gotCS.off[1])
 	}
 
 	if len(got.events[path]) == 0 {
-		t.Error("un arranque correcto no dejó evento: el usuario no ve que arrancó nada")
+		t.Error("a successful start left no event: the user does not see that anything started")
 	}
 }
 
@@ -154,13 +154,13 @@ func TestUpdateStartedConAvisosNoBloqueanElServicio(t *testing.T) {
 	})
 
 	if got.message != "route degraded" {
-		t.Errorf("message = %q: notify sobrescribe, así que el último aviso es el que queda", got.message)
+		t.Errorf("message = %q: notify overwrites, so the last warning is the one that remains", got.message)
 	}
 	if got.messageExpiresAt.IsZero() {
-		t.Error("un aviso sin caducidad tapa los siguientes para siempre")
+		t.Error("a warning without expiry covers the following ones forever")
 	}
 	if got.services[path].Status != statusRunning {
-		t.Errorf("un warning dejó el servicio en %q: el servicio OPERA con la ruta degradada", got.services[path].Status)
+		t.Errorf("a warning left the service in %q: the service OPERATES with the degraded route", got.services[path].Status)
 	}
 }
 
@@ -174,13 +174,13 @@ func TestUpdateStoppedConErrorNoRelanzaNiBorreElPendiente(t *testing.T) {
 	got := updateMsg(t, m, stoppedMsg{path: path, err: errors.New("kill failed")})
 
 	if got.services[path].Status != statusStopped {
-		t.Errorf("Status = %q tras un stop fallido, want stopped", got.services[path].Status)
+		t.Errorf("Status = %q after a failed stop, want stopped", got.services[path].Status)
 	}
 	if !strings.Contains(got.message, "error stopping") {
-		t.Errorf("el aviso no dice que falló el stop: %q", got.message)
+		t.Errorf("the warning does not say the stop failed: %q", got.message)
 	}
 	if _, still := got.pendingRestart[path]; !still {
-		t.Error("un stop fallido borró el pendingRestart: el reinicio se perdería en silencio")
+		t.Error("a failed stop deleted pendingRestart: the restart would be lost silently")
 	}
 }
 
@@ -195,16 +195,16 @@ func TestUpdateStoppedDisparaElReinicioCuandoEstabaPendiente(t *testing.T) {
 	got := out.(Model)
 
 	if cmd == nil {
-		t.Fatal("un stop limpio con reinicio pendiente debería encadenar el arranque")
+		t.Fatal("a clean stop with pending restart should chain the start")
 	}
 	if _, still := got.pendingRestart[path]; still {
-		t.Error("el pendingRestart no se borró: el siguiente stop volvería a reiniciar")
+		t.Error("pendingRestart was not deleted: the next stop would restart again")
 	}
 	if got.services[path].Status != statusStarting {
-		t.Errorf("Status = %q entre el stop y el arranque, want starting: es lo que muestra el spinner", got.services[path].Status)
+		t.Errorf("Status = %q between stop and start, want starting: it is what the spinner shows", got.services[path].Status)
 	}
 	if len(got.events[path]) == 0 {
-		t.Error("el reinicio no dejó evento de 'restart'")
+		t.Error("the restart did not leave a 'restart' event")
 	}
 }
 
@@ -218,7 +218,7 @@ func TestUpdateStoppedSinPendienteSoloMarcaParado(t *testing.T) {
 	got := out.(Model)
 
 	if cmd != nil {
-		t.Error("un stop sin reinicio pendiente no debe arrancar nada")
+		t.Error("a stop without pending restart must not start anything")
 	}
 	if got.services[path].Status != statusStopped {
 		t.Errorf("Status = %q, want stopped", got.services[path].Status)
@@ -238,12 +238,12 @@ func TestUpdateJobResultNotificaElCodigoReal(t *testing.T) {
 			want: []string{"build ok", "2s"},
 		},
 		{
-			name: "el comando falla con su código",
+			name: "the command fails with its code",
 			msg:  jobMsg{path: "/x", kind: "build", exitCode: 3, elapsed: time.Second},
 			want: []string{"build failed", "exit 3"},
 		},
 		{
-			name: "el comando no se pudo lanzar",
+			name: "the command could not be launched",
 			msg:  jobMsg{path: "/x", kind: "build", err: errors.New("no such file"), elapsed: 0},
 			want: []string{"build error", "no such file"},
 		},
@@ -257,15 +257,15 @@ func TestUpdateJobResultNotificaElCodigoReal(t *testing.T) {
 
 			for _, want := range tt.want {
 				if !strings.Contains(got.message, want) {
-					t.Errorf("el aviso %q no menciona %q", got.message, want)
+					t.Errorf("the warning %q does not mention %q", got.message, want)
 				}
 			}
 			// The lock is always released, or the project stays latched and cannot be started again.
 			if _, still := got.jobs[tt.msg.path]; still {
-				t.Error("el proyecto sigue bloqueado tras el job: no se puede volver a arrancar")
+				t.Error("the project remains locked after the job: it cannot be started again")
 			}
 			if len(got.events) == 0 {
-				t.Error("el job no dejó evento")
+				t.Error("the job left no event")
 			}
 		})
 	}
@@ -281,22 +281,22 @@ func TestUpdateJobResultRegistraElFallidoConSuCodigo(t *testing.T) {
 	// Model's maps are shared across copies of the value receiver, so the slice is copied before the second update or both sides see both events.
 	okEvents := append([]timelineEvent(nil), ok.events[path]...)
 	if len(okEvents) != 1 {
-		t.Fatalf("hay %d eventos tras un build, want 1", len(okEvents))
+		t.Fatalf("there are %d events after a build, want 1", len(okEvents))
 	}
 	if !okEvents[0].OK {
-		t.Error("un build correcto no quedó registrado como ok")
+		t.Error("a successful build was not recorded as ok")
 	}
 
 	ko := updateMsg(t, ok, jobMsg{path: path, kind: "build", command: "make", exitCode: 2, elapsed: time.Second})
 	koEvents := ko.events[path]
 	if len(koEvents) != 2 {
-		t.Fatalf("hay %d eventos tras dos builds, want 2", len(koEvents))
+		t.Fatalf("there are %d events after two builds, want 2", len(koEvents))
 	}
 	if koEvents[1].OK {
-		t.Error("un build con exit 2 quedó registrado como ok")
+		t.Error("a build with exit 2 was recorded as ok")
 	}
 	if koEvents[1].Kind != "build" {
-		t.Errorf("Kind = %q, want build: sin el kind el timeline no dice qué se ejecutó", koEvents[1].Kind)
+		t.Errorf("Kind = %q, want build: without the kind the timeline does not say what was executed", koEvents[1].Kind)
 	}
 }
 
@@ -309,10 +309,10 @@ func TestUpdateStatusMsgSoloMuestraElMensaje(t *testing.T) {
 	got := updateMsg(t, m, statusMsg{message: "editor closed"})
 
 	if got.message != "editor closed" {
-		t.Errorf("message = %q, want el texto del aviso", got.message)
+		t.Errorf("message = %q, want the warning text", got.message)
 	}
 	if *got.services[path] != before {
-		t.Errorf("un statusMsg tocó el estado del servicio: %+v -> %+v", before, *got.services[path])
+		t.Errorf("a statusMsg touched the service state: %+v -> %+v", before, *got.services[path])
 	}
 }
 
@@ -327,12 +327,12 @@ func TestUpdateThreadsMsgAplicaAlServicioYToleraElError(t *testing.T) {
 		threads: []process.ThreadInfo{{TID: 1, Name: "main"}},
 	})
 	if len(got.threads[path]) != 1 {
-		t.Errorf("los hilos no se atribuyeron a su servicio: %v", got.threads[path])
+		t.Errorf("threads were not attributed to their service: %v", got.threads[path])
 	}
 
 	got = updateMsg(t, got, threadsMsg{path: path, err: errors.New("no such process")})
 	if len(got.threads[path]) != 0 {
-		t.Errorf("un muestreo fallido dejó hilos: %v", got.threads[path])
+		t.Errorf("a failed sampling left threads: %v", got.threads[path])
 	}
 }
 
@@ -343,10 +343,10 @@ func TestUpdateHealthMsgGuardaElResultadoPorServicio(t *testing.T) {
 
 	got := updateMsg(t, m, healthMsg{path: path, r: &healthResult{StatusCode: 200}})
 	if _, ok := got.healthRes[path]; !ok {
-		t.Fatal("el resultado de health no se guardó por servicio")
+		t.Fatal("the health result was not saved per service")
 	}
 	if len(got.healthRes) != 1 {
-		t.Errorf("hay %d resultados de health, want 1: uno por servicio", len(got.healthRes))
+		t.Errorf("there are %d health results, want 1: one per service", len(got.healthRes))
 	}
 }
 
@@ -360,13 +360,13 @@ func TestUpdateTickProgramaElSiguienteYRespetaElExpirado(t *testing.T) {
 	got := out.(Model)
 
 	if cmd == nil {
-		t.Error("el tick no re-armó el reloj: la TUI se quedaría congelada tras el primer tick")
+		t.Error("the tick did not re-arm the clock: the TUI would stay frozen after the first tick")
 	}
 	if got.message != "" {
-		t.Errorf("un mensaje caducado no se limpió: %q", got.message)
+		t.Errorf("an expired message was not cleared: %q", got.message)
 	}
 	if !got.messageExpiresAt.IsZero() {
-		t.Error("el mensaje caducado dejó su caducidad puesta")
+		t.Error("the expired message left its expiry set")
 	}
 
 	// A 3s notice must survive the 2s polling tick instead of being cleared with the expired one.
@@ -375,7 +375,7 @@ func TestUpdateTickProgramaElSiguienteYRespetaElExpirado(t *testing.T) {
 	m2.messageExpiresAt = time.Now().Add(3 * time.Second)
 	got2 := updateMsg(t, m2, tickMsg(time.Now()))
 	if got2.message != "aviso nuevo" {
-		t.Errorf("un mensaje sin caducar se borró: %q", got2.message)
+		t.Errorf("a message without expiry was deleted: %q", got2.message)
 	}
 }
 
@@ -387,7 +387,7 @@ func TestUpdateConsoleTickReArmaElTailSoloConServicioEnConsola(t *testing.T) {
 	sel.activeTab = tabConsole
 	_, cmd := sel.Update(consoleTickMsg(time.Now()))
 	if cmd == nil {
-		t.Error("el tick de consola no devolvió Cmd: sin re-armar el reloj la consola se congela")
+		t.Error("the console tick did not return Cmd: without re-arming the clock the console freezes")
 	}
 	var sawTail bool
 	for _, msg := range collectBatch(t, cmd) {
@@ -396,13 +396,13 @@ func TestUpdateConsoleTickReArmaElTailSoloConServicioEnConsola(t *testing.T) {
 		}
 	}
 	if !sawTail {
-		t.Error("con la pestaña de consola no se pidió el tail: el log no avanzaría solo")
+		t.Error("with the console tab the tail was not requested: the log would not advance on its own")
 	}
 
 	onHeader := m
 	onHeader.cursor = findPrimary(onHeader, "tienda")
 	if _, cmd := onHeader.Update(consoleTickMsg(time.Now())); cmd == nil {
-		t.Error("el tick de consola debe re-armar el reloj aunque no haya nada que leer")
+		t.Error("the console tick must re-arm the clock even if there is nothing to read")
 	}
 }
 
@@ -424,18 +424,18 @@ func TestUpdateConsoleDeltaSoloAvanzaElOffsetDelFlujoQueSeLeyo(t *testing.T) {
 
 	newCS := got.consoleStateFor(path)
 	if newCS.off[0] != 10 {
-		t.Errorf("offS avanzó a %d con un error de lectura: los bytes de stdout se perderían", newCS.off[0])
+		t.Errorf("offS advanced to %d with a read error: the stdout bytes would be lost", newCS.off[0])
 	}
 	if newCS.off[1] != 99 {
-		t.Errorf("offE = %d, want 99: el flujo que sí se leyó avanza su offset", newCS.off[1])
+		t.Errorf("offE = %d, want 99: the stream that was read advances its offset", newCS.off[1])
 	}
 	if !strings.Contains(newCS.stderr, "error nuevo") {
-		t.Errorf("el stderr leído no llegó al buffer: %q", newCS.stderr)
+		t.Errorf("the read stderr did not reach the buffer: %q", newCS.stderr)
 	}
 
 	got = updateMsg(t, m, consoleDeltaMsg{path: "/no/existe", stdout: "x", offS: 1})
 	if len(got.services) != len(m.services) {
-		t.Error("un delta de consola creó una fila de servicio nueva")
+		t.Error("a console delta created a new service row")
 	}
 }
 
@@ -447,25 +447,25 @@ func TestUpdateWindowSizeReajustaElArbolYLaTerminal(t *testing.T) {
 	got := updateMsg(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	if got.width != 100 || got.height != 30 {
-		t.Errorf("dimensiones = %dx%d, want 100x30", got.width, got.height)
+		t.Errorf("dimensions = %dx%d, want 100x30", got.width, got.height)
 	}
 	if got.cursor < got.treeTop || got.cursor >= got.treeTop+got.treeVis() {
-		t.Errorf("el cursor (%d) quedó fuera de la ventana [%d, %d): las teclas irían al servicio equivocado",
+		t.Errorf("the cursor (%d) ended up outside the window [%d, %d]: the keys would go to the wrong service",
 			got.cursor, got.treeTop, got.treeTop+got.treeVis())
 	}
 	if got.bodyH <= 0 {
-		t.Errorf("bodyH = %d tras un resize: el layout no se recalculó", got.bodyH)
+		t.Errorf("bodyH = %d after a resize: the layout was not recalculated", got.bodyH)
 	}
 }
 
 // MEDIDO: both spinners get the same msg and the non-matching id ignores it, so the observable contract is one tick back per tick received, never two.
 func TestUpdateSpinnerTickReArmaSoloElSpinnerQueCorresponde(t *testing.T) {
-	t.Run("el tick del spinner de estado re-arma uno", func(t *testing.T) {
+	t.Run("the status spinner tick re-arms one", func(t *testing.T) {
 		m, _ := newTestModel(t)
 
 		_, cmd := m.Update(tickOf(m.spinner.Tick))
 		if cmd == nil {
-			t.Fatal("el tick de spinner no devolvió Cmd: la animación se congela en un frame")
+			t.Fatal("the spinner tick did not return Cmd: the animation freezes on one frame")
 		}
 		var ticks int
 		for _, got := range collectBatch(t, cmd) {
@@ -474,16 +474,16 @@ func TestUpdateSpinnerTickReArmaSoloElSpinnerQueCorresponde(t *testing.T) {
 			}
 		}
 		if ticks != 1 {
-			t.Errorf("un tick produjo %d ticks de vuelta, want 1", ticks)
+			t.Errorf("one tick produced %d ticks back, want 1", ticks)
 		}
 	})
 
-	t.Run("el tick del spinner de arranque también", func(t *testing.T) {
+	t.Run("the start spinner tick too", func(t *testing.T) {
 		m, _ := newTestModel(t)
 
 		_, cmd := m.Update(tickOf(m.startSpinner.Tick))
 		if cmd == nil {
-			t.Fatal("el spinner de arranque no re-armó: un servicio arrancándose se quedaría congelado")
+			t.Fatal("the start spinner did not re-arm: a starting service would stay frozen")
 		}
 		var ticks int
 		for _, got := range collectBatch(t, cmd) {
@@ -492,7 +492,7 @@ func TestUpdateSpinnerTickReArmaSoloElSpinnerQueCorresponde(t *testing.T) {
 			}
 		}
 		if ticks != 1 {
-			t.Errorf("el spinner de arranque produjo %d ticks, want 1", ticks)
+			t.Errorf("the start spinner produced %d ticks, want 1", ticks)
 		}
 	})
 }
@@ -504,7 +504,7 @@ func tickOf(fn func() tea.Msg) spinner.TickMsg {
 
 // Metrics are requested only on their tab: on a large workspace that is /proc reads per second thrown away.
 func TestUpdateTickPideThreadsYMetricsParaUnServicioVivo(t *testing.T) {
-	t.Run("servicio vivo", func(t *testing.T) {
+	t.Run("live service", func(t *testing.T) {
 		m, _ := newTestModel(t)
 		m = moveCursorTo(t, m, "tienda-api")
 		markRunning(&m, projectPath(t, m, "tienda-api"), 4242)
@@ -512,7 +512,7 @@ func TestUpdateTickPideThreadsYMetricsParaUnServicioVivo(t *testing.T) {
 
 		_, cmd := m.Update(tickMsg(time.Now()))
 		if cmd == nil {
-			t.Fatal("el tick no devolvió Cmd")
+			t.Fatal("the tick did not return Cmd")
 		}
 		msgs := collectBatch(t, cmd)
 		var sawRefresh, sawThreads, sawMetrics bool
@@ -527,17 +527,17 @@ func TestUpdateTickPideThreadsYMetricsParaUnServicioVivo(t *testing.T) {
 			}
 		}
 		if !sawRefresh {
-			t.Error("sin refreshedMsg el estado queda rancio")
+			t.Error("without refreshedMsg the state goes stale")
 		}
 		if !sawThreads {
-			t.Error("un servicio vivo sin muestreo de hilos deja la pestaña Threads vacía para siempre")
+			t.Error("a live service without thread sampling leaves the Threads tab empty forever")
 		}
 		if !sawMetrics {
-			t.Error("en la pestaña de métricas no se pidieron métricas")
+			t.Error("in the metrics tab no metrics were requested")
 		}
 	})
 
-	t.Run("servicio parado", func(t *testing.T) {
+	t.Run("stopped service", func(t *testing.T) {
 		m, _ := newTestModel(t)
 		m = moveCursorTo(t, m, "tienda-api")
 		m.activeTab = tabMetrics
@@ -546,12 +546,12 @@ func TestUpdateTickPideThreadsYMetricsParaUnServicioVivo(t *testing.T) {
 		msgs := collectBatch(t, cmd)
 		for _, msg := range msgs {
 			if _, ok := msg.(threadsMsg); ok {
-				t.Error("se muestrearon hilos de un servicio parado")
+				t.Error("threads were sampled from a stopped service")
 			}
 		}
 	})
 
-	t.Run("pestaña de salud", func(t *testing.T) {
+	t.Run("health tab", func(t *testing.T) {
 		m, _ := newTestModel(t)
 		m = moveCursorTo(t, m, "tienda-api")
 		m.activeTab = tabHealth
@@ -565,7 +565,7 @@ func TestUpdateTickPideThreadsYMetricsParaUnServicioVivo(t *testing.T) {
 			}
 		}
 		if !sawHealth {
-			t.Error("en la pestaña de salud el tick no pidió health: la salud se congelaría")
+			t.Error("in the health tab the tick did not request health: the health would freeze")
 		}
 	})
 }
@@ -576,16 +576,16 @@ func TestFindComposeFileSubeHastaElRootSinSalir(t *testing.T) {
 	root := writeTestTree(t, false)
 
 	if _, err := findComposeFile(root, nil); err == nil {
-		t.Error("sin compose file debería dar error")
+		t.Error("without compose file it should give an error")
 	} else if !strings.Contains(err.Error(), orchestrate.ComposeFileName) {
-		t.Errorf("el error no nombra el fichero que falta: %q", err)
+		t.Errorf("the error does not name the missing file: %q", err)
 	}
 
 	writeStr(t, filepath.Join(root, orchestrate.ComposeFileName), "primary_group = \"tienda\"\n")
 	projects := []scanner.Project{{Path: filepath.Join(root, "tienda-api"), Configured: true}}
 	cf, err := findComposeFile(root, projects)
 	if err != nil {
-		t.Fatalf("con compose en el root no lo encontró: %v", err)
+		t.Fatalf("with compose in the root it did not find it: %v", err)
 	}
 	if cf.PrimaryGroup != "tienda" {
 		t.Errorf("PrimaryGroup = %q", cf.PrimaryGroup)
@@ -599,9 +599,9 @@ func TestFindComposeFileSubeHastaElRootSinSalir(t *testing.T) {
 	nested := []scanner.Project{{Path: filepath.Join(sub, "app"), Configured: true}}
 	cf, err = findComposeFile(root, nested)
 	if err != nil {
-		t.Fatalf("con compose en un nivel intermedio no lo encontró: %v", err)
+		t.Fatalf("with compose at an intermediate level it did not find it: %v", err)
 	}
 	if cf.PrimaryGroup != "intermedio" {
-		t.Errorf("encontró el compose equivocado: PrimaryGroup = %q, want intermedio", cf.PrimaryGroup)
+		t.Errorf("found the wrong compose: PrimaryGroup = %q, want intermedio", cf.PrimaryGroup)
 	}
 }

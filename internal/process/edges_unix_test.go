@@ -28,7 +28,7 @@ func fakeProc(t *testing.T, pid int, stat string) string {
 	return dir
 }
 
-func TestProcStatAtAceptaElCommConParentesisYEspacios(t *testing.T) {
+func TestProcStatAtAcceptsCommWithParenthesesAndSpaces(t *testing.T) {
 	tests := []struct {
 		name     string
 		stat     string
@@ -45,51 +45,51 @@ func TestProcStatAtAceptaElCommConParentesisYEspacios(t *testing.T) {
 			wantPGID: 1234,
 		},
 		{
-			name:     "comm con espacios",
+			name:     "comm with spaces",
 			stat:     "7 (Web Content (tab)) S 1 7 7 0 -1 0 0",
 			wantPID:  7,
 			wantPPID: 1,
 			wantPGID: 7,
 		},
 		{
-			name:     "comm con un paréntesis suelto",
+			name:     "comm with a stray parenthesis",
 			stat:     "8 (weird)name) S 1 8 8 0 -1 0 0",
 			wantPID:  8,
 			wantPPID: 1,
 			wantPGID: 8,
 		},
 		{
-			name:    "sin paréntesis",
+			name:    "no parentheses",
 			stat:    "1234 bash S 1 1 1 0 -1 0 0",
 			wantErr: true,
 		},
 		{
-			name:    "paréntesis al revés",
+			name:    "reversed parentheses",
 			stat:    ")bas( 1234 S 1 1 1 0 -1 0 0",
 			wantErr: true,
 		},
 		{
-			name:    "se corta justo después del cierre",
+			name:    "cuts off right after the closing",
 			stat:    "1 (x) S",
 			wantErr: true,
 		},
 		{
-			name:    "pid no numérico",
+			name:    "non-numeric pid",
 			stat:    "abc (x) S 1 1 1 0 -1 0 0",
 			wantErr: true,
 		},
 		{
-			name:    "menos de tres campos tras el cierre",
+			name:    "fewer than three fields after the closing",
 			stat:    "1 (x) S 1",
 			wantErr: true,
 		},
 		{
-			name:    "ppid no numérico",
+			name:    "non-numeric ppid",
 			stat:    "1 (x) S ppid 1 0 -1 0",
 			wantErr: true,
 		},
 		{
-			name:    "pgrp no numérico",
+			name:    "non-numeric pgrp",
 			stat:    "1 (x) S 1 pgid 0 -1 0",
 			wantErr: true,
 		},
@@ -101,29 +101,29 @@ func TestProcStatAtAceptaElCommConParentesisYEspacios(t *testing.T) {
 			info, err := procStatAt(dir)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("stat %q debería fallar, dio %+v", tt.stat, info)
+					t.Fatalf("stat %q should fail, got %+v", tt.stat, info)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("stat %q no debería fallar: %v", tt.stat, err)
+				t.Fatalf("stat %q should not fail: %v", tt.stat, err)
 			}
 			if info.pid != tt.wantPID || info.ppid != tt.wantPPID || info.pgid != tt.wantPGID {
-				t.Errorf("stat %q dio pid=%d ppid=%d pgid=%d; want %d/%d/%d",
+				t.Errorf("stat %q gave pid=%d ppid=%d pgid=%d; want %d/%d/%d",
 					tt.stat, info.pid, info.ppid, info.pgid, tt.wantPID, tt.wantPPID, tt.wantPGID)
 			}
 		})
 	}
 
-	t.Run("fichero inexistente", func(t *testing.T) {
-		if _, err := procStatAt(filepath.Join(t.TempDir(), "nada")); err == nil {
-			t.Error("un stat inexistente debería dar error")
+	t.Run("nonexistent file", func(t *testing.T) {
+		if _, err := procStatAt(filepath.Join(t.TempDir(), "nothing")); err == nil {
+			t.Error("a nonexistent stat should give an error")
 		}
 	})
 }
 
-// MEDIDO: only Z counts as not alive, because a zombie already released its fds (the port is genuinely free) and treating it as alive would make Stop sit out the whole timeout.
-func TestProcInfoRunningIgnoraZombiesYNoPids(t *testing.T) {
+// MEASURED: only Z counts as not alive, because a zombie already released its fds (the port is genuinely free) and treating it as alive would make Stop sit out the whole timeout.
+func TestProcInfoRunningIgnoresZombiesAndNoPids(t *testing.T) {
 	tests := []struct {
 		info procInfo
 		want bool
@@ -131,9 +131,9 @@ func TestProcInfoRunningIgnoraZombiesYNoPids(t *testing.T) {
 		{procInfo{pid: 1, state: "S"}, true},
 		{procInfo{pid: 1, state: "R"}, true},
 		{procInfo{pid: 1, state: "D"}, true},
-		{procInfo{pid: 1, state: "Z"}, false}, // zombie: ya no sostiene nada
-		{procInfo{pid: 1, state: "T"}, true},  // bajo debugger: sigue con el puerto
-		{procInfo{pid: 0, state: "S"}, false}, // pid 0 no es un proceso
+		{procInfo{pid: 1, state: "Z"}, false}, // zombie: holds nothing anymore
+		{procInfo{pid: 1, state: "T"}, true},  // under debugger: still holds the port
+		{procInfo{pid: 0, state: "S"}, false}, // pid 0 is not a process
 		{procInfo{pid: -1, state: "S"}, false},
 	}
 	for _, tt := range tests {
@@ -144,32 +144,32 @@ func TestProcInfoRunningIgnoraZombiesYNoPids(t *testing.T) {
 	}
 }
 
-func TestDescendantsAtSinLinajeCuandoNoSePuedeLeer(t *testing.T) {
+func TestDescendantsAtWithoutLineageWhenItCannotBeRead(t *testing.T) {
 	root := t.TempDir()
 	got := descendantsAt(root, os.Getpid())
 	if len(got) != 0 {
-		t.Errorf("descendantsAt sobre un /proc vacío dio %v, want vacío", got)
+		t.Errorf("descendantsAt on an empty /proc gave %v, want empty", got)
 	}
 }
 
-func TestDescendantsFromIgnoraAPadreQueEsSuHijo(t *testing.T) {
+func TestDescendantsFromIgnoresAParentThatIsItsChild(t *testing.T) {
 	snap := map[int]procInfo{
-		100: {pid: 100, state: "S", ppid: 100, pgid: 100}, // padre de sí mismo
+		100: {pid: 100, state: "S", ppid: 100, pgid: 100}, // parent of itself
 		101: {pid: 101, state: "S", ppid: 100, pgid: 100},
 		102: {pid: 102, state: "S", ppid: 101, pgid: 100},
 	}
 	got := descendantsFrom(snap, 100)
 	if len(got) != 2 {
-		t.Fatalf("descendantsFrom dio %v, want [101 102]", got)
+		t.Fatalf("descendantsFrom gave %v, want [101 102]", got)
 	}
 	for _, pid := range got {
 		if pid == 100 {
-			t.Error("la raíz apareció en su propio linaje: Stop la señalaría dos veces")
+			t.Error("the root appeared in its own lineage: Stop would signal it twice")
 		}
 	}
 }
 
-func TestDescendantsFromNoRepiteNiIncluyeLaRaiz(t *testing.T) {
+func TestDescendantsFromDoesNotRepeatOrIncludeTheRoot(t *testing.T) {
 	// 3 hangs off both 1 and 2: two paths to the same node.
 	snap := map[int]procInfo{
 		1: {pid: 1, state: "S", ppid: 0, pgid: 1},
@@ -185,37 +185,37 @@ func TestDescendantsFromNoRepiteNiIncluyeLaRaiz(t *testing.T) {
 	for _, pid := range got {
 		seen[pid]++
 		if pid == 1 {
-			t.Error("la raíz está en su propio linaje")
+			t.Error("the root is in its own lineage")
 		}
 	}
 	for pid, n := range seen {
 		if n > 1 {
-			t.Errorf("el pid %d aparece %d veces en el linaje: se señalaría de más", pid, n)
+			t.Errorf("pid %d appears %d times in the lineage: it would be over-signaled", pid, n)
 		}
 	}
 	if len(got) != 6 {
-		t.Errorf("linaje = %v, want los 6 descendientes sin repetir", got)
+		t.Errorf("lineage = %v, want the 6 descendants without repeats", got)
 	}
 }
 
 // A lineage whose pids died between capture and poll counts as gone, so Stop does not sit out the timeout for a group that can no longer change.
-func TestLineageRunningToleraPidsMuertosYNoNuméricos(t *testing.T) {
+func TestLineageRunningToleratesDeadPidsAndNonNumeric(t *testing.T) {
 	if lineageRunning(nil) {
-		t.Error("un linaje vacío está vivo: eso haría que Stop esperara siempre")
+		t.Error("an empty lineage is alive: that would make Stop always wait")
 	}
 	if lineageRunning([]int{0, -1}) {
-		t.Error("un linaje de pids no válidos está vivo")
+		t.Error("a lineage of invalid pids is alive")
 	}
 	me := os.Getpid()
 	if !lineageRunning([]int{me}) {
-		t.Error("el propio proceso debería estar vivo")
+		t.Error("the process itself should be alive")
 	}
 	dead := findDeadPID(t)
 	if !lineageRunning([]int{dead, me}) {
-		t.Error("un pid muerto no debe hacer que el linaje cuente como muerto")
+		t.Error("a dead pid must not make the lineage count as dead")
 	}
 	if lineageRunning([]int{dead, findDeadPID(t)}) {
-		t.Error("un linaje de pids muertos no puede estar vivo")
+		t.Error("a lineage of dead pids cannot be alive")
 	}
 }
 
@@ -233,38 +233,38 @@ func findDeadPID(t *testing.T) int {
 	return res.Pid
 }
 
-func TestCaptureLineageSabeQuienEsLaRaiz(t *testing.T) {
+func TestCaptureLineageKnowsWhoIsTheRoot(t *testing.T) {
 	me := os.Getpid()
 
-	t.Run("sin pid ni pgid no hay nada que capturar", func(t *testing.T) {
+	t.Run("without pid or pgid there is nothing to capture", func(t *testing.T) {
 		root, lineage := captureLineage(StopSpec{})
 		if root != 0 || lineage != nil {
 			t.Errorf("captureLineage({}) = %d/%v, want 0/nil", root, lineage)
 		}
 	})
 
-	t.Run("con pid vivo: la raíz es el pid", func(t *testing.T) {
+	t.Run("with live pid: the root is the pid", func(t *testing.T) {
 		// The test process stays in its own group because the runner never changes it.
 		pgid := ownPgid(t)
 		root, lineage := captureLineage(StopSpec{Pid: me, Pgid: pgid})
 		if root != me {
-			t.Errorf("root = %d, want %d: con el pid vivo la raíz es el pid", root, me)
+			t.Errorf("root = %d, want %d: with the live pid the root is the pid", root, me)
 		}
 		if len(lineage) == 0 || lineage[0] != root {
-			t.Errorf("linaje = %v, want el root primero", lineage)
+			t.Errorf("lineage = %v, want the root first", lineage)
 		}
 	})
 
-	t.Run("con pgid que no existe: no hay linaje", func(t *testing.T) {
+	t.Run("with nonexistent pgid: no lineage", func(t *testing.T) {
 		root, lineage := captureLineage(StopSpec{Pid: me, Pgid: 1 << 22})
 		if root != 0 || lineage != nil {
-			t.Errorf("un pgid inexistente dio root=%d linaje=%v, want 0/nil", root, lineage)
+			t.Errorf("a nonexistent pgid gave root=%d lineage=%v, want 0/nil", root, lineage)
 		}
 	})
 }
 
 // Every stop of a healthy service takes the nil-Warn path, so a panic there would be the most visible failure a stop can have.
-func TestStopSinWarnNoRevienta(t *testing.T) {
+func TestStopWithoutWarnDoesNotPanic(t *testing.T) {
 	m := NewManager()
 	res := startSleep(t, m, StartSpec{
 		Command: "sleep 30", WorkDir: t.TempDir(),
@@ -276,34 +276,34 @@ func TestStopSinWarnNoRevienta(t *testing.T) {
 	waitPIDGone(t, res.Pid)
 }
 
-func TestStopSpecWarnfSoloEmiteSiHayWarn(t *testing.T) {
+func TestStopSpecWarnfOnlyEmitsIfThereIsWarn(t *testing.T) {
 	var got []string
 	s := StopSpec{Warn: func(f string, a ...any) { got = append(got, fmt.Sprintf(f, a...)) }}
 
-	s.warnf("conteo %d", 3)
-	if len(got) != 1 || got[0] != "conteo 3" {
-		t.Errorf("con Warn: %v, want ['conteo 3']", got)
+	s.warnf("count %d", 3)
+	if len(got) != 1 || got[0] != "count 3" {
+		t.Errorf("with Warn: %v, want ['count 3']", got)
 	}
 
 	got = nil
 	nilSpec := StopSpec{}
-	nilSpec.warnf("no debe pasar nada")
+	nilSpec.warnf("nothing should happen")
 	if len(got) != 0 {
-		t.Errorf("sin Warn emitió %v", got)
+		t.Errorf("without Warn emitted %v", got)
 	}
 }
 
-func TestLineageDescDescribeLoQueQueda(t *testing.T) {
+func TestLineageDescDescribesWhatRemains(t *testing.T) {
 	tests := []struct {
 		name    string
 		lineage []int
 		want    string
 	}{
-		{"sólo la raíz", []int{100}, "pgid 100"},
+		{"only the root", []int{100}, "pgid 100"},
 		// The number in the warning is the root, not the lineage length: an empty lineage still names the group being stopped.
-		{"vacío", nil, "pgid 100"},
-		{"raíz y un descendiente", []int{100, 101}, "pgid 100 y 1 descendiente(s)"},
-		{"raíz y tres", []int{100, 101, 102, 103}, "pgid 100 y 3 descendiente(s)"},
+		{"empty", nil, "pgid 100"},
+		{"root and one descendant", []int{100, 101}, "pgid 100 and 1 descendant(s)"},
+		{"root and three", []int{100, 101, 102, 103}, "pgid 100 and 3 descendant(s)"},
 	}
 	for _, tt := range tests {
 		if got := lineageDesc(100, tt.lineage); got != tt.want {
@@ -313,18 +313,18 @@ func TestLineageDescDescribeLoQueQueda(t *testing.T) {
 }
 
 // Dedup matters because one pid listed twice (IPv4 and IPv6) would otherwise read as two owners and kill nothing, failing closed for the wrong reason.
-func TestDistinctOwnersFiltraRepetidosYNegativos(t *testing.T) {
+func TestDistinctOwnersFiltersRepeatedAndNegative(t *testing.T) {
 	tests := []struct {
 		name string
 		in   []int32
 		want []int
 	}{
-		{"vacío", nil, []int{}},
-		{"uno", []int32{42}, []int{42}},
-		{"repetido", []int32{42, 42}, []int{42}},
-		{"dos distintos", []int32{42, 43}, []int{42, 43}},
-		{"con ceros y negativos", []int32{0, 42, -1}, []int{42}},
-		{"sólo basura", []int32{0, -1}, []int{}},
+		{"empty", nil, []int{}},
+		{"one", []int32{42}, []int{42}},
+		{"repeated", []int32{42, 42}, []int{42}},
+		{"two distinct", []int32{42, 43}, []int{42, 43}},
+		{"with zeros and negatives", []int32{0, 42, -1}, []int{42}},
+		{"only garbage", []int32{0, -1}, []int{}},
 	}
 	for _, tt := range tests {
 		got := distinctOwners(tt.in)
@@ -341,36 +341,36 @@ func TestDistinctOwnersFiltraRepetidosYNegativos(t *testing.T) {
 	}
 }
 
-func TestKillPortHolderSinWarnNoRevienta(t *testing.T) {
-	killPortHolderWith(1 /* puerto*/, os.Getpid(), nil, func(int) []int32 { return nil }, nil)
+func TestKillPortHolderWithoutWarnDoesNotPanic(t *testing.T) {
+	killPortHolderWith(1 /* port */, os.Getpid(), nil, func(int) []int32 { return nil }, nil)
 
 	// Ownership decides the kill and the Warn callback only informs, so a nil Warn never changes the verdict.
 	killPortHolderWith(1, os.Getpid(), nil, func(int) []int32 { return []int32{999999} }, nil)
 }
 
 // Validation must precede log truncation, otherwise a rejected command silently wipes the previous run's history.
-func TestStartRechazaComandoVacioAntesDeTocarNada(t *testing.T) {
+func TestStartRejectsEmptyCommandBeforeTouchingAnything(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "stdout.log")
 	errLog := filepath.Join(dir, "stderr.log")
-	writeFileStr(t, out, "historial anterior\n")
+	writeFileStr(t, out, "previous history\n")
 
 	_, err := NewManager().Start(StartSpec{
 		Command: "", WorkDir: dir, StdoutPath: out, StderrPath: errLog,
 	})
 	if err == nil {
-		t.Fatal("un comando vacío debería fallar")
+		t.Fatal("an empty command should fail")
 	}
 	if !strings.Contains(err.Error(), "empty command") {
 		t.Errorf("err = %q, want 'empty command'", err)
 	}
-	if got := readFileStr(t, out); got != "historial anterior\n" {
-		t.Errorf("el log se truncó antes de validar el comando: %q", got)
+	if got := readFileStr(t, out); got != "previous history\n" {
+		t.Errorf("the log was truncated before validating the command: %q", got)
 	}
 }
 
 // Failing before spawning sh matters: a process created and then abandoned has no Meta, so nothing would ever stop it.
-func TestStartFallaSiNoPuedeAbrirLosLogs(t *testing.T) {
+func TestStartFailsIfItCannotOpenTheLogs(t *testing.T) {
 	dir := t.TempDir()
 	blocked := filepath.Join(dir, "stdout.log")
 	if err := os.MkdirAll(blocked, 0o755); err != nil {
@@ -382,16 +382,16 @@ func TestStartFallaSiNoPuedeAbrirLosLogs(t *testing.T) {
 		StdoutPath: blocked, StderrPath: filepath.Join(dir, "stderr.log"),
 	})
 	if err == nil {
-		t.Fatal("un stdout.log que es un directorio debería hacer fallar el arranque")
+		t.Fatal("a stdout.log that is a directory should make startup fail")
 	}
 	if !strings.Contains(err.Error(), "stdout.log") {
-		t.Errorf("err = %q, want que nombre el log que no pudo abrir", err)
+		t.Errorf("err = %q, want it to name the log it could not open", err)
 	}
 }
 
-func TestStartFallaSiElDirectorioDeLogsNoSePuedeCrear(t *testing.T) {
+func TestStartFailsIfTheLogDirectoryCannotBeCreated(t *testing.T) {
 	dir := t.TempDir()
-	blocker := writeFileStr(t, filepath.Join(dir, "bloqueante"), "soy un fichero\n")
+	blocker := writeFileStr(t, filepath.Join(dir, "blocking"), "I am a file\n")
 
 	_, err := NewManager().Start(StartSpec{
 		Command: "sleep 30", WorkDir: dir,
@@ -399,7 +399,7 @@ func TestStartFallaSiElDirectorioDeLogsNoSePuedeCrear(t *testing.T) {
 		StderrPath: filepath.Join(blocker, "sub", "stderr.log"),
 	})
 	if err == nil {
-		t.Fatal("no se puede crear el directorio de logs: el arranque debería fallar")
+		t.Fatal("cannot create the log directory: startup should fail")
 	}
 	if !strings.Contains(err.Error(), "could not create log directory") {
 		t.Errorf("err = %q, want 'could not create log directory'", err)
@@ -407,35 +407,35 @@ func TestStartFallaSiElDirectorioDeLogsNoSePuedeCrear(t *testing.T) {
 }
 
 // The error names the command it tried to launch, which is what the user needs to correct the manifest.
-func TestStartFallaSiElProcesoNoSePuedeLanzar(t *testing.T) {
+func TestStartFailsIfTheProcessCannotBeLaunched(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PATH", "") // sin `sh`
+	t.Setenv("PATH", "") // without `sh`
 
 	_, err := NewManager().Start(StartSpec{
 		Command: "sleep 30", WorkDir: dir,
 		StdoutPath: filepath.Join(dir, "stdout.log"), StderrPath: filepath.Join(dir, "stderr.log"),
 	})
 	if err == nil {
-		t.Fatal("sin intérprete el arranque debería fallar")
+		t.Fatal("without interpreter startup should fail")
 	}
 	if !strings.Contains(err.Error(), "failed to start") {
 		t.Errorf("err = %q, want 'failed to start'", err)
 	}
 	if !strings.Contains(err.Error(), "sleep 30") {
-		t.Errorf("err = %q, want que nombre el comando que no se pudo lanzar", err)
+		t.Errorf("err = %q, want it to name the command that could not be launched", err)
 	}
 }
 
 // Truncation is to zero with no banner: an append would leave logs --tail full of the previous run.
-func TestStartTruncaLosLogsDeCadaArranque(t *testing.T) {
+func TestStartTruncatesTheLogsOfEachStartup(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "stdout.log")
 	errLog := filepath.Join(dir, "stderr.log")
-	writeFileStr(t, out, "salida del servicio ANTERIOR\n")
+	writeFileStr(t, out, "output of the PREVIOUS service\n")
 
 	m := NewManager()
 	res := startSleep(t, m, StartSpec{
-		Command: "echo servicio-nuevo", WorkDir: dir,
+		Command: "echo new-service", WorkDir: dir,
 		StdoutPath: out, StderrPath: errLog,
 	})
 	if err := m.Stop(StopSpec{Pid: res.Pid, Pgid: res.Pgid, Timeout: 3 * time.Second}); err != nil {
@@ -444,17 +444,17 @@ func TestStartTruncaLosLogsDeCadaArranque(t *testing.T) {
 	waitPIDGone(t, res.Pid)
 
 	body := readFileStr(t, out)
-	if strings.Contains(body, "ANTERIOR") {
-		t.Errorf("el log del arranque anterior sobrevivió al truncado:\n%s", body)
+	if strings.Contains(body, "PREVIOUS") {
+		t.Errorf("the log from the previous startup survived truncation:\n%s", body)
 	}
-	if !strings.Contains(body, "servicio-nuevo") {
-		t.Errorf("la salida del servicio nuevo no llegó al log:\n%s", body)
+	if !strings.Contains(body, "new-service") {
+		t.Errorf("the output of the new service did not reach the log:\n%s", body)
 	}
 }
 
-func TestMergeEnvPisaYAnadeYDescartaLoMalformado(t *testing.T) {
+func TestMergeEnvOverwritesAndAddsAndDiscardsMalformed(t *testing.T) {
 	parent := []string{"PATH=/usr/bin", "PORT=8080", "HOME=/root"}
-	got := mergeEnv(parent, []string{"PORT=9999", "NUEVA=si", "basura", "=novacia", ""})
+	got := mergeEnv(parent, []string{"PORT=9999", "NEW=yes", "garbage", "=novalue", ""})
 
 	m := map[string]string{}
 	for _, kv := range got {
@@ -462,18 +462,18 @@ func TestMergeEnvPisaYAnadeYDescartaLoMalformado(t *testing.T) {
 		m[k] = v
 	}
 	if m["PORT"] != "9999" {
-		t.Errorf("PORT = %q, want 9999: el spec tiene que pisar al padre", m["PORT"])
+		t.Errorf("PORT = %q, want 9999: the spec must override the parent", m["PORT"])
 	}
-	if m["NUEVA"] != "si" {
-		t.Errorf("NUEVA = %q: una variable nueva debe sobrevivir", m["NUEVA"])
+	if m["NEW"] != "yes" {
+		t.Errorf("NEW = %q: a new variable must survive", m["NEW"])
 	}
 	if m["PATH"] != "/usr/bin" || m["HOME"] != "/root" {
-		t.Errorf("el padre se perdió: %v", m)
+		t.Errorf("the parent was lost: %v", m)
 	}
-	// MEDIDO: an entry without "=" survives because the filter only drops an empty key, and PATH with no value is legal so discarding it would be worse.
+	// MEASURED: an entry without "=" survives because the filter only drops an empty key, and PATH with no value is legal so discarding it would be worse.
 	for _, kv := range got {
 		if key, _, _ := strings.Cut(kv, "="); key == "" {
-			t.Errorf("llegó al entorno del hijo una entrada con clave vacía: %q", kv)
+			t.Errorf("an entry with an empty key reached the child environment: %q", kv)
 		}
 	}
 	// No duplicate keys: exec dedup would drop one silently and vroom cannot decide which one wins.
@@ -484,34 +484,34 @@ func TestMergeEnvPisaYAnadeYDescartaLoMalformado(t *testing.T) {
 	}
 	for key, n := range seenKey {
 		if n > 1 {
-			t.Errorf("la clave %s aparece %d veces en el entorno del hijo", key, n)
+			t.Errorf("key %s appears %d times in the child environment", key, n)
 		}
 	}
 }
 
-func TestMergeEnvDevuelveNilSinNadaQueInyectar(t *testing.T) {
+func TestMergeEnvReturnsNilWithNothingToInject(t *testing.T) {
 	if got := mergeEnv([]string{"PATH=/usr/bin"}, nil); got != nil {
-		t.Errorf("mergeEnv sin extra dio %#v, want nil: un slice vacío vaciaría el entorno del hijo", got)
+		t.Errorf("mergeEnv without extra gave %#v, want nil: an empty slice would empty the child environment", got)
 	}
 	if got := mergeEnv([]string{"PATH=/usr/bin"}, []string{}); got != nil {
-		t.Errorf("mergeEnv con extra vacío dio %#v, want nil", got)
+		t.Errorf("mergeEnv with empty extra gave %#v, want nil", got)
 	}
 }
 
 // readMetricsAt is already covered against a synthetic tree; what this pins is the wrapper's procRoot, since a wrong one would silently report another process.
-func TestReadMetricsDelProcesoVivo(t *testing.T) {
+func TestReadMetricsOfTheLiveProcess(t *testing.T) {
 	m, err := ReadMetrics(os.Getpid())
 	if err != nil {
-		t.Fatalf("ReadMetrics del propio proceso: %v", err)
+		t.Fatalf("ReadMetrics of the process itself: %v", err)
 	}
 	if m.RSSKB <= 0 {
-		t.Errorf("RSSKB = %d, want > 0: un proceso vivo tiene memoria residente", m.RSSKB)
+		t.Errorf("RSSKB = %d, want > 0: a live process has resident memory", m.RSSKB)
 	}
 	if m.Threads <= 0 {
 		t.Errorf("Threads = %d, want > 0", m.Threads)
 	}
 	if m.Ticks <= 0 {
-		t.Errorf("Ticks = %d, want > 0: un proceso que ha corrido acumula ticks de CPU", m.Ticks)
+		t.Errorf("Ticks = %d, want > 0: a process that has run accumulates CPU ticks", m.Ticks)
 	}
 	if m.FDs <= 0 {
 		t.Errorf("FDs = %d, want > 0", m.FDs)
@@ -519,15 +519,15 @@ func TestReadMetricsDelProcesoVivo(t *testing.T) {
 }
 
 // An error rather than zeros: an all-zero reading would paint a plausible-looking 0 kB service.
-func TestReadMetricsDeUnPidInexistenteDaError(t *testing.T) {
+func TestReadMetricsOfANonexistentPidGivesError(t *testing.T) {
 	dead := findDeadPID(t)
 	if _, err := ReadMetrics(dead); err == nil {
-		t.Error("un pid muerto no debería dar métricas: daría ceros que parecen datos")
+		t.Error("a dead pid should not give metrics: it would give zeros that look like data")
 	}
 }
 
 // The kernel freezes this block at execve, which is why a later t.Setenv never appears here and the Env tab cannot read os.Environ instead.
-func TestReadEnvironDelProcesoVivo(t *testing.T) {
+func TestReadEnvironOfTheLiveProcess(t *testing.T) {
 	real := pickRealEnvVar(t)
 
 	got, err := ReadEnviron(os.Getpid())
@@ -541,33 +541,33 @@ func TestReadEnvironDelProcesoVivo(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("no está %s en el entorno del proceso (%d variables)", real, len(got))
+		t.Errorf("%s is not in the process environment (%d variables)", real, len(got))
 	}
 
-	t.Setenv("VROOM_TEST_MARCADOR_QUE_NO_SE_VE", "1")
-	despues, err := ReadEnviron(os.Getpid())
+	t.Setenv("VROOM_TEST_MARKER_THAT_IS_NOT_SEEN", "1")
+	after, err := ReadEnviron(os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, kv := range despues {
-		if strings.HasPrefix(kv, "VROOM_TEST_MARCADOR") {
-			t.Error("un Setenv aparece en /proc/environ: el entorno se lee de aquí y no de os.Environ, así que este test documentaría lo contrario de lo que pasa")
+	for _, kv := range after {
+		if strings.HasPrefix(kv, "VROOM_TEST_MARKER") {
+			t.Error("a Setenv appears in /proc/environ: the environment is read from here and not from os.Environ, so this test would document the opposite of what happens")
 		}
 	}
 }
 
 // An error, not an empty list: an empty list reads as "the service has no variables", which is a claim rather than a failure.
-func TestReadEnvironDeUnPidInexistenteDaError(t *testing.T) {
+func TestReadEnvironOfANonexistentPidGivesError(t *testing.T) {
 	dead := findDeadPID(t)
 	if _, err := ReadEnviron(dead); err == nil {
-		t.Error("un pid muerto debería dar error al leer su entorno")
+		t.Error("a dead pid should give an error when reading its environment")
 	} else if !strings.Contains(err.Error(), "process environ") {
-		t.Errorf("err = %q, want el prefijo 'process environ'", err)
+		t.Errorf("err = %q, want the prefix 'process environ'", err)
 	}
 }
 
 // Same pid with a different creation_time is a recycled pid: accepting it would make vroom believe a foreign process is its service and SIGKILL it on stop.
-func TestAliveRechazaPidReciclado(t *testing.T) {
+func TestAliveRejectsRecycledPid(t *testing.T) {
 	m := NewManager()
 	res := startSleep(t, m, StartSpec{
 		Command: "sleep 30", WorkDir: t.TempDir(),
@@ -575,13 +575,13 @@ func TestAliveRechazaPidReciclado(t *testing.T) {
 	})
 
 	if !Alive(res.Pid, res.CreationTimeMs) {
-		t.Error("un proceso vivo con su creation_time debe estar vivo")
+		t.Error("a live process with its creation_time must be alive")
 	}
 	if Alive(res.Pid, res.CreationTimeMs+1) {
-		t.Error("Alive aceptó un creation_time distinto: es exactamente el PID reciclado que tiene que rechazar")
+		t.Error("Alive accepted a different creation_time: it is exactly the recycled PID that it must reject")
 	}
 	if Alive(res.Pid, 0) {
-		t.Error("Alive aceptó creation_time 0: sin ese dato no hay prueba de identidad")
+		t.Error("Alive accepted creation_time 0: without that data there is no proof of identity")
 	}
 
 	if err := m.Stop(StopSpec{Pid: res.Pid, Pgid: res.Pgid, Timeout: 2 * time.Second}); err != nil {
@@ -589,70 +589,70 @@ func TestAliveRechazaPidReciclado(t *testing.T) {
 	}
 	waitPIDGone(t, res.Pid)
 	if Alive(res.Pid, res.CreationTimeMs) {
-		t.Error("un proceso parado sigue vivo")
+		t.Error("a stopped process is still alive")
 	}
 }
 
 // gopsutil's NewProcess(0) addresses init's group on some systems, which would be an "alive" belonging to nobody.
-func TestAliveConPidNoNumericoEsFalso(t *testing.T) {
+func TestAliveWithNonNumericPidIsFalse(t *testing.T) {
 	for _, pid := range []int{0, -1, -9999} {
 		if Alive(pid, 0) {
-			t.Errorf("Alive(%d) = true: un pid no válido no puede ser un proceso", pid)
+			t.Errorf("Alive(%d) = true: an invalid pid cannot be a process", pid)
 		}
 	}
 }
 
-func TestPortOwnerPIDAmbiguoEsCero(t *testing.T) {
+func TestPortOwnerPIDAmbiguousIsZero(t *testing.T) {
 	port := listenRaw(t)
 	pid := PortOwnerPID(port)
 	if pid == 0 {
 		// The listener lives in another process and may be unreadable for permissions, so only the resolvable branch is asserted.
-		t.Logf("no se pudo determinar el dueño del puerto %d (permisos o timing): el caso ambiguo se cubre aparte", port)
+		t.Logf("could not determine the owner of port %d (permissions or timing): the ambiguous case is covered separately", port)
 		return
 	}
 	if pid <= 0 {
-		t.Errorf("PortOwnerPID = %d, want > 0 o 0", pid)
+		t.Errorf("PortOwnerPID = %d, want > 0 or 0", pid)
 	}
 }
 
-func TestPgidAliveDistingueLoQueNoEsNuestro(t *testing.T) {
-	t.Run("grupo propio vivo", func(t *testing.T) {
+func TestPgidAliveDistinguishesWhatIsNotOurs(t *testing.T) {
+	t.Run("own live group", func(t *testing.T) {
 		if !pgidAlive(ownPgid(t)) {
-			t.Error("el grupo del propio proceso de test está vivo")
+			t.Error("the group of the test process itself is alive")
 		}
 	})
-	t.Run("pgid 0 no es un grupo", func(t *testing.T) {
+	t.Run("pgid 0 is not a group", func(t *testing.T) {
 		if pgidAlive(0) {
-			t.Error("pgid 0 debe contar como no vivo: emitir -0 señalaría al grupo entero")
+			t.Error("pgid 0 must count as not alive: emitting -0 would signal the entire group")
 		}
 	})
-	t.Run("pgid inexistente", func(t *testing.T) {
+	t.Run("nonexistent pgid", func(t *testing.T) {
 		if pgidAlive(1 << 22) {
-			t.Error("un pgid que no existe no puede estar vivo")
+			t.Error("a pgid that does not exist cannot be alive")
 		}
 	})
 }
 
 // Without this guard, every stop of an already-stopped service would sit out its full timeout.
-func TestWaitLineageGoneVuelveProntoSiNoQuedaNada(t *testing.T) {
+func TestWaitLineageGoneReturnsEarlyIfNothingRemains(t *testing.T) {
 	start := time.Now()
 	if !waitLineageGone(0, nil, 5*time.Second) {
-		t.Fatal("un linaje vacío no puede seguir vivo")
+		t.Fatal("an empty lineage cannot still be alive")
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Errorf("tardó %v con un linaje vacío: no hay nada que esperar", elapsed)
+		t.Errorf("took %v with an empty lineage: there is nothing to wait for", elapsed)
 	}
 }
 
 // A process that ignores SIGKILL cannot be provoked reliably, so an unsignalled live pid with a short timeout is used because the function only polls, which is what is under test.
-func TestWaitLineageGoneExpiraConUnProcesoQueNoMuere(t *testing.T) {
+func TestWaitLineageGoneExpiresWithAProcessThatDoesNotDie(t *testing.T) {
 	me := os.Getpid()
 	start := time.Now()
 	if waitLineageGone(0, []int{me}, 200*time.Millisecond) {
-		t.Error("con el propio proceso vivo y sin señalizar, waitLineageGone debería expirar")
+		t.Error("with the process itself alive and unsignaled, waitLineageGone should expire")
 	}
 	if elapsed := time.Since(start); elapsed < 150*time.Millisecond {
-		t.Errorf("volvió en %v: no esperó al timeout", elapsed)
+		t.Errorf("returned in %v: did not wait for the timeout", elapsed)
 	}
 }
 
@@ -660,7 +660,7 @@ func ownPgid(t *testing.T) int {
 	t.Helper()
 	info, err := procStatAt(filepath.Join(procRoot, strconv.Itoa(os.Getpid())))
 	if err != nil {
-		t.Fatalf("no se pudo leer el stat del proceso de test: %v", err)
+		t.Fatalf("could not read the stat of the test process: %v", err)
 	}
 	return info.pgid
 }
@@ -674,7 +674,7 @@ func waitPIDGone(t *testing.T, pid int) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Errorf("el pid %d sigue en /proc tras el stop", pid)
+	t.Errorf("pid %d is still in /proc after the stop", pid)
 }
 
 // Must pick a variable inherited at execve, because a later t.Setenv never reaches /proc/self/environ and would make the test assert nothing.
@@ -682,14 +682,14 @@ func pickRealEnvVar(t *testing.T) string {
 	t.Helper()
 	raw, err := os.ReadFile("/proc/self/environ")
 	if err != nil {
-		t.Skipf("no se puede leer /proc/self/environ: %v", err)
+		t.Skipf("cannot read /proc/self/environ: %v", err)
 	}
 	for _, want := range []string{"PATH=", "HOME=", "USER=", "LANG=", "SHELL=", "PWD="} {
 		if strings.Contains(string(raw), want) {
 			return strings.TrimSuffix(want, "=")
 		}
 	}
-	t.Skip("ninguna variable de entorno conocida está presente")
+	t.Skip("no known environment variable is present")
 	return ""
 }
 

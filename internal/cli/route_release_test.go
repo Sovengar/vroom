@@ -37,7 +37,7 @@ func TestCLIStopRemovesTheServiceRoute(t *testing.T) {
 	})
 
 	if len(rec.removed) != 1 || rec.removed[0] != "p-route" {
-		t.Errorf("el stop debe retirar la ruta del servicio, got %v", rec.removed)
+		t.Errorf("stop must remove the service route, got %v", rec.removed)
 	}
 
 	// Ownership is revoked too: otherwise the Meta still claims a released route, which is exactly what let vroom overwrite someone else's.
@@ -46,10 +46,10 @@ func TestCLIStopRemovesTheServiceRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	if meta.RouteOwned {
-		t.Error("tras retirar la ruta la propiedad debe quedar revocada en el Meta")
+		t.Error("after removing the route the ownership must be revoked in the Meta")
 	}
 	if meta.RouteName == "" {
-		t.Error("el handle de reconciliación debe conservarse aunque la propiedad se revoque")
+		t.Error("the reconciliation handle must be preserved even if ownership is revoked")
 	}
 }
 
@@ -64,7 +64,7 @@ func TestCLIStopRemovesRouteEvenWhenAlreadyDead(t *testing.T) {
 	})
 
 	if len(rec.removed) != 1 || rec.removed[0] != "ruta-huerfana" {
-		t.Errorf("un servicio ya muerto también debe retirar su ruta, got %v", rec.removed)
+		t.Errorf("an already dead service must also remove its route, got %v", rec.removed)
 	}
 }
 
@@ -76,7 +76,7 @@ func TestCLIStopWithoutRouteDoesNotCallRelease(t *testing.T) {
 	_, _ = stopWithMeta(t, state.Meta{Name: "p", Pid: 7, Port: 4321})
 
 	if len(rec.removed) != 0 {
-		t.Errorf("sin ruta registrada no debe retirarse nada, got %v", rec.removed)
+		t.Errorf("without a registered route nothing must be removed, got %v", rec.removed)
 	}
 }
 
@@ -120,6 +120,6 @@ func TestCLIStopDoesNotRemoveAForeignRoute(t *testing.T) {
 	})
 
 	if len(rec.removed) != 0 {
-		t.Errorf("el stop no puede retirar una ruta que nunca fue nuestra, got %v", rec.removed)
+		t.Errorf("stop cannot remove a route that was never ours, got %v", rec.removed)
 	}
 }

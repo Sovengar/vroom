@@ -25,7 +25,7 @@ func TestReleaseRemovesThroughTheSeam(t *testing.T) {
 	portless.Release(rec, "mi-ruta")
 
 	if len(rec.removed) != 1 || rec.removed[0] != "mi-ruta" {
-		t.Errorf("Release debe retirar exactamente la ruta dada, got %v", rec.removed)
+		t.Errorf("Release must remove exactly the given route, got %v", rec.removed)
 	}
 }
 
@@ -34,7 +34,7 @@ func TestReleaseSkipsEmptyName(t *testing.T) {
 	portless.Release(rec, "")
 
 	if len(rec.removed) != 0 {
-		t.Errorf("sin nombre no hay nada que retirar, got %v", rec.removed)
+		t.Errorf("without a name there is nothing to remove, got %v", rec.removed)
 	}
 }
 
@@ -44,7 +44,7 @@ func TestReleaseSwallowsErrors(t *testing.T) {
 	portless.Release(rec, "mi-ruta")
 
 	if len(rec.removed) != 1 {
-		t.Errorf("se debe intentar la retirada aunque falle, got %v", rec.removed)
+		t.Errorf("the removal must be attempted even if it fails, got %v", rec.removed)
 	}
 }
 
@@ -63,15 +63,15 @@ func TestReleaseIntegrationRemovesForReal(t *testing.T) {
 		portless.WithTimeout(10*time.Second),
 	)
 	if c.Apply("vroom.release", 4321, portless.Ownership{}).Succeeded() {
-		t.Log("hay un proxy en marcha: la ruta se registró y va a comprobarse")
+		t.Log("there is a proxy running: the route was registered and will be verified")
 	}
 	if _, found, err := c.Lookup("vroom.release"); err != nil || !found {
-		t.Skipf("portless no responde como se espera: %v", err)
+		t.Skipf("portless does not respond as expected: %v", err)
 	}
 
 	portless.Release(c, "vroom.release")
 	if _, found, _ := c.Lookup("vroom.release"); found {
-		t.Error("tras la retirada la ruta debe desaparecer")
+		t.Error("after removal the route must disappear")
 	}
 	portless.Release(c, "vroom.release")
 }

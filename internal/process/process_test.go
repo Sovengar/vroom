@@ -27,7 +27,7 @@ func startSleep(t *testing.T, m Manager, spec StartSpec) StartResult {
 
 func TestStartDaemonizesProcess(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	m := newTestManager(t)
 	dir := t.TempDir()
@@ -40,19 +40,19 @@ func TestStartDaemonizesProcess(t *testing.T) {
 	t.Cleanup(func() { _ = m.Stop(StopSpec{Pgid: res.Pgid, Timeout: time.Second}) })
 
 	if res.Pid <= 0 || res.Pgid != res.Pid {
-		t.Fatalf("pid/pgid inesperados: %+v", res)
+		t.Fatalf("unexpected pid/pgid: %+v", res)
 	}
 	if res.CreationTimeMs <= 0 {
-		t.Fatal("creation_time_ms no capturado")
+		t.Fatal("creation_time_ms not captured")
 	}
 	if !Alive(res.Pid, res.CreationTimeMs) {
-		t.Fatal("el proceso debería estar vivo justo tras el start")
+		t.Fatal("the process should be alive right after start")
 	}
 }
 
 func TestEvaluateLifecycle(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	m := newTestManager(t)
 	dir := t.TempDir()
@@ -64,35 +64,35 @@ func TestEvaluateLifecycle(t *testing.T) {
 	})
 
 	if got := m.Evaluate(EvalSpec{Pid: res.Pid, CreationTimeMs: res.CreationTimeMs}); got != StatusRunning {
-		t.Errorf("estado = %s, want running", got)
+		t.Errorf("status = %s, want running", got)
 	}
 
 	// A different creation_time means a recycled pid.
 	if got := m.Evaluate(EvalSpec{Pid: res.Pid, CreationTimeMs: res.CreationTimeMs + 1}); got != StatusStopped {
-		t.Errorf("ctime mismatch: estado = %s, want stopped", got)
+		t.Errorf("ctime mismatch: status = %s, want stopped", got)
 	}
 
 	if got := m.Evaluate(EvalSpec{
 		Pid:            res.Pid,
 		CreationTimeMs: res.CreationTimeMs,
 		Port:           freeTCPPort(t),
-		ProcessPattern: "no-existe-este-proceso-xyz",
+		ProcessPattern: "does-not-exist-this-process-xyz",
 	}); got != StatusUnknown {
-		t.Errorf("estado = %s, want unknown", got)
+		t.Errorf("status = %s, want unknown", got)
 	}
 
 	if err := m.Stop(StopSpec{Pgid: res.Pgid, Timeout: 2 * time.Second}); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 	if got := m.Evaluate(EvalSpec{Pid: res.Pid, CreationTimeMs: res.CreationTimeMs}); got != StatusStopped {
-		t.Errorf("tras stop: estado = %s, want stopped", got)
+		t.Errorf("after stop: status = %s, want stopped", got)
 	}
 }
 
 // S-T3: a service that exits immediately is stopped on the next cycle.
 func TestEvaluateCrashedImmediately(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	m := newTestManager(t)
 	dir := t.TempDir()
@@ -104,13 +104,13 @@ func TestEvaluateCrashedImmediately(t *testing.T) {
 	})
 	time.Sleep(300 * time.Millisecond) // let it die and be reaped
 	if got := m.Evaluate(EvalSpec{Pid: res.Pid, CreationTimeMs: res.CreationTimeMs}); got != StatusStopped {
-		t.Errorf("estado = %s, want stopped (proceso crasheado)", got)
+		t.Errorf("status = %s, want stopped (crashed process)", got)
 	}
 }
 
 func TestEvaluateDeadPIDPortOpenByOther(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	m := newTestManager(t)
 
@@ -123,13 +123,13 @@ func TestEvaluateDeadPIDPortOpenByOther(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 
 	if got := m.Evaluate(EvalSpec{Pid: 999999999, CreationTimeMs: 0, Port: port}); got != StatusStopped {
-		t.Errorf("PID muerto + puerto ajeno: estado = %s, want stopped", got)
+		t.Errorf("dead PID + foreign port: status = %s, want stopped", got)
 	}
 }
 
 func TestEvaluateDeadPIDPortOpenSameService(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	m := newTestManager(t)
 
@@ -142,7 +142,7 @@ func TestEvaluateDeadPIDPortOpenSameService(t *testing.T) {
 
 	ownerPID := PortOwnerPID(port)
 	if ownerPID == 0 {
-		t.Fatal("no se pudo obtener el PID del listener")
+		t.Fatal("could not get the PID of the listener")
 	}
 	p, err := gopsprocess.NewProcess(int32(ownerPID))
 	if err != nil {
@@ -154,13 +154,13 @@ func TestEvaluateDeadPIDPortOpenSameService(t *testing.T) {
 	}
 
 	if got := m.Evaluate(EvalSpec{Pid: int(ownerPID), CreationTimeMs: ct, Port: port}); got != StatusRunning {
-		t.Errorf("PID vivo + puerto propio: estado = %s, want running", got)
+		t.Errorf("live PID + own port: status = %s, want running", got)
 	}
 }
 
 func TestEvaluateDeadPIDPatternMatch(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	m := newTestManager(t)
 
@@ -174,33 +174,33 @@ func TestEvaluateDeadPIDPatternMatch(t *testing.T) {
 	t.Cleanup(func() { _ = m.Stop(StopSpec{Pgid: res.Pgid, Timeout: time.Second}) })
 
 	if got := m.Evaluate(EvalSpec{Pid: 999999999, CreationTimeMs: 0, ProcessPattern: "sleep"}); got != StatusRunning {
-		t.Errorf("PID muerto + pattern match: estado = %s, want running", got)
+		t.Errorf("dead PID + pattern match: status = %s, want running", got)
 	}
 }
 
 func TestEvaluateDeadPIDNothingMatches(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	m := newTestManager(t)
-	if got := m.Evaluate(EvalSpec{Pid: 999999999, CreationTimeMs: 0, Port: freeTCPPort(t), ProcessPattern: "no-existe-xyz"}); got != StatusStopped {
-		t.Errorf("PID muerto + nada coincide: estado = %s, want stopped", got)
+	if got := m.Evaluate(EvalSpec{Pid: 999999999, CreationTimeMs: 0, Port: freeTCPPort(t), ProcessPattern: "does-not-exist-xyz"}); got != StatusStopped {
+		t.Errorf("dead PID + nothing matches: status = %s, want stopped", got)
 	}
 }
 
 func TestEvaluateDeadPIDNoChecks(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	m := newTestManager(t)
 	if got := m.Evaluate(EvalSpec{Pid: 999999999, CreationTimeMs: 0}); got != StatusStopped {
-		t.Errorf("PID muerto + sin checks: estado = %s, want stopped", got)
+		t.Errorf("dead PID + no checks: status = %s, want stopped", got)
 	}
 }
 
 func TestStopKillsProcessGroup(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	m := newTestManager(t)
 	dir := t.TempDir()
@@ -219,20 +219,20 @@ func TestStopKillsProcessGroup(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 	if err := syscall.Kill(-res.Pgid, syscall.Signal(0)); err != syscall.ESRCH {
-		t.Errorf("grupo %d sigue vivo tras Stop: %v", res.Pgid, err)
+		t.Errorf("group %d is still alive after Stop: %v", res.Pgid, err)
 	}
 }
 
 func TestStopAlreadyDead(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	m := newTestManager(t)
 	if err := m.Stop(StopSpec{Pgid: 999999999, Timeout: time.Second}); err != nil {
-		t.Errorf("stop de servicio ya detenido no debe fallar: %v", err)
+		t.Errorf("stop of an already stopped service must not fail: %v", err)
 	}
 	if err := m.Stop(StopSpec{Pgid: 0, Timeout: time.Second}); err != nil {
-		t.Errorf("stop con pgid 0 no debe fallar: %v", err)
+		t.Errorf("stop with pgid 0 must not fail: %v", err)
 	}
 }
 
@@ -244,10 +244,10 @@ func TestPortOpen(t *testing.T) {
 	defer func() { _ = ln.Close() }()
 	port := ln.Addr().(*net.TCPAddr).Port
 	if !PortOpen(port) {
-		t.Errorf("puerto %d abierto debería reportarse como abierto", port)
+		t.Errorf("open port %d should be reported as open", port)
 	}
 	if PortOpen(freeTCPPort(t)) {
-		t.Error("puerto libre debería reportarse como cerrado")
+		t.Error("free port should be reported as closed")
 	}
 }
 
@@ -269,13 +269,13 @@ func TestPortOwnerPID(t *testing.T) {
 
 	freePort := freeTCPPort(t)
 	if pid := PortOwnerPID(freePort); pid != 0 {
-		t.Errorf("PortOwnerPID(%d) = %d, want 0 (puerto libre)", freePort, pid)
+		t.Errorf("PortOwnerPID(%d) = %d, want 0 (free port)", freePort, pid)
 	}
 }
 
 func TestStartLogsCaptured(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	m := newTestManager(t)
 	dir := t.TempDir()

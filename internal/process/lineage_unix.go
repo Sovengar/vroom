@@ -32,23 +32,23 @@ func procStatAt(dir string) (procInfo, error) {
 	lparen := strings.IndexByte(s, '(')
 	rparen := strings.LastIndexByte(s, ')')
 	if lparen < 0 || rparen <= lparen || rparen+2 > len(s) {
-		return procInfo{}, fmt.Errorf("stat malformado en %s", dir)
+		return procInfo{}, fmt.Errorf("malformed stat in %s", dir)
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(s[:lparen])) // stat field 1
 	if err != nil {
-		return procInfo{}, fmt.Errorf("pid inválido en %s: %w", dir, err)
+		return procInfo{}, fmt.Errorf("invalid pid in %s: %w", dir, err)
 	}
 	f := strings.Fields(s[rparen+2:])
 	if len(f) < 3 {
-		return procInfo{}, fmt.Errorf("stat incompleto en %s", dir)
+		return procInfo{}, fmt.Errorf("incomplete stat in %s", dir)
 	}
 	ppid, err := strconv.Atoi(f[1]) // stat field 4
 	if err != nil {
-		return procInfo{}, fmt.Errorf("ppid inválido en %s: %w", dir, err)
+		return procInfo{}, fmt.Errorf("invalid ppid in %s: %w", dir, err)
 	}
 	pgid, err := strconv.Atoi(f[2]) // stat field 5 (pgrp)
 	if err != nil {
-		return procInfo{}, fmt.Errorf("pgrp inválido en %s: %w", dir, err)
+		return procInfo{}, fmt.Errorf("invalid pgrp in %s: %w", dir, err)
 	}
 	return procInfo{pid: pid, state: f[0], ppid: ppid, pgid: pgid}, nil
 }

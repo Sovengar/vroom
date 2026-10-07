@@ -82,15 +82,15 @@ func TestWarnNombraCadaMotivoYPrometeElPuerto(t *testing.T) {
 			got := Warn(Result{Name: "svc", Host: tt.host, Reason: tt.reason})
 
 			if got == "" {
-				t.Fatalf("Warn(%q) devolvio aviso vacio", tt.reason)
+				t.Fatalf("Warn(%q) returned empty warning", tt.reason)
 			}
 			for _, want := range tt.mustContain {
 				if !strings.Contains(got, want) {
-					t.Errorf("el aviso no nombra el fallo: falta %q\naviso: %q", want, got)
+					t.Errorf("the warning does not name the failure: missing %q\nwarning: %q", want, got)
 				}
 			}
 			if tt.wantPortPromise && !strings.Contains(got, "running on its own port") {
-				t.Errorf("el aviso no dice que el servicio sigue en su puerto: %q", got)
+				t.Errorf("the warning does not say the service is still on its port: %q", got)
 			}
 		})
 	}
@@ -103,7 +103,7 @@ func TestWarnSilenciosoSinMotivo(t *testing.T) {
 		{Name: "svc"},
 	} {
 		if got := Warn(r); got != "" {
-			t.Errorf("Warn(%+v) = %q, want cadena vacia", r, got)
+			t.Errorf("Warn(%+v) = %q, want empty string", r, got)
 		}
 	}
 }
@@ -112,11 +112,11 @@ func TestWarnNombraElHostEnConflicto(t *testing.T) {
 	got := Warn(Result{Name: "svc", Host: "tienda.localhost", Reason: ReasonRouteConflict})
 
 	if !strings.Contains(got, "tienda.localhost") {
-		t.Errorf("el aviso de conflicto no nombra la ruta: %q", got)
+		t.Errorf("the conflict warning does not name the route: %q", got)
 	}
 	// It must also say the route was left untouched, or the user deletes it by hand and breaks the real owner.
 	if !strings.Contains(got, "left untouched") {
-		t.Errorf("el aviso de conflicto no dice que la ruta quedó intacta: %q", got)
+		t.Errorf("the conflict warning does not say the route was left intact: %q", got)
 	}
 }
 
@@ -127,13 +127,13 @@ func TestClassifyTraduceCadaError(t *testing.T) {
 		want string
 	}{
 		{"nil", nil, ""},
-		{"timeout del contexto", context.DeadlineExceeded, ReasonPortlessTimeout},
-		{"proxy parado", ErrProxyNotRunning, ReasonProxyNotRunning},
-		{"binario ausente por nombre", execErrNotFound(), ReasonPortlessMissing},
-		{"binario ausente por ruta", errors.New("fork/exec /opt/portless: no such file or directory"), ReasonPortlessMissing},
-		{"fallo generico", errors.New("requires Node >= 24"), ReasonPortlessFailed},
-		{"json corrupto", errors.New("SyntaxError: Unexpected token }"), ReasonPortlessFailed},
-		{"envolvido de otro modo", wrappedProxyNotRunning(), ReasonProxyNotRunning},
+		{"context timeout", context.DeadlineExceeded, ReasonPortlessTimeout},
+		{"proxy stopped", ErrProxyNotRunning, ReasonProxyNotRunning},
+		{"binary missing by name", execErrNotFound(), ReasonPortlessMissing},
+		{"binary missing by path", errors.New("fork/exec /opt/portless: no such file or directory"), ReasonPortlessMissing},
+		{"generic failure", errors.New("requires Node >= 24"), ReasonPortlessFailed},
+		{"corrupt json", errors.New("SyntaxError: Unexpected token }"), ReasonPortlessFailed},
+		{"wrapped differently", wrappedProxyNotRunning(), ReasonProxyNotRunning},
 	}
 
 	for _, tt := range tests {
@@ -153,11 +153,11 @@ func TestIsMissingBinaryDistingueAusenteDeRoto(t *testing.T) {
 		want bool
 	}{
 		{"ErrNotFound", execErrNotFound(), true},
-		{"fork/exec sin fichero", errors.New(`fork/exec /opt/x: no such file or directory`), true},
-		{"envuelto", wrappedNotFound(), true},
-		{"node viejo", errors.New("requires Node >= 24"), false},
-		{"permisos", errors.New("EACCES: permission denied"), false},
-		{"json corrupto", errors.New("SyntaxError: Unexpected token }"), false},
+		{"fork/exec without file", errors.New(`fork/exec /opt/x: no such file or directory`), true},
+		{"wrapped", wrappedNotFound(), true},
+		{"old node", errors.New("requires Node >= 24"), false},
+		{"permissions", errors.New("EACCES: permission denied"), false},
+		{"corrupt json", errors.New("SyntaxError: Unexpected token }"), false},
 		{"nil", nil, false},
 	}
 
@@ -182,13 +182,13 @@ func TestApplySinBinarioNoResuelvePuertoNiBinario(t *testing.T) {
 		t.Errorf("Reason = %q, want %q", r.Reason, ReasonPortlessMissing)
 	}
 	if r.Registered {
-		t.Error("Registered=true sin binario: se afirmaria una escritura que no ocurrio")
+		t.Error("Registered=true without binary: it would claim a write that did not happen")
 	}
 	if r.Url != "" {
-		t.Errorf("Url = %q sin binario", r.Url)
+		t.Errorf("Url = %q without binary", r.Url)
 	}
 	if r.Name != "svc" {
-		t.Errorf("Name = %q, want svc incluso degradado", r.Name)
+		t.Errorf("Name = %q, want svc even degraded", r.Name)
 	}
 }
 
@@ -203,10 +203,10 @@ func TestApplyConPuertoNoResueltoNoInventaDireccion(t *testing.T) {
 			t.Errorf("port=%d: Reason = %q, want %q", port, r.Reason, ReasonPortUnresolved)
 		}
 		if r.Registered {
-			t.Errorf("port=%d: Registered=true sin puerto confirmado", port)
+			t.Errorf("port=%d: Registered=true without confirmed port", port)
 		}
 		if len(f.calls) != 0 {
-			t.Errorf("port=%d: se invoco el binario sin puerto: %v", port, f.calls)
+			t.Errorf("port=%d: the binary was invoked without a port: %v", port, f.calls)
 		}
 	}
 }
@@ -229,13 +229,13 @@ func TestApplyConservaElHechoRegistradoCuandoFallaLaLecturaDeVuelta(t *testing.T
 	r := c.Apply("svc", 8080, Ownership{})
 
 	if r.Status != StatusDegraded {
-		t.Errorf("Status = %q, want degradado", r.Status)
+		t.Errorf("Status = %q, want degraded", r.Status)
 	}
 	if !r.Registered {
-		t.Error("Registered se perdio tras un fallo de lectura: la ruta se escribio y quedaria huerfana")
+		t.Error("Registered was lost after a read failure: the route was written and would remain orphaned")
 	}
 	if r.Url != "" {
-		t.Errorf("Url = %q sin haber podido verificar", r.Url)
+		t.Errorf("Url = %q without being able to verify", r.Url)
 	}
 	if r.Reason != ReasonPortlessFailed {
 		t.Errorf("Reason = %q, want %q", r.Reason, ReasonPortlessFailed)
@@ -257,19 +257,19 @@ func TestApplySinProxyDegradaPeroConservaElAlta(t *testing.T) {
 	r := c.Apply("svc", 8080, Ownership{})
 
 	if r.Status != StatusDegraded {
-		t.Errorf("Status = %q, want degradado", r.Status)
+		t.Errorf("Status = %q, want degraded", r.Status)
 	}
 	if r.Reason != ReasonProxyNotRunning {
 		t.Errorf("Reason = %q, want %q", r.Reason, ReasonProxyNotRunning)
 	}
 	if !r.Registered {
-		t.Error("Registered se perdio con el proxy parado: el alta ocurrio (M1, el binario no lo contacta)")
+		t.Error("Registered was lost with the proxy stopped: the registration happened (M1, the binary does not contact it)")
 	}
 	if r.Url != "" {
-		t.Errorf("Url = %q sin proxy", r.Url)
+		t.Errorf("Url = %q without proxy", r.Url)
 	}
 	if _, ok := f.routes[Hostname("svc")]; !ok {
-		t.Error("la ruta no se escribio en el binario, pero el Result dice Registered")
+		t.Error("the route was not written in the binary, but the Result says Registered")
 	}
 }
 
@@ -280,19 +280,19 @@ func TestApplyPublicaCuandoElProxyEnruta(t *testing.T) {
 	r := c.Apply("svc", 8080, Ownership{})
 
 	if r.Status != StatusRegistered {
-		t.Fatalf("Status = %q (motivo %q), want registrado: %v", r.Status, r.Reason, f.calls)
+		t.Fatalf("Status = %q (reason %q), want registered: %v", r.Status, r.Reason, f.calls)
 	}
 	if !strings.HasPrefix(r.Url, "http") {
-		t.Errorf("Url = %q, quiero un esquema http/https", r.Url)
+		t.Errorf("Url = %q, want an http/https scheme", r.Url)
 	}
 	if !strings.HasSuffix(r.Url, Hostname("svc")) {
-		t.Errorf("Url = %q no termina en el hostname de la ruta", r.Url)
+		t.Errorf("Url = %q does not end with the route hostname", r.Url)
 	}
 	if r.Reason != "" {
-		t.Errorf("Reason = %q en un alta correcta", r.Reason)
+		t.Errorf("Reason = %q on a correct registration", r.Reason)
 	}
 	if !r.Registered {
-		t.Error("Registered=false en un alta correcta")
+		t.Error("Registered=false on a correct registration")
 	}
 }
 
@@ -305,23 +305,23 @@ func TestWithReasonConservaElHechoYQuitaLaUrl(t *testing.T) {
 	got := base.withReason(ReasonProxyNotRunning)
 
 	if got.Status != StatusDegraded {
-		t.Errorf("Status = %q, want degradado", got.Status)
+		t.Errorf("Status = %q, want degraded", got.Status)
 	}
 	if got.Reason != ReasonProxyNotRunning {
 		t.Errorf("Reason = %q", got.Reason)
 	}
 	if got.Url != "" {
-		t.Errorf("Url = %q: degradar tiene que quitar la URL no verificada", got.Url)
+		t.Errorf("Url = %q: degrading must remove the unverified URL", got.Url)
 	}
 	if !got.Registered {
-		t.Error("Registered se perdio al degradar: la escritura ocurrio")
+		t.Error("Registered was lost when degrading: the write happened")
 	}
 	if got.Name != base.Name || got.Host != base.Host || got.Port != base.Port {
-		t.Errorf("withReason perdio identidad: %+v", got)
+		t.Errorf("withReason lost identity: %+v", got)
 	}
 	// It must not mutate the receiver: callers reuse the original for both branches.
 	if base.Status != StatusRegistered || base.Url == "" {
-		t.Errorf("withReason muto el receptor original: %+v", base)
+		t.Errorf("withReason mutated the original receiver: %+v", base)
 	}
 }
 
@@ -330,10 +330,10 @@ func TestReleaseConNombreVacioRevocaSinTocarNada(t *testing.T) {
 	r := ReleaserFunc(func(string) error { called = true; return nil })
 
 	if !Release(r, "") {
-		t.Error("sin nombre no hay nada que retirar: debe revocar")
+		t.Error("without a name there is nothing to remove: it must revoke")
 	}
 	if called {
-		t.Error("se llamo al releaser con nombre vacio")
+		t.Error("the releaser was called with an empty name")
 	}
 }
 
@@ -344,17 +344,17 @@ func TestReleaseRevocaConRutaAusente(t *testing.T) {
 		err  error
 		want bool
 	}{
-		{"exito", nil, true},
-		{"benigno M10: no estaba", ErrRouteAbsent, true},
-		{"envuelto, sigue siendo el mismo", wrappedRouteAbsent(), true},
-		{"fallo real", errors.New("requires Node >= 24"), false},
-		{"permisos", errors.New("EACCES"), false},
+		{"success", nil, true},
+		{"benign M10: did not exist", ErrRouteAbsent, true},
+		{"wrapped, still the same", wrappedRouteAbsent(), true},
+		{"real failure", errors.New("requires Node >= 24"), false},
+		{"permissions", errors.New("EACCES"), false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := Release(failingReleaserWith{err: tt.err}, "mi-ruta"); got != tt.want {
-				t.Errorf("Release con %v = %v, want %v", tt.err, got, tt.want)
+				t.Errorf("Release with %v = %v, want %v", tt.err, got, tt.want)
 			}
 		})
 	}
@@ -370,10 +370,10 @@ func TestReleaserFuncAdaptaUnaFuncion(t *testing.T) {
 	var r Releaser = ReleaserFunc(func(name string) error { got = name; return ErrRouteAbsent })
 
 	if err := r.RemoveAbsent("x"); !errors.Is(err, ErrRouteAbsent) {
-		t.Errorf("el adaptador no devuelve el error de la funcion: %v", err)
+		t.Errorf("the adapter does not return the function's error: %v", err)
 	}
 	if got != "x" {
-		t.Errorf("la funcion recibio %q, want x", got)
+		t.Errorf("the function received %q, want x", got)
 	}
 }
 
@@ -381,12 +381,12 @@ func TestReleaserFuncAdaptaUnaFuncion(t *testing.T) {
 func TestInertReleaserNoTocaNadaYEsEstatico(t *testing.T) {
 	r := InertReleaser()
 	if err := r.RemoveAbsent("cualquier-cosa"); err != nil {
-		t.Errorf("el releaser inerte devolvio %v, debe ser nil siempre", err)
+		t.Errorf("the inert releaser returned %v, must always be nil", err)
 	}
 	// Identity is not compared on purpose: ReleaserFunc is a func type, so == would not compile.
 	for _, name := range []string{"", "a", "ruta.larga.localhost"} {
 		if err := InertReleaser().RemoveAbsent(name); err != nil {
-			t.Errorf("InertReleaser().RemoveAbsent(%q) = %v, debe ser nil siempre", name, err)
+			t.Errorf("InertReleaser().RemoveAbsent(%q) = %v, must always be nil", name, err)
 		}
 	}
 	assertImplementsReleaser(t, InertReleaser())
@@ -394,18 +394,18 @@ func TestInertReleaserNoTocaNadaYEsEstatico(t *testing.T) {
 
 func TestIsTestBinaryDetectaElBinarioDeTest(t *testing.T) {
 	if !IsTestBinary() {
-		t.Error("IsTestBinary() es false corriendo bajo `go test`: la guarda de InertReleaser no protege nada")
+		t.Error("IsTestBinary() is false when running under `go test`: the InertReleaser guard protects nothing")
 	}
 	orig := os.Args[0]
 	t.Cleanup(func() { os.Args[0] = orig })
 
 	os.Args[0] = "/usr/local/bin/vroom"
 	if IsTestBinary() {
-		t.Error("el binario de producción se identifica como test")
+		t.Error("the production binary is identified as test")
 	}
 	os.Args[0] = "/tmp/vroom.test"
 	if !IsTestBinary() {
-		t.Error("un binario .test deberia identificarse como test")
+		t.Error("a .test binary should be identified as test")
 	}
 }
 
@@ -421,9 +421,9 @@ func TestClientForDevuelveNilSinContratoDeRuta(t *testing.T) {
 		want bool
 	}{
 		{"nil", nil, false},
-		{"sin route_mode (default off)", &manifest.Manifest{Name: "svc"}, false},
+		{"without route_mode (default off)", &manifest.Manifest{Name: "svc"}, false},
 		{"route_mode off", &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeOff}, false},
-		{"route_mode invalido", &manifest.Manifest{Name: "svc", RouteMode: "inventado"}, false},
+		{"invalid route_mode", &manifest.Manifest{Name: "svc", RouteMode: "invented"}, false},
 		{"route_mode named", &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeNamed, RouteName: "svc"}, true},
 		{"route_mode auto", &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeAuto}, true},
 	}
@@ -432,10 +432,10 @@ func TestClientForDevuelveNilSinContratoDeRuta(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ClientFor(tt.m)
 			if tt.want && got == nil {
-				t.Error("ClientFor devolvio nil con contrato de ruta activo")
+				t.Error("ClientFor returned nil with an active route contract")
 			}
 			if !tt.want && got != nil {
-				t.Error("ClientFor devolvio un cliente sin contrato de ruta: se buscaria portless en un proyecto que no lo pidio")
+				t.Error("ClientFor returned a client without a route contract: portless would be searched in a project that did not ask for it")
 			}
 		})
 	}
@@ -443,7 +443,7 @@ func TestClientForDevuelveNilSinContratoDeRuta(t *testing.T) {
 
 // MEASURED on 0.15.6: PORTLESS_HOME is ignored, and the plan's order read proxy.port from one directory while the binary wrote routes.json in another.
 func TestResolveStateDirSigueElOrdenMedido(t *testing.T) {
-	t.Run("PORTLESS_STATE_DIR manda", func(t *testing.T) {
+	t.Run("PORTLESS_STATE_DIR takes precedence", func(t *testing.T) {
 		t.Setenv("PORTLESS_STATE_DIR", "/opt/pl-state")
 		t.Setenv("XDG_STATE_HOME", "/xdg")
 		t.Setenv("HOME", "/home/u")
@@ -452,7 +452,7 @@ func TestResolveStateDirSigueElOrdenMedido(t *testing.T) {
 		}
 	})
 
-	t.Run("XDG_STATE_HOME cuando no hay PORTLESS_STATE_DIR", func(t *testing.T) {
+	t.Run("XDG_STATE_HOME when there is no PORTLESS_STATE_DIR", func(t *testing.T) {
 		t.Setenv("PORTLESS_STATE_DIR", "")
 		t.Setenv("XDG_STATE_HOME", "/xdg")
 		t.Setenv("HOME", "/home/u")
@@ -461,7 +461,7 @@ func TestResolveStateDirSigueElOrdenMedido(t *testing.T) {
 		}
 	})
 
-	t.Run("HOME como ultimo recurso", func(t *testing.T) {
+	t.Run("HOME as last resort", func(t *testing.T) {
 		t.Setenv("PORTLESS_STATE_DIR", "")
 		t.Setenv("XDG_STATE_HOME", "")
 		t.Setenv("HOME", "/home/u")
@@ -470,26 +470,26 @@ func TestResolveStateDirSigueElOrdenMedido(t *testing.T) {
 		}
 	})
 
-	t.Run("sin nada devuelve vacio y no un path inventado", func(t *testing.T) {
+	t.Run("with nothing returns empty and not an invented path", func(t *testing.T) {
 		t.Setenv("PORTLESS_STATE_DIR", "")
 		t.Setenv("XDG_STATE_HOME", "")
 		t.Setenv("HOME", "")
 		if got := ResolveStateDir(); got != "" {
-			t.Errorf("ResolveStateDir = %q: un path de usuario concreto seria un modo de fallo silencioso", got)
+			t.Errorf("ResolveStateDir = %q: a concrete user path would be a silent failure mode", got)
 		}
 	})
 }
 
 // MEASURED (M14): `env -i PATH=/usr/bin:/bin` does not resolve portless because it lives behind the mise shims, hence the third step after $PORTLESS_BIN and LookPath.
 func TestResolveBinarySigueElOrdenMedido(t *testing.T) {
-	t.Run("PORTLESS_BIN manda", func(t *testing.T) {
+	t.Run("PORTLESS_BIN takes precedence", func(t *testing.T) {
 		t.Setenv("PORTLESS_BIN", "/opt/bin/portless")
 		if got := ResolveBinary(); got != "/opt/bin/portless" {
 			t.Errorf("ResolveBinary = %q, want /opt/bin/portless", got)
 		}
 	})
 
-	t.Run("shim de mise cuando no esta en el PATH", func(t *testing.T) {
+	t.Run("mise shim when it is not in PATH", func(t *testing.T) {
 		t.Setenv("PORTLESS_BIN", "")
 		t.Setenv("PATH", "")
 		home := t.TempDir()
@@ -504,11 +504,11 @@ func TestResolveBinarySigueElOrdenMedido(t *testing.T) {
 		}
 
 		if got := ResolveBinary(); got != shim {
-			t.Errorf("ResolveBinary = %q, want el shim %q: con PATH vacio este es el unico camino real", got, shim)
+			t.Errorf("ResolveBinary = %q, want the shim %q: with empty PATH this is the only real path", got, shim)
 		}
 	})
 
-	t.Run("un shim que es directorio no cuenta", func(t *testing.T) {
+	t.Run("a shim that is a directory does not count", func(t *testing.T) {
 		t.Setenv("PORTLESS_BIN", "")
 		t.Setenv("PATH", "")
 		home := t.TempDir()
@@ -518,16 +518,16 @@ func TestResolveBinarySigueElOrdenMedido(t *testing.T) {
 			t.Fatal(err)
 		}
 		if got := ResolveBinary(); got != "" {
-			t.Errorf("ResolveBinary = %q, un directorio no es un binario", got)
+			t.Errorf("ResolveBinary = %q, a directory is not a binary", got)
 		}
 	})
 
-	t.Run("nada resoluble devuelve vacio", func(t *testing.T) {
+	t.Run("nothing resolvable returns empty", func(t *testing.T) {
 		t.Setenv("PORTLESS_BIN", "")
 		t.Setenv("PATH", "")
 		t.Setenv("HOME", t.TempDir())
 		if got := ResolveBinary(); got != "" {
-			t.Errorf("ResolveBinary = %q, want vacio (degradacion, no error)", got)
+			t.Errorf("ResolveBinary = %q, want empty (degradation, not error)", got)
 		}
 	})
 }
@@ -539,7 +539,7 @@ func TestDefaultConstruyeClienteConLoResuelto(t *testing.T) {
 	c := Default()
 
 	if !c.HasBinary() {
-		t.Fatal("HasBinary() = false con PORTLESS_BIN puesto")
+		t.Fatal("HasBinary() = false with PORTLESS_BIN set")
 	}
 	if c.Binary() != "/opt/bin/portless" {
 		t.Errorf("Binary() = %q", c.Binary())
@@ -558,13 +558,13 @@ func TestDefaultSinBinarioDevuelveClienteDegradado(t *testing.T) {
 	c := Default()
 
 	if c == nil {
-		t.Fatal("Default devolvio nil: sin binario es una degradacion, no un error")
+		t.Fatal("Default returned nil: without binary is a degradation, not an error")
 	}
 	if c.HasBinary() {
-		t.Error("HasBinary() = true sin binario resoluble")
+		t.Error("HasBinary() = true without a resolvable binary")
 	}
 	if c.Binary() != "" {
-		t.Errorf("Binary() = %q, want vacio", c.Binary())
+		t.Errorf("Binary() = %q, want empty", c.Binary())
 	}
 }
 
@@ -575,7 +575,7 @@ func TestDefaultRespetaLasOpcionesSobreElEntorno(t *testing.T) {
 	c := Default(WithBinary("/forzado/portless"), WithStateDir("/forzado/state"))
 
 	if c.Binary() != "/forzado/portless" {
-		t.Errorf("Binary() = %q, la opcion explicita deberia ganar al entorno", c.Binary())
+		t.Errorf("Binary() = %q, the explicit option should win over the environment", c.Binary())
 	}
 	if c.StateDir() != "/forzado/state" {
 		t.Errorf("StateDir() = %q", c.StateDir())
@@ -590,17 +590,17 @@ func wrappedNotFound() error {
 }
 
 func wrappedProxyNotRunning() error {
-	return fmt.Errorf("verificando la ruta: %w", ErrProxyNotRunning)
+	return fmt.Errorf("verifying the route: %w", ErrProxyNotRunning)
 }
 
 func wrappedRouteAbsent() error {
-	return fmt.Errorf("retirando: %w", ErrRouteAbsent)
+	return fmt.Errorf("removing: %w", ErrRouteAbsent)
 }
 
 // A compile-time check would be `var _ Releaser = r`, but staticcheck QF1011 rejects that form; this has the same effect.
 func assertImplementsReleaser(t *testing.T, r Releaser) {
 	t.Helper()
 	if r == nil {
-		t.Fatal("InertReleaser devolvio nil")
+		t.Fatal("InertReleaser returned nil")
 	}
 }

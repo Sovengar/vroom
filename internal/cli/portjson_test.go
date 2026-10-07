@@ -30,7 +30,7 @@ func liveProcess(t *testing.T) process.StartResult {
 			StderrPath: filepath.Join(dir, "err.log"),
 		})
 		if err != nil {
-			t.Fatalf("proceso vivo compartido: %v", err)
+			t.Fatalf("shared live process: %v", err)
 		}
 		liveRes = res
 	})
@@ -116,14 +116,14 @@ func TestJSONPortUnresolvedEmitsNoPort(t *testing.T) {
 		liveMetaWithState(t, state.StatePortUnresolved, 0, false), true)
 
 	if row["port"] != float64(0) {
-		t.Errorf("port = %v, want 0: un puerto sin confirmar no se emite", row["port"])
+		t.Errorf("port = %v, want 0: an unconfirmed port is not emitted", row["port"])
 	}
 	if row["declared_port"] != float64(8080) {
-		t.Errorf("declared_port = %v, want 8080: el declarado se publica aparte", row["declared_port"])
+		t.Errorf("declared_port = %v, want 8080: the declared one is published separately", row["declared_port"])
 	}
 	verified, present := row["port_verified"]
 	if !present {
-		t.Fatal("port_verified ausente: con omitempty sobre un bool, false no puede emitirse")
+		t.Fatal("port_verified missing: with omitempty on a bool, false cannot be emitted")
 	}
 	if verified != false {
 		t.Errorf("port_verified = %v, want false", verified)
@@ -132,7 +132,7 @@ func TestJSONPortUnresolvedEmitsNoPort(t *testing.T) {
 		t.Errorf("status = %v, want port_unresolved", row["status"])
 	}
 	if row["status"] == string(process.StatusRunning) {
-		t.Error("un puerto sin resolver no puede reportarse como running")
+		t.Error("an unresolved port cannot be reported as running")
 	}
 }
 
@@ -142,7 +142,7 @@ func TestJSONResolvedDynamicEmitsRealPort(t *testing.T) {
 		liveMetaWithState(t, state.StateRunning, port, true), true)
 
 	if row["port"] != float64(port) {
-		t.Errorf("port = %v, want el puerto real %d", row["port"], port)
+		t.Errorf("port = %v, want the real port %d", row["port"], port)
 	}
 	if row["port_verified"] != true {
 		t.Errorf("port_verified = %v, want true", row["port_verified"])
@@ -163,10 +163,10 @@ func TestJSONNoPortIsNotReportedAsRunning(t *testing.T) {
 		t.Errorf("port = %v, want 0", row["port"])
 	}
 	if row["status"] != string(process.StatusNoPort) {
-		t.Errorf("status = %v, want no_port (no puede afirmar running con puerto 0)", row["status"])
+		t.Errorf("status = %v, want no_port (cannot claim running with port 0)", row["status"])
 	}
 	if row["status"] == string(process.StatusPortUnresolved) {
-		t.Error("no_port y port_unresolved no pueden colapsar en el mismo status")
+		t.Error("no_port and port_unresolved cannot collapse into the same status")
 	}
 	if row["port_verified"] != false {
 		t.Errorf("port_verified = %v, want false", row["port_verified"])
@@ -182,13 +182,13 @@ func TestJSONPortPendingIsDistinctFromUnresolved(t *testing.T) {
 		t.Errorf("status = %v, want port_pending", row["status"])
 	}
 	if row["status"] == string(process.StatusPortUnresolved) {
-		t.Fatal("port_pending no puede emitirse como port_unresolved")
+		t.Fatal("port_pending cannot be emitted as port_unresolved")
 	}
 	if row["port"] != float64(reserved) {
-		t.Errorf("port = %v, want el puerto reservado %d", row["port"], reserved)
+		t.Errorf("port = %v, want the reserved port %d", row["port"], reserved)
 	}
 	if row["port_verified"] != false {
-		t.Errorf("port_verified = %v, want false: reservado no es verificado", row["port_verified"])
+		t.Errorf("port_verified = %v, want false: reserved is not verified", row["port_verified"])
 	}
 }
 
@@ -204,7 +204,7 @@ func TestJSONLegacyFixedZeroPortIsUnchanged(t *testing.T) {
 		t.Errorf("port = %v, want 0", stopped["port"])
 	}
 	if _, present := stopped["port_verified"]; present {
-		t.Error("un servicio sin PID no tiene contrato de puerto que afirmar")
+		t.Error("a service without a PID has no port contract to assert")
 	}
 
 	live := jsonRow(t, m, liveMetaWithState(t, state.StateRunning, 0, false), true)
@@ -215,7 +215,7 @@ func TestJSONLegacyFixedZeroPortIsUnchanged(t *testing.T) {
 		t.Errorf("port_verified = %v, want false", live["port_verified"])
 	}
 	if live["status"] != string(process.StatusRunning) {
-		t.Errorf("status = %v, want running: sin contrato de puerto el estado no cambia", live["status"])
+		t.Errorf("status = %v, want running: without a port contract the status does not change", live["status"])
 	}
 	if live["port_mode"] != manifest.PortModeNone {
 		t.Errorf("port_mode = %v, want none", live["port_mode"])
@@ -227,13 +227,13 @@ func TestJSONStoppedFixedKeepsDeclaredPort(t *testing.T) {
 	row := jsonRow(t, m, state.Meta{}, false)
 
 	if row["port"] != float64(8080) {
-		t.Errorf("port = %v, want 8080: parado, el declarado es lo único que hay", row["port"])
+		t.Errorf("port = %v, want 8080: stopped, the declared one is all there is", row["port"])
 	}
 	if row["port_mode"] != manifest.PortModeFixed {
 		t.Errorf("port_mode = %v, want fixed", row["port_mode"])
 	}
 	if _, present := row["port_verified"]; present {
-		t.Error("sin PID no hay contrato de puerto que afirmar")
+		t.Error("without a PID there is no port contract to assert")
 	}
 }
 
@@ -255,7 +255,7 @@ func TestJSONUnconfiguredRowHasNoPortContract(t *testing.T) {
 		t.Fatalf("configured = %v, want false", row["configured"])
 	}
 	if _, present := row["port_verified"]; present {
-		t.Error("una fila no configurada no debe afirmar nada sobre su puerto")
+		t.Error("an unconfigured row must not assert anything about its port")
 	}
 	if row["port"] != float64(0) {
 		t.Errorf("port = %v, want 0", row["port"])
@@ -280,7 +280,7 @@ func TestJSONManifestErrorRowHasNoPortContract(t *testing.T) {
 		t.Errorf("manifest_error = %v", row["manifest_error"])
 	}
 	if _, present := row["port_verified"]; present {
-		t.Error("con el manifiesto sin parsear no hay contrato de puerto")
+		t.Error("with the manifest unparsed there is no port contract")
 	}
 }
 
@@ -295,9 +295,9 @@ func TestJSONAndTUIAgreeOnTheSameMeta(t *testing.T) {
 
 	status, loaded := evaluateStatus(process.NewManager(), store, dir)
 	if loaded.State != state.StatePortUnresolved {
-		t.Fatalf("el meta no se leyó: %+v", loaded)
+		t.Fatalf("meta was not read: %+v", loaded)
 	}
 	if status != string(process.StatusPortUnresolved) {
-		t.Errorf("evaluateStatus = %q, want port_unresolved (la TUI lee lo mismo)", status)
+		t.Errorf("evaluateStatus = %q, want port_unresolved (the TUI reads the same)", status)
 	}
 }

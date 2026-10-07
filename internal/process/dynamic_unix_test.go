@@ -19,7 +19,7 @@ func TestReservePortInRange(t *testing.T) {
 			t.Fatalf("ReservePort: %v", err)
 		}
 		if port < DynamicPortLow || port > DynamicPortHigh {
-			t.Fatalf("puerto %d fuera del rango %d-%d", port, DynamicPortLow, DynamicPortHigh)
+			t.Fatalf("port %d out of range %d-%d", port, DynamicPortLow, DynamicPortHigh)
 		}
 	}
 }
@@ -46,13 +46,13 @@ func TestMergeEnvKeepsParent(t *testing.T) {
 		}
 	}
 	if len(merged) != len(want) {
-		t.Errorf("merged = %v, want %d entradas sin duplicados", merged, len(want))
+		t.Errorf("merged = %v, want %d entries without duplicates", merged, len(want))
 	}
 }
 
 func TestMergeEnvNilWhenNothingToInject(t *testing.T) {
 	if got := mergeEnv([]string{"PATH=/usr/bin"}, nil); got != nil {
-		t.Errorf("sin spec.Env debe quedar nil (herencia), got %v", got)
+		t.Errorf("without spec.Env it should remain nil (inheritance), got %v", got)
 	}
 }
 
@@ -76,16 +76,16 @@ func TestLineageListenersExcludesForeignSockets(t *testing.T) {
 	t.Cleanup(func() { _ = newTestManager(t).Stop(StopSpec{Pid: res.Pid, Pgid: res.Pgid, Timeout: time.Second}) })
 
 	if got := lineageListenersAt(procRoot, res.Pid); len(got) != 0 {
-		t.Errorf("un sleep no tiene listeners, got %v", got)
+		t.Errorf("a sleep has no listeners, got %v", got)
 	}
 	if got := lineageListenersAt(procRoot, os.Getpid()); !containsPid(got, port) {
-		t.Errorf("el listener %d del proceso de test debe aparecer en su linaje, got %v", port, got)
+		t.Errorf("the listener %d of the test process must appear in its lineage, got %v", port, got)
 	}
 }
 
 func TestDiscoverPortFindsListenerInLineage(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	requireProc(t)
 
@@ -107,10 +107,10 @@ func TestDiscoverPortFindsListenerInLineage(t *testing.T) {
 
 	d := DiscoverPort(res.Pid, port, "/health", 3*time.Second)
 	if d.Port != port {
-		t.Errorf("DiscoverPort = %+v, want el puerto %d del listener", d, port)
+		t.Errorf("DiscoverPort = %+v, want port %d of the listener", d, port)
 	}
 	if !d.HonoredReserved {
-		t.Error("un listener igual al reservado es R1: determinista y sin heurística")
+		t.Error("a listener equal to the reserved one is R1: deterministic and without heuristics")
 	}
 }
 
@@ -131,16 +131,16 @@ func TestDiscoverPortFailsFastOnDeadLineage(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if !d.LineageDead {
-		t.Errorf("un linaje muerto debe abortar el discovery: %+v", d)
+		t.Errorf("a dead lineage must abort discovery: %+v", d)
 	}
 	if elapsed > 3*time.Second {
-		t.Errorf("el fallo rápido debe ser del orden de 1s, tardó %s", elapsed)
+		t.Errorf("the fast failure should be on the order of 1s, took %s", elapsed)
 	}
 }
 
 func TestDiscoverPortNoPortIsBounded(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	requireProc(t)
 
@@ -159,17 +159,17 @@ func TestDiscoverPortNoPortIsBounded(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if d.Port != 0 || len(d.All) != 0 {
-		t.Errorf("sin listeners: %+v", d)
+		t.Errorf("no listeners: %+v", d)
 	}
 	if d.LineageDead {
-		t.Error("el linaje está vivo: no es un fallo de arranque")
+		t.Error("the lineage is alive: it is not a startup failure")
 	}
 	if d.Unresolved {
-		t.Error("sin un solo listener en toda la ventana no es 'sin resolver', es 'sin puerto'")
+		t.Error("without a single listener in the entire window it is not 'unresolved', it is 'no port'")
 	}
 	budget := 1*time.Second + DefaultDynamicUnresolvedGrace
 	if elapsed > budget+3*time.Second {
-		t.Errorf("el discovery debe respetar plazo+gracia (%s): tardó %s", budget, elapsed)
+		t.Errorf("discovery must respect deadline+grace (%s): took %s", budget, elapsed)
 	}
 }
 
@@ -178,10 +178,10 @@ func TestSocketInode(t *testing.T) {
 		t.Errorf("socketInode = %q, %v", ino, ok)
 	}
 	if _, ok := socketInode("/dev/null"); ok {
-		t.Error("un fd que no es socket debe rechazarse")
+		t.Error("an fd that is not a socket must be rejected")
 	}
 	if _, ok := socketInode("pipe:[3]"); ok {
-		t.Error("una pipe no es un socket de red")
+		t.Error("a pipe is not a network socket")
 	}
 }
 
@@ -214,15 +214,15 @@ func TestReservePortIsConcurrencySafe(t *testing.T) {
 	seen := make(map[int]int, workers)
 	for i, r := range results {
 		if r.err != nil {
-			t.Fatalf("reserva %d falló: %v", i, r.err)
+			t.Fatalf("reservation %d failed: %v", i, r.err)
 		}
 		if first, dup := seen[r.port]; dup {
-			t.Fatalf("reservas %d y %d devolvieron el puerto %d", first, i, r.port)
+			t.Fatalf("reservations %d and %d returned port %d", first, i, r.port)
 		}
 		seen[r.port] = i
 	}
 	if got := ReservedPortCount() - baseline; got != workers {
-		t.Fatalf("el set creció en %d, want %d: una reserva o liberada o duplicada",
+		t.Fatalf("the set grew by %d, want %d: a reservation either released or duplicated",
 			got, workers)
 	}
 
@@ -235,7 +235,7 @@ func TestReservePortIsConcurrencySafe(t *testing.T) {
 		ReleasePort(port)
 	}
 	if got := ReservedPortCount(); got != baseline {
-		t.Errorf("tras devolver %d puertos el set mide %d, want %d", len(ports), got, baseline)
+		t.Errorf("after returning %d ports the set measures %d, want %d", len(ports), got, baseline)
 	}
 }
 
@@ -248,13 +248,13 @@ func TestReleasePortShrinksTheSet(t *testing.T) {
 		t.Fatalf("ReservePort: %v", err)
 	}
 	if got := ReservedPortCount(); got != baseline+1 {
-		t.Fatalf("tras reservar el set mide %d, want %d", got, baseline+1)
+		t.Fatalf("after reserving the set measures %d, want %d", got, baseline+1)
 	}
 
 	ReleasePort(port)
 
 	if got := ReservedPortCount(); got != baseline {
-		t.Errorf("tras liberar el set mide %d, want %d: la reserva no volvió",
+		t.Errorf("after releasing the set measures %d, want %d: the reservation did not return",
 			got, baseline)
 	}
 }
@@ -267,6 +267,6 @@ func TestReleasePortIgnoresUnreservedAndNonPositive(t *testing.T) {
 	ReleasePort(DynamicPortHigh + 1)
 
 	if got := ReservedPortCount(); got != baseline {
-		t.Errorf("liberar puertos sin reservar cambió el set: %d != %d", got, baseline)
+		t.Errorf("releasing unreserved ports changed the set: %d != %d", got, baseline)
 	}
 }

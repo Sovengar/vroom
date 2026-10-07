@@ -26,10 +26,10 @@ func TestStartConElMetaBloqueadoDevuelveElErrorYNoDejaElProcesoSinRegistrar(t *t
 
 	out, err := f.start(t, 0)
 	if err == nil {
-		t.Fatal("con el meta bloqueado el arranque tiene que fallar")
+		t.Fatal("with meta blocked the start must fail")
 	}
 	if !strings.Contains(err.Error(), "meta.json") {
-		t.Errorf("err = %q, want que nombre el fichero que no se pudo escribir", err)
+		t.Errorf("err = %q, want it to name the file that could not be written", err)
 	}
 
 	// MEDIDO: Start used to return Result{} with no PID, leaving the child alive and unkillable by the caller; it now stops the child before propagating the error.
@@ -37,8 +37,8 @@ func TestStartConElMetaBloqueadoDevuelveElErrorYNoDejaElProcesoSinRegistrar(t *t
 		for _, pid := range pids {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
-		t.Errorf("quedaron %d procesos del helper vivos tras un fallo de persistencia: "+
-			"el caller recibió un error sin PID y no podía pararlos", len(pids))
+		t.Errorf("%d helper processes remained alive after a persistence failure: "+
+			"the caller received an error without PID and could not stop them", len(pids))
 	}
 	_ = out
 }
@@ -51,17 +51,17 @@ func TestStartEnDynamicConElMetaBloqueadoTambienDejaElHijoSinRegistrar(t *testin
 
 	_, err := f.start(t, 800*time.Millisecond)
 	if err == nil {
-		t.Fatal("con el meta bloqueado el arranque tiene que fallar también en dynamic")
+		t.Fatal("with meta blocked the start must fail also in dynamic")
 	}
 	if !strings.Contains(err.Error(), "meta.json") {
-		t.Errorf("err = %q, want que nombre el fichero que no se pudo escribir", err)
+		t.Errorf("err = %q, want it to name the file that could not be written", err)
 	}
 
 	if pids := procesosDelHelper(t); len(pids) != 0 {
 		for _, pid := range pids {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
-		t.Errorf("quedaron %d procesos del helper vivos en dynamic", len(pids))
+		t.Errorf("%d helper processes remained alive in dynamic", len(pids))
 	}
 }
 
@@ -84,13 +84,13 @@ func TestDiscoveryTimeoutCeroUsaElDefault(t *testing.T) {
 	switch out.Meta.State {
 	case state.StateRunning, state.StateNoPort:
 	default:
-		t.Errorf("State = %q con timeout 0: el veredicto tiene que ser de servicio vivo", out.Meta.State)
+		t.Errorf("State = %q with timeout 0: the verdict must be of a live service", out.Meta.State)
 	}
 	if out.Meta.StartedAt == "" {
-		t.Error("sin StartedAt: el meta no se escribió")
+		t.Error("no StartedAt: the meta was not written")
 	}
 	if out.Pid <= 0 {
-		t.Error("Pid = 0 tras un arranque sin error")
+		t.Error("Pid = 0 after a start without error")
 	}
 	_ = elapsed
 }
@@ -114,18 +114,18 @@ func TestReservePortAgotadoDevuelveElErrorAntesDeTocarNada(t *testing.T) {
 		}
 	})
 	if len(reservados) == 0 {
-		t.Skip("el rango de puertos dinámicos está entero ocupado por otra cosa")
+		t.Skip("the dynamic port range is entirely occupied by something else")
 	}
 
 	_, err := f.start(t, time.Second)
 	if err == nil {
-		t.Fatal("con el pool agotado el arranque tiene que fallar")
+		t.Fatal("with the pool exhausted the start must fail")
 	}
 	if !strings.Contains(err.Error(), "reserve") {
-		t.Errorf("err = %q, want que diga que no se pudo reservar puerto", err)
+		t.Errorf("err = %q, want it to say that a port could not be reserved", err)
 	}
 	if _, lerr := f.store.LoadMeta(f.dir); lerr == nil {
-		t.Error("se escribió meta pese a no poder reservar puerto: el fallo tiene que ser antes del spawn")
+		t.Error("meta was written despite not being able to reserve a port: the failure must be before the spawn")
 	}
 }
 
@@ -137,17 +137,17 @@ func TestApplyRouteSinRegistrarNoAbrePortlessNiFallaElArranque(t *testing.T) {
 
 	out, err := f.startWithRoutes(t, 0, nil)
 	if err != nil {
-		t.Fatalf("sin seam de rutas el arranque tiene que funcionar igual: %v", err)
+		t.Fatalf("without route seam the start must work the same: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = process.NewManager().Stop(process.StopSpec{Pid: out.Pid, Timeout: time.Second})
 	})
 
 	if out.Meta.RouteOwned {
-		t.Error("RouteOwned en true sin seam: se declararía proprietary una ruta que nadie registró")
+		t.Error("RouteOwned true without seam: a route that nobody registered would be declared proprietary")
 	}
 	if out.Meta.RouteURL != "" {
-		t.Errorf("RouteURL = %q sin seam: publicaría una dirección que nadie ha visto responder", out.Meta.RouteURL)
+		t.Errorf("RouteURL = %q without seam: it would publish an address that nobody has seen respond", out.Meta.RouteURL)
 	}
 }
 

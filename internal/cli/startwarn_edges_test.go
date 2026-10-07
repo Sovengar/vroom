@@ -9,7 +9,7 @@ import (
 
 // The JSON result of `start` answers an agent, while the warnings are what a human reads later in the service log; a service that started with an unverified port looks fine if they never land there.
 
-// MEDIDO: a dynamic-mode service that opens no TCP port is the only honest way in, because fixed mode has nothing to verify and the no-port path is the shortest of the three (no discovery deadline, no sockets).
+// MEASURED: a dynamic-mode service that opens no TCP port is the only honest way in, because fixed mode has nothing to verify and the no-port path is the shortest of the three (no discovery deadline, no sockets).
 func TestStartEscribeLosAvisosEnElLogDelServicio(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
@@ -28,7 +28,7 @@ port = 8080
 	}
 	res := mustAction(t, payload, nil)
 	if !res.OK {
-		t.Fatalf("start = %+v, want OK: un worker sin puerto es un estado, no un fallo de arranque", res)
+		t.Fatalf("start = %+v, want OK: a worker without a port is a state, not a startup failure", res)
 	}
 	if res.Pid <= 0 {
 		t.Fatalf("Pid = %d, want > 0", res.Pid)
@@ -37,21 +37,21 @@ port = 8080
 
 	log, err := os.ReadFile(store.StderrLog(worker))
 	if err != nil {
-		t.Fatalf("no hay log de stderr del servicio: %v", err)
+		t.Fatalf("no stderr log for the service: %v", err)
 	}
 	aviso := string(log)
 	if !strings.Contains(aviso, "vroom ▶ start:") {
-		t.Fatalf("el log de stderr = %q, want una línea de aviso de arranque: los avisos que no "+
-			"se escriben en ningún sitio no son avisos", aviso)
+		t.Fatalf("stderr log = %q, want a startup warning line: warnings that are not "+
+			"written anywhere are not warnings", aviso)
 	}
 	if !strings.Contains(aviso, "no TCP port") {
-		t.Errorf("el aviso = %q, want que explique que el servicio no abrió puerto: el usuario "+
-			"tiene que entender por qué la tab Health no sondea nada", aviso)
+		t.Errorf("the warning = %q, want it to explain that the service did not open a port: the user "+
+			"needs to understand why the Health tab does not probe anything", aviso)
 	}
 	// It must not leak into stdout: stdout is the JSON reply and a warning there breaks any agent parsing it.
 	if strings.Contains(res.Action, "no TCP port") {
-		t.Errorf("action = %q: el motivo del aviso se ha colado en la respuesta en vez de quedarse "+
-			"en el log", res.Action)
+		t.Errorf("action = %q: the warning reason leaked into the response instead of staying "+
+			"in the log", res.Action)
 	}
 }
 
@@ -69,26 +69,26 @@ func TestRunLoggedFallaSiElLogNoSePuedeAbrir(t *testing.T) {
 
 	_, code, err := runLogged("build", "echo hola", dir, filepath.Join(roto, "out.log"), "")
 	if err == nil {
-		t.Fatal("con el log sin permiso de escritura el comando no se puede lanzar")
+		t.Fatal("with the log lacking write permission the command cannot be launched")
 	}
 	if code != 0 {
-		t.Errorf("exit code = %d con un fallo de lanzamiento, want 0: no llegó a ejecutarse nada", code)
+		t.Errorf("exit code = %d with a launch failure, want 0: nothing got to execute", code)
 	}
 }
 
-// MEDIDO: /dev/full is the only way to get a log that opens fine and then rejects writes with ENOSPC, and a banner that does not fit means the build output will not fit either, so the verdict is the same: do not launch.
+// MEASURED: /dev/full is the only way to get a log that opens fine and then rejects writes with ENOSPC, and a banner that does not fit means the build output will not fit either, so the verdict is the same: do not launch.
 func TestRunLoggedFallaSiElBannerNoSePuedeEscribir(t *testing.T) {
 	const lleno = "/dev/full"
 	if _, err := os.Stat(lleno); err != nil {
-		t.Skipf("esta máquina no tiene %s, y sin él no hay forma de abrir un log que acepte el "+
-			"OpenFile y rechace la escritura", lleno)
+		t.Skipf("this machine does not have %s, and without it there is no way to open a log that accepts "+
+			"OpenFile and rejects writes", lleno)
 	}
 
 	_, code, err := runLogged("build", "echo hola", t.TempDir(), lleno, "")
 	if err == nil {
-		t.Fatal("con un log que no acepta escrituras el comando no se puede lanzar")
+		t.Fatal("with a log that does not accept writes the command cannot be launched")
 	}
 	if code != 0 {
-		t.Errorf("exit code = %d con un fallo de escritura, want 0: no llegó a ejecutarse nada", code)
+		t.Errorf("exit code = %d with a write failure, want 0: nothing got to execute", code)
 	}
 }

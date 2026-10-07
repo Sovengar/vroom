@@ -42,7 +42,7 @@ run = "go test ./..."
 		t.Fatal(err)
 	}
 	if len(tasks) != 3 {
-		t.Fatalf("tasks = %d, want 3 (sin hide): %+v", len(tasks), tasks)
+		t.Fatalf("tasks = %d, want 3 (without hide): %+v", len(tasks), tasks)
 	}
 	want := []struct{ name, desc string }{
 		{"build", "Build the CLI"},
@@ -58,15 +58,15 @@ run = "go test ./..."
 
 func TestTasksNoFile(t *testing.T) {
 	if _, err := Tasks(t.TempDir()); err == nil {
-		t.Error("sin mise.toml debe fallar")
+		t.Error("missing mise.toml must fail")
 	}
 	if HasMiseToml(t.TempDir()) {
-		t.Error("HasMiseToml = true sin fichero")
+		t.Error("HasMiseToml = true without file")
 	}
 }
 
 func TestTasksMalformed(t *testing.T) {
-	dir := writeMise(t, "esto no es [toml válido")
+	dir := writeMise(t, "this is not [valid toml")
 	if _, err := Tasks(dir); err == nil || !strings.Contains(err.Error(), "invalid mise.toml") {
 		t.Errorf("err = %v, want invalid mise.toml", err)
 	}
@@ -79,6 +79,6 @@ func TestTasksEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(tasks) != 0 {
-		t.Errorf("tasks = %+v, want vacío", tasks)
+		t.Errorf("tasks = %+v, want empty", tasks)
 	}
 }

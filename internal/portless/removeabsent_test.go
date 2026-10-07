@@ -18,11 +18,11 @@ func TestRemoveAbsentOnlyRevokesOnSuccessOrAbsent(t *testing.T) {
 		code    int
 		wantErr bool // wantErr: must propagate as an error, and therefore must not revoke
 	}{
-		{"éxito", "", 0, false},
-		{"benigno M10: no existe", `Error: No alias found for "x.localhost".`, 1, false},
-		{"Node viejo", "Error: requires Node >= 24", 1, true},
-		{"permisos", "Error: EACCES: permission denied", 1, true},
-		{"json corrupto", "SyntaxError: Unexpected token } in JSON", 1, true},
+		{"success", "", 0, false},
+		{"benign M10: does not exist", `Error: No alias found for "x.localhost".`, 1, false},
+		{"old Node", "Error: requires Node >= 24", 1, true},
+		{"permissions", "Error: EACCES: permission denied", 1, true},
+		{"corrupt json", "SyntaxError: Unexpected token } in JSON", 1, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -31,7 +31,7 @@ func TestRemoveAbsentOnlyRevokesOnSuccessOrAbsent(t *testing.T) {
 
 			// What matters is the effect on ownership: revoking means receiving no error.
 			if revoked := err == nil || errors.Is(err, ErrRouteAbsent); revoked == tc.wantErr {
-				t.Errorf("%s: revocado=%v, esperado revocado=%v (err=%v)",
+				t.Errorf("%s: revoked=%v, expected revoked=%v (err=%v)",
 					tc.name, revoked, !tc.wantErr, err)
 			}
 		})
@@ -40,7 +40,7 @@ func TestRemoveAbsentOnlyRevokesOnSuccessOrAbsent(t *testing.T) {
 
 func TestReleaseWithFailingReleaserDoesNotRevoke(t *testing.T) {
 	if Release(failingReleaser{}, "mi-ruta") {
-		t.Error("sin binario no se puede afirmar nada sobre la ruta: no revocar")
+		t.Error("without binary nothing can be claimed about the route: do not revoke")
 	}
 }
 
@@ -78,9 +78,9 @@ func TestMetaWithRouteOwnedAuthorisesItsOwnPort(t *testing.T) {
 	}
 	held := Ownership{Owned: m.RouteOwned, Port: m.RoutePort}
 	if !held.Authorises(4321) {
-		t.Error("route_owned=true con su propio puerto debe autorizar")
+		t.Error("route_owned=true with its own port must authorize")
 	}
 	if held.Authorises(9999) {
-		t.Error("pero nunca un puerto que no es el suyo")
+		t.Error("but never a port that is not its own")
 	}
 }

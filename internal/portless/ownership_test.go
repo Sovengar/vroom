@@ -9,13 +9,13 @@ func TestPrevPortDoesNotSurviveRelease(t *testing.T) {
 	c := f.client(t)
 
 	if res := c.Apply("main.proj", 4321, Ownership{}); !res.Succeeded() {
-		t.Fatalf("primer arranque: %+v", res)
+		t.Fatalf("first startup: %+v", res)
 	}
 
 	// Modelled with the production stop function, not by hand: the bug was in the persisted Meta, so hand-writing prev would not reproduce it.
 	persisted := persistedOwnershipAfterStop(c, 4321)
 	if persisted.Owned {
-		t.Fatal("tras una retirada efectiva la propiedad debe quedar revocada")
+		t.Fatal("after an effective removal the ownership must be revoked")
 	}
 
 	f.routes[Hostname("main.proj")] = 4321
@@ -23,13 +23,13 @@ func TestPrevPortDoesNotSurviveRelease(t *testing.T) {
 	res := c.Apply("main.proj", 5000, persisted)
 
 	if res.Succeeded() {
-		t.Fatal("tras retirar la ruta, prevPort no autoriza nada: no se puede pisar la ruta de otro")
+		t.Fatal("after removing the route, prevPort authorizes nothing: another's route cannot be stomped")
 	}
 	if res.Reason != ReasonRouteConflict {
-		t.Errorf("el motivo debe ser route_conflict, got %q", res.Reason)
+		t.Errorf("the reason must be route_conflict, got %q", res.Reason)
 	}
 	if got := f.routes[Hostname("main.proj")]; got != 4321 {
-		t.Errorf("la ruta del otro dueño debe quedar intacta en 4321, got %d", got)
+		t.Errorf("the other owner's route must remain intact at 4321, got %d", got)
 	}
 }
 
@@ -49,9 +49,9 @@ func TestForeignRouteAlwaysConflictsWithoutOwnership(t *testing.T) {
 	res := c.Apply("ajena", 5000, Ownership{})
 
 	if res.Reason != ReasonRouteConflict {
-		t.Errorf("sin propiedad previa, cualquier nombre ajeno es conflicto, got %q", res.Reason)
+		t.Errorf("without prior ownership, any foreign name is a conflict, got %q", res.Reason)
 	}
 	if got := f.routes[Hostname("ajena")]; got != 4321 {
-		t.Errorf("la ruta ajena debe quedar intacta, got %d", got)
+		t.Errorf("the foreign route must remain intact, got %d", got)
 	}
 }

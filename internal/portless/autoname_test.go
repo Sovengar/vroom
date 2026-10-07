@@ -14,7 +14,7 @@ func TestAutoSeparatesDistinctBranches(t *testing.T) {
 		t.Fatal(err)
 	}
 	if one == two {
-		t.Errorf("dos ramas distintas deben derivar nombres distintos, ambos %q", one)
+		t.Errorf("two distinct branches must derive distinct names, both %q", one)
 	}
 }
 
@@ -28,10 +28,10 @@ func TestAutoCannotSeparateSameBranchWorktrees(t *testing.T) {
 		t.Fatal(err)
 	}
 	if a != b {
-		t.Skip("DeriveName ya distingue worktrees en la misma rama; actualiza el README y este test")
+		t.Skip("DeriveName already distinguishes worktrees on the same branch; update the README and this test")
 	}
 	if Hostname(a) != "main.miapp.localhost" {
-		t.Errorf("el nombre derivado debe ser <rama>.<proyecto>, got %q", a)
+		t.Errorf("the derived name must be <branch>.<project>, got %q", a)
 	}
 }
 
@@ -43,13 +43,13 @@ func TestSameBranchCollisionDegradesWithoutEvicting(t *testing.T) {
 	res := c.Apply("main.miapp", 5000, Ownership{})
 
 	if res.Succeeded() {
-		t.Fatal("una colisión por nombre debe degradar, no publicar una url ajena")
+		t.Fatal("a name collision must degrade, not publish a foreign url")
 	}
 	if res.Reason != ReasonRouteConflict {
-		t.Errorf("el motivo debe ser route_conflict, got %q", res.Reason)
+		t.Errorf("the reason must be route_conflict, got %q", res.Reason)
 	}
 	if got := f.routes[Hostname("main.miapp")]; got != 4000 {
-		t.Errorf("la ruta del primer worktree debe quedar intacta en 4000, got %d", got)
+		t.Errorf("the first worktree's route must remain intact at 4000, got %d", got)
 	}
 }
 
@@ -60,10 +60,10 @@ func TestNamedIsTheEscapeFromBranchScopedNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != "mi-api" {
-		t.Errorf("named ignora la rama a propósito, got %q", got)
+		t.Errorf("named ignores the branch on purpose, got %q", got)
 	}
 	again, _ := DeriveName(RouteModeNamed, "mi-api", "otra-rama", "otro-proyecto")
 	if again != got {
-		t.Errorf("named debe ser estable entre ramas, %q != %q", got, again)
+		t.Errorf("named must be stable across branches, %q != %q", got, again)
 	}
 }

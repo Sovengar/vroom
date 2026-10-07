@@ -9,7 +9,7 @@ import (
 
 // The three sources target different premises: VROOM_CONFIG for one process (a runner, a service), XDG for a user, ~/.config for the normal case.
 func TestPathSigueElOrdenDeLasTresFuentes(t *testing.T) {
-	t.Run("VROOM_CONFIG manda", func(t *testing.T) {
+	t.Run("VROOM_CONFIG takes precedence", func(t *testing.T) {
 		t.Setenv("VROOM_CONFIG", "/opt/vroom/config.toml")
 		t.Setenv("XDG_CONFIG_HOME", "/xdg")
 		t.Setenv("HOME", "/home/u")
@@ -18,11 +18,11 @@ func TestPathSigueElOrdenDeLasTresFuentes(t *testing.T) {
 			t.Fatal(err)
 		}
 		if got != "/opt/vroom/config.toml" {
-			t.Errorf("Path = %q, want la de VROOM_CONFIG", got)
+			t.Errorf("Path = %q, want the VROOM_CONFIG one", got)
 		}
 	})
 
-	t.Run("XDG_CONFIG_HOME cuando no hay VROOM_CONFIG", func(t *testing.T) {
+	t.Run("XDG_CONFIG_HOME when no VROOM_CONFIG", func(t *testing.T) {
 		t.Setenv("VROOM_CONFIG", "")
 		t.Setenv("XDG_CONFIG_HOME", "/xdg")
 		t.Setenv("HOME", "/home/u")
@@ -35,7 +35,7 @@ func TestPathSigueElOrdenDeLasTresFuentes(t *testing.T) {
 		}
 	})
 
-	t.Run("HOME como ultimo recurso", func(t *testing.T) {
+	t.Run("HOME as last resort", func(t *testing.T) {
 		t.Setenv("VROOM_CONFIG", "")
 		t.Setenv("XDG_CONFIG_HOME", "")
 		t.Setenv("HOME", "/home/u")
@@ -48,17 +48,17 @@ func TestPathSigueElOrdenDeLasTresFuentes(t *testing.T) {
 		}
 	})
 
-	t.Run("sin HOME no hay ruta, y se dice por que", func(t *testing.T) {
+	t.Run("no HOME means no path, and it says why", func(t *testing.T) {
 		// UserHomeDir fails with no HOME in the environment, which is what a service with an empty environment looks like.
 		t.Setenv("VROOM_CONFIG", "")
 		t.Setenv("XDG_CONFIG_HOME", "")
 		t.Setenv("HOME", "")
 		got, err := Path()
 		if err == nil {
-			t.Fatalf("sin HOME Path devolvió %q, want error: un path de usuario concreto sería un modo de fallo silencioso", got)
+			t.Fatalf("without HOME Path returned %q, want error: a concrete user path would be a silent failure mode", got)
 		}
 		if !strings.Contains(err.Error(), "home") {
-			t.Errorf("err = %q, want que diga que falta el home", err)
+			t.Errorf("err = %q, want it to say home is missing", err)
 		}
 	})
 }
@@ -69,12 +69,12 @@ func TestLoadConUnFicheroIlegibleDevuelveDefaultsYElError(t *testing.T) {
 		name    string
 		content string
 	}{
-		{"toml roto", "name = [ esto no es toml\n"},
-		{"direccion de ask inválida", "[ask]\ndirection = \"diagonal\"\n"},
-		{"target de ask inválido", "[ask]\ntarget = \"ventana\"\n"},
-		{"custom sin launcher_cmd", "[ask]\nlauncher = \"custom\"\n"},
-		{"agente sin cmd", "[ask.agents]\n[ask.agents.mi-agente]\n"},
-		{"tecla inválida", "[keybindings]\nrefresh = \"no-es-una-tecla\"\n"},
+		{"broken toml", "name = [ esto no es toml\n"},
+		{"invalid ask direction", "[ask]\ndirection = \"diagonal\"\n"},
+		{"invalid ask target", "[ask]\ntarget = \"ventana\"\n"},
+		{"custom without launcher_cmd", "[ask]\nlauncher = \"custom\"\n"},
+		{"agent without cmd", "[ask.agents]\n[ask.agents.mi-agente]\n"},
+		{"invalid key", "[keybindings]\nrefresh = \"no-es-una-tecla\"\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -86,13 +86,13 @@ func TestLoadConUnFicheroIlegibleDevuelveDefaultsYElError(t *testing.T) {
 
 			cfg := Load()
 			if cfg.Err == nil {
-				t.Fatal("una configuración inválida tiene que bring Err: sin él el usuario creería que su config se aplica")
+				t.Fatal("an invalid config must bring Err: without it the user would believe their config is applied")
 			}
 			if cfg.Ask.Launcher != "auto" {
-				t.Errorf("Ask.Launcher = %q, want auto: con un config roto se arranca con defaults", cfg.Ask.Launcher)
+				t.Errorf("Ask.Launcher = %q, want auto: with a broken config you boot with defaults", cfg.Ask.Launcher)
 			}
 			if len(cfg.Keybindings) == 0 {
-				t.Error("sin keybindings la TUI no tendría ninguna tecla asignada")
+				t.Error("without keybindings the TUI would have no assigned keys")
 			}
 		})
 	}
@@ -104,10 +104,10 @@ func TestLoadSinFicheroNoEsError(t *testing.T) {
 
 	cfg := Load()
 	if cfg.Err != nil {
-		t.Errorf("un config ausente dio error %v: es el caso normal de una instalación nueva", cfg.Err)
+		t.Errorf("a missing config gave error %v: it is the normal case of a new install", cfg.Err)
 	}
 	if cfg.Scanner.Depth != Defaults().Scanner.Depth {
-		t.Errorf("Scanner.Depth = %d, want el default %d", cfg.Scanner.Depth, Defaults().Scanner.Depth)
+		t.Errorf("Scanner.Depth = %d, want the default %d", cfg.Scanner.Depth, Defaults().Scanner.Depth)
 	}
 }
 
@@ -115,39 +115,39 @@ func TestLoadSinFicheroNoEsError(t *testing.T) {
 func TestKeyForUsaElBindingYCaeAlDefault(t *testing.T) {
 	defaults := DefaultKeybindings()
 
-	t.Run("binding propio", func(t *testing.T) {
+	t.Run("own binding", func(t *testing.T) {
 		c := Config{Keybindings: map[string]string{"start_stop": "S"}}
 		if got := c.KeyFor("start_stop"); got != "S" {
 			t.Errorf("KeyFor = %q, want S", got)
 		}
 	})
 
-	t.Run("sin binding para esa accion", func(t *testing.T) {
+	t.Run("no binding for that action", func(t *testing.T) {
 		c := Config{Keybindings: map[string]string{"otra": "z"}}
 		if got, want := c.KeyFor("start_stop"), defaults["start_stop"]; got != want {
-			t.Errorf("KeyFor = %q, want el default %q", got, want)
+			t.Errorf("KeyFor = %q, want the default %q", got, want)
 		}
 	})
 
-	t.Run("binding vacio cae al default", func(t *testing.T) {
+	t.Run("empty binding falls back to default", func(t *testing.T) {
 		c := Config{Keybindings: map[string]string{"start_stop": ""}}
 		if got, want := c.KeyFor("start_stop"), defaults["start_stop"]; got != want {
-			t.Errorf("KeyFor = %q con un binding vacío, want el default %q", got, want)
+			t.Errorf("KeyFor = %q with an empty binding, want the default %q", got, want)
 		}
 	})
 
-	t.Run("mapa nil", func(t *testing.T) {
+	t.Run("nil map", func(t *testing.T) {
 		var c Config
 		if got, want := c.KeyFor("start_stop"), defaults["start_stop"]; got != want {
-			t.Errorf("KeyFor con mapa nil = %q, want el default %q", got, want)
+			t.Errorf("KeyFor with nil map = %q, want the default %q", got, want)
 		}
 	})
 
-	t.Run("accion sin binding y sin default", func(t *testing.T) {
+	t.Run("action with no binding and no default", func(t *testing.T) {
 		// An action with no binding and no default stays keyless: an invented default would bind a key to an action that does not exist.
 		c := Config{Keybindings: map[string]string{"start_stop": "S"}}
 		if got := c.KeyFor("accion-inventada"); got != "" {
-			t.Errorf("KeyFor de una acción sin default = %q, want cadena vacía", got)
+			t.Errorf("KeyFor of an action without default = %q, want empty string", got)
 		}
 	})
 }
@@ -166,6 +166,6 @@ func TestKeyByActionEsElInversoYNoPierdeBindings(t *testing.T) {
 		t.Errorf("inv[r] = %q, want refresh", inv["r"])
 	}
 	if len(inv) != 2 {
-		t.Errorf("el inverso tiene %d entradas, want 2", len(inv))
+		t.Errorf("the inverse has %d entries, want 2", len(inv))
 	}
 }

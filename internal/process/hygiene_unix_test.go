@@ -34,7 +34,7 @@ func testBinaryPath(t *testing.T) string {
 func isTestBinary(root, self string, pid int) bool {
 	exe, err := os.Readlink(filepath.Join(root, strconv.Itoa(pid), "exe"))
 	if err != nil {
-		return false // ya no existe, o no es nuestro
+		return false // no longer exists, or is not ours
 	}
 	resolved, err := filepath.EvalSymlinks(exe)
 	if err != nil {
@@ -115,8 +115,8 @@ func TestMain(m *testing.M) {
 		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
 	fmt.Fprintf(os.Stderr,
-		"\nHYGIENE: %d proceso(s) de este binario de test sobrevivieron a la suite: %v\n"+
-			"Alguien no está parando lo que arranca, y esos procesos retienen puertos del rango.\n",
+		"\nHYGIENE: %d process(es) of this test binary survived the suite: %v\n"+
+			"Someone is not stopping what they start, and those processes hold ports from the range.\n",
 		len(leaked), leaked)
 	os.Exit(1)
 }
@@ -126,27 +126,27 @@ func TestHygieneGuardMatchesOwnBinary(t *testing.T) {
 	self := testBinaryPath(t)
 
 	if !isTestBinary(procRoot, self, os.Getpid()) {
-		t.Errorf("el guard tiene que reconocer su propio binario (pid %d)", os.Getpid())
+		t.Errorf("the guard has to recognize its own binary (pid %d)", os.Getpid())
 	}
 
 	// Negative control: without it an isTestBinary that always returned true would pass the assertion above.
 	if isTestBinary(procRoot, self, 1) {
-		t.Error("pid 1 no ejecuta este binario: el emparejamiento no discrimina")
+		t.Error("pid 1 does not run this binary: the matching does not discriminate")
 	}
 
 	if isTestBinary(procRoot, self, 999999999) {
-		t.Error("un pid inexistente no puede ser este binario")
+		t.Error("a non-existent pid cannot be this binary")
 	}
 
 	if containsInt(leakedTestBinaries(), os.Getpid()) {
-		t.Error("el guard no puede listarse a sí mismo: se mataría al terminar")
+		t.Error("the guard cannot list itself: it would kill itself on exit")
 	}
 }
 
 // Launched WITHOUT a shell so the pid is unambiguously ours and the assertion does not depend on sh exec-ing.
 func TestHygieneGuardFindsSpawnedHelper(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 
 	before := len(leakedTestBinaries())
@@ -157,15 +157,15 @@ func TestHygieneGuardFindsSpawnedHelper(t *testing.T) {
 		_ = syscall.Kill(pid, syscall.SIGKILL)
 	})
 
-	waitFor(t, 10*time.Second, "helper visible para el guard", func() bool {
+	waitFor(t, 10*time.Second, "helper visible to the guard", func() bool {
 		return containsInt(leakedTestBinaries(), pid)
 	})
 
 	if got := len(leakedTestBinaries()); got != before+1 {
-		t.Errorf("el guard vio %d fugas, esperaba %d: el descubrimiento no funciona", got, before+1)
+		t.Errorf("the guard saw %d leaks, expected %d: the discovery does not work", got, before+1)
 	}
 	if !strings.Contains(os.Args[0], "test") {
-		t.Errorf("ruta de test inesperada: %q", os.Args[0])
+		t.Errorf("unexpected test path: %q", os.Args[0])
 	}
 }
 
@@ -175,7 +175,7 @@ func spawnTestHelperDirectly(t *testing.T) int {
 	cmd.Env = append(os.Environ(), helperEnvVar+"=listener", "VROOM_TEST_PORT=0")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("helper directo: %v", err)
+		t.Fatalf("direct helper: %v", err)
 	}
 	go func() { _ = cmd.Wait() }()
 	return cmd.Process.Pid

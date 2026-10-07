@@ -69,11 +69,11 @@ func TestHealthNeverDependsOnTheRoute(t *testing.T) {
 		routes   *fakeRoutes
 		wantWarn bool
 	}{
-		{"ruta registrada", &fakeRoutes{result: registeredAt(0)}, false},
-		{"portless ausente", &fakeRoutes{result: portless.Degraded("x", portless.ReasonPortlessMissing)}, true},
-		{"sin proxy", &fakeRoutes{result: portless.Degraded("x", portless.ReasonProxyNotRunning)}, true},
-		{"no verificable", &fakeRoutes{result: portless.Degraded("x", portless.ReasonRouteNotServed)}, true},
-		{"conflicto de nombre", &fakeRoutes{result: portless.Degraded("x", portless.ReasonRouteConflict)}, true},
+		{"route registered", &fakeRoutes{result: registeredAt(0)}, false},
+		{"portless absent", &fakeRoutes{result: portless.Degraded("x", portless.ReasonPortlessMissing)}, true},
+		{"no proxy", &fakeRoutes{result: portless.Degraded("x", portless.ReasonProxyNotRunning)}, true},
+		{"not verifiable", &fakeRoutes{result: portless.Degraded("x", portless.ReasonRouteNotServed)}, true},
+		{"name conflict", &fakeRoutes{result: portless.Degraded("x", portless.ReasonRouteConflict)}, true},
 	}
 
 	for _, tc := range cases {
@@ -84,21 +84,21 @@ func TestHealthNeverDependsOnTheRoute(t *testing.T) {
 
 			out, err := f.startWithRoutes(t, 8*time.Second, tc.routes)
 			if err != nil {
-				t.Fatalf("el arranque NO puede fallar por el resultado de la ruta: %v", err)
+				t.Fatalf("the start must NOT fail because of the route result: %v", err)
 			}
 			f.cleanup(t, out)
 
 			if out.Meta.State != state.StateRunning {
-				t.Fatalf("el servicio debe quedar running, got %q", out.Meta.State)
+				t.Fatalf("the service must be running, got %q", out.Meta.State)
 			}
 			if out.Port <= 0 {
-				t.Errorf("el puerto real debe estar resuelto aunque la ruta degrade, got %d", out.Port)
+				t.Errorf("the real port must be resolved even if the route degrades, got %d", out.Port)
 			}
 			if tc.wantWarn && len(out.Warnings) == 0 {
-				t.Error("una ruta degradada debe emitir aviso")
+				t.Error("a degraded route must emit a warning")
 			}
 			if !tc.wantWarn && len(out.Warnings) != 0 {
-				t.Errorf("una ruta registrada no debe avisar: %v", out.Warnings)
+				t.Errorf("a registered route must not warn: %v", out.Warnings)
 			}
 		})
 	}
@@ -108,17 +108,17 @@ func TestRouteModeOffNeverInvokesPortless(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
 
-	out, err := f.startWithRoutes(t, 8*time.Second, nil) // nil = sin seam
+	out, err := f.startWithRoutes(t, 8*time.Second, nil) // nil = no seam
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.cleanup(t, out)
 
 	if out.Meta.RouteName != "" {
-		t.Errorf("con route_mode off no debe haber ruta, got %q", out.Meta.RouteName)
+		t.Errorf("with route_mode off there must be no route, got %q", out.Meta.RouteName)
 	}
 	if out.Meta.RouteURL != "" {
-		t.Errorf("con route_mode off no se publica url, got %q", out.Meta.RouteURL)
+		t.Errorf("with route_mode off no url is published, got %q", out.Meta.RouteURL)
 	}
 }
 
@@ -135,17 +135,17 @@ func TestRouteIsRegisteredAfterDiscoveryAndPointsAtTheRealPort(t *testing.T) {
 	f.cleanup(t, out)
 
 	if len(routes.applied) != 1 {
-		t.Fatalf("debe registrarse exactamente una ruta, got %v", routes.applied)
+		t.Fatalf("exactly one route must be registered, got %v", routes.applied)
 	}
 	// The registered port is the resolved one, never the reserved one (R4).
 	if !strings.HasSuffix(routes.applied[0], ":"+itoaTest(out.Port)) {
-		t.Errorf("la ruta debe apuntar al puerto real %d, got %q", out.Port, routes.applied[0])
+		t.Errorf("the route must point to the real port %d, got %q", out.Port, routes.applied[0])
 	}
 	if out.Meta.RouteStatus != portless.StatusRegistered {
-		t.Errorf("el Meta debe llevar el estado de la ruta, got %q", out.Meta.RouteStatus)
+		t.Errorf("the Meta must carry the route status, got %q", out.Meta.RouteStatus)
 	}
 	if out.Meta.RouteURL == "" {
-		t.Error("una ruta registrada y verificada persiste su url")
+		t.Error("a registered and verified route persists its url")
 	}
 }
 
@@ -163,13 +163,13 @@ func TestRoutePointsAtWhereTheAppActuallyListens(t *testing.T) {
 	f.cleanup(t, out)
 
 	if out.Port != own {
-		t.Fatalf("el discovery debe ver el puerto real %d, got %d", own, out.Port)
+		t.Fatalf("discovery must see the real port %d, got %d", own, out.Port)
 	}
 	if !strings.HasSuffix(routes.applied[0], ":"+itoaTest(own)) {
-		t.Errorf("la ruta debe apuntar a donde la app escucha (%d), got %q", own, routes.applied[0])
+		t.Errorf("the route must point to where the app listens (%d), got %q", own, routes.applied[0])
 	}
 	if out.Meta.RoutePort == out.Meta.ReservedPort {
-		t.Error("la ruta no puede apuntar al puerto reservado cuando la app hizo bind en otro")
+		t.Error("the route cannot point to the reserved port when the app bound to another")
 	}
 }
 
@@ -186,13 +186,13 @@ func TestNoRouteWithoutAResolvedPort(t *testing.T) {
 	f.cleanup(t, out)
 
 	if len(routes.applied) != 0 {
-		t.Errorf("un servicio sin puerto no debe registrar ruta, got %v", routes.applied)
+		t.Errorf("a service without a port must not register a route, got %v", routes.applied)
 	}
 	if out.Meta.RouteURL != "" {
-		t.Errorf("sin puerto no se publica url, got %q", out.Meta.RouteURL)
+		t.Errorf("without a port no url is published, got %q", out.Meta.RouteURL)
 	}
 	if out.Meta.State != state.StateNoPort {
-		t.Errorf("el servicio debe quedar en su estado real, got %q", out.Meta.State)
+		t.Errorf("the service must remain in its real state, got %q", out.Meta.State)
 	}
 }
 
@@ -209,13 +209,13 @@ func TestNoRouteWhenPortUnresolved(t *testing.T) {
 	f.cleanup(t, out)
 
 	if out.Meta.State != state.StatePortUnresolved {
-		t.Skipf("el churn no siempre vence el discovery en este entorno (state=%q)", out.Meta.State)
+		t.Skipf("churn does not always beat discovery in this environment (state=%q)", out.Meta.State)
 	}
 	if len(routes.applied) != 0 {
-		t.Errorf("con el puerto sin resolver no se registra ruta, got %v", routes.applied)
+		t.Errorf("with the port unresolved no route is registered, got %v", routes.applied)
 	}
 	if out.Meta.RouteURL != "" {
-		t.Error("con el puerto sin resolver no se publica url")
+		t.Error("with the port unresolved no url is published")
 	}
 }
 
@@ -234,13 +234,13 @@ func TestDegradedRouteNeverPersistsAURL(t *testing.T) {
 	f.cleanup(t, out)
 
 	if out.Meta.RouteURL != "" {
-		t.Errorf("una ruta degradada no persiste url, got %q", out.Meta.RouteURL)
+		t.Errorf("a degraded route does not persist url, got %q", out.Meta.RouteURL)
 	}
 	if out.Meta.RouteReason == "" {
-		t.Error("una ruta degradada debe persistir su motivo")
+		t.Error("a degraded route must persist its reason")
 	}
 	if out.Meta.RouteStatus != portless.StatusDegraded {
-		t.Errorf("el estado debe ser degraded, got %q", out.Meta.RouteStatus)
+		t.Errorf("the status must be degraded, got %q", out.Meta.RouteStatus)
 	}
 
 	onDisk, err := f.store.LoadMeta(f.dir)
@@ -248,10 +248,10 @@ func TestDegradedRouteNeverPersistsAURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	if onDisk.RouteURL != "" {
-		t.Errorf("tampoco en disco puede haber url, got %q", onDisk.RouteURL)
+		t.Errorf("there can be no url on disk either, got %q", onDisk.RouteURL)
 	}
 	if onDisk.RouteReason != portless.ReasonRouteNotServed {
-		t.Errorf("el motivo debe persistirse, got %q", onDisk.RouteReason)
+		t.Errorf("the reason must be persisted, got %q", onDisk.RouteReason)
 	}
 }
 
@@ -277,7 +277,7 @@ func TestReconcileWarningsSurfaceAsWarnings(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("el aviso de reconciliación debe llegar al usuario: %v", out.Warnings)
+		t.Errorf("the reconciliation warning must reach the user: %v", out.Warnings)
 	}
 }
 
@@ -294,7 +294,7 @@ func TestRouteNameDerivedFromBranchInAutoMode(t *testing.T) {
 	f.cleanup(t, out)
 
 	if got := routes.applied[0]; !strings.HasPrefix(got, "feat-mi-app.svc:") {
-		t.Errorf("auto debe derivar <rama>.<proyecto>, got %q", got)
+		t.Errorf("auto must derive <branch>.<project>, got %q", got)
 	}
 }
 
@@ -312,7 +312,7 @@ func TestRouteNameUsesRouteNameInNamedMode(t *testing.T) {
 	f.cleanup(t, out)
 
 	if !strings.HasPrefix(routes.applied[0], "my-oauth-callback:") {
-		t.Errorf("named debe usar route_name saneado, got %q", routes.applied[0])
+		t.Errorf("named must use sanitized route_name, got %q", routes.applied[0])
 	}
 }
 
@@ -331,10 +331,10 @@ func TestRouteStatusDoesNotAffectServiceState(t *testing.T) {
 	f.cleanup(t, out)
 
 	if out.Meta.State != state.StateRunning {
-		t.Errorf("la salud del servicio es independiente de la ruta, got %q", out.Meta.State)
+		t.Errorf("the service health is independent of the route, got %q", out.Meta.State)
 	}
 	if out.Meta.RouteStatus != portless.StatusDegraded {
-		t.Errorf("la ruta sí refleja su propio resultado, got %q", out.Meta.RouteStatus)
+		t.Errorf("the route does reflect its own result, got %q", out.Meta.RouteStatus)
 	}
 }
 
@@ -353,19 +353,19 @@ func TestRouteNeverUsesTheReservedPort(t *testing.T) {
 
 	reserved := out.Meta.ReservedPort
 	if reserved == 0 {
-		t.Skip("el fixture no reservó puerto")
+		t.Skip("the fixture did not reserve a port")
 	}
 	if reserved == out.Port {
-		t.Skip("en este caso el puerto reservado es el real; no hay nada que distinguir")
+		t.Skip("in this case the reserved port is the real one; there is nothing to distinguish")
 	}
 	if strings.HasSuffix(routes.applied[0], ":"+itoaTest(reserved)) {
-		t.Errorf("la ruta no puede apuntar al puerto reservado %d, got %q", reserved, routes.applied[0])
+		t.Errorf("the route cannot point to the reserved port %d, got %q", reserved, routes.applied[0])
 	}
 }
 
 // The fixture must leave no live children: this is what the package hygiene guard checks at suite end, and these tests spawn real children.
 func TestFixtureKillsItsChildren(t *testing.T) {
 	if !filepath.IsAbs(os.Args[0]) {
-		t.Fatal("el binario de test debe tener ruta absoluta")
+		t.Fatal("the test binary must have an absolute path")
 	}
 }

@@ -14,23 +14,23 @@ import (
 func TestResolveConConfigExplicitoYSinSesionHerdrAvisa(t *testing.T) {
 	l := &Launcher{
 		cfg:  config.AskConfig{Launcher: "herdr"},
-		env:  func(string) string { return "" }, // sin HERDR_ENV
+		env:  func(string) string { return "" }, // no HERDR_ENV
 		look: func(string) (string, error) { return "/usr/bin/herdr", nil },
 		run:  func(string, ...string) (string, error) { return "", nil },
 	}
 
 	strategy, warn := l.Resolve()
 	if strategy != StrategyInline {
-		t.Errorf("estrategia = %q, want %q: sin herdr el fallback es inline", strategy, StrategyInline)
+		t.Errorf("strategy = %q, want %q: without herdr the fallback is inline", strategy, StrategyInline)
 	}
 	if warn == "" {
-		t.Fatal("sin herdr y con launcher=herdr explícito tiene que haber aviso: si no, el usuario no sabe que su config se ignora")
+		t.Fatal("without herdr and with explicit launcher=herdr there must be a warning: otherwise the user does not know their config is ignored")
 	}
 	if !strings.Contains(warn, "herdr") {
-		t.Errorf("el aviso no nombra herdr: %q", warn)
+		t.Errorf("the warning does not name herdr: %q", warn)
 	}
 	if !strings.Contains(warn, "inline") {
-		t.Errorf("el aviso no dice qué se hace en su lugar: %q", warn)
+		t.Errorf("the warning does not say what is done instead: %q", warn)
 	}
 }
 
@@ -45,10 +45,10 @@ func TestResolveConHerdrExplicitoYSesionHerdrNoAvisa(t *testing.T) {
 
 	strategy, warn := l.Resolve()
 	if strategy != StrategyHerdr {
-		t.Errorf("estrategia = %q, want %q: con herdr explícito y sesión herdr se usa herdr", strategy, StrategyHerdr)
+		t.Errorf("strategy = %q, want %q: with explicit herdr and a herdr session, herdr is used", strategy, StrategyHerdr)
 	}
 	if warn != "" {
-		t.Errorf("warn = %q: herdr disponible es exactamente lo pedido, no hay nada que avisar", warn)
+		t.Errorf("warn = %q: herdr available is exactly what was asked, there is nothing to warn about", warn)
 	}
 }
 
@@ -63,7 +63,7 @@ func TestResolveAutoSinSesionNoAvisa(t *testing.T) {
 
 	strategy, warn := l.Resolve()
 	if strategy != StrategyInline || warn != "" {
-		t.Errorf("auto sin herdr dio %q/%q, want inline y sin aviso: en auto el fallback es lo pedido", strategy, warn)
+		t.Errorf("auto without herdr gave %q/%q, want inline and no warning: in auto the fallback is what was asked", strategy, warn)
 	}
 }
 
@@ -84,22 +84,22 @@ func TestResolveConSesionHerdrPeroSinBinario(t *testing.T) {
 	}
 
 	if s, w := newL("auto").Resolve(); s != StrategyInline || w != "" {
-		t.Errorf("auto con HERDR_ENV pero sin binario dio %q/%q, want inline sin aviso", s, w)
+		t.Errorf("auto with HERDR_ENV but no binary gave %q/%q, want inline without warning", s, w)
 	}
 	if s, w := newL("herdr").Resolve(); s != StrategyInline || w == "" {
-		t.Errorf("herdr explícito con HERDR_ENV pero sin binario dio %q/%q, want inline con aviso", s, w)
+		t.Errorf("explicit herdr with HERDR_ENV but no binary gave %q/%q, want inline with warning", s, w)
 	}
 }
 
 func TestResolveConEstrategiaDesconocidaCaeAAuto(t *testing.T) {
 	l := &Launcher{
-		cfg:  config.AskConfig{Launcher: "inventada"},
+		cfg:  config.AskConfig{Launcher: "made-up"},
 		env:  func(string) string { return "" },
 		look: func(string) (string, error) { return "", os.ErrNotExist },
 		run:  func(string, ...string) (string, error) { return "", nil },
 	}
 	if s, w := l.Resolve(); s != StrategyInline || w != "" {
-		t.Errorf("una estrategia desconocida dio %q/%q, want el comportamiento de auto", s, w)
+		t.Errorf("an unknown strategy gave %q/%q, want the behavior of auto", s, w)
 	}
 }
 
@@ -118,10 +118,10 @@ func TestResolveConInlineYCustomNoPreguntaPorHerdr(t *testing.T) {
 			t.Errorf("Resolve(%q) = %q, want %q", want, got, want)
 		}
 		if warn != "" {
-			t.Errorf("Resolve(%q) avisó: %q", want, warn)
+			t.Errorf("Resolve(%q) warned: %q", want, warn)
 		}
 		if consulted {
-			t.Errorf("Resolve(%q) consultó el entorno: no debe, la estrategia está decidida", want)
+			t.Errorf("Resolve(%q) consulted the environment: it must not, the strategy is decided", want)
 		}
 	}
 }
@@ -130,13 +130,13 @@ func TestResolveConInlineYCustomNoPreguntaPorHerdr(t *testing.T) {
 func TestLaunchRechazaInlineYLoDesconocido(t *testing.T) {
 	l := New(config.AskConfig{})
 
-	for _, strategy := range []string{StrategyInline, "inventada", ""} {
+	for _, strategy := range []string{StrategyInline, "made-up", ""} {
 		out, err := l.Launch(strategy, req())
 		if err == nil {
-			t.Errorf("Launch(%q) = %q sin error: sólo herdr y custom son despachables en background", strategy, out)
+			t.Errorf("Launch(%q) = %q without error: only herdr and custom are dispatchable in the background", strategy, out)
 		}
 		if out != "" {
-			t.Errorf("Launch(%q) devolvió %q además del error", strategy, out)
+			t.Errorf("Launch(%q) returned %q in addition to the error", strategy, out)
 		}
 	}
 }
@@ -145,14 +145,14 @@ func TestLaunchRechazaInlineYLoDesconocido(t *testing.T) {
 func TestLaunchPropagaElErrorDeHerdrConSuSalida(t *testing.T) {
 	tests := []struct {
 		name       string
-		target     string // pane o tab: decide qué comando se llama primero
-		failOn     string // subcomando que falla
+		target     string // pane or tab: decides which command is called first
+		failOn     string // subcommand that fails
 		wantPre    string
 		wantSalida string
 	}{
-		{"pane split", "pane", "split", "herdr pane split", "no se puede dividir el pane"},
-		{"tab create", "tab", "tab", "herdr tab create", "no se puede crear el tab"},
-		{"pane run", "pane", "run", "herdr pane run", "el pane no acepta comandos"},
+		{"pane split", "pane", "split", "herdr pane split", "cannot split the pane"},
+		{"tab create", "tab", "tab", "herdr tab create", "cannot create the tab"},
+		{"pane run", "pane", "run", "herdr pane run", "the pane does not accept commands"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -175,13 +175,13 @@ func TestLaunchPropagaElErrorDeHerdrConSuSalida(t *testing.T) {
 
 			_, err := l.Launch(StrategyHerdr, req())
 			if err == nil {
-				t.Fatal("un herdr que falla tiene que dar error")
+				t.Fatal("a failing herdr must produce an error")
 			}
 			if !strings.Contains(err.Error(), tt.wantPre) {
-				t.Errorf("err = %q, want que diga en qué paso falló (%q)", err, tt.wantPre)
+				t.Errorf("err = %q, want it to say at which step it failed (%q)", err, tt.wantPre)
 			}
 			if !strings.Contains(err.Error(), tt.wantSalida) {
-				t.Errorf("err = %q, want que incluya la salida de herdr (%q)", err, tt.wantSalida)
+				t.Errorf("err = %q, want it to include herdr's output (%q)", err, tt.wantSalida)
 			}
 		})
 	}
@@ -196,16 +196,16 @@ func TestLaunchHerdrSinPaneIdDaErrorAccionable(t *testing.T) {
 			return "/usr/bin/herdr", nil
 		},
 		run: func(string, ...string) (string, error) {
-			return `{"result":{"pane":{"nombre":"sin-id"}}}`, nil
+			return `{"result":{"pane":{"name":"no-id"}}}`, nil
 		},
 	}
 
 	out, err := l.Launch(StrategyHerdr, req())
 	if err == nil {
-		t.Fatalf("sin pane id Launch devolvió %q sin error", out)
+		t.Fatalf("without pane id Launch returned %q without error", out)
 	}
 	if !strings.Contains(err.Error(), "pane id") {
-		t.Errorf("err = %q, want que diga que no se pudo resolver el pane id", err)
+		t.Errorf("err = %q, want it to say the pane id could not be resolved", err)
 	}
 }
 
@@ -219,15 +219,15 @@ func TestParsePaneIDAguentaLasFormasQueNoSonLoEsperado(t *testing.T) {
 	}{
 		{"normal pane", `{"result":{"pane":{"pane_id":"w1:p9"}}}`, "result.pane.pane_id", "w1:p9"},
 		{"normal root_pane", `{"result":{"root_pane":{"pane_id":"w1:p3"}}}`, "result.root_pane.pane_id", "w1:p3"},
-		{"clave simple", `{"pane_id":"x"}`, "pane_id", "x"},
-		{"no es json", "esto no es json", "result.pane.pane_id", ""},
-		{"json vacío", "", "result.pane.pane_id", ""},
+		{"simple key", `{"pane_id":"x"}`, "pane_id", "x"},
+		{"not json", "this is not json", "result.pane.pane_id", ""},
+		{"empty json", "", "result.pane.pane_id", ""},
 		{"array", `["result"]`, "result", ""},
-		{"ruta inexistente", `{"result":{}}`, "result.pane.pane_id", ""},
-		{"clave con valor null", `{"result":{"pane":null}}`, "result.pane.pane_id", ""},
-		{"tipo incorrecto en medio", `{"result":"texto"}`, "result.pane.pane_id", ""},
-		{"valor no string", `{"result":{"pane":{"pane_id":9}}}`, "result.pane.pane_id", ""},
-		{"json truncado", `{"result":{`, "result.pane.pane_id", ""},
+		{"nonexistent path", `{"result":{}}`, "result.pane.pane_id", ""},
+		{"key with null value", `{"result":{"pane":null}}`, "result.pane.pane_id", ""},
+		{"wrong type in the middle", `{"result":"texto"}`, "result.pane.pane_id", ""},
+		{"non-string value", `{"result":{"pane":{"pane_id":9}}}`, "result.pane.pane_id", ""},
+		{"truncated json", `{"result":{`, "result.pane.pane_id", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -243,18 +243,18 @@ func TestParsePaneIDConLaSalidaRealDeHerdrTab(t *testing.T) {
 	if out, err := l.Launch(StrategyHerdr, req()); err != nil {
 		t.Fatalf("Launch: %v", err)
 	} else if !strings.Contains(out, "w1:p3") {
-		t.Errorf("salida = %q: el tab tiene que reportar el root_pane, no un pane cualquiera", out)
+		t.Errorf("output = %q: the tab must report the root_pane, not some other pane", out)
 	}
 
 	calls := readCalls(t, log)
 	if len(calls) != 2 {
-		t.Fatalf("se llamaron %d veces a herdr, want 2 (create y run): %v", len(calls), calls)
+		t.Fatalf("herdr was called %d times, want 2 (create and run): %v", len(calls), calls)
 	}
 	if !strings.HasPrefix(calls[0], "tab create") {
-		t.Errorf("la primera llamada = %q", calls[0])
+		t.Errorf("the first call = %q", calls[0])
 	}
 	if !strings.HasPrefix(calls[1], "pane run w1:p3") {
-		t.Errorf("la segunda llamada = %q: el agente tiene que ir al pane que se acaba de crear", calls[1])
+		t.Errorf("the second call = %q: the agent must go to the pane that was just created", calls[1])
 	}
 }
 
@@ -272,7 +272,7 @@ func TestLaunchCustomExpandeLosPlaceholdersYLosProtege(t *testing.T) {
 	l := &Launcher{
 		cfg: config.AskConfig{
 			Launcher:    "custom",
-			LauncherCmd: "agente --dir {dir} --nombre {agent} -- {cmd}",
+			LauncherCmd: "agent --dir {dir} --name {agent} -- {cmd}",
 		},
 		run: func(name string, args ...string) (string, error) {
 			return runReal(name, args...)
@@ -281,30 +281,30 @@ func TestLaunchCustomExpandeLosPlaceholdersYLosProtege(t *testing.T) {
 
 	r := Request{
 		Agent: "open code",
-		Args:  []string{"opencode", "--prompt", "arregla el bug; con punto y coma"},
-		Dir:   "/srv/mi proyecto",
+		Args:  []string{"opencode", "--prompt", "fix the bug; with a semicolon"},
+		Dir:   "/srv/my project",
 	}
 	out, err := l.Launch(StrategyCustom, r)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, "custom") {
-		t.Errorf("salida = %q, want la confirmación de custom", out)
+		t.Errorf("output = %q, want the custom confirmation", out)
 	}
 
 	got := readFileString(t, log)
-	if !strings.Contains(got, "'/srv/mi proyecto'") {
-		t.Errorf("el directorio no llegó entrecomillado:\n%s", got)
+	if !strings.Contains(got, "'/srv/my project'") {
+		t.Errorf("the directory did not arrive quoted:\n%s", got)
 	}
 	if !strings.Contains(got, "'open code'") {
-		t.Errorf("el agente no llegó entrecomillado:\n%s", got)
+		t.Errorf("the agent did not arrive quoted:\n%s", got)
 	}
-	// MEDIDO: {cmd} is expanded token by token, each quoted separately, which is what keeps a semicolon in the prompt from executing.
-	if !strings.Contains(got, "'arregla el bug; con punto y coma'") {
-		t.Errorf("el prompt no llegó entrecomillado: un ';' suelto ejecutaría el resto\n%s", got)
+	// MEASURED: {cmd} is expanded token by token, each quoted separately, which is what keeps a semicolon in the prompt from executing.
+	if !strings.Contains(got, "'fix the bug; with a semicolon'") {
+		t.Errorf("the prompt did not arrive quoted: a loose ';' would execute the rest\n%s", got)
 	}
 	if !strings.Contains(got, "'opencode' '--prompt'") {
-		t.Errorf("el argv debería llegar token a token entrecomillado:\n%s", got)
+		t.Errorf("the argv should arrive token by token quoted:\n%s", got)
 	}
 }
 
@@ -319,13 +319,13 @@ func TestLaunchCustomPropagaElErrorDeLaPlantilla(t *testing.T) {
 
 	_, err := l.Launch(StrategyCustom, req())
 	if err == nil {
-		t.Fatal("una plantilla que falla tiene que dar error")
+		t.Fatal("a failing template must produce an error")
 	}
 	if !strings.Contains(err.Error(), "launcher_cmd") {
-		t.Errorf("err = %q, want que nombre launcher_cmd: es lo que el usuario tiene que arreglar", err)
+		t.Errorf("err = %q, want it to name launcher_cmd: it is what the user has to fix", err)
 	}
 	if !strings.Contains(err.Error(), "salida de error") {
-		t.Errorf("err = %q, want que incluya la salida del comando", err)
+		t.Errorf("err = %q, want it to include the command output", err)
 	}
 }
 
@@ -336,7 +336,7 @@ func TestInlineCmdApuntaAlDirectorioDelProyecto(t *testing.T) {
 
 	cmd := New(config.AskConfig{}).InlineCmd(r)
 	if cmd.Dir != "/srv/proyecto" {
-		t.Errorf("cmd.Dir = %q, want el directorio del proyecto", cmd.Dir)
+		t.Errorf("cmd.Dir = %q, want the project directory", cmd.Dir)
 	}
 	// The request argv already carries the binary, so the agent name must not be prepended again.
 	if got := strings.Join(cmd.Args, " "); got != "opencode --prompt fix the bug" {
@@ -353,7 +353,7 @@ func readFileString(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("no se pudo leer %s: %v", path, err)
+		t.Fatalf("could not read %s: %v", path, err)
 	}
 	return string(data)
 }

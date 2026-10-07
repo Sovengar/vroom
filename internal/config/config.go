@@ -174,24 +174,24 @@ func (c *Config) Validate() error {
 	switch c.Ask.Launcher {
 	case "auto", "herdr", "inline", "custom":
 	default:
-		return fmt.Errorf("ask.launcher %q inválido (auto|herdr|inline|custom)", c.Ask.Launcher)
+		return fmt.Errorf("ask.launcher %q invalid (auto|herdr|inline|custom)", c.Ask.Launcher)
 	}
 	switch c.Ask.Direction {
 	case "right", "down":
 	default:
-		return fmt.Errorf("ask.direction %q inválido (right|down)", c.Ask.Direction)
+		return fmt.Errorf("ask.direction %q invalid (right|down)", c.Ask.Direction)
 	}
 	switch c.Ask.Target {
 	case "pane", "tab":
 	default:
-		return fmt.Errorf("ask.target %q inválido (pane|tab)", c.Ask.Target)
+		return fmt.Errorf("ask.target %q invalid (pane|tab)", c.Ask.Target)
 	}
 	if c.Ask.Launcher == "custom" && c.Ask.LauncherCmd == "" {
-		return fmt.Errorf("ask.launcher = custom requiere ask.launcher_cmd")
+		return fmt.Errorf("ask.launcher = custom requires ask.launcher_cmd")
 	}
 	for name, a := range c.Ask.Agents {
 		if a.Cmd == "" {
-			return fmt.Errorf("ask.agents.%s sin cmd", name)
+			return fmt.Errorf("ask.agents.%s without cmd", name)
 		}
 	}
 	return validateKeybindings(c.Keybindings)
@@ -202,19 +202,19 @@ func validateKeybindings(kb map[string]string) error {
 	seen := make(map[string]string, len(defaults))
 	for action, key := range kb {
 		if _, ok := defaults[action]; !ok {
-			return fmt.Errorf("keybindings.%s: acción desconocida", action)
+			return fmt.Errorf("keybindings.%s: unknown action", action)
 		}
 		if key == "" {
-			return fmt.Errorf("keybindings.%s: tecla vacía", action)
+			return fmt.Errorf("keybindings.%s: empty key", action)
 		}
 		if reservedKeys[key] {
-			return fmt.Errorf("keybindings.%s: %q es tecla reservada (no remapeable)", action, key)
+			return fmt.Errorf("keybindings.%s: %q is a reserved key (not remappable)", action, key)
 		}
 		if !validKey(key) {
-			return fmt.Errorf("keybindings.%s: tecla %q inválida (1 rune, ctrl+<rune> o space|home|end|delete|backspace|left|right)", action, key)
+			return fmt.Errorf("keybindings.%s: key %q invalid (1 rune, ctrl+<rune> or space|home|end|delete|backspace|left|right)", action, key)
 		}
 		if prev, dup := seen[key]; dup {
-			return fmt.Errorf("keybindings: tecla %q duplicada entre %s y %s", key, prev, action)
+			return fmt.Errorf("keybindings: key %q duplicated between %s and %s", key, prev, action)
 		}
 		seen[key] = action
 	}

@@ -56,13 +56,13 @@ func TestStartDevuelveElPuertoReservadoSiElHijoNuncaLlego(t *testing.T) {
 		StderrPath: filepath.Join(root, "e.log"),
 	})
 	if err == nil {
-		t.Fatal("un comando que no se puede lanzar debería fallar el arranque")
+		t.Fatal("a command that cannot be launched should fail the start")
 	}
 
 	// Proves the release by re-reserving rather than by inspecting the pool: peeking would test the implementation.
 	again, rerr := process.ReservePort()
 	if rerr != nil {
-		t.Fatalf("no se pudo reservar un puerto después del fallo: %v", rerr)
+		t.Fatalf("could not reserve a port after the failure: %v", rerr)
 	}
 	process.ReleasePort(again)
 }
@@ -82,11 +82,11 @@ func TestStartSinPuertoReservadoNoFiltraNadaSinReserva(t *testing.T) {
 		StderrPath: filepath.Join(root, "e.log"),
 	})
 	if err == nil {
-		t.Fatal("el fallo del spawn tiene que propagarse")
+		t.Fatal("the spawn failure must propagate")
 	}
 	p, rerr := process.ReservePort()
 	if rerr != nil || p <= 0 {
-		t.Errorf("el set de puertos quedó dañado: ReservePort = %d, %v", p, rerr)
+		t.Errorf("the port set was damaged: ReservePort = %d, %v", p, rerr)
 	} else {
 		process.ReleasePort(p)
 	}
@@ -112,15 +112,15 @@ func TestStartPropagaElFalloDeGuardarElIntentoConPuertoReservado(t *testing.T) {
 		StderrPath: filepath.Join(root, "e.log"),
 	})
 	if err == nil {
-		t.Fatal("un Meta que no se puede escribir debería hacer fallar el arranque")
+		t.Fatal("a Meta that cannot be written should fail the start")
 	}
 	if !strings.Contains(err.Error(), "service directory") && !strings.Contains(err.Error(), "service dir") {
-		t.Logf("el error no nombra el directorio de servicio: %q", err)
+		t.Logf("the error does not name the service directory: %q", err)
 	}
 
 	p, rerr := process.ReservePort()
 	if rerr != nil || p <= 0 {
-		t.Errorf("el set de puertos quedó dañado: ReservePort = %d, %v", p, rerr)
+		t.Errorf("the port set was damaged: ReservePort = %d, %v", p, rerr)
 	} else {
 		process.ReleasePort(p)
 	}
@@ -143,14 +143,14 @@ func TestApplyRouteConNombreNoUtilizableAvisaYNoPropagaElError(t *testing.T) {
 	applyRoute(req, &meta, 8081, &out)
 
 	if len(out.Warnings) == 0 {
-		t.Fatal("un nombre de ruta inválido tiene que producir un aviso: si no, el usuario no sabrá por qué no tiene ruta")
+		t.Fatal("an invalid route name must produce a warning: otherwise, the user will not know why they have no route")
 	}
 	if !strings.Contains(out.Warnings[0], "portless route") {
-		t.Errorf("el aviso no explica que el problema es el nombre: %q", out.Warnings[0])
+		t.Errorf("the warning does not explain that the problem is the name: %q", out.Warnings[0])
 	}
 	// Meta must stay untouched: with no accepted name there is no handle or ownership, or stop would try to revoke a route that was never registered.
 	if meta.RouteName != "" || meta.RouteOwned {
-		t.Errorf("el Meta se modificó sin ruta válida: %+v", meta)
+		t.Errorf("the Meta was modified without a valid route: %+v", meta)
 	}
 }
 
@@ -165,16 +165,16 @@ func TestApplyRouteSinRegistrarNoAbrePortless(t *testing.T) {
 	applyRoute(req, &meta, 8081, &out)
 
 	if len(out.Warnings) != 0 {
-		t.Errorf("sin contrato de ruta no debería haber avisos: %v", out.Warnings)
+		t.Errorf("without a route contract there should be no warnings: %v", out.Warnings)
 	}
 	if meta.RouteName != "" || meta.RouteStatus != "" || meta.RouteOwned {
-		t.Errorf("sin contrato de ruta el Meta no puede llevar nada de ruta: %+v", meta)
+		t.Errorf("without a route contract the Meta cannot carry any route data: %+v", meta)
 	}
 }
 
 // Same rule as the port_verified JSON field: a URL nobody saw working is worse than none, because a later reader (TUI, vroom list, next reconcile) connects to something else.
 func TestApplyRouteEscribeLaUrlSoloSiLaVerifico(t *testing.T) {
-	t.Run("registrada sin verificar", func(t *testing.T) {
+	t.Run("registered without verification", func(t *testing.T) {
 		reg := &degradingRegistrar{}
 		req := Request{
 			Manifest: &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeNamed, RouteName: "svc"},
@@ -187,29 +187,29 @@ func TestApplyRouteEscribeLaUrlSoloSiLaVerifico(t *testing.T) {
 		applyRoute(req, &meta, 8081, &out)
 
 		if meta.RouteURL != "" {
-			t.Errorf("RouteURL = %q sin verificación: publicaría una dirección falsa", meta.RouteURL)
+			t.Errorf("RouteURL = %q without verification: it would publish a false address", meta.RouteURL)
 		}
 		// The handle and status are still recorded: the route was written, so without a handle stop could never revoke it.
 		if meta.RouteName != "svc" {
-			t.Errorf("RouteName = %q: sin handle el stop no puede retirar la ruta", meta.RouteName)
+			t.Errorf("RouteName = %q: without a handle stop cannot revoke the route", meta.RouteName)
 		}
 		if meta.RouteStatus == "" {
-			t.Error("RouteStatus vacío: el Meta no afirma nada del resultado de la ruta")
+			t.Error("RouteStatus empty: the Meta says nothing about the route result")
 		}
 		// Ownership is granted too: gating it on Succeeded() is the opposite bug, since a route written with the proxy down is ours and its handle must survive a port move.
 		if !meta.RouteOwned {
-			t.Error("RouteOwned = false con un alta que ocurrió: sin propiedad el stop no podría retirar la ruta")
+			t.Error("RouteOwned = false with a registration that occurred: without ownership stop could not revoke the route")
 		}
 		if len(out.Warnings) == 0 {
-			t.Error("una ruta degradada sin aviso deja al usuario sin saber por qué no tiene URL")
+			t.Error("a degraded route without warning leaves the user without knowing why they have no URL")
 		}
 		// Reconcile must run before Apply and carry the previous handle, or a renamed branch leaves the old route aimed at a dead port forever.
 		if len(reg.reconciled) == 0 {
-			t.Error("no se reconcilió nada: una rama renombrada dejaría la ruta vieja apuntando a un puerto muerto para siempre")
+			t.Error("nothing was reconciled: a renamed branch would leave the old route pointing at a dead port forever")
 		}
 	})
 
-	t.Run("registrada y verificada", func(t *testing.T) {
+	t.Run("registered and verified", func(t *testing.T) {
 		req := Request{
 			Manifest: &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeNamed, RouteName: "svc"},
 			Branch:   "main",
@@ -221,13 +221,13 @@ func TestApplyRouteEscribeLaUrlSoloSiLaVerifico(t *testing.T) {
 		applyRoute(req, &meta, 8081, &out)
 
 		if meta.RouteURL == "" {
-			t.Errorf("una ruta verificada tiene que publicar su URL: %+v", meta)
+			t.Errorf("a verified route must publish its URL: %+v", meta)
 		}
 		if !meta.RouteOwned {
-			t.Error("una ruta registrada con éxito es nuestra: sin propiedad el stop no la retiraría")
+			t.Error("a successfully registered route is ours: without ownership stop would not revoke it")
 		}
 		if len(out.Warnings) != 0 {
-			t.Errorf("una ruta sana no debe producir avisos: %v", out.Warnings)
+			t.Errorf("a healthy route must not produce warnings: %v", out.Warnings)
 		}
 	})
 }
@@ -256,19 +256,19 @@ func TestRouteNameDerivaDeLaRamaEnAutoYDelNombreEnNamed(t *testing.T) {
 		want     string
 	}{
 		{
-			name:     "auto con rama",
+			name:     "auto with branch",
 			manifest: &manifest.Manifest{Name: "api", RouteMode: manifest.RouteModeAuto},
 			branch:   "feature/login",
 			want:     "feature-login.api",
 		},
 		{
-			name:     "auto sin rama usa el proyecto",
+			name:     "auto without branch uses the project",
 			manifest: &manifest.Manifest{Name: "api", RouteMode: manifest.RouteModeAuto},
 			branch:   "",
 			want:     "api",
 		},
 		{
-			name:     "named ignora la rama",
+			name:     "named ignores the branch",
 			manifest: &manifest.Manifest{Name: "api", RouteMode: manifest.RouteModeNamed, RouteName: "tienda"},
 			branch:   "cualquier-rama",
 			want:     "tienda",
@@ -290,7 +290,7 @@ func TestRouteNameDerivaDeLaRamaEnAutoYDelNombreEnNamed(t *testing.T) {
 		Manifest: &manifest.Manifest{Name: "api", RouteMode: "inventado"},
 		Branch:   "main",
 	}); err == nil {
-		t.Error("un route_mode desconocido debería dar error: un nombre inventado sería una ruta que colisiona con la de otro")
+		t.Error("an unknown route_mode should give an error: an invented name would be a route that collides with another's")
 	}
 }
 
@@ -310,22 +310,22 @@ func TestDiscoveryTimeoutPorDefectoCuandoNoSeDaUno(t *testing.T) {
 		StderrPath:       filepath.Join(root, "e.log"),
 	})
 	if err != nil {
-		t.Skipf("el arranque dynamic necesita un entorno con puerto disponible: %v", err)
+		t.Skipf("dynamic start needs an environment with an available port: %v", err)
 	}
 
 	// Never report the reserved port as the real one: nobody probed it, the same harm as publishing an unverified URL.
 	if res.Port != 0 {
-		t.Errorf("Port = %d con un servicio que no escucha: no se puede afirmar un puerto que nadie confirmó", res.Port)
+		t.Errorf("Port = %d with a service that does not listen: a port that nobody confirmed cannot be asserted", res.Port)
 	}
 	if res.Meta.State != state.StateNoPort {
-		t.Errorf("meta.State = %q, want %q: el estado tiene que decir POR QUÉ no hay puerto", res.Meta.State, state.StateNoPort)
+		t.Errorf("meta.State = %q, want %q: the state must say WHY there is no port", res.Meta.State, state.StateNoPort)
 	}
 	if res.Meta.PortVerified {
-		t.Error("PortVerified = true con Port 0: no se verificó ningún puerto")
+		t.Error("PortVerified = true with Port 0: no port was verified")
 	}
 	// no_port is a fact about the port, not a statement that the service is down, so the pid must still be alive.
 	if res.Pid <= 0 {
-		t.Error("Pid = 0: un no_port no significa que el servicio no arranque")
+		t.Error("Pid = 0: a no_port does not mean the service does not start")
 	}
 	stopOne(t, store, root)
 }

@@ -13,38 +13,38 @@ func TestSanitizeConsoleCarriageReturns(t *testing.T) {
 		want string
 	}{
 		{
-			name: "sobrescritura simple",
+			name: "simple overwrite",
 			in:   "aaa\rbbb",
 			want: "bbb",
 		},
 		{
-			name: "progreso maven: último segmento gana",
+			name: "maven progress: last segment wins",
 			in: "Progress (1): 0.5/4.2 kB\rProgress (1): 4.2 kB    \r" +
 				"                    \rDownloaded from x: url (4.2 kB at 64 kB/s)",
 			want: "Downloaded from x: url (4.2 kB at 64 kB/s)",
 		},
 		{
-			name: "crlf se normaliza conservando el texto",
+			name: "crlf is normalized preserving the text",
 			in:   "line\r\nnext",
 			want: "line\nnext",
 		},
 		{
-			name: "CR colgante al final no borra la línea",
+			name: "dangling CR at end does not erase the line",
 			in:   "open progress\r",
 			want: "open progress",
 		},
 		{
-			name: "segmento más largo que el previo extiende la línea",
+			name: "segment longer than previous extends the line",
 			in:   "short\rvery long segment",
 			want: "very long segment",
 		},
 		{
-			name: "varias líneas con CR",
+			name: "multiple lines with CR",
 			in:   "p1\rFINAL1\np2\rFINAL2",
 			want: "FINAL1\nFINAL2",
 		},
 		{
-			name: "sin CR queda intacto",
+			name: "without CR stays intact",
 			in:   "clean\nlines\n",
 			want: "clean\nlines\n",
 		},
@@ -66,87 +66,87 @@ func TestHighlightConsole(t *testing.T) {
 		want string
 	}{
 		{
-			name: "línea ERROR va entera en rojo",
+			name: "ERROR line goes entirely red",
 			in:   "2026-09-07 17:00:00.123 ERROR Connection refused",
 			want: styleLineError.Render("2026-09-07 17:00:00.123 ERROR Connection refused"),
 		},
 		{
-			name: "línea WARN va entera en amarillo",
+			name: "WARN line goes entirely yellow",
 			in:   "12:00:00 WARN deprecated config",
 			want: styleLineWarn.Render("12:00:00 WARN deprecated config"),
 		},
 		{
-			name: "prefijo Maven [WARNING] también es warn",
+			name: "Maven [WARNING] prefix is also warn",
 			in:   "[WARNING] Using platform encoding",
 			want: styleLineWarn.Render("[WARNING] Using platform encoding"),
 		},
 		{
-			name: "prefijo Maven [ERROR] va en rojo",
+			name: "Maven [ERROR] prefix goes red",
 			in:   "[ERROR] Failed to execute goal",
 			want: styleLineError.Render("[ERROR] Failed to execute goal"),
 		},
 		{
-			name: "DEBUG va atenuado",
+			name: "DEBUG goes dimmed",
 			in:   "10:00:00 DEBUG HikariPool stats",
 			want: styleDim.Render("10:00:00 DEBUG HikariPool stats"),
 		},
 		{
-			name: "TRACE va atenuado",
+			name: "TRACE goes dimmed",
 			in:   "TRACE resolving bean",
 			want: styleDim.Render("TRACE resolving bean"),
 		},
 		{
-			name: "frame de stack trace va atenuado",
+			name: "stack trace frame goes dimmed",
 			in:   "\tat com.example.orders.OrdersController.handle(OrdersController.java:42)",
 			want: styleDim.Render("\tat com.example.orders.OrdersController.handle(OrdersController.java:42)"),
 		},
 		{
-			name: "Caused by: va atenuado",
+			name: "Caused by: goes dimmed",
 			in:   "Caused by: java.net.SocketTimeoutException: Read timed out",
 			want: styleDim.Render("Caused by: java.net.SocketTimeoutException: Read timed out"),
 		},
 		{
-			name: "... N more va atenuado",
+			name: "... N more goes dimmed",
 			in:   "\t... 42 more",
 			want: styleDim.Render("\t... 42 more"),
 		},
 		{
-			name: "prefijo Maven [INFO] va atenuado",
+			name: "Maven [INFO] prefix goes dimmed",
 			in:   "[INFO] Building orders-api 1.0.0",
 			want: styleDim.Render("[INFO] Building orders-api 1.0.0"),
 		},
 		{
-			name: "INFO normal queda default",
+			name: "normal INFO stays default",
 			in:   "INFO Started OrdersApplication in 2.1s",
 			want: "INFO Started OrdersApplication in 2.1s",
 		},
 		{
-			name: "línea sin tokens queda intacta",
+			name: "line without tokens stays intact",
 			in:   "Tomcat started on port 8080",
 			want: "Tomcat started on port 8080",
 		},
 		{
-			name: "líneas vacías sin escapes",
+			name: "empty lines without escapes",
 			in:   "a\n\nb",
 			want: "a\n\nb",
 		},
 		{
-			name: "ERROR gana sobre DEBUG y stack trace",
+			name: "ERROR wins over DEBUG and stack trace",
 			in:   "\tat ERROR DEBUG x",
 			want: styleLineError.Render("\tat ERROR DEBUG x"),
 		},
 		{
-			name: "WARN gana sobre TRACE",
+			name: "WARN wins over TRACE",
 			in:   "TRACE WARN mixed",
 			want: styleLineWarn.Render("TRACE WARN mixed"),
 		},
 		{
-			name: "buffer vacío pasa tal cual",
+			name: "empty buffer passes as-is",
 			in:   "",
 			want: "",
 		},
 		{
-			name: "multi-línea mezclada resalta solo lo que toca",
+			name: "mixed multi-line highlights only what applies",
 			in:   "Booting Spring\nERROR boom\nTomcat started\n[INFO] done",
 			want: "Booting Spring\n" +
 				styleLineError.Render("ERROR boom") + "\n" +
@@ -170,10 +170,10 @@ func TestSetConsoleContentHighlights(t *testing.T) {
 
 	view := m.consoleView.View()
 	if want := styleLineError.Render("ERROR boom"); !strings.Contains(view, want) {
-		t.Errorf("viewport = %q, want línea ERROR estilizada con %q", view, want)
+		t.Errorf("viewport = %q, want ERROR line styled with %q", view, want)
 	}
 	if !strings.Contains(view, "plain line") {
-		t.Errorf("viewport = %q, want línea default visible", view)
+		t.Errorf("viewport = %q, want default line visible", view)
 	}
 }
 
@@ -186,12 +186,12 @@ func TestSetConsoleContentEmulatesCarriageReturns(t *testing.T) {
 
 	view := m.consoleView.View()
 	if strings.ContainsRune(view, '\r') {
-		t.Errorf("el viewport contiene \\r: %q", view)
+		t.Errorf("the viewport contains \\r: %q", view)
 	}
 	if !strings.Contains(view, "Downloaded from jfrog-ctti") {
-		t.Errorf("viewport = %q, want línea final visible", view)
+		t.Errorf("viewport = %q, want final line visible", view)
 	}
 	if strings.Contains(view, "Progress (1)") {
-		t.Errorf("el segmento sobrescrito no debe verse: %q", view)
+		t.Errorf("the overwritten segment must not be visible: %q", view)
 	}
 }

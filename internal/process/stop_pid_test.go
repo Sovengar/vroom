@@ -33,7 +33,7 @@ func assertDead(t *testing.T, pid int, what string) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Errorf("%s %d sigue vivo tras Stop", what, pid)
+	t.Errorf("%s %d is still alive after Stop", what, pid)
 }
 
 func startBareSpawned(t *testing.T) StartResult {
@@ -54,13 +54,13 @@ func startBareSpawned(t *testing.T) StartResult {
 
 func TestStopWithPidAndNoPgidTerminates(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	requireProc(t)
 
 	res := startBareSpawned(t)
 	if pidGone(t, res.Pid) {
-		t.Fatalf("precondición: el proceso debería estar vivo, got %d", res.Pid)
+		t.Fatalf("precondition: the process should be alive, got %d", res.Pid)
 	}
 
 	// The exact StopSpec the startsvc helpers use.
@@ -70,12 +70,12 @@ func TestStopWithPidAndNoPgidTerminates(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 
-	assertDead(t, res.Pid, "el proceso raíz")
+	assertDead(t, res.Pid, "the root process")
 }
 
 func TestStopWithPidOnlyKillsResidDescendant(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	requireProc(t)
 
@@ -99,28 +99,28 @@ func TestStopWithPidOnlyKillsResidDescendant(t *testing.T) {
 	waitPortOpen(t, port, 5*time.Second)
 	backendPID := PortOwnerPID(port)
 	if backendPID <= 0 {
-		t.Fatal("no se pudo determinar el PID del backend re-sid")
+		t.Fatal("could not determine the PID of the re-sid backend")
 	}
 	backend, alive := pidProcInfo(t, int(backendPID))
 	if !alive {
-		t.Fatalf("el backend %d no está en /proc", backendPID)
+		t.Fatalf("backend %d is not in /proc", backendPID)
 	}
 	if backend.pgid == res.Pgid {
-		t.Fatalf("precondición: el backend debe estar en otro pgid (tiene %d)", backend.pgid)
+		t.Fatalf("precondition: the backend must be in another pgid (has %d)", backend.pgid)
 	}
 
 	if err := m.Stop(StopSpec{Pid: res.Pid, Timeout: 3 * time.Second}); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 
-	assertDead(t, res.Pid, "la raíz")
-	assertDead(t, int(backendPID), "el descendiente re-sid")
-	waitFor(t, 3*time.Second, "puerto liberado", func() bool { return !PortOpen(port) })
+	assertDead(t, res.Pid, "the root")
+	assertDead(t, int(backendPID), "the re-sid descendant")
+	waitFor(t, 3*time.Second, "port freed", func() bool { return !PortOpen(port) })
 }
 
 func TestStopWithNonexistentPidIsClean(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: sin spawn, pero con /proc")
+		t.Skip("integration: no spawn, but with /proc")
 	}
 	requireProc(t)
 
@@ -128,23 +128,23 @@ func TestStopWithNonexistentPidIsClean(t *testing.T) {
 	go func() {
 		done <- newTestManager(t).Stop(StopSpec{
 			Pid: 999999999, Timeout: time.Second,
-			Warn: func(string, ...any) { t.Error("un PID inexistente no debe emitir avisos") },
+			Warn: func(string, ...any) { t.Error("a nonexistent PID must not emit warnings") },
 		})
 	}()
 
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Errorf("Stop con PID inexistente no debe fallar: %v", err)
+			t.Errorf("Stop with a nonexistent PID must not fail: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("Stop con un PID inexistente se ha colgado")
+		t.Fatal("Stop with a nonexistent PID has hung")
 	}
 }
 
 func TestStopWithoutAnyRootIsNoOp(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	requireProc(t)
 
@@ -155,14 +155,14 @@ func TestStopWithoutAnyRootIsNoOp(t *testing.T) {
 		Pid: 0, Pgid: 0, Port: 0, Timeout: time.Second,
 		Warn: func(f string, a ...any) { warns = append(warns, f) },
 	}); err != nil {
-		t.Fatalf("Stop sin raíz no debe fallar: %v", err)
+		t.Fatalf("Stop without a root must not fail: %v", err)
 	}
 
 	if len(warns) != 0 {
-		t.Errorf("un stop sin raíz no debe emitir avisos: %v", warns)
+		t.Errorf("a stop without a root must not emit warnings: %v", warns)
 	}
 	if pidGone(t, res.Pid) {
-		t.Fatal("un stop sin PID ni PGID no debe matar nada, y menos a un proceso ajeno")
+		t.Fatal("a stop without PID or PGID must not kill anything, least of all a foreign process")
 	}
 
 	_ = newTestManager(t).Stop(StopSpec{Pid: res.Pid, Timeout: time.Second})

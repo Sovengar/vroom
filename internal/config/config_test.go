@@ -22,13 +22,13 @@ func withConfig(t *testing.T, content string) Config {
 func TestLoadDefaults(t *testing.T) {
 	cfg := withConfig(t, "")
 	if cfg.Ask.Launcher != "auto" || cfg.Ask.Direction != "right" || cfg.Ask.Target != "pane" || cfg.Ask.Focus {
-		t.Errorf("defaults incorrectos: %+v", cfg.Ask)
+		t.Errorf("incorrect defaults: %+v", cfg.Ask)
 	}
 	if cfg.Ask.Prompt == "" {
-		t.Error("prompt default no debe estar vacío")
+		t.Error("default prompt must not be empty")
 	}
 	if !strings.Contains(cfg.Ask.Prompt, "{name}") || !strings.Contains(cfg.Ask.Prompt, "{logs}") {
-		t.Errorf("prompt default sin placeholders: %q", cfg.Ask.Prompt)
+		t.Errorf("default prompt without placeholders: %q", cfg.Ask.Prompt)
 	}
 	if cfg.Err != nil {
 		t.Errorf("Err = %v, want nil", cfg.Err)
@@ -52,7 +52,7 @@ cmd = "opencode --prompt {prompt}"
 	}
 	ask := cfg.Ask
 	if ask.Launcher != "custom" || ask.Direction != "down" || ask.Target != "tab" || !ask.Focus {
-		t.Errorf("ask mal parseado: %+v", ask)
+		t.Errorf("ask parsed incorrectly: %+v", ask)
 	}
 	if ask.LauncherCmd != "tmux new-window -c {dir} -- {cmd}" {
 		t.Errorf("launcher_cmd = %q", ask.LauncherCmd)
@@ -68,7 +68,7 @@ func TestLoadMalformed(t *testing.T) {
 		t.Errorf("Err = %v, want invalid config", cfg.Err)
 	}
 	if cfg.Ask.Launcher != "auto" {
-		t.Errorf("malformado debe devolver defaults, got %+v", cfg.Ask)
+		t.Errorf("malformed must return defaults, got %+v", cfg.Ask)
 	}
 }
 
@@ -77,8 +77,8 @@ func TestLoadInvalidEnums(t *testing.T) {
 		{"launcher", "[ask]\nlauncher = \"magic\"", "ask.launcher"},
 		{"direction", "[ask]\ndirection = \"up\"", "ask.direction"},
 		{"target", "[ask]\ntarget = \"window\"", "ask.target"},
-		{"custom sin cmd", "[ask]\nlauncher = \"custom\"", "launcher_cmd"},
-		{"agent sin cmd", "[ask.agents.x]\n", "ask.agents.x"},
+		{"custom without cmd", "[ask]\nlauncher = \"custom\"", "launcher_cmd"},
+		{"agent without cmd", "[ask.agents.x]\n", "ask.agents.x"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -99,7 +99,7 @@ prompt = "About {name} in {dir}, logs {logs}: "
 		t.Fatalf("Err = %v", custom.Err)
 	}
 	if custom.Ask.Prompt != "About {name} in {dir}, logs {logs}: " {
-		t.Errorf("prompt custom = %q", custom.Ask.Prompt)
+		t.Errorf("custom prompt = %q", custom.Ask.Prompt)
 	}
 
 	empty := withConfig(t, `[ask]
@@ -109,12 +109,12 @@ prompt = ""
 		t.Fatalf("Err = %v", empty.Err)
 	}
 	if empty.Ask.Prompt != "" {
-		t.Errorf("prompt explícito vacío debe quedarse vacío, got %q", empty.Ask.Prompt)
+		t.Errorf("explicit empty prompt must stay empty, got %q", empty.Ask.Prompt)
 	}
 
 	broken := withConfig(t, "esto no es [toml")
 	if broken.Ask.Prompt == "" {
-		t.Error("config malformado debe devolver el prompt default")
+		t.Error("malformed config must return the default prompt")
 	}
 }
 
@@ -164,7 +164,7 @@ func TestKeybindingsOverridePartial(t *testing.T) {
 		t.Errorf("KeyFor(start_stop) = %q, want x", got)
 	}
 	if got := cfg.KeyFor("build"); got != "b" {
-		t.Errorf("KeyFor(build) = %q, want b (default intacto)", got)
+		t.Errorf("KeyFor(build) = %q, want b (default intact)", got)
 	}
 	if got := cfg.KeyByAction()["x"]; got != "start_stop" {
 		t.Errorf("KeyByAction[x] = %q, want start_stop", got)
@@ -173,8 +173,8 @@ func TestKeybindingsOverridePartial(t *testing.T) {
 
 func TestKeybindingsReserved(t *testing.T) {
 	cfg := withConfig(t, "[keybindings]\nask = \"q\"\n")
-	if cfg.Err == nil || !strings.Contains(cfg.Err.Error(), "reservada") {
-		t.Errorf("Err = %v, want tecla reservada", cfg.Err)
+	if cfg.Err == nil || !strings.Contains(cfg.Err.Error(), "reserved") {
+		t.Errorf("Err = %v, want reserved key", cfg.Err)
 	}
 	if got := cfg.KeyFor("ask"); got != "a" {
 		t.Errorf("KeyFor(ask) = %q, want a (default)", got)
@@ -183,11 +183,11 @@ func TestKeybindingsReserved(t *testing.T) {
 
 func TestKeybindingsCollision(t *testing.T) {
 	cfg := withConfig(t, "[keybindings]\nbuild = \"x\"\ninstall = \"x\"\n")
-	if cfg.Err == nil || !strings.Contains(cfg.Err.Error(), "duplicada") {
-		t.Errorf("Err = %v, want tecla duplicada", cfg.Err)
+	if cfg.Err == nil || !strings.Contains(cfg.Err.Error(), "duplicate") {
+		t.Errorf("Err = %v, want duplicate key", cfg.Err)
 	}
 	if cfg.KeyFor("build") != "b" || cfg.KeyFor("install") != "i" {
-		t.Errorf("defaults no restaurados: build=%q install=%q", cfg.KeyFor("build"), cfg.KeyFor("install"))
+		t.Errorf("defaults not restored: build=%q install=%q", cfg.KeyFor("build"), cfg.KeyFor("install"))
 	}
 }
 
@@ -195,15 +195,15 @@ func TestKeybindingsFormat(t *testing.T) {
 	tests := []struct {
 		name    string
 		value   string
-		wantErr string // "" = válido
+		wantErr string // "" = valid
 	}{
-		{"rune simple", "z", ""},
-		{"rune mayúscula", "Z", ""},
-		{"especial", "space", ""},
-		{"ctrl otra", "ctrl+k", ""},
-		{"multi rune", "abc", "inválida"},
-		{"vacía", "", "vacía"},
-		{"ctrl+c reservada", "ctrl+c", "reservada"},
+		{"single rune", "z", ""},
+		{"uppercase rune", "Z", ""},
+		{"special", "space", ""},
+		{"ctrl other", "ctrl+k", ""},
+		{"multi rune", "abc", "invalid"},
+		{"empty", "", "empty"},
+		{"ctrl+c reserved", "ctrl+c", "reserved"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -227,8 +227,8 @@ func TestKeybindingsFormat(t *testing.T) {
 func TestKeybindingsUnknownAction(t *testing.T) {
 	for _, action := range []string{"filter", "shell", "fiilter"} {
 		cfg := withConfig(t, "[keybindings]\n"+action+" = \"f\"\n")
-		if cfg.Err == nil || !strings.Contains(cfg.Err.Error(), "desconocida") {
-			t.Errorf("acción %q: Err = %v, want desconocida", action, cfg.Err)
+		if cfg.Err == nil || !strings.Contains(cfg.Err.Error(), "unknown") {
+			t.Errorf("action %q: Err = %v, want unknown", action, cfg.Err)
 		}
 	}
 }

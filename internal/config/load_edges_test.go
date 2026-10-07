@@ -18,13 +18,13 @@ func TestLoadConUnConfigEnUnDirectorioInexistenteArrancaConDefaults(t *testing.T
 
 	cfg := Load()
 	if cfg.Err != nil {
-		t.Errorf("un config bajo un directorio inexistente dio error %v: es el mismo caso que no tener config", cfg.Err)
+		t.Errorf("a config under a non-existent directory gave error %v: it is the same case as having no config", cfg.Err)
 	}
 	if cfg.Ask.Launcher != "auto" {
 		t.Errorf("Ask.Launcher = %q, want auto", cfg.Ask.Launcher)
 	}
 	if len(cfg.Keybindings) == 0 {
-		t.Error("sin keybindings la TUI no tendría ninguna tecla asignada")
+		t.Error("without keybindings the TUI would have no assigned keys")
 	}
 }
 
@@ -35,13 +35,13 @@ func TestLoadConUnConfigQueEsUnDirectorioArrancaConDefaults(t *testing.T) {
 
 	cfg := Load()
 	if cfg.Err == nil {
-		t.Error("un config que es un directorio tiene que dar error: el usuario escribió la ruta de la carpeta")
+		t.Error("a config that is a directory must give an error: the user wrote the folder path")
 	}
 	if cfg.Ask.Launcher != "auto" || cfg.Scanner.Depth != Defaults().Scanner.Depth {
-		t.Errorf("con un config ilegible hay que arrancar con defaults, got %+v", cfg)
+		t.Errorf("with an unreadable config you must boot with defaults, got %+v", cfg)
 	}
 	if len(cfg.Keybindings) == 0 {
-		t.Error("sin keybindings la TUI no tendría ninguna tecla asignada")
+		t.Error("without keybindings the TUI would have no assigned keys")
 	}
 }
 
@@ -65,10 +65,10 @@ depth = 7
 
 	cfg := Load()
 	if cfg.Err != nil {
-		t.Errorf("una clave desconocida no puede invalidar el config: %v", cfg.Err)
+		t.Errorf("an unknown key cannot invalidate the config: %v", cfg.Err)
 	}
 	if cfg.Ask.Launcher != "inline" {
-		t.Errorf("Ask.Launcher = %q: las claves conocidas tienen que aplicarse aunque haya desconocidas", cfg.Ask.Launcher)
+		t.Errorf("Ask.Launcher = %q: known keys must be applied even if there are unknown ones", cfg.Ask.Launcher)
 	}
 	if cfg.Scanner.Depth != 7 {
 		t.Errorf("Scanner.Depth = %d, want 7", cfg.Scanner.Depth)
@@ -78,17 +78,17 @@ depth = 7
 // These accessors run over every scanned project, including bare directories with no manifest, so nil must yield "" instead of blanking the TUI.
 func TestSecondaryOfConManifiestoNilEsCadenaVacia(t *testing.T) {
 	if got := group.SecondaryOf(scannerProject(nil)); got != "" {
-		t.Errorf("SecondaryOf sin manifiesto = %q, want cadena vacía", got)
+		t.Errorf("SecondaryOf without manifest = %q, want empty string", got)
 	}
 	if got := group.PrimaryOf(scannerProject(nil)); got != "" {
-		t.Errorf("PrimaryOf sin manifiesto = %q, want cadena vacía", got)
+		t.Errorf("PrimaryOf without manifest = %q, want empty string", got)
 	}
 	if got := group.SecondaryOf(scannerProject(conGrupo("tienda", "backend"))); got != "backend" {
 		t.Errorf("SecondaryOf = %q, want backend", got)
 	}
 	// An empty secondary means "directly under the primary", not "unset".
 	if got := group.SecondaryOf(scannerProject(conGrupo("tienda", ""))); got != "" {
-		t.Errorf("SecondaryOf sin secundario = %q, want cadena vacía", got)
+		t.Errorf("SecondaryOf without secondary = %q, want empty string", got)
 	}
 	for _, g := range []string{"", "tienda"} {
 		if got := group.PrimaryOf(scannerProject(conGrupo(g, ""))); got != g {
@@ -121,12 +121,12 @@ func TestKeyByActionEsElInversoRealYNoPierdeLasTeclasPorDefecto(t *testing.T) {
 			continue
 		}
 		if inv[tecla] == "" {
-			t.Errorf("la tecla %q de la acción %q no está en el inverso: al tocar un binding, "+
-				"las demás acciones dejarían de funcionar", tecla, accion)
+			t.Errorf("the key %q of action %q is not in the inverse: touching one binding, "+
+				"the other actions would stop working", tecla, accion)
 		}
 	}
 	if len(inv) != len(defaults) {
-		t.Errorf("el inverso tiene %d entradas, want %d", len(inv), len(defaults))
+		t.Errorf("the inverse has %d entries, want %d", len(inv), len(defaults))
 	}
 }
 
@@ -146,13 +146,13 @@ prompt = "sin cmd"
 
 	cfg := Load()
 	if cfg.Err == nil {
-		t.Fatal("un agente sin cmd tiene que rechazarse: el picker lo ofrecería y fallaría al pulsarlo")
+		t.Fatal("an agent without cmd must be rejected: the picker would offer it and fail when pressed")
 	}
 	if !strings.Contains(cfg.Err.Error(), "cmd") {
-		t.Errorf("err = %q, want que diga que falta el cmd", cfg.Err)
+		t.Errorf("err = %q, want it to say cmd is missing", cfg.Err)
 	}
 	if len(cfg.Keybindings) == 0 {
-		t.Error("un config inválido no puede dejar la TUI sin teclas")
+		t.Error("an invalid config cannot leave the TUI without keys")
 	}
 }
 
@@ -166,7 +166,7 @@ func conGrupo(primary, secondary string) *manifest.Manifest {
 	}
 }
 
-// MEDIDO: Load returns defaults together with the error, because there is no other config to read and the TUI must still boot.
+// MEASURED: Load returns defaults together with the error, because there is no other config to read and the TUI must still boot.
 func TestLoadSinHomeDevuelveElErrorYDefaults(t *testing.T) {
 	t.Setenv("VROOM_CONFIG", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
@@ -174,15 +174,15 @@ func TestLoadSinHomeDevuelveElErrorYDefaults(t *testing.T) {
 
 	cfg := Load()
 	if cfg.Err == nil {
-		t.Fatal("sin HOME no hay config que leer, y eso tiene que llegar al usuario")
+		t.Fatal("without HOME there is no config to read, and that must reach the user")
 	}
 	if !strings.Contains(cfg.Err.Error(), "home") {
-		t.Errorf("err = %q, want que diga que falta el home", cfg.Err)
+		t.Errorf("err = %q, want it to say home is missing", cfg.Err)
 	}
 	if cfg.Ask.Launcher != "auto" || cfg.Scanner.Depth != Defaults().Scanner.Depth {
-		t.Errorf("sin config legible hay que arrancar con defaults, got %+v", cfg)
+		t.Errorf("without a readable config you must boot with defaults, got %+v", cfg)
 	}
 	if len(cfg.Keybindings) == 0 {
-		t.Error("sin keybindings la TUI no tendría ninguna tecla asignada")
+		t.Error("without keybindings the TUI would have no assigned keys")
 	}
 }

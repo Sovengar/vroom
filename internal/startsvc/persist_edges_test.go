@@ -26,8 +26,8 @@ func TestStopAfterPersistFailureNoHaceNadaSinPid(t *testing.T) {
 	stopAfterPersistFailure(req, process.StartResult{Pid: -1, Pgid: -1})
 
 	if paradas != 0 {
-		t.Errorf("se pararon %d veces sin un pid válido: sin proceso no hay nada que parar, y un "+
-			"Pid de 0 es 'mi propio grupo' para kill(-0)", paradas)
+		t.Errorf("stopped %d times without a valid pid: with no process there is nothing to stop, and a "+
+			"Pid of 0 is 'my own group' for kill(-0)", paradas)
 	}
 }
 
@@ -37,7 +37,7 @@ func TestStopAfterPersistFailureParaElHijoQueHay(t *testing.T) {
 
 	pid, pgid := lanzarHijo(t, "sleep", "30")
 	if !vivo(pid) {
-		t.Fatalf("el hijo %d no llegó a arrancar", pid)
+		t.Fatalf("child %d never started", pid)
 	}
 
 	stopAfterPersistFailure(req, process.StartResult{Pid: pid, Pgid: pgid})
@@ -62,10 +62,10 @@ func TestPersistOrKillParaElHijoCuandoElMetaNoSePuedeGuardar(t *testing.T) {
 	req := Request{Path: proyecto, Store: store, Manager: process.NewManager()}
 
 	if err := persistOrKill(req, state.Meta{Name: "api"}, process.StartResult{Pid: pid, Pgid: pgid}); err == nil {
-		t.Fatal("persistOrKill = nil con un meta que no se puede guardar")
+		t.Fatal("persistOrKill = nil with a meta that cannot be saved")
 	} else if !strings.Contains(err.Error(), "meta.json") {
-		t.Errorf("err = %q, want que nombre el fichero: el mensaje es lo que le dice al usuario "+
-			"que su directorio de estado está en mal estado", err)
+		t.Errorf("err = %q, want it to name the file: the message is what tells the user "+
+			"that their state directory is in a bad state", err)
 	}
 
 	esperarAQueMuera(t, pid)
@@ -85,14 +85,14 @@ func TestPersistOrKillGuardaCuandoPuede(t *testing.T) {
 
 	meta, err := store.LoadMeta(proyecto)
 	if err != nil {
-		t.Fatalf("el meta no se guardó: %v", err)
+		t.Fatalf("the meta was not saved: %v", err)
 	}
 	if meta.Pid != pid {
 		t.Errorf("meta.Pid = %d, want %d", meta.Pid, pid)
 	}
 	if !vivo(pid) {
-		t.Error("el hijo fue parado aunque el meta se guardó bien: un Start que nunca arranca " +
-			"nada tampoco es un acierto")
+		t.Error("the child was stopped even though the meta was saved fine: a Start that never starts " +
+			"anything is not a success either")
 	}
 }
 
@@ -131,7 +131,7 @@ func esperarAQueMuera(t *testing.T, pid int) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("el proceso %d seguía vivo 10s después de pedirle que parara: el helper no lo paró", pid)
+	t.Fatalf("process %d was still alive 10s after asking it to stop: the helper did not stop it", pid)
 }
 
 // MEDIDO: /proc/<pid> merely existing is not enough, because an unreaped child of this test process stays ZOMBIE there; the stat state field is internal/process's own criterion.
@@ -187,16 +187,16 @@ func TestElMetaFinalDeDynamicSeGuardaConElHijoYaVivoYLoParaSiNo(t *testing.T) {
 
 	res, err := f.start(t, discovery)
 	if err == nil {
-		t.Fatalf("Start = %+v sin error con el meta final inservible: el servicio se daría por "+
-			"arrancado sin registro, y el siguiente start abriría un segundo proceso", res)
+		t.Fatalf("Start = %+v without error with the final meta unusable: the service would be considered "+
+			"started without registration, and the next start would open a second process", res)
 	}
 	if res.Pid != 0 {
-		t.Errorf("Result.Pid = %d con un arranque fallido, want 0: con `Result{}` el caller no tiene "+
-			"forma de parar al hijo, y por eso `persistOrKill` lo para por su cuenta", res.Pid)
+		t.Errorf("Result.Pid = %d with a failed start, want 0: with `Result{}` the caller has no "+
+			"way to stop the child, and that is why `persistOrKill` stops it on its own", res.Pid)
 	}
 	if !strings.Contains(err.Error(), "meta.json") {
-		t.Errorf("err = %q, want que nombre el fichero: el mensaje es lo que le dice al usuario "+
-			"que su directorio de estado está en mal estado", err)
+		t.Errorf("err = %q, want it to name the file: the message is what tells the user "+
+			"that their state directory is in a bad state", err)
 	}
 }
 

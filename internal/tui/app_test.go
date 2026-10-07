@@ -182,7 +182,7 @@ func moveCursorTo(t *testing.T, m Model, name string) Model {
 	t.Helper()
 	idx := findCursor(m, name)
 	if idx < 0 {
-		t.Fatalf("proyecto %s no encontrado", name)
+		t.Fatalf("project %s not found", name)
 	}
 	m.cursor = idx
 	return m
@@ -192,7 +192,7 @@ func pathOfSelected(t *testing.T, m Model) string {
 	t.Helper()
 	p := m.selected()
 	if p == nil {
-		t.Fatal("el cursor no está sobre un proyecto")
+		t.Fatal("cursor is not on a project")
 	}
 	return p.Path
 }
@@ -200,25 +200,25 @@ func pathOfSelected(t *testing.T, m Model) string {
 func TestNavigationCyclic(t *testing.T) {
 	m, _ := newTestModel(t)
 	if len(m.entries) != 3 {
-		t.Fatalf("esperaba 3 proyectos, got %d", len(m.entries))
+		t.Fatalf("expected 3 projects, got %d", len(m.entries))
 	}
 	if len(m.tree) != 4 {
-		t.Fatalf("esperaba 4 filas de árbol, got %d", len(m.tree))
+		t.Fatalf("expected 4 tree rows, got %d", len(m.tree))
 	}
 
 	m.cursor = len(m.tree) - 1
 	m, _ = press(m, "j")
 	if m.cursor != 0 {
-		t.Errorf("al final, 'j' debe volver al inicio; cursor = %d", m.cursor)
+		t.Errorf("at the end, 'j' should wrap to the start; cursor = %d", m.cursor)
 	}
 	m, _ = press(m, "k")
 	if m.cursor != len(m.tree)-1 {
-		t.Errorf("en el inicio, 'k' debe ir al final; cursor = %d", m.cursor)
+		t.Errorf("at the start, 'k' should go to the end; cursor = %d", m.cursor)
 	}
 	m, _ = press(m, "down")
 	m, _ = press(m, "up")
 	if m.cursor != len(m.tree)-1 {
-		t.Errorf("up/down deben comportarse como j/k; cursor = %d", m.cursor)
+		t.Errorf("up/down should behave like j/k; cursor = %d", m.cursor)
 	}
 }
 
@@ -230,10 +230,10 @@ func TestToggleRunningStops(t *testing.T) {
 
 	m2, cmd := press(m, "s")
 	if cmd == nil {
-		t.Fatal("toggle sobre running debe emitir stop")
+		t.Fatal("toggle on running should emit stop")
 	}
 	if got := m2.services[path].Status; got != statusStopping {
-		t.Errorf("estado = %s, want stopping", got)
+		t.Errorf("status = %s, want stopping", got)
 	}
 }
 
@@ -245,10 +245,10 @@ func TestToggleUnknownStops(t *testing.T) {
 
 	m2, cmd := press(m, "s")
 	if cmd == nil {
-		t.Fatal("toggle sobre unknown debe emitir stop")
+		t.Fatal("toggle on unknown should emit stop")
 	}
 	if got := m2.services[path].Status; got != statusStopping {
-		t.Errorf("estado = %s, want stopping", got)
+		t.Errorf("status = %s, want stopping", got)
 	}
 }
 
@@ -258,10 +258,10 @@ func TestToggleStoppedStarts(t *testing.T) {
 
 	m2, cmd := press(m, "s")
 	if cmd == nil {
-		t.Fatal("toggle debe emitir comando de start")
+		t.Fatal("toggle should emit start command")
 	}
 	if got := m2.services[pathOfSelected(t, m2)].Status; got != statusStarting {
-		t.Errorf("estado = %s, want starting", got)
+		t.Errorf("status = %s, want starting", got)
 	}
 }
 
@@ -273,10 +273,10 @@ func TestToggleInTransitIgnored(t *testing.T) {
 
 	m2, cmd := press(m, "s")
 	if cmd != nil {
-		t.Error("toggle en tránsito no debe emitir comando")
+		t.Error("toggle in transit should not emit command")
 	}
 	if got := m2.services[path].Status; got != statusStarting {
-		t.Errorf("estado = %s, want starting (sin cambio)", got)
+		t.Errorf("status = %s, want starting (no change)", got)
 	}
 }
 
@@ -288,19 +288,19 @@ func TestRestartChainsStopAndStart(t *testing.T) {
 
 	m2, cmd := press(m, "R")
 	if cmd == nil {
-		t.Fatal("restart debe emitir stop")
+		t.Fatal("restart should emit stop")
 	}
 	if got := m2.services[path].Status; got != statusStopping {
-		t.Errorf("tras R: estado = %s, want stopping", got)
+		t.Errorf("after R: status = %s, want stopping", got)
 	}
 
 	next, cmd2 := m2.Update(stoppedMsg{path: path})
 	m3 := next.(Model)
 	if cmd2 == nil {
-		t.Fatal("restart debe encadenar el start")
+		t.Fatal("restart should chain the start")
 	}
 	if got := m3.services[path].Status; got != statusStarting {
-		t.Errorf("tras stop: estado = %s, want starting", got)
+		t.Errorf("after stop: status = %s, want starting", got)
 	}
 }
 
@@ -310,10 +310,10 @@ func TestRestartRequiresRunning(t *testing.T) {
 
 	m2, cmd := press(m, "R")
 	if cmd != nil {
-		t.Error("restart de servicio detenido no debe emitir comando")
+		t.Error("restart of stopped service should not emit command")
 	}
 	if !strings.Contains(m2.message, "running") {
-		t.Errorf("mensaje = %q", m2.message)
+		t.Errorf("message = %q", m2.message)
 	}
 }
 
@@ -334,7 +334,7 @@ func TestRefreshUpdatesStatuses(t *testing.T) {
 	}})
 	m2 := next.(Model)
 	if got := m2.services[path].Status; got != statusRunning {
-		t.Errorf("estado = %s, want running tras refresh", got)
+		t.Errorf("status = %s, want running after refresh", got)
 	}
 
 	next, _ = m.Update(refreshedMsg{results: map[string]refreshResult{
@@ -342,7 +342,7 @@ func TestRefreshUpdatesStatuses(t *testing.T) {
 	}})
 	m2 = next.(Model)
 	if got := m2.services[path].Status; got != statusStopped {
-		t.Errorf("estado = %s, want stopped (servicio crasheado)", got)
+		t.Errorf("status = %s, want stopped (service crashed)", got)
 	}
 }
 
@@ -362,13 +362,13 @@ func TestRefreshWithCorruptMeta(t *testing.T) {
 	msg := cmd()
 	rm, ok := msg.(refreshedMsg)
 	if !ok {
-		t.Fatalf("msg inesperado: %T", msg)
+		t.Fatalf("unexpected msg: %T", msg)
 	}
 	if got := rm.results[path].status; got != process.StatusStopped {
-		t.Errorf("estado = %s, want stopped", got)
+		t.Errorf("status = %s, want stopped", got)
 	}
 	if rm.results[path].warn == "" {
-		t.Error("debe incluir warning para meta corrupto")
+		t.Error("should include warning for corrupt meta")
 	}
 }
 
@@ -382,11 +382,11 @@ func TestRefreshMapsUnknown(t *testing.T) {
 	}})
 	m2 := next.(Model)
 	if got := m2.services[path].Status; got != statusUnknown {
-		t.Errorf("estado = %s, want unknown", got)
+		t.Errorf("status = %s, want unknown", got)
 	}
 	view := m2.renderDashboard()
 	if !strings.Contains(view, "unknown") {
-		t.Error("el dashboard debe mostrar unknown (badge del detalle)")
+		t.Error("dashboard should show unknown (detail badge)")
 	}
 }
 
@@ -410,7 +410,7 @@ func TestReattachFromDisk(t *testing.T) {
 	next, _ := m.Update(rm)
 	m2 := next.(Model)
 	if got := m2.services[path].Status; got != statusRunning {
-		t.Errorf("re-adjunta: estado = %s, want running", got)
+		t.Errorf("reattached: status = %s, want running", got)
 	}
 }
 
@@ -419,7 +419,7 @@ func TestTickReschedules(t *testing.T) {
 	next, cmd := m.Update(tickMsg(time.Now()))
 	m2 := next.(Model)
 	if cmd == nil {
-		t.Fatal("tick debe re-programar el siguiente ciclo")
+		t.Fatal("tick should reschedule the next cycle")
 	}
 	_ = m2
 }
@@ -428,19 +428,19 @@ func TestTickReschedules(t *testing.T) {
 func TestDetailsAlwaysVisible(t *testing.T) {
 	m, _ := newTestModel(t)
 	if !m.detailsShown {
-		t.Fatal("el panel de detalles debe estar siempre visible si cabe")
+		t.Fatal("details panel should always be visible if it fits")
 	}
 
 	m2, cmd := press(m, "d")
 	if cmd != nil || !m2.detailsShown {
-		t.Error("d ya no existe: no debe hacer nada")
+		t.Error("d no longer exists: should do nothing")
 	}
 	m3, cmd2 := press(m2, "esc")
 	if cmd2 == nil {
-		t.Error("esc debe salir de la TUI (no hay panel que cerrar)")
+		t.Error("esc should quit the TUI (no panel to close)")
 	}
 	if !m3.detailsShown {
-		t.Error("esc no debe ocultar el panel de detalles")
+		t.Error("esc should not hide the details panel")
 	}
 }
 
@@ -449,13 +449,13 @@ func TestEnterOnProjectTogglesInnermost(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, cmd := press(m, "enter")
 	if cmd != nil {
-		t.Error("plegar no debe emitir comandos")
+		t.Error("collapse should not emit commands")
 	}
 	if !m2.collapsed["tienda"] {
-		t.Fatal("enter sobre el proyecto (sin secundario) debe plegar su primario tienda")
+		t.Fatal("enter on project (no secondary) should collapse its primary tienda")
 	}
 	if len(m2.tree) != 2 { // 2 rows left: the collapsed tienda header plus the ungrouped suelto.
-		t.Errorf("árbol colapsado: %d filas, want 2", len(m2.tree))
+		t.Errorf("collapsed tree: %d rows, want 2", len(m2.tree))
 	}
 }
 
@@ -464,23 +464,23 @@ func TestDetailsAutoHideNarrow(t *testing.T) {
 	m.width = 50
 	m.updateLayout()
 	if m.detailsShown {
-		t.Error("con ancho 50 el detalle no debe mostrarse")
+		t.Error("with width 50 the detail should not be shown")
 	}
 	out := m.renderDashboard()
 	if strings.Contains(out, "language:") {
-		t.Error("el panel de detalles no debe renderizarse en ancho mínimo")
+		t.Error("details panel should not render at minimum width")
 	}
 	if !strings.Contains(out, "tienda-api") {
-		t.Error("el árbol debe seguir visible en ancho mínimo")
+		t.Error("tree should remain visible at minimum width")
 	}
 }
 
 func TestActiveTabMarked(t *testing.T) {
 	if tabLabel(tabConsole, true) == tabLabel(tabConsole, false) {
-		t.Error("la pestaña activa debe renderizarse distinto a la inactiva")
+		t.Error("active tab should render differently from inactive")
 	}
 	if !strings.Contains(tabLabel(tabThreads, true), "2 Threads") {
-		t.Error("la etiqueta de la pestaña debe conservar su texto")
+		t.Error("tab label should preserve its text")
 	}
 }
 
@@ -516,7 +516,7 @@ func TestTreeAutoScroll(t *testing.T) {
 	m2, _ := press(m, "k")
 	tree, cl2 := m2.treeLines()
 	if cl2 < m2.treeTop || cl2 >= m2.treeTop+m2.bodyH {
-		t.Errorf("cursor fuera de la ventana: cl=%d top=%d bodyH=%d total=%d",
+		t.Errorf("cursor outside the window: cl=%d top=%d bodyH=%d total=%d",
 			cl2, m2.treeTop, m2.bodyH, len(tree))
 	}
 	m3 := m2
@@ -524,7 +524,7 @@ func TestTreeAutoScroll(t *testing.T) {
 		m3, _ = press(m3, "k")
 	}
 	if m3.cursor != 0 || m3.treeTop != 0 {
-		t.Errorf("cursor=%d treeTop=%d, want 0/0 tras volver arriba", m3.cursor, m3.treeTop)
+		t.Errorf("cursor=%d treeTop=%d, want 0/0 after wrapping up", m3.cursor, m3.treeTop)
 	}
 }
 
@@ -536,11 +536,11 @@ func TestDashboardBoxWidthInvariant(t *testing.T) {
 		m.updateLayout()
 		lines := strings.Split(m.renderDashboard(), "\n")
 		if len(lines) != m.height {
-			t.Errorf("%dx%d: %d líneas, want %d", size[0], size[1], len(lines), m.height)
+			t.Errorf("%dx%d: %d lines, want %d", size[0], size[1], len(lines), m.height)
 		}
 		for i, l := range lines {
 			if w := lipglossWidth(l); w != m.width {
-				t.Errorf("%dx%d línea %d: ancho %d, want %d (%q)", size[0], size[1], i, w, m.width, l)
+				t.Errorf("%dx%d line %d: width %d, want %d (%q)", size[0], size[1], i, w, m.width, l)
 				break
 			}
 		}
@@ -555,17 +555,17 @@ func TestRenderDashboard(t *testing.T) {
 	out := m.View().Content
 	for _, want := range []string{"Projects", "Details", "Output", "Keybinds"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("falta el título de sección %q", want)
+			t.Errorf("missing section title %q", want)
 		}
 	}
 	for _, want := range []string{"tienda-api", "tienda-web", "suelto", "▾ tienda", "1 Console", "2 Threads"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("el dashboard no contiene %q", want)
+			t.Errorf("dashboard does not contain %q", want)
 		}
 	}
 	for _, want := range []string{"branch:", "main", "start:"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("el panel de detalles no contiene %q", want)
+			t.Errorf("details panel does not contain %q", want)
 		}
 	}
 }
@@ -576,12 +576,12 @@ func TestDetailsShowsBranch(t *testing.T) {
 	lines := m.detailsLines(m.rightW)
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, "branch:") || !strings.Contains(joined, "main") {
-		t.Errorf("detalle sin rama git: %q", joined)
+		t.Errorf("detail without git branch: %q", joined)
 	}
 	m = moveCursorTo(t, m, "suelto")
 	for _, l := range m.detailsLines(m.rightW) {
 		if strings.Contains(l, "branch:") {
-			t.Error("proyecto sin repo no debe mostrar branch")
+			t.Error("project without repo should not show branch")
 		}
 	}
 }
@@ -592,15 +592,15 @@ func TestDetailsShowsCommands(t *testing.T) {
 	joined := strings.Join(m.detailsLines(m.rightW), "\n")
 	for _, want := range []string{"start:", "node server.js", "install:", "echo installing web", "build:", "echo building web"} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("detalles sin %q: %q", want, joined)
+			t.Errorf("details without %q: %q", want, joined)
 		}
 	}
 	if !strings.Contains(joined, "stop:") {
-		t.Errorf("detalles sin la fila stop: %q", joined)
+		t.Errorf("details without stop row: %q", joined)
 	}
 	// An unconfigured stop must not inherit another field's value.
 	if strings.Contains(joined, "docker") {
-		t.Errorf("stop sin configurar no debe mostrar valor: %q", joined)
+		t.Errorf("unconfigured stop should not show value: %q", joined)
 	}
 }
 
@@ -618,10 +618,10 @@ func TestConsoleIncrementalAppend(t *testing.T) {
 	next, _ = m1.Update(consoleDeltaMsg{path: path, stdout: "line2\n", offS: 12})
 	m2 := next.(Model)
 	if got := m2.consoleStateFor(path).merged; got != "line1\nline2\n" {
-		t.Errorf("merged tras segundo delta = %q, want append sin reset", got)
+		t.Errorf("merged after second delta = %q, want append without reset", got)
 	}
 	if !strings.Contains(m2.consoleView.View(), "line2") {
-		t.Error("el viewport debe contener el contenido nuevo")
+		t.Error("viewport should contain the new content")
 	}
 }
 
@@ -637,7 +637,7 @@ func TestConsoleMergedNoDuplicates(t *testing.T) {
 		t.Errorf("merged = %q, want a\\nb\\n", cs.merged)
 	}
 	if cs.stdout != "a\n" || cs.stderr != "b\n" {
-		t.Errorf("streams aislados: stdout=%q stderr=%q", cs.stdout, cs.stderr)
+		t.Errorf("isolated streams: stdout=%q stderr=%q", cs.stdout, cs.stderr)
 	}
 }
 
@@ -646,7 +646,7 @@ func TestConsoleBuffersSurviveNavigation(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	pathA := pathOfSelected(t, m)
 
-	next, _ := m.Update(consoleDeltaMsg{path: pathA, stdout: "histórico\n", offS: 10})
+	next, _ := m.Update(consoleDeltaMsg{path: pathA, stdout: "historical\n", offS: 10})
 	m1 := next.(Model)
 
 	m2, _ := press(m1, "j")
@@ -655,29 +655,29 @@ func TestConsoleBuffersSurviveNavigation(t *testing.T) {
 	m3 := next.(Model)
 
 	m4, _ := press(m3, "k")
-	if got := m4.consoleStateFor(pathA).merged; got != "histórico\n" {
-		t.Errorf("buffer de A perdido: %q", got)
+	if got := m4.consoleStateFor(pathA).merged; got != "historical\n" {
+		t.Errorf("buffer of A lost: %q", got)
 	}
-	if !strings.Contains(m4.consoleView.View(), "histórico") {
-		t.Error("al volver a A el viewport debe mostrar su buffer")
+	if !strings.Contains(m4.consoleView.View(), "historical") {
+		t.Error("after returning to A the viewport should show its buffer")
 	}
 	if got := m4.consoleStateFor(pathB).merged; got != "web\n" {
-		t.Errorf("buffer de B perdido: %q", got)
+		t.Errorf("buffer of B lost: %q", got)
 	}
 }
 
 func TestConsoleFollowPause(t *testing.T) {
 	m, _ := newTestModel(t)
 	if !m.consoleFollow {
-		t.Fatal("follow debe iniciar activo")
+		t.Fatal("follow should start active")
 	}
 	m2, _ := press(m, "pgup")
 	if m2.consoleFollow {
-		t.Error("pgup debe pausar el follow")
+		t.Error("pgup should pause follow")
 	}
 	m3, _ := press(m2, "G")
 	if !m3.consoleFollow {
-		t.Error("G debe reactivar el follow")
+		t.Error("G should reactivate follow")
 	}
 }
 
@@ -689,14 +689,14 @@ func TestConsolePageScroll(t *testing.T) {
 
 	m2, _ := press(m, "pgup")
 	if m2.consoleView.YOffset() == 0 {
-		t.Error("pgup debe desplazar la vista")
+		t.Error("pgup should scroll the view")
 	}
 	if m2.consoleFollow {
-		t.Error("pgup debe pausar el follow")
+		t.Error("pgup should pause follow")
 	}
 	m3, _ := press(m2, "pgdown")
 	if !m3.consoleView.AtBottom() {
-		t.Errorf("pgdown debe desplazar la vista hacia abajo: yOffset=%d", m3.consoleView.YOffset())
+		t.Errorf("pgdown should scroll the view down: yOffset=%d", m3.consoleView.YOffset())
 	}
 }
 
@@ -709,10 +709,10 @@ func TestMouseWheelScroll(t *testing.T) {
 	next, _ := m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	m2 := next.(Model)
 	if m2.consoleFollow {
-		t.Error("rueda arriba debe pausar el follow")
+		t.Error("wheel up should pause follow")
 	}
 	if m2.consoleView.YOffset() == 0 {
-		t.Error("rueda arriba debe desplazar la vista")
+		t.Error("wheel up should scroll the view")
 	}
 
 	for i := 0; i < 100; i++ {
@@ -720,10 +720,10 @@ func TestMouseWheelScroll(t *testing.T) {
 		m2 = next.(Model)
 	}
 	if !m2.consoleView.AtBottom() || m2.consoleView.YOffset() == 0 {
-		t.Errorf("rueda abajo debe llevar al final: yOffset=%d", m2.consoleView.YOffset())
+		t.Errorf("wheel down should go to the end: yOffset=%d", m2.consoleView.YOffset())
 	}
 	if !m2.consoleFollow {
-		t.Error("rueda abajo hasta el final debe reactivar el follow")
+		t.Error("wheel down to the end should reactivate follow")
 	}
 
 	before := m2.consoleView.YOffset()
@@ -732,7 +732,7 @@ func TestMouseWheelScroll(t *testing.T) {
 	next, _ = m4.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	m5 := next.(Model)
 	if !m5.consoleFollow || m5.consoleView.YOffset() != before {
-		t.Error("la rueda en Threads no debe tocar la consola")
+		t.Error("wheel on Threads should not touch the console")
 	}
 }
 
@@ -740,15 +740,15 @@ func TestToggleStreamMode(t *testing.T) {
 	m, _ := newTestModel(t)
 	m2, _ := press(m, "c")
 	if m2.stream != streamStdout {
-		t.Errorf("tras 1er c: %v, want stdout", m2.stream)
+		t.Errorf("after 1st c: %v, want stdout", m2.stream)
 	}
 	m3, _ := press(m2, "c")
 	if m3.stream != streamStderr {
-		t.Errorf("tras 2do c: %v, want stderr", m3.stream)
+		t.Errorf("after 2nd c: %v, want stderr", m3.stream)
 	}
 	m4, _ := press(m3, "c")
 	if m4.stream != streamMerged {
-		t.Errorf("tras 3er c: %v, want merged", m4.stream)
+		t.Errorf("after 3rd c: %v, want merged", m4.stream)
 	}
 }
 
@@ -764,7 +764,7 @@ func TestConsoleBufferCapped(t *testing.T) {
 		t.Errorf("buffer = %d bytes, cap = %d", got, maxConsoleBytes)
 	}
 	if !strings.Contains(m1.consoleStateFor(path).stdout, "end\n") {
-		t.Error("el cap debe conservar el contenido reciente")
+		t.Error("cap should preserve recent content")
 	}
 }
 
@@ -825,34 +825,34 @@ func TestConsoleTailPipelineRealFiles(t *testing.T) {
 func TestTabSwitching(t *testing.T) {
 	m, _ := newTestModel(t)
 	if m.activeTab != tabConsole {
-		t.Fatal("pestaña inicial = Console")
+		t.Fatal("initial tab = Console")
 	}
 	m2, _ := press(m, "2")
 	if m2.activeTab != tabThreads {
-		t.Error("tecla 2 debe activar Threads")
+		t.Error("key 2 should activate Threads")
 	}
 	m3, _ := press(m2, "3")
 	if m3.activeTab != tabMetrics {
-		t.Error("tecla 3 debe activar Metrics")
+		t.Error("key 3 should activate Metrics")
 	}
 	if m4, _ := press(m3, "7"); m4.activeTab != tabHealth {
-		t.Error("tecla 7 debe activar Health")
+		t.Error("key 7 should activate Health")
 	}
 	m5, _ := press(m3, "tab")
 	if m5.activeTab != tabGit {
-		t.Errorf("tab desde Metrics debe ir a Git, got %v", m5.activeTab)
+		t.Errorf("tab from Metrics should go to Git, got %v", m5.activeTab)
 	}
 	m6, _ := press(m5, "shift+tab")
 	if m6.activeTab != tabMetrics {
-		t.Errorf("shift+tab debe volver a Metrics, got %v", m6.activeTab)
+		t.Errorf("shift+tab should return to Metrics, got %v", m6.activeTab)
 	}
 	m7, _ := press(m, "tab")
 	if m7.activeTab != tabThreads {
-		t.Errorf("tab desde Console debe ir a Threads, got %v", m7.activeTab)
+		t.Errorf("tab from Console should go to Threads, got %v", m7.activeTab)
 	}
 	m8, _ := press(m7, "1")
 	if m8.activeTab != tabConsole {
-		t.Error("tecla 1 debe activar Console")
+		t.Error("key 1 should activate Console")
 	}
 }
 
@@ -884,7 +884,7 @@ func TestThreadsTableAndCPU(t *testing.T) {
 	m1 := next.(Model)
 	rows := m1.threads[path]
 	if len(rows) != 2 || rows[0].CPU != 0 || rows[1].CPU != 0 {
-		t.Fatalf("primera muestra: %+v", rows)
+		t.Fatalf("first sample: %+v", rows)
 	}
 
 	prev := m1.threadPrev[path]
@@ -896,16 +896,16 @@ func TestThreadsTableAndCPU(t *testing.T) {
 	m2 := next.(Model)
 	rows = m2.threads[path]
 	if rows[0].TID != 1 || offBy(rows[0].CPU, 50) {
-		t.Errorf("orden/CPU: %+v", rows)
+		t.Errorf("order/CPU: %+v", rows)
 	}
 	if rows[1].TID != 2 || offBy(rows[1].CPU, 5) {
-		t.Errorf("segundo hilo: %+v", rows)
+		t.Errorf("second thread: %+v", rows)
 	}
 
 	out := strings.Join(m2.threadsLines(m2.rightW, m2.contentH), "\n")
 	for _, want := range []string{"main", "gc", "TID", "CPU%"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("tabla sin %q: %q", want, out)
+			t.Errorf("table without %q: %q", want, out)
 		}
 	}
 }
@@ -927,18 +927,18 @@ func TestThreadsSamplingError(t *testing.T) {
 func TestHelpResponsive(t *testing.T) {
 	full1 := dashboardHelp1(200, nil)
 	if !strings.Contains(full1, "start/stop") {
-		t.Errorf("help1 completa sin start/stop: %q", full1)
+		t.Errorf("full help1 without start/stop: %q", full1)
 	}
 	full2 := dashboardHelp2(200, nil) // nil = defaults
 	if !strings.Contains(full2, "refresh") {
-		t.Errorf("help2 completa sin refresh: %q", full2)
+		t.Errorf("full help2 without refresh: %q", full2)
 	}
 	narrow2 := dashboardHelp2(40, nil)
 	if strings.Contains(narrow2, "refresh") {
-		t.Errorf("en estrecho no debe caber refresh: %q", narrow2)
+		t.Errorf("in narrow mode refresh should not fit: %q", narrow2)
 	}
 	if utf8.RuneCountInString(narrow2) > 40 {
-		t.Errorf("help2 no truncada al ancho: %d runes", utf8.RuneCountInString(narrow2))
+		t.Errorf("help2 not truncated to width: %d runes", utf8.RuneCountInString(narrow2))
 	}
 }
 
@@ -951,22 +951,22 @@ func TestBadgeShowsPort(t *testing.T) {
 	}
 	sv := &ServiceState{Status: statusRunning, Meta: state.Meta{Port: 41501}}
 	if badge := statusBadge(p, sv, "·", "·"); !strings.Contains(badge, ":41501") {
-		t.Errorf("badge running con el puerto real: %q", badge)
+		t.Errorf("running badge with real port: %q", badge)
 	}
 	if badge := statusBadge(p, sv, "·", "·"); strings.Contains(badge, ":8081") {
-		t.Errorf("el badge no debe emitir el puerto declarado: %q", badge)
+		t.Errorf("badge should not emit the declared port: %q", badge)
 	}
 	sv.Status = statusUnknown
 	if badge := statusBadge(p, sv, "·", "·"); !strings.Contains(badge, ":41501") {
-		t.Errorf("badge unknown con el puerto real: %q", badge)
+		t.Errorf("unknown badge with real port: %q", badge)
 	}
 	sv.Status = statusStopped
 	if badge := statusBadge(p, sv, "·", "·"); strings.Contains(badge, ":41501") {
-		t.Errorf("badge stopped no debe mostrar puerto: %q", badge)
+		t.Errorf("stopped badge should not show port: %q", badge)
 	}
 	p2 := scanner.Project{Path: "/tmp/y", Name: "y"}
 	if badge := statusBadge(p2, &ServiceState{Status: statusUnconfigured}, "·", "·"); strings.Contains(badge, ":") {
-		t.Errorf("badge unconfigured con puerto: %q", badge)
+		t.Errorf("unconfigured badge with port: %q", badge)
 	}
 }
 
@@ -980,21 +980,21 @@ func TestBadgePortPendingIsItsOwnState(t *testing.T) {
 
 	badge := statusBadge(p, sv, "SPIN", "START")
 	if strings.Contains(badge, "SPIN") || strings.Contains(badge, "unknown") {
-		t.Errorf("el puerto pendiente no debe usar el spinner genérico: %q", badge)
+		t.Errorf("port pending should not use the generic spinner: %q", badge)
 	}
 	if !strings.Contains(badge, "port pending") {
-		t.Errorf("el puerto pendiente debe nombrarse: %q", badge)
+		t.Errorf("port pending should be named: %q", badge)
 	}
 	if !sv.Status.alive() {
-		t.Error("el puerto pendiente debe seguir siendo detenible")
+		t.Error("port pending should remain stoppable")
 	}
 
 	sv.Status = statusNoPort
 	if badge := statusBadge(p, sv, "SPIN", "START"); !strings.Contains(badge, "no port") {
-		t.Errorf("servicio sin puerto debe nombrarse: %q", badge)
+		t.Errorf("service without port should be named: %q", badge)
 	}
 	if !sv.Status.alive() {
-		t.Error("un servicio sin puerto sigue siendo detenible")
+		t.Error("a service without port remains stoppable")
 	}
 }
 
@@ -1041,11 +1041,11 @@ func TestResolveEditor(t *testing.T) {
 	t.Setenv("VISUAL", "code -w")
 	t.Setenv("EDITOR", "nano")
 	if got := resolveEditor(); got != "code -w" {
-		t.Errorf("VISUAL debe tener prioridad, got %q", got)
+		t.Errorf("VISUAL should take priority, got %q", got)
 	}
 	t.Setenv("VISUAL", "")
 	if got := resolveEditor(); got != "nano" {
-		t.Errorf("EDITOR secundario, got %q", got)
+		t.Errorf("secondary EDITOR, got %q", got)
 	}
 	t.Setenv("EDITOR", "")
 	if got := resolveEditor(); got != "nvim" {
@@ -1057,11 +1057,11 @@ func TestHelpWording(t *testing.T) {
 	full := dashboardHelp1(200, nil) + " · " + dashboardHelp2(200, nil) // nil = defaults
 	for _, want := range []string{"l logfile", "1-7 tabs", "enter collapse", "b build", "i install", "t tasks", "a ask", "C clear", "/ filter", "! shell"} {
 		if !strings.Contains(full, want) {
-			t.Errorf("help sin %q: %q", want, full)
+			t.Errorf("help without %q: %q", want, full)
 		}
 	}
 	if strings.Contains(full, "d info") {
-		t.Error("help no debe mencionar d info (toggle eliminado)")
+		t.Error("help should not mention d info (toggle removed)")
 	}
 }
 
@@ -1080,10 +1080,10 @@ func TestHelpRemapped(t *testing.T) {
 	kb := map[string]string{"start_stop": "x"}
 	full1 := dashboardHelp1(200, kb)
 	if !strings.Contains(full1, "x start/stop") {
-		t.Errorf("help1 sin x start/stop: %q", full1)
+		t.Errorf("help1 without x start/stop: %q", full1)
 	}
 	if strings.Contains(full1, "s start/stop") {
-		t.Errorf("help1 aún menciona s start/stop: %q", full1)
+		t.Errorf("help1 still mentions s start/stop: %q", full1)
 	}
 }
 
@@ -1094,7 +1094,7 @@ func TestRemappedStartStop(t *testing.T) {
 
 	m2, cmd := press(m, "x")
 	if cmd == nil {
-		t.Fatal("x debe lanzar el start (start_stop remapeado)")
+		t.Fatal("x should trigger start (start_stop remapped)")
 	}
 	if m2.services[path].Status != statusStarting {
 		t.Errorf("status = %q, want starting", m2.services[path].Status)
@@ -1102,10 +1102,10 @@ func TestRemappedStartStop(t *testing.T) {
 
 	m3, cmd2 := press(m2, "s")
 	if cmd2 != nil {
-		t.Error("s removida no debe lanzar nada")
+		t.Error("removed s should not trigger anything")
 	}
 	if m3.services[path].Status != statusStarting {
-		t.Errorf("s no debe alterar el estado, got %q", m3.services[path].Status)
+		t.Errorf("s should not change the status, got %q", m3.services[path].Status)
 	}
 }
 
@@ -1115,14 +1115,14 @@ func TestRemappedTasks(t *testing.T) {
 
 	m2, _ := press(m, "m")
 	if !strings.Contains(m2.message, "no mise.toml") {
-		t.Errorf("m debe disparar openPicker: msg=%q", m2.message)
+		t.Errorf("m should trigger openPicker: msg=%q", m2.message)
 	}
 
 	m3, _ := newTestModelWithConfig(t, "[keybindings]\ntasks = \"m\"\n")
 	m3 = moveCursorTo(t, m3, "tienda-web")
 	m4, _ := press(m3, "t")
 	if m4.message != "" || m4.pickerOpen {
-		t.Errorf("t removida no debe disparar nada: open=%v msg=%q", m4.pickerOpen, m4.message)
+		t.Errorf("removed t should not trigger anything: open=%v msg=%q", m4.pickerOpen, m4.message)
 	}
 }
 
@@ -1131,25 +1131,25 @@ func TestUniversalsWithRemap(t *testing.T) {
 
 	m2, _ := press(m, "2")
 	if m2.activeTab != tabThreads {
-		t.Error("tecla 2 debe activar Threads aun con remap")
+		t.Error("key 2 should activate Threads even with remap")
 	}
 	m3, _ := press(m2, "/")
 	if !m3.filterOpen {
-		t.Error("/ debe abrir el filtro aun con remap")
+		t.Error("/ should open the filter even with remap")
 	}
 	m4, _ := press(m3, "esc")
 	if m4.filterOpen {
-		t.Error("esc debe cerrar el filtro")
+		t.Error("esc should close the filter")
 	}
 	m4b := m4
 	m4b.cursor = findPrimary(m4b, "tienda")
 	m5, _ := press(m4b, "enter")
 	if len(m5.tree) == len(m4b.tree) {
-		t.Error("enter debe plegar el grupo aun con remap")
+		t.Error("enter should collapse the group even with remap")
 	}
 	m6, _ := press(m5, "tab")
 	if m6.activeTab != tabMetrics {
-		t.Error("tab debe ciclar a la siguiente pestaña aun con remap")
+		t.Error("tab should cycle to the next tab even with remap")
 	}
 }
 
@@ -1159,7 +1159,7 @@ func TestLogsAliasFixed(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, cmd := press(m, "o")
 	if cmd == nil {
-		t.Fatal("alias o debe abrir el editor de logs")
+		t.Fatal("alias o should open the log editor")
 	}
 	_ = m2
 
@@ -1167,7 +1167,7 @@ func TestLogsAliasFixed(t *testing.T) {
 	m3 = moveCursorTo(t, m3, "suelto") // has a manifest but no command_install
 	m4, _ := press(m3, "o")
 	if !strings.Contains(m4.message, "no install command") {
-		t.Errorf("o reclamada por install debe disparar install: msg=%q", m4.message)
+		t.Errorf("o claimed by install should trigger install: msg=%q", m4.message)
 	}
 }
 
@@ -1175,45 +1175,45 @@ func TestGroupCollapse(t *testing.T) {
 	m, _ := newTestModel(t)
 	gi := findPrimary(m, "tienda")
 	if gi < 0 {
-		t.Fatal("grupo tienda no encontrado en el árbol")
+		t.Fatal("group tienda not found in the tree")
 	}
 	m.cursor = gi
 	m.services[pathOfSelectedNamed(t, m, "tienda-api")].Status = statusRunning
 
 	m2, cmd := press(m, "enter")
 	if cmd != nil {
-		t.Error("colapsar no debe emitir comandos")
+		t.Error("collapse should not emit commands")
 	}
 	if !m2.collapsed["tienda"] {
-		t.Fatal("enter sobre grupo debe colapsarlo")
+		t.Fatal("enter on group should collapse it")
 	}
 	if len(m2.tree) != 2 {
-		t.Errorf("árbol colapsado: %d filas, want 2", len(m2.tree))
+		t.Errorf("collapsed tree: %d rows, want 2", len(m2.tree))
 	}
 	if m2.cursor != gi {
-		t.Errorf("cursor = %d, want %d (el header conserva su índice)", m2.cursor, gi)
+		t.Errorf("cursor = %d, want %d (header keeps its index)", m2.cursor, gi)
 	}
 	tree, _ := m2.treeLines()
 	treeText := strings.Join(tree, "\n")
 	if !strings.Contains(treeText, "tienda (1/2)") {
-		t.Errorf("header colapsado sin conteo: %q", treeText)
+		t.Errorf("collapsed header without count: %q", treeText)
 	}
 	if strings.Contains(treeText, "tienda-web") || strings.Contains(treeText, "tienda-api") {
-		t.Errorf("los miembros del grupo colapsado no deben verse en el árbol: %q", treeText)
+		t.Errorf("members of the collapsed group should not be visible in the tree: %q", treeText)
 	}
 	// Collapsing hides members in the tree only: the details panel still lists them.
 	if !strings.Contains(m2.renderDashboard(), "tienda-web") {
-		t.Error("el panel de info debe listar los miembros del grupo colapsado")
+		t.Error("info panel should list members of the collapsed group")
 	}
 
 	m3, _ := press(m2, "enter")
 	if m3.collapsed["tienda"] {
-		t.Error("segundo enter debe expandir el grupo")
+		t.Error("second enter should expand the group")
 	}
 	treeExp, _ := m3.treeLines()
 	treeExpText := strings.Join(treeExp, "\n")
 	if len(m3.tree) != 4 || !strings.Contains(treeExpText, "▾ tienda") || strings.Contains(treeExpText, "(1/2)") {
-		t.Errorf("árbol expandido debe mostrar miembros sin conteo: %q", treeExpText)
+		t.Errorf("expanded tree should show members without count: %q", treeExpText)
 	}
 }
 
@@ -1223,12 +1223,12 @@ func TestGroupToggleAll(t *testing.T) {
 
 	m2, cmd := press(m, "s")
 	if cmd == nil {
-		t.Fatal("s sobre grupo con parados debe emitir starts")
+		t.Fatal("s on group with stopped should emit starts")
 	}
 	for _, name := range []string{"tienda-api", "tienda-web"} {
 		sv := m2.services[pathOfSelectedNamed(t, m2, name)]
 		if sv.Status != statusStarting {
-			t.Errorf("%s: estado = %s, want starting", name, sv.Status)
+			t.Errorf("%s: status = %s, want starting", name, sv.Status)
 		}
 	}
 
@@ -1237,12 +1237,12 @@ func TestGroupToggleAll(t *testing.T) {
 	}
 	m3, cmd2 := press(m2, "s")
 	if cmd2 == nil {
-		t.Fatal("s sobre grupo corriendo debe emitir stops")
+		t.Fatal("s on running group should emit stops")
 	}
 	for _, name := range []string{"tienda-api", "tienda-web"} {
 		sv := m3.services[pathOfSelectedNamed(t, m3, name)]
 		if sv.Status != statusStopping {
-			t.Errorf("%s: estado = %s, want stopping", name, sv.Status)
+			t.Errorf("%s: status = %s, want stopping", name, sv.Status)
 		}
 	}
 }
@@ -1256,7 +1256,7 @@ func TestGroupDetails(t *testing.T) {
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{"tienda (1/2)", "services:", "running:", "tienda-api", "tienda-web"} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("detalle de grupo sin %q: %q", want, joined)
+			t.Errorf("group detail without %q: %q", want, joined)
 		}
 	}
 }
@@ -1267,10 +1267,10 @@ func TestGroupConsolePlaceholder(t *testing.T) {
 	next, _ := m.onSelect()
 	m2 := next.(Model)
 	if !strings.Contains(m2.consoleView.View(), "group selected") {
-		t.Errorf("viewport = %q, want placeholder de grupo", m2.consoleView.View())
+		t.Errorf("viewport = %q, want group placeholder", m2.consoleView.View())
 	}
 	if m2.tailCmd() != nil {
-		t.Error("con grupo seleccionado no debe tailear logs")
+		t.Error("with group selected should not tail logs")
 	}
 }
 
@@ -1278,7 +1278,7 @@ func pathOfSelectedNamed(t *testing.T, m Model, name string) string {
 	t.Helper()
 	idx := findCursor(m, name)
 	if idx < 0 {
-		t.Fatalf("proyecto %s no encontrado", name)
+		t.Fatalf("project %s not found", name)
 	}
 	return m.tree[idx].project.Path
 }
@@ -1328,19 +1328,19 @@ func TestNestedTreeRender(t *testing.T) {
 	joined := strings.Join(tree, "\n")
 	for _, want := range []string{"▾ otros", "▾ tienda", "▾ frontend"} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("falta header %q: %q", want, joined)
+			t.Errorf("missing header %q: %q", want, joined)
 		}
 	}
 	// Secondary headers show 4 leading spaces (2 cursor + 2 indent); primary ones show 2.
 	if got := strings.Count(joined, "▾ backend"); got != 2 {
-		t.Errorf("esperaba 2 headers backend (tienda y otros), got %d: %q", got, joined)
+		t.Errorf("expected 2 backend headers (tienda and otros), got %d: %q", got, joined)
 	}
 	for _, line := range tree {
 		if !strings.Contains(line, "▾ backend") {
 			continue
 		}
 		if !strings.HasPrefix(line, "    ") {
-			t.Fatalf("el header secundario debe ir indentado 2 espacios extra: %q", line)
+			t.Fatalf("secondary header should be indented 2 extra spaces: %q", line)
 		}
 	}
 }
@@ -1349,32 +1349,32 @@ func TestSecondaryCollapse(t *testing.T) {
 	m := newNestedTestModel(t)
 	si := findSecondary(m, "tienda", "backend")
 	if si < 0 {
-		t.Fatal("header tienda/backend no encontrado")
+		t.Fatal("header tienda/backend not found")
 	}
 	m.cursor = si
 	m2, cmd := press(m, "enter")
 	if cmd != nil {
-		t.Error("colapsar no debe emitir comandos")
+		t.Error("collapse should not emit commands")
 	}
 	if !m2.collapsed["tienda/backend"] {
-		t.Fatal("enter sobre el secundario debe plegarlo")
+		t.Fatal("enter on secondary should collapse it")
 	}
 	if m2.cursor != si {
-		t.Errorf("cursor = %d, want %d (el header conserva su índice)", m2.cursor, si)
+		t.Errorf("cursor = %d, want %d (header keeps its index)", m2.cursor, si)
 	}
 	tree, _ := m2.treeLines()
 	joined := strings.Join(tree, "\n")
 	if !strings.Contains(joined, "▸ backend") {
-		t.Errorf("el header colapsado debe usar ▸: %q", joined)
+		t.Errorf("collapsed header should use ▸: %q", joined)
 	}
 	for _, name := range []string{"tienda-api", "tienda-billing"} {
 		if strings.Contains(joined, name) {
-			t.Errorf("%s debe estar oculto: %q", name, joined)
+			t.Errorf("%s should be hidden: %q", name, joined)
 		}
 	}
 	for _, want := range []string{"▾ tienda", "tienda-inventory", "▾ frontend", "tienda-web", "otros-api"} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("%s debe seguir visible: %q", want, joined)
+			t.Errorf("%s should remain visible: %q", want, joined)
 		}
 	}
 }
@@ -1385,18 +1385,18 @@ func TestPrimaryCollapseHidesSecondaries(t *testing.T) {
 	m.cursor = pi
 	m2, _ := press(m, "enter")
 	if !m2.collapsed["tienda"] {
-		t.Fatal("enter sobre el primario debe plegarlo")
+		t.Fatal("enter on primary should collapse it")
 	}
 	tree, _ := m2.treeLines()
 	joined := strings.Join(tree, "\n")
 	for _, want := range []string{"tienda-api", "tienda-billing", "tienda-inventory", "tienda-web", "▾ frontend"} {
 		if strings.Contains(joined, want) {
-			t.Errorf("%q no debe verse con el primario plegado: %q", want, joined)
+			t.Errorf("%q should not be visible with primary collapsed: %q", want, joined)
 		}
 	}
 	for _, want := range []string{"▸ tienda", "▾ otros", "▾ backend", "otros-api"} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("%s debe seguir visible: %q", want, joined)
+			t.Errorf("%s should remain visible: %q", want, joined)
 		}
 	}
 }
@@ -1406,12 +1406,12 @@ func TestEnterOnProjectInnermostNested(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, _ := press(m, "enter")
 	if !m2.collapsed["tienda/backend"] || m2.collapsed["tienda"] {
-		t.Fatal("enter sobre proyecto con secundario debe plegar el secundario, no el primario")
+		t.Fatal("enter on project with secondary should collapse the secondary, not the primary")
 	}
 	m3 := moveCursorTo(t, m2, "tienda-inventory")
 	m4, _ := press(m3, "enter")
 	if !m4.collapsed["tienda"] {
-		t.Fatal("enter sobre proyecto sin secundario debe plegar su primario")
+		t.Fatal("enter on project without secondary should collapse its primary")
 	}
 }
 
@@ -1422,7 +1422,7 @@ func TestPrimaryCountIncludesSecondaries(t *testing.T) {
 	m2, _ := press(m, "enter")
 	tree, _ := m2.treeLines()
 	if !strings.Contains(strings.Join(tree, "\n"), "tienda (1/4)") {
-		t.Errorf("el primario debe contar 4 miembros (backend 2 + inventory + frontend 1): %q",
+		t.Errorf("primary should count 4 members (backend 2 + inventory + frontend 1): %q",
 			strings.Join(tree, "\n"))
 	}
 }
@@ -1434,10 +1434,10 @@ func TestSecondaryCollapseKeysNoCollision(t *testing.T) {
 	tree, _ := m2.treeLines()
 	joined := strings.Join(tree, "\n")
 	if !strings.Contains(joined, "▸ backend") {
-		t.Errorf("tienda/backend debe plegarse: %q", joined)
+		t.Errorf("tienda/backend should collapse: %q", joined)
 	}
 	if !strings.Contains(joined, "otros-api") {
-		t.Errorf("otros/backend debe seguir abierto: %q", joined)
+		t.Errorf("otros/backend should remain open: %q", joined)
 	}
 }
 
@@ -1446,11 +1446,11 @@ func TestPrimaryToggleAllSecondaries(t *testing.T) {
 	m.cursor = findPrimary(m, "tienda")
 	m2, cmd := press(m, "s")
 	if cmd == nil {
-		t.Fatal("s sobre primario con parados debe emitir starts")
+		t.Fatal("s on primary with stopped should emit starts")
 	}
 	for _, name := range []string{"tienda-api", "tienda-billing", "tienda-inventory", "tienda-web"} {
 		if sv := m2.services[pathOfSelectedNamed(t, m2, name)]; sv.Status != statusStarting {
-			t.Errorf("%s: estado = %s, want starting", name, sv.Status)
+			t.Errorf("%s: status = %s, want starting", name, sv.Status)
 		}
 	}
 }
@@ -1461,15 +1461,15 @@ func TestSecondaryToggleScoped(t *testing.T) {
 	m.cursor = findSecondary(m, "tienda", "backend")
 	m2, cmd := press(m, "s")
 	if cmd == nil {
-		t.Fatal("s sobre secundario con parados debe emitir starts")
+		t.Fatal("s on secondary with stopped should emit starts")
 	}
 	for _, name := range []string{"tienda-api", "tienda-billing"} {
 		if sv := m2.services[pathOfSelectedNamed(t, m2, name)]; sv.Status != statusStarting {
-			t.Errorf("%s: estado = %s, want starting", name, sv.Status)
+			t.Errorf("%s: status = %s, want starting", name, sv.Status)
 		}
 	}
 	if sv := m2.services[pathOfSelectedNamed(t, m2, "tienda-web")]; sv.Status != statusRunning {
-		t.Errorf("tienda-web (frontend) no debe tocarse: %s", sv.Status)
+		t.Errorf("tienda-web (frontend) should not be touched: %s", sv.Status)
 	}
 }
 
@@ -1481,12 +1481,12 @@ func TestSecondaryDetails(t *testing.T) {
 	joined := strings.Join(m.detailsLines(m.rightW), "\n")
 	for _, want := range []string{"backend (1/2)", "services:", "running:", "tienda-api", "tienda-billing"} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("detalle del secundario sin %q: %q", want, joined)
+			t.Errorf("secondary detail without %q: %q", want, joined)
 		}
 	}
 	for _, no := range []string{"tienda-web", "tienda-inventory"} {
 		if strings.Contains(joined, no) {
-			t.Errorf("no debe listar miembros de otros nodos: %q", no)
+			t.Errorf("should not list members of other nodes: %q", no)
 		}
 	}
 }
@@ -1495,11 +1495,11 @@ func TestDetailsGroupComposite(t *testing.T) {
 	m := newNestedTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	if joined := strings.Join(m.detailsLines(m.rightW), "\n"); !strings.Contains(joined, "tienda/backend") {
-		t.Errorf("detalles sin compuesto primario/secundario: %q", joined)
+		t.Errorf("details without primary/secondary composite: %q", joined)
 	}
 	m2 := moveCursorTo(t, m, "tienda-inventory")
 	if joined := strings.Join(m2.detailsLines(m2.rightW), "\n"); strings.Contains(joined, "tienda/backend") {
-		t.Errorf("primario sin secundario no debe mostrar compuesto: %q", joined)
+		t.Errorf("primary without secondary should not show composite: %q", joined)
 	}
 }
 
@@ -1510,7 +1510,7 @@ func TestBuildKey(t *testing.T) {
 
 	m2, cmd := press(m, "b")
 	if cmd == nil {
-		t.Fatal("b debe lanzar el job de build")
+		t.Fatal("b should trigger the build job")
 	}
 	if got := m2.jobs[path]; got != "build" {
 		t.Errorf("jobs[%s] = %q, want build", path, got)
@@ -1528,7 +1528,7 @@ func TestBuildKey(t *testing.T) {
 	next, _ := m2.Update(msg)
 	m3 := next.(Model)
 	if m3.jobs[path] != "" {
-		t.Error("jobMsg debe liberar el bloqueo del proyecto")
+		t.Error("jobMsg should release the project lock")
 	}
 	if !strings.Contains(m3.message, "build ok") {
 		t.Errorf("message = %q, want build ok", m3.message)
@@ -1541,7 +1541,7 @@ func TestBuildKey(t *testing.T) {
 	log := string(data)
 	for _, want := range []string{"── vroom ▶ build: echo building", "── vroom ✓ build ok"} {
 		if !strings.Contains(log, want) {
-			t.Errorf("stdout.log sin %q: %q", want, log)
+			t.Errorf("stdout.log without %q: %q", want, log)
 		}
 	}
 }
@@ -1551,7 +1551,7 @@ func TestBuildKeyWithoutCommand(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, cmd := press(m, "b")
 	if cmd != nil {
-		t.Error("sin build no debe lanzar job")
+		t.Error("without build should not trigger job")
 	}
 	if !strings.Contains(m2.message, "no build command") {
 		t.Errorf("message = %q, want no build command", m2.message)
@@ -1563,7 +1563,7 @@ func TestInstallKey(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, cmd := press(m, "i")
 	if cmd == nil {
-		t.Fatal("i debe lanzar el job de install")
+		t.Fatal("i should trigger the install job")
 	}
 	if got := m2.jobs[pathOfSelected(t, m2)]; got != "install" {
 		t.Errorf("jobs = %q, want install", got)
@@ -1577,7 +1577,7 @@ func TestInstallKey(t *testing.T) {
 	m4 = moveCursorTo(t, m4, "tienda-web")
 	m5, cmd2 := press(m4, "i")
 	if cmd2 != nil {
-		t.Error("sin install no debe lanzar job")
+		t.Error("without install should not trigger job")
 	}
 	if !strings.Contains(m5.message, "no install command") {
 		t.Errorf("message = %q, want no install command", m5.message)
@@ -1591,19 +1591,19 @@ func TestJobBusyBlock(t *testing.T) {
 
 	m3, cmd2 := press(m2, "i")
 	if cmd2 != nil {
-		t.Error("con job en curso no debe lanzar otro")
+		t.Error("with job in progress should not trigger another")
 	}
 	if !strings.Contains(m3.message, "already running") {
 		t.Errorf("message = %q, want already running", m3.message)
 	}
 	if m3.jobs[pathOfSelected(t, m3)] != "build" {
-		t.Error("el job original debe seguir marcado")
+		t.Error("original job should remain marked")
 	}
 
 	m4 := moveCursorTo(t, m3, "tienda-web")
 	m5, cmd3 := press(m4, "b")
 	if cmd3 == nil {
-		t.Error("otro proyecto debe poder lanzar build en paralelo")
+		t.Error("another project should be able to trigger build in parallel")
 	}
 	_ = m5
 }
@@ -1613,14 +1613,14 @@ func TestJobsGuards(t *testing.T) {
 	m.cursor = findPrimary(m, "tienda")
 	m2, cmd := press(m, "b")
 	if cmd != nil || !strings.Contains(m2.message, "select a service") {
-		t.Errorf("b sobre grupo: cmd=%v msg=%q", cmd, m2.message)
+		t.Errorf("b on group: cmd=%v msg=%q", cmd, m2.message)
 	}
 
 	m3, _ := newJobsTestModel(t)
 	m3 = moveCursorTo(t, m3, "suelto")
 	m4, cmd2 := press(m3, "i")
 	if cmd2 != nil || !strings.Contains(m4.message, "no install command") {
-		t.Errorf("i sobre suelto (sin install): cmd=%v msg=%q", cmd2, m4.message)
+		t.Errorf("i on suelto (without install): cmd=%v msg=%q", cmd2, m4.message)
 	}
 }
 
@@ -1635,7 +1635,7 @@ func TestJobCmdFailure(t *testing.T) {
 		t.Errorf("exitCode = %d, want 3", jm.exitCode)
 	}
 	if jm.err != nil {
-		t.Errorf("err = %v, want nil (exit code conocido)", jm.err)
+		t.Errorf("err = %v, want nil (known exit code)", jm.err)
 	}
 
 	data, err := os.ReadFile(stdout)
@@ -1643,9 +1643,9 @@ func TestJobCmdFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := string(data)
-	for _, want := range []string{"── vroom ▶ build: echo boom && exit 3", "✗ build failed (exit 3"} {
+	for _, want := range []string{"── vroom ▶ build: echo boom && exit 3", "✗ build failed (exit 3, 0s)"} {
 		if !strings.Contains(log, want) {
-			t.Errorf("stdout.log sin %q: %q", want, log)
+			t.Errorf("stdout.log without %q: %q", want, log)
 		}
 	}
 }
@@ -1656,18 +1656,18 @@ func TestPickerOpenAndRun(t *testing.T) {
 
 	m2, _ := press(m, "t")
 	if !m2.pickerOpen {
-		t.Fatalf("t debe abrir el picker (msg=%q)", m2.message)
+		t.Fatalf("t should open the picker (msg=%q)", m2.message)
 	}
 	if len(m2.pickerItems) != 2 {
-		t.Errorf("items = %d, want 2 (hidden excluido): %+v", len(m2.pickerItems), m2.pickerItems)
+		t.Errorf("items = %d, want 2 (hidden excluded): %+v", len(m2.pickerItems), m2.pickerItems)
 	}
 	if m2.pickerItems[0].Name != "build" || m2.pickerItems[1].Name != "test" {
-		t.Errorf("orden alfabético roto: %+v", m2.pickerItems)
+		t.Errorf("alphabetical order broken: %+v", m2.pickerItems)
 	}
 	out := m2.View().Content
 	for _, want := range []string{"tasks — tienda-web", "▶ build", "j/k select · enter run · esc close"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("render del picker sin %q", want)
+			t.Errorf("picker render without %q", want)
 		}
 	}
 
@@ -1677,10 +1677,10 @@ func TestPickerOpenAndRun(t *testing.T) {
 	}
 	m4, cmd := press(m3, "enter")
 	if m4.pickerOpen {
-		t.Error("enter debe cerrar el picker")
+		t.Error("enter should close the picker")
 	}
 	if cmd == nil {
-		t.Fatal("enter debe lanzar el job task")
+		t.Fatal("enter should trigger the task job")
 	}
 	if got := m4.jobs[pathOfSelected(t, m4)]; got != "task" {
 		t.Errorf("jobs = %q, want task", got)
@@ -1694,18 +1694,18 @@ func TestPickerModal(t *testing.T) {
 
 	m3, cmd := press(m2, "s")
 	if cmd != nil || m3.services[pathOfSelected(t, m3)].Status != statusStopped {
-		t.Error("el modal debe ignorar s (sin toggle de servicio)")
+		t.Error("modal should ignore s (no service toggle)")
 	}
 	if !m3.pickerOpen {
-		t.Error("el modal debe seguir abierto")
+		t.Error("modal should remain open")
 	}
 
 	m4, cmd2 := press(m3, "esc")
 	if m4.pickerOpen {
-		t.Error("esc debe cerrar el picker")
+		t.Error("esc should close the picker")
 	}
 	if cmd2 != nil {
-		t.Error("esc con picker NO debe salir de la TUI")
+		t.Error("esc with picker should NOT quit the TUI")
 	}
 }
 
@@ -1714,14 +1714,14 @@ func TestPickerGuards(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, _ := press(m, "t")
 	if m2.pickerOpen || !strings.Contains(m2.message, "no mise.toml") {
-		t.Errorf("sin mise.toml: open=%v msg=%q", m2.pickerOpen, m2.message)
+		t.Errorf("without mise.toml: open=%v msg=%q", m2.pickerOpen, m2.message)
 	}
 
 	m3, _ := newJobsTestModel(t)
 	m3 = moveCursorTo(t, m3, "suelto")
 	m4, _ := press(m3, "t")
 	if m4.pickerOpen || !strings.Contains(m4.message, "no mise.toml") {
-		t.Errorf("suelto sin mise.toml: open=%v msg=%q", m4.pickerOpen, m4.message)
+		t.Errorf("suelto without mise.toml: open=%v msg=%q", m4.pickerOpen, m4.message)
 	}
 }
 
@@ -1738,7 +1738,7 @@ func TestPickerNoTasks(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-web")
 	m2, _ := press(m, "t")
 	if m2.pickerOpen || !strings.Contains(m2.message, "no tasks defined") {
-		t.Errorf("sin tasks: open=%v msg=%q", m2.pickerOpen, m2.message)
+		t.Errorf("without tasks: open=%v msg=%q", m2.pickerOpen, m2.message)
 	}
 }
 
@@ -1748,36 +1748,36 @@ func TestClearConsole(t *testing.T) {
 	path := pathOfSelected(t, m)
 
 	cs := m.consoleStateFor(path)
-	cs.merged = "output viejo\n"
+	cs.merged = "old output\n"
 	m.setConsoleContent(cs.view(m.stream))
 	stdout := store.StdoutLog(path)
 	if err := os.MkdirAll(filepath.Dir(stdout), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(stdout, []byte("output viejo\n"), 0o644); err != nil {
+	if err := os.WriteFile(stdout, []byte("old output\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	m2, cmd := press(m, "C")
 	if cmd != nil {
-		t.Error("C no debe emitir comandos")
+		t.Error("C should not emit commands")
 	}
 	if !strings.Contains(m2.message, "console cleared") {
 		t.Errorf("message = %q", m2.message)
 	}
 	cs2 := m2.consoleStateFor(path)
 	if cs2.merged != "" || cs2.stdout != "" || cs2.stderr != "" {
-		t.Error("los buffers deben quedar vacíos")
+		t.Error("buffers should be empty")
 	}
-	if cs2.off[0] != int64(len("output viejo\n")) {
-		t.Errorf("off[0] = %d, want EOF del log", cs2.off[0])
+	if cs2.off[0] != int64(len("old output\n")) {
+		t.Errorf("off[0] = %d, want EOF of the log", cs2.off[0])
 	}
 	dm := consoleTailCmd(path, cs2.off[0], cs2.off[1], stdout, store.StderrLog(path))().(consoleDeltaMsg)
 	if dm.stdout != "" && dm.stderr != "" {
-		t.Errorf("delta tras clear = %q/%q, want vacío", dm.stdout, dm.stderr)
+		t.Errorf("delta after clear = %q/%q, want empty", dm.stdout, dm.stderr)
 	}
 	data, _ := os.ReadFile(stdout)
-	if !strings.Contains(string(data), "output viejo") {
-		t.Error("C no debe truncar los ficheros de log")
+	if !strings.Contains(string(data), "old output") {
+		t.Error("C should not truncate log files")
 	}
 }
 
@@ -1786,13 +1786,13 @@ func TestClearConsoleGuards(t *testing.T) {
 	m.cursor = findPrimary(m, "tienda")
 	m2, _ := press(m, "C")
 	if !strings.Contains(m2.message, "select a service") {
-		t.Errorf("C sobre grupo: msg=%q", m2.message)
+		t.Errorf("C on group: msg=%q", m2.message)
 	}
 	m3, _ := newTestModel(t)
 	m3 = moveCursorTo(t, m3, "suelto")
 	m4, _ := press(m3, "C")
 	if !strings.Contains(m4.message, "console cleared") {
-		t.Errorf("C sobre suelto (con manifest): msg=%q", m4.message)
+		t.Errorf("C on suelto (with manifest): msg=%q", m4.message)
 	}
 }
 
@@ -1802,7 +1802,7 @@ func TestAskNoAgents(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, _ := press(m, "a")
 	if m2.askPromptOpen || m2.pickerOpen {
-		t.Error("sin agentes no debe abrir nada")
+		t.Error("without agents should not open anything")
 	}
 	if !strings.Contains(m2.message, "no AI agent found") {
 		t.Errorf("message = %q", m2.message)
@@ -1815,13 +1815,13 @@ func TestAskSingleAgent(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, _ := press(m, "a")
 	if m2.pickerOpen {
-		t.Error("con un solo agente no debe abrir el picker")
+		t.Error("with a single agent should not open the picker")
 	}
 	if !m2.askPromptOpen || m2.askAgent.Name != "pi" {
 		t.Errorf("askPromptOpen=%v agent=%q", m2.askPromptOpen, m2.askAgent.Name)
 	}
 	if !strings.Contains(m2.View().Content, "ask pi — tienda-api") {
-		t.Error("el modal del prompt debe renderizar el título")
+		t.Error("prompt modal should render the title")
 	}
 }
 
@@ -1831,7 +1831,7 @@ func TestAskPickerFlow(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, _ := press(m, "a")
 	if !m2.pickerOpen || m2.pickerKind != pickerAgents {
-		t.Fatalf("a debe abrir el picker de agentes (open=%v kind=%v)", m2.pickerOpen, m2.pickerKind)
+		t.Fatalf("a should open the agent picker (open=%v kind=%v)", m2.pickerOpen, m2.pickerKind)
 	}
 	if len(m2.pickerItems) != 3 {
 		t.Errorf("items = %d, want 3", len(m2.pickerItems))
@@ -1839,7 +1839,7 @@ func TestAskPickerFlow(t *testing.T) {
 	m3, _ := press(m2, "j")
 	m4, _ := press(m3, "enter")
 	if m4.pickerOpen || !m4.askPromptOpen || m4.askAgent.Name != "pi" {
-		t.Errorf("enter del picker: open=%v prompt=%v agent=%q", m4.pickerOpen, m4.askPromptOpen, m4.askAgent.Name)
+		t.Errorf("picker enter: open=%v prompt=%v agent=%q", m4.pickerOpen, m4.askPromptOpen, m4.askAgent.Name)
 	}
 }
 
@@ -1852,15 +1852,15 @@ func TestAskPromptGuards(t *testing.T) {
 
 	m3, _ := press(m2, "enter")
 	if !m3.askPromptOpen || !strings.Contains(m3.message, "empty prompt") {
-		t.Errorf("enter vacío: open=%v msg=%q", m3.askPromptOpen, m3.message)
+		t.Errorf("empty enter: open=%v msg=%q", m3.askPromptOpen, m3.message)
 	}
 
 	m4, cmd := press(m3, "esc")
 	if m4.askPromptOpen {
-		t.Error("esc debe cerrar el prompt")
+		t.Error("esc should close the prompt")
 	}
 	if cmd != nil {
-		t.Error("esc con prompt abierto NO debe salir de la TUI")
+		t.Error("esc with prompt open should NOT quit the TUI")
 	}
 }
 
@@ -1882,14 +1882,14 @@ func TestAskDispatchHerdr(t *testing.T) {
 	next, cmd := m3.dispatchAsk()
 	m4 := next.(Model)
 	if cmd == nil {
-		t.Fatal("dispatch debe emitir el cmd del launcher")
+		t.Fatal("dispatch should emit the launcher cmd")
 	}
 	if m4.askPromptOpen {
-		t.Error("dispatch debe cerrar el modal")
+		t.Error("dispatch should close the modal")
 	}
 	msg := cmd().(statusMsg)
 	if !strings.Contains(msg.message, "pi → herdr pane w1:p7") {
-		t.Errorf("status = %q (el launcher herdr debe despachar)", msg.message)
+		t.Errorf("status = %q (herdr launcher should dispatch)", msg.message)
 	}
 }
 
@@ -1899,7 +1899,7 @@ func TestAskOnGroup(t *testing.T) {
 	m.cursor = findPrimary(m, "tienda")
 	m2, _ := press(m, "a")
 	if !strings.Contains(m2.message, "select a service") {
-		t.Errorf("a sobre grupo: msg=%q", m2.message)
+		t.Errorf("a on group: msg=%q", m2.message)
 	}
 }
 
@@ -1910,18 +1910,18 @@ func TestAskPromptPrefillDefault(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, _ := press(m, "a")
 	if !m2.askPromptOpen {
-		t.Fatal("a debe abrir el prompt")
+		t.Fatal("a should open the prompt")
 	}
 	got := m2.promptInput.Value()
 	if !strings.Contains(got, "Given the app tienda-api") {
-		t.Errorf("prefill sin nombre del proyecto: %q", got)
+		t.Errorf("prefill without project name: %q", got)
 	}
 	if !strings.Contains(got, store.ServiceDir(pathOfSelected(t, m2))) {
-		t.Errorf("prefill sin dir de logs: %q", got)
+		t.Errorf("prefill without logs dir: %q", got)
 	}
 	m3, _ := press(m2, "X")
 	if !strings.HasSuffix(m3.promptInput.Value(), "X") {
-		t.Errorf("teclear debe añadir al final del prefill: %q", m3.promptInput.Value())
+		t.Errorf("typing should append to the end of the prefill: %q", m3.promptInput.Value())
 	}
 }
 
@@ -1938,7 +1938,7 @@ prompt = "About {name} in {dir}, logs at {logs}: "
 		t.Errorf("prefill = %q, want prefix %q", got, wantName)
 	}
 	if !strings.HasSuffix(got, ": ") {
-		t.Errorf("prefill debe terminar con el sufijo del template: %q", got)
+		t.Errorf("prefill should end with the template suffix: %q", got)
 	}
 }
 
@@ -1948,7 +1948,7 @@ func TestAskPromptPrefillEmpty(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, _ := press(m, "a")
 	if !m2.askPromptOpen || m2.promptInput.Value() != "" {
-		t.Errorf("prompt vacío debe dejar el input limpio: open=%v value=%q", m2.askPromptOpen, m2.promptInput.Value())
+		t.Errorf("empty prompt should leave the input clean: open=%v value=%q", m2.askPromptOpen, m2.promptInput.Value())
 	}
 }
 
@@ -1959,20 +1959,20 @@ func TestAskPromptDynamicHeight(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	m2, _ := press(m, "a")
 	if !m2.askPromptOpen {
-		t.Fatal("a debe abrir el prompt")
+		t.Fatal("a should open the prompt")
 	}
 	if m2.promptInput.Height() != 6 {
-		t.Errorf("alto inicial = %d, want 6 (grande de inicio)", m2.promptInput.Height())
+		t.Errorf("initial height = %d, want 6 (large by default)", m2.promptInput.Height())
 	}
 	m3 := m2
 	m3.promptInput.SetValue(strings.Repeat("ab ", 300) + "TAIL1")
 	if m3.promptInput.Height() < 10 {
-		t.Errorf("alto tras prefill largo = %d, want >10 (crece con el contenido)", m3.promptInput.Height())
+		t.Errorf("height after long prefill = %d, want >10 (grows with content)", m3.promptInput.Height())
 	}
 	m4 := m3
 	m4.promptInput.SetValue(strings.Repeat("ab ", 600) + "TAIL2")
 	if m4.promptInput.Height() != 16 {
-		t.Errorf("alto tras contenido enorme = %d, want 16 (cap)", m4.promptInput.Height())
+		t.Errorf("height after huge content = %d, want 16 (cap)", m4.promptInput.Height())
 	}
 }
 
@@ -1980,18 +1980,18 @@ func TestConsoleSoftWrap(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	if !m.consoleView.SoftWrap {
-		t.Fatal("el viewport de consola debe tener SoftWrap activado")
+		t.Fatal("console viewport should have SoftWrap enabled")
 	}
 	tail := "END-MARKER-XYZ"
 	long := strings.Repeat("abcdefghij", 30) + " " + tail
 	m.setConsoleContent(long)
 	rendered := m.consoleView.View()
 	if !strings.Contains(rendered, tail) {
-		t.Error("el final de la línea larga debe ser visible tras el wrap")
+		t.Error("end of the long line should be visible after wrap")
 	}
 	for _, line := range strings.Split(strings.TrimRight(rendered, "\n"), "\n") {
 		if w := lipglossWidth(line); w > m.rightW {
-			t.Errorf("línea de %d celdas excede rightW=%d: %q", w, m.rightW, line)
+			t.Errorf("line of %d cells exceeds rightW=%d: %q", w, m.rightW, line)
 		}
 	}
 }
@@ -2005,10 +2005,10 @@ func TestConsoleSoftWrapKeepsStyle(t *testing.T) {
 	rendered := m.consoleView.View()
 	lines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
 	if len(lines) < 2 {
-		t.Fatal("la línea estilizada larga debe envolver en ≥2 líneas")
+		t.Fatal("long styled line should wrap to ≥2 lines")
 	}
 	if !strings.Contains(lines[1], "\x1b[") {
-		t.Errorf("la línea de continuación perdió el estilo ANSI: %q", lines[1])
+		t.Errorf("continuation line lost ANSI style: %q", lines[1])
 	}
 }
 
@@ -2046,21 +2046,21 @@ func TestFilterOpenCapturesKeys(t *testing.T) {
 	m, _ := newTestModel(t)
 	m2, _ := press(m, "/")
 	if !m2.filterOpen {
-		t.Fatal("/ debe abrir el filtro")
+		t.Fatal("/ should open the filter")
 	}
 	if m2.filterInput.Value() != "" {
-		t.Errorf("el filtro abre vacío, got %q", m2.filterInput.Value())
+		t.Errorf("filter opens empty, got %q", m2.filterInput.Value())
 	}
 	if len(m2.tree) != 4 {
-		t.Errorf("abrir el filtro no debe alterar el árbol, filas = %d", len(m2.tree))
+		t.Errorf("opening the filter should not alter the tree, rows = %d", len(m2.tree))
 	}
 	// The virtual cursor eats the placeholder's first letter, so the render holds "/", cursor, "ilter...".
 	if !strings.Contains(m2.renderDashboard(), "ilter…") {
-		t.Error("la barra debe mostrar el placeholder filter…")
+		t.Error("bar should show the filter… placeholder")
 	}
 	m3 := typeFilter(m2, "q")
 	if !m3.filterOpen {
-		t.Error("q debe insertarse en el input, no cerrar el filtro")
+		t.Error("q should be inserted in the input, not close the filter")
 	}
 	if m3.filterInput.Value() != "q" {
 		t.Errorf("input = %q, want q", m3.filterInput.Value())
@@ -2074,7 +2074,7 @@ func TestFilterReopenKeepsText(t *testing.T) {
 	m4, _ := press(m3, "enter")
 	m5, _ := press(m4, "/")
 	if !m5.filterOpen || m5.filterInput.Value() != "tienda" {
-		t.Errorf("reabrir debe prellenar el input, got open=%v value=%q", m5.filterOpen, m5.filterInput.Value())
+		t.Errorf("reopening should prefill the input, got open=%v value=%q", m5.filterOpen, m5.filterInput.Value())
 	}
 }
 
@@ -2083,13 +2083,13 @@ func TestFilterMatchNameAndPrimary(t *testing.T) {
 	m2, _ := press(m, "/")
 	m3 := typeFilter(m2, "TIENDA")
 	if len(m3.tree) != 3 {
-		t.Fatalf("filas = %d, want 3", len(m3.tree))
+		t.Fatalf("rows = %d, want 3", len(m3.tree))
 	}
 	if findCursor(m3, "suelto") != -1 {
-		t.Error("suelto no debe matchear TIENDA")
+		t.Error("suelto should not match TIENDA")
 	}
 	if findCursor(m3, "tienda-api") < 0 || findCursor(m3, "tienda-web") < 0 {
-		t.Error("tienda-api y tienda-web deben matchear TIENDA")
+		t.Error("tienda-api and tienda-web should match TIENDA")
 	}
 }
 
@@ -2099,16 +2099,16 @@ func TestFilterMatchSecondary(t *testing.T) {
 	m2, _ := press(m, "/")
 	m3 := typeFilter(m2, "front")
 	if len(m3.tree) != 3 {
-		t.Fatalf("filas = %d, want 3", len(m3.tree))
+		t.Fatalf("rows = %d, want 3", len(m3.tree))
 	}
 	if findSecondary(m3, "tienda", "frontend") < 0 {
-		t.Error("el header frontend debe aparecer con el filtro front")
+		t.Error("frontend header should appear with the front filter")
 	}
 	if findCursor(m3, "tienda-web") < 0 {
-		t.Error("tienda-web debe matchear por su secundario")
+		t.Error("tienda-web should match by its secondary")
 	}
 	if findCursor(m3, "tienda-api") != -1 || findCursor(m3, "suelto") != -1 {
-		t.Error("solo tienda-web debe matchear front")
+		t.Error("only tienda-web should match front")
 	}
 }
 
@@ -2117,13 +2117,13 @@ func TestFilterHeadersOnlyWithMembers(t *testing.T) {
 	m2, _ := press(m, "/")
 	m3 := typeFilter(m2, "api")
 	if len(m3.tree) != 2 {
-		t.Fatalf("filas = %d, want 2", len(m3.tree))
+		t.Fatalf("rows = %d, want 2", len(m3.tree))
 	}
 	if findSecondary(m3, "tienda", "frontend") != -1 {
-		t.Error("el header frontend no debe aparecer sin miembros que matcheen")
+		t.Error("frontend header should not appear without matching members")
 	}
 	if findCursor(m3, "tienda-api") < 0 {
-		t.Error("tienda-api debe matchear")
+		t.Error("tienda-api should match")
 	}
 }
 
@@ -2132,10 +2132,10 @@ func TestFilterNoMatches(t *testing.T) {
 	m2, _ := press(m, "/")
 	m3 := typeFilter(m2, "zzz")
 	if len(m3.tree) != 0 {
-		t.Fatalf("filas = %d, want 0", len(m3.tree))
+		t.Fatalf("rows = %d, want 0", len(m3.tree))
 	}
 	if !strings.Contains(m3.renderDashboard(), "no matches") {
-		t.Error("el render debe mostrar la línea no matches")
+		t.Error("render should show the no matches line")
 	}
 }
 
@@ -2145,16 +2145,16 @@ func TestFilterEnterApplies(t *testing.T) {
 	m3 := typeFilter(m2, "tienda")
 	m4, _ := press(m3, "enter")
 	if m4.filterOpen {
-		t.Error("enter debe cerrar el box")
+		t.Error("enter should close the box")
 	}
 	if m4.filterText != "tienda" {
 		t.Errorf("filterText = %q, want tienda", m4.filterText)
 	}
 	if len(m4.tree) != 3 {
-		t.Errorf("el árbol debe seguir filtrado, filas = %d", len(m4.tree))
+		t.Errorf("tree should remain filtered, rows = %d", len(m4.tree))
 	}
 	if !strings.Contains(m4.renderDashboard(), "⌕ tienda · 2") {
-		t.Error("la barra debe mostrar el indicador ⌕ tienda · 2")
+		t.Error("bar should show the indicator ⌕ tienda · 2")
 	}
 }
 
@@ -2164,13 +2164,13 @@ func TestFilterEscInBoxClears(t *testing.T) {
 	m3 := typeFilter(m2, "tienda")
 	m4, _ := press(m3, "esc")
 	if m4.filterOpen {
-		t.Error("esc debe cerrar el box")
+		t.Error("esc should close the box")
 	}
 	if m4.filterText != "" {
-		t.Errorf("filterText = %q, want vacío", m4.filterText)
+		t.Errorf("filterText = %q, want empty", m4.filterText)
 	}
 	if len(m4.tree) != 4 {
-		t.Errorf("el árbol debe restaurarse completo, filas = %d", len(m4.tree))
+		t.Errorf("tree should be restored complete, rows = %d", len(m4.tree))
 	}
 }
 
@@ -2181,10 +2181,10 @@ func TestFilterEscAppliedDoesNotQuit(t *testing.T) {
 	m4, _ := press(m3, "enter")
 	m5, cmd := press(m4, "esc")
 	if cmd != nil {
-		t.Error("esc con filtro aplicado no debe salir de la TUI")
+		t.Error("esc with applied filter should not quit the TUI")
 	}
 	if m5.filterText != "" || len(m5.tree) != 4 {
-		t.Errorf("esc debe limpiar el filtro, text=%q filas=%d", m5.filterText, len(m5.tree))
+		t.Errorf("esc should clear the filter, text=%q rows=%d", m5.filterText, len(m5.tree))
 	}
 }
 
@@ -2192,7 +2192,7 @@ func TestFilterEscWithoutFilterQuits(t *testing.T) {
 	m, _ := newTestModel(t)
 	_, cmd := press(m, "esc")
 	if cmd == nil {
-		t.Error("esc sin filtro debe salir de la TUI")
+		t.Error("esc without filter should quit the TUI")
 	}
 }
 
@@ -2202,7 +2202,7 @@ func TestFilterResetsCursor(t *testing.T) {
 	m2, _ := press(m, "/")
 	m3 := typeFilter(m2, "t")
 	if m3.cursor != 0 || m3.treeTop != 0 {
-		t.Errorf("cursor=%d treeTop=%d, want 0/0 tras filtrar", m3.cursor, m3.treeTop)
+		t.Errorf("cursor=%d treeTop=%d, want 0/0 after filtering", m3.cursor, m3.treeTop)
 	}
 }
 
@@ -2219,17 +2219,17 @@ func TestTreeRenderRespectsTreeTop(t *testing.T) {
 	lines := m2.treeColumnLines()
 	full, _ := m2.treeLines()
 	if lines[0] != full[1] {
-		t.Errorf("la línea visible debe ser la fila treeTop: got %q, want %q", lines[0], full[1])
+		t.Errorf("visible line should be the treeTop row: got %q, want %q", lines[0], full[1])
 	}
 	if len(lines) != 3 {
-		t.Errorf("filas visibles = %d, want 3 (bodyH)", len(lines))
+		t.Errorf("visible rows = %d, want 3 (bodyH)", len(lines))
 	}
 }
 
 func TestFilterBarConsumesTreeLine(t *testing.T) {
 	m, _ := newTestModel(t)
 	if len(m.treeColumnLines()) != 4 {
-		t.Fatal("sin barra el árbol ocupa todo el alto")
+		t.Fatal("without bar the tree occupies the full height")
 	}
 	m2, _ := press(m, "/")
 	m3 := typeFilter(m2, "tienda")
@@ -2237,10 +2237,10 @@ func TestFilterBarConsumesTreeLine(t *testing.T) {
 	lines := m4.treeColumnLines()
 	full, _ := m4.treeLines()
 	if lines[0] != m4.filterBar() {
-		t.Errorf("la línea 0 debe ser la barra, got %q", lines[0])
+		t.Errorf("line 0 should be the bar, got %q", lines[0])
 	}
 	if lines[1] != full[0] {
-		t.Errorf("las filas del árbol deben empezar en la línea 1: got %q, want %q", lines[1], full[0])
+		t.Errorf("tree rows should start at line 1: got %q, want %q", lines[1], full[0])
 	}
 }
 
@@ -2248,12 +2248,12 @@ func TestFilterBarConsumesTreeLine(t *testing.T) {
 func TestDiscoveryIsNotInTheTUIRefreshPath(t *testing.T) {
 	data, err := os.ReadFile("app.go")
 	if err != nil {
-		t.Skipf("no se puede leer app.go: %v", err)
+		t.Skipf("cannot read app.go: %v", err)
 	}
 	// portless is on the same list because the seam execs the binary; start and stop use it via route.go instead.
 	for _, forbidden := range []string{"DiscoverPort", "lineageListenersAt", "ReservePort", "portless."} {
 		if strings.Contains(string(data), forbidden) {
-			t.Errorf("el tick de la TUI no puede llamar a %s: el coste por refresh debe quedar acotado", forbidden)
+			t.Errorf("TUI tick must not call %s: cost per refresh must be bounded", forbidden)
 		}
 	}
 }
@@ -2279,13 +2279,13 @@ func TestRefreshEvaluatesResolvedPortWithoutPending(t *testing.T) {
 	msg := refreshCmd(store, manager, []scanner.Project{p})()
 	res, ok := msg.(refreshedMsg)
 	if !ok {
-		t.Fatalf("refreshCmd devolvió %T", msg)
+		t.Fatalf("refreshCmd returned %T", msg)
 	}
 	if got[0].Port != 41501 {
-		t.Errorf("el tick debe evaluar el puerto real, no el declarado: %+v", got[0])
+		t.Errorf("tick should evaluate the real port, not the declared one: %+v", got[0])
 	}
 	if got[0].PortPending {
-		t.Error("un puerto resuelto no está pendiente")
+		t.Error("a resolved port is not pending")
 	}
 	if res.results[dir].status != process.StatusRunning {
 		t.Errorf("status = %s, want running", res.results[dir].status)
@@ -2306,18 +2306,18 @@ func TestHealthTabDoesNotProbeUnresolvedDeclaredPort(t *testing.T) {
 	}
 
 	if got := displayPort(p, sv); got != 0 {
-		t.Errorf("displayPort = %d, want 0: un puerto sin resolver no se cae al declarado", got)
+		t.Errorf("displayPort = %d, want 0: an unresolved port does not fall back to the declared one", got)
 	}
 
 	badge := statusBadge(p, sv, "SPIN", "START")
 	if strings.Contains(badge, "8080") {
-		t.Errorf("el badge no debe mostrar el puerto declarado sin confirmar: %q", badge)
+		t.Errorf("badge should not show the unconfirmed declared port: %q", badge)
 	}
 	if !strings.Contains(badge, "port unresolved") {
-		t.Errorf("el estado debe nombrarse: %q", badge)
+		t.Errorf("status should be named: %q", badge)
 	}
 	if !sv.Status.alive() {
-		t.Error("un servicio con el puerto sin resolver sigue siendo detenible")
+		t.Error("a service with unresolved port remains stoppable")
 	}
 
 	m := Model{
@@ -2326,15 +2326,15 @@ func TestHealthTabDoesNotProbeUnresolvedDeclaredPort(t *testing.T) {
 		tree:     []treeItem{{kind: itemProject, project: p}},
 	}
 	if cmd := m.healthCmd(); cmd != nil {
-		t.Error("la tab Health no debe lanzar un probe contra un puerto sin confirmar")
+		t.Error("Health tab should not launch a probe against an unconfirmed port")
 	}
 	lines := m.healthLines(80)
 	joined := strings.Join(lines, " ")
 	if strings.Contains(joined, "8080") || strings.Contains(joined, "127.0.0.1") {
-		t.Errorf("la vista de Health no debe emitir una URL contra el puerto declarado: %q", joined)
+		t.Errorf("Health view should not emit a URL against the declared port: %q", joined)
 	}
 	if !strings.Contains(joined, "unresolved") {
-		t.Errorf("la vista de Health debe explicar por qué no sondea: %q", joined)
+		t.Errorf("Health view should explain why it does not probe: %q", joined)
 	}
 }
 
@@ -2350,9 +2350,9 @@ func TestHealthTabStillProbesResolvedPort(t *testing.T) {
 		Meta:   state.Meta{Pid: 4242, Port: 41501, State: state.StateRunning, PortVerified: true},
 	}
 	if got := displayPort(p, sv); got != 41501 {
-		t.Fatalf("displayPort = %d, want el puerto real 41501", got)
+		t.Fatalf("displayPort = %d, want the real port 41501", got)
 	}
 	if url := healthURL(&p, sv); url != "http://127.0.0.1:41501/" {
-		t.Errorf("healthURL = %q, want el puerto real", url)
+		t.Errorf("healthURL = %q, want the real port", url)
 	}
 }

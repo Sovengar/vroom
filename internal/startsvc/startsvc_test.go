@@ -23,21 +23,21 @@ func TestDynamicStartResolvesRealPort(t *testing.T) {
 	f.command(t, "honors-port")
 	out, err := f.start(t, 5*time.Second)
 	if err != nil {
-		t.Fatalf("arranque dynamic: %v", err)
+		t.Fatalf("dynamic start: %v", err)
 	}
 	f.cleanup(t, out)
 
 	if out.Port < process.DynamicPortLow || out.Port > process.DynamicPortHigh {
-		t.Errorf("el puerto debe caer en %d-%d, got %d", process.DynamicPortLow, process.DynamicPortHigh, out.Port)
+		t.Errorf("the port must fall in %d-%d, got %d", process.DynamicPortLow, process.DynamicPortHigh, out.Port)
 	}
 	if !process.PortOpen(out.Port) {
-		t.Errorf("el proceso no escucha en el puerto resuelto %d", out.Port)
+		t.Errorf("the process does not listen on the resolved port %d", out.Port)
 	}
 	if got := f.helperEnv(t)["PORT_SEEN"]; got != strconv.Itoa(out.Port) {
-		t.Errorf("PORT en el hijo = %q, want %d", got, out.Port)
+		t.Errorf("PORT in the child = %q, want %d", got, out.Port)
 	}
 	if len(out.Warnings) != 0 {
-		t.Errorf("una app que honra PORT no debe gerar avisos: %v", out.Warnings)
+		t.Errorf("an app that honors PORT must not generate warnings: %v", out.Warnings)
 	}
 }
 
@@ -46,22 +46,22 @@ func TestDynamicStartPersistsBeforeReturning(t *testing.T) {
 	f.command(t, "honors-port")
 	out, err := f.start(t, 5*time.Second)
 	if err != nil {
-		t.Fatalf("arranque dynamic: %v", err)
+		t.Fatalf("dynamic start: %v", err)
 	}
 	f.cleanup(t, out)
 
 	meta, err := f.store.LoadMeta(f.dir)
 	if err != nil {
-		t.Fatalf("meta.json debe existir al volver de Start: %v", err)
+		t.Fatalf("meta.json must exist when returning from Start: %v", err)
 	}
 	if meta.Port != out.Port {
-		t.Errorf("meta.Port = %d, want el puerto real %d", meta.Port, out.Port)
+		t.Errorf("meta.Port = %d, want the real port %d", meta.Port, out.Port)
 	}
 	if meta.State != state.StateRunning {
 		t.Errorf("meta.State = %q, want running", meta.State)
 	}
 	if !meta.PortVerified {
-		t.Error("un listener confirmado debe marcarse verificado")
+		t.Error("a confirmed listener must be marked verified")
 	}
 	if meta.Pid != out.Pid {
 		t.Errorf("meta.Pid = %d, want %d", meta.Pid, out.Pid)
@@ -73,7 +73,7 @@ func TestDynamicPortIsTheSingleSourceOfTruth(t *testing.T) {
 	f.command(t, "honors-port")
 	out, err := f.start(t, 5*time.Second)
 	if err != nil {
-		t.Fatalf("arranque dynamic: %v", err)
+		t.Fatalf("dynamic start: %v", err)
 	}
 	f.cleanup(t, out)
 
@@ -82,14 +82,14 @@ func TestDynamicPortIsTheSingleSourceOfTruth(t *testing.T) {
 		t.Fatal(err)
 	}
 	if meta.Port == f.manifest.Port {
-		t.Fatal("el puerto real debe diferir del declarado para que la prueba signifique algo")
+		t.Fatal("the real port must differ from the declared one for the test to mean something")
 	}
 	// The health probe must gate on meta.Port, never on the manifest.
 	if !process.PortOpen(meta.Port) {
-		t.Errorf("la sonda debe apuntar a %d, que está abierto", meta.Port)
+		t.Errorf("the probe must point to %d, which is open", meta.Port)
 	}
 	if process.PortOpen(f.manifest.Port) {
-		t.Error("nadie debería estar escuchando en el puerto declarado")
+		t.Error("nobody should be listening on the declared port")
 	}
 }
 
@@ -99,19 +99,19 @@ func TestChildEnvIsNotTruncated(t *testing.T) {
 	f.command(t, "honors-port")
 	out, err := f.start(t, 5*time.Second)
 	if err != nil {
-		t.Fatalf("arranque dynamic: %v", err)
+		t.Fatalf("dynamic start: %v", err)
 	}
 	f.cleanup(t, out)
 
 	env := f.helperEnv(t)
 	if env["PATH_SEEN"] == "" {
-		t.Error("PATH no llegó al hijo: cmd.Env reemplazó os.Environ()")
+		t.Error("PATH did not reach the child: cmd.Env replaced os.Environ()")
 	}
 	if env["HOME_SEEN"] == "" {
-		t.Error("HOME no llegó al hijo")
+		t.Error("HOME did not reach the child")
 	}
 	if env["PORT_SEEN"] == "" {
-		t.Error("PORT no llegó al hijo")
+		t.Error("PORT did not reach the child")
 	}
 	if env["HOST_SEEN"] != "127.0.0.1" {
 		t.Errorf("HOST = %q, want 127.0.0.1", env["HOST_SEEN"])
@@ -123,12 +123,12 @@ func TestChildResolvesCommandsByPath(t *testing.T) {
 	f.command(t, "honors-port")
 	out, err := f.start(t, 5*time.Second)
 	if err != nil {
-		t.Fatalf("arranque dynamic: %v", err)
+		t.Fatalf("dynamic start: %v", err)
 	}
 	f.cleanup(t, out)
 
 	if got := f.helperEnv(t)["SH_RESOLVED"]; got != "ok" {
-		t.Errorf("el hijo no pudo resolver sh por su PATH: %q", got)
+		t.Errorf("the child could not resolve sh through its PATH: %q", got)
 	}
 }
 
@@ -138,21 +138,21 @@ func TestAppIgnoringPortIsWarningNotError(t *testing.T) {
 	f.command(t, "fixed-port", "VROOM_HELPER_PORT="+strconv.Itoa(own))
 	out, err := f.start(t, 5*time.Second)
 	if err != nil {
-		t.Fatalf("ignorar PORT no debe fallar el arranque: %v", err)
+		t.Fatalf("ignoring PORT must not fail the start: %v", err)
 	}
 	f.cleanup(t, out)
 
 	if out.Port != own {
-		t.Errorf("el puerto real descubierto debe ser el de la app (%d), got %d", own, out.Port)
+		t.Errorf("the discovered real port must be the app's (%d), got %d", own, out.Port)
 	}
 	if len(out.Warnings) == 0 {
-		t.Fatal("debe emitirse un aviso visible de que la app ignoró el puerto")
+		t.Fatal("a visible warning must be emitted that the app ignored the port")
 	}
 	if !strings.Contains(out.Warnings[0], strconv.Itoa(own)) {
-		t.Errorf("el aviso debe nombrar el puerto real: %q", out.Warnings[0])
+		t.Errorf("the warning must name the real port: %q", out.Warnings[0])
 	}
 	if out.Meta.State != state.StateRunning {
-		t.Errorf("el servicio sigue siendo operable, state = %q", out.Meta.State)
+		t.Errorf("the service remains operable, state = %q", out.Meta.State)
 	}
 }
 
@@ -161,18 +161,18 @@ func TestSlowBindKeepsItsPort(t *testing.T) {
 	f.command(t, "honors-port", "VROOM_HELPER_DELAY=3s")
 	out, err := f.start(t, 10*time.Second)
 	if err != nil {
-		t.Fatalf("arranque dynamic: %v", err)
+		t.Fatalf("dynamic start: %v", err)
 	}
 	f.cleanup(t, out)
 
 	if out.Port == 0 {
-		t.Fatal("un bind lento no debe reportarse como sin puerto")
+		t.Fatal("a slow bind must not be reported as without a port")
 	}
 	if out.Meta.State != state.StateRunning {
 		t.Errorf("state = %q, want running", out.Meta.State)
 	}
 	if !process.PortOpen(out.Port) {
-		t.Errorf("el puerto %d debería estar abierto", out.Port)
+		t.Errorf("port %d should be open", out.Port)
 	}
 }
 
@@ -185,24 +185,24 @@ func TestNoTCPPortIsRecordedNotHung(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if err != nil {
-		t.Fatalf("un servicio sin puerto TCP no es un fallo de arranque: %v", err)
+		t.Fatalf("a service without a TCP port is not a start failure: %v", err)
 	}
 	f.cleanup(t, out)
 
 	if elapsed > 20*time.Second {
-		t.Errorf("el arranque no debe colgarse: tardó %s", elapsed)
+		t.Errorf("the start must not hang: took %s", elapsed)
 	}
 	if out.Meta.State != state.StateNoPort {
 		t.Errorf("state = %q, want no_port", out.Meta.State)
 	}
 	if out.Meta.Port != 0 {
-		t.Errorf("un servicio sin puerto debe persistir 0, got %d", out.Meta.Port)
+		t.Errorf("a service without a port must persist 0, got %d", out.Meta.Port)
 	}
 	if len(out.Warnings) == 0 {
-		t.Error("debe quedar registrado explícitamente que no hay puerto")
+		t.Error("it must be explicitly recorded that there is no port")
 	}
 	if out.Pid <= 0 {
-		t.Error("el servicio debe quedar igualmente operable")
+		t.Error("the service must remain equally operable")
 	}
 }
 
@@ -215,14 +215,14 @@ func TestDeadAtStartupFailsFast(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if err == nil {
-		t.Fatal("un servicio que muere debe reportarse como fallo de arranque")
+		t.Fatal("a service that dies must be reported as a start failure")
 	}
 	if elapsed > 5*time.Second {
-		t.Errorf("el fallo debe ser del orden de 1s, tardó %s (agotó el timeout del discovery)", elapsed)
+		t.Errorf("the failure must be on the order of 1s, took %s (exhausted the discovery timeout)", elapsed)
 	}
 	// The helper exits 1 on its own, so there is nothing to stop and no cleanup; the package hygiene guard verifies that assumption at the end.
 	if out.Pid != 0 {
-		t.Errorf("un arranque fallido no debe devolver un proceso que alguien tenga que parar: %d", out.Pid)
+		t.Errorf("a failed start must not return a process that someone has to stop: %d", out.Pid)
 	}
 }
 
@@ -234,19 +234,19 @@ func TestFixedModeBehavesExactlyAsBefore(t *testing.T) {
 
 	out, err := f.start(t, 30*time.Second)
 	if err != nil {
-		t.Fatalf("arranque fixed: %v", err)
+		t.Fatalf("fixed start: %v", err)
 	}
 	f.cleanup(t, out)
 
 	meta, _ := f.store.LoadMeta(f.dir)
 	if meta.Port != f.manifest.Port {
-		t.Errorf("en fixed meta.Port debe ser el declarado (%d), got %d", f.manifest.Port, meta.Port)
+		t.Errorf("in fixed mode meta.Port must be the declared one (%d), got %d", f.manifest.Port, meta.Port)
 	}
 	if len(out.Warnings) != 0 {
-		t.Errorf("fixed no debe emitir avisos nuevos: %v", out.Warnings)
+		t.Errorf("fixed mode must not emit new warnings: %v", out.Warnings)
 	}
 	if env := f.helperEnv(t); env["PORT_SEEN"] != "" {
-		t.Errorf("en fixed no se inyecta PORT, llegó %q", env["PORT_SEEN"])
+		t.Errorf("in fixed mode PORT is not injected, got %q", env["PORT_SEEN"])
 	}
 }
 
@@ -258,18 +258,18 @@ func TestNoneModeStartsWithoutPort(t *testing.T) {
 
 	out, err := f.start(t, 30*time.Second)
 	if err != nil {
-		t.Fatalf("arranque none: %v", err)
+		t.Fatalf("none start: %v", err)
 	}
 	f.cleanup(t, out)
 
 	if out.Port != 0 {
-		t.Errorf("none no debe tener puerto, got %d", out.Port)
+		t.Errorf("none mode must not have a port, got %d", out.Port)
 	}
 	if env := f.helperEnv(t); env["PORT_SEEN"] != "" {
-		t.Errorf("none no inyecta PORT, llegó %q", env["PORT_SEEN"])
+		t.Errorf("none mode does not inject PORT, got %q", env["PORT_SEEN"])
 	}
 	if out.Meta.State == state.StatePortPending {
-		t.Error("none nunca está pendiente de puerto")
+		t.Error("none mode is never pending for a port")
 	}
 }
 
@@ -281,7 +281,7 @@ func TestStartWindowNeverReportsDeadProcessAsStopped(t *testing.T) {
 	go func() {
 		out, err := f.start(t, 10*time.Second)
 		if err != nil {
-			t.Errorf("arranque: %v", err)
+			t.Errorf("start: %v", err)
 		}
 		done <- out
 	}()
@@ -292,7 +292,7 @@ func TestStartWindowNeverReportsDeadProcessAsStopped(t *testing.T) {
 		meta, err := f.store.LoadMeta(f.dir)
 		if err == nil && meta.Pid > 0 {
 			if meta.State != state.StatePortPending {
-				t.Fatalf("durante la ventana el estado debe ser port_pending, es %q", meta.State)
+				t.Fatalf("during the window the state must be port_pending, is %q", meta.State)
 			}
 			sawPending = true
 		}
@@ -302,17 +302,17 @@ func TestStartWindowNeverReportsDeadProcessAsStopped(t *testing.T) {
 	f.cleanup(t, out)
 
 	if !sawPending {
-		t.Skip("el discovery se resolvió antes de poder observar la ventana")
+		t.Skip("discovery resolved before the window could be observed")
 	}
 	if out.Meta.State != state.StateRunning {
-		t.Errorf("al resolverse el puerto el estado pasa a vivo, es %q", out.Meta.State)
+		t.Errorf("when the port resolves the state becomes alive, is %q", out.Meta.State)
 	}
 }
 
 // H1: the sequential test below cannot catch this by construction, since it waits for A to resolve while A's listener holds the port; production starts in parallel via tea.Batch.
 func TestConcurrentDynamicStartsGetDistinctPorts(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 
 	const n = 6 // above the number of concurrent helpers that runs without flakiness
@@ -339,7 +339,7 @@ func TestConcurrentDynamicStartsGetDistinctPorts(t *testing.T) {
 
 	for i := range fixtures {
 		if errs[i] != nil {
-			t.Fatalf("arranque %d: %v", i, errs[i])
+			t.Fatalf("start %d: %v", i, errs[i])
 		}
 		fixtures[i].cleanup(t, results[i])
 	}
@@ -347,10 +347,10 @@ func TestConcurrentDynamicStartsGetDistinctPorts(t *testing.T) {
 	seen := map[int]int{}
 	for i, r := range results {
 		if r.Port == 0 {
-			t.Errorf("arranque %d no resolvió puerto: %+v", i, r)
+			t.Errorf("start %d did not resolve a port: %+v", i, r)
 		}
 		if first, dup := seen[r.Port]; dup {
-			t.Fatalf("arranques %d y %d comparten el puerto %d", first, i, r.Port)
+			t.Fatalf("starts %d and %d share port %d", first, i, r.Port)
 		}
 		seen[r.Port] = i
 	}
@@ -359,7 +359,7 @@ func TestConcurrentDynamicStartsGetDistinctPorts(t *testing.T) {
 // Sequential is the feature premise (two worktrees at once) and holds because A's port is not returned to the set while its process lives.
 func TestTwoDynamicStartsGetDistinctPorts(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	a, b := newFixture(t), newFixture(t)
 	a.command(t, "honors-port")
@@ -367,24 +367,24 @@ func TestTwoDynamicStartsGetDistinctPorts(t *testing.T) {
 
 	outA, err := a.start(t, 5*time.Second)
 	if err != nil {
-		t.Fatalf("arranque A: %v", err)
+		t.Fatalf("start A: %v", err)
 	}
 	a.cleanup(t, outA)
 	outB, err := b.start(t, 5*time.Second)
 	if err != nil {
-		t.Fatalf("arranque B: %v", err)
+		t.Fatalf("start B: %v", err)
 	}
 	b.cleanup(t, outB)
 
 	if outA.Port == outB.Port {
-		t.Errorf("dos servicios simultaneouss comparten el puerto %d", outA.Port)
+		t.Errorf("two simultaneous services share port %d", outA.Port)
 	}
 }
 
 // The old version only asserted 40 failed starts, which still holds once the range is exhausted, so the assertion is on set size instead.
 func TestFailedAttemptReleasesItsReservedPort(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	f := newFixture(t)
 	f.command(t, "die") // dies before binding
@@ -393,13 +393,13 @@ func TestFailedAttemptReleasesItsReservedPort(t *testing.T) {
 		baseline := process.ReservedPortCount()
 		out, err := f.start(t, 5*time.Second)
 		if err == nil {
-			t.Fatal("un servicio que muere debe fallar el arranque")
+			t.Fatal("a service that dies must fail the start")
 		}
 		if out.Pid != 0 {
-			t.Errorf("intento %d devolvió pid %d sin parar nada", i, out.Pid)
+			t.Errorf("attempt %d returned pid %d without stopping anything", i, out.Pid)
 		}
 		if got := process.ReservedPortCount(); got != baseline {
-			t.Fatalf("intento %d dejó la reserva en el set: %d != %d", i, got, baseline)
+			t.Fatalf("attempt %d left the reservation in the set: %d != %d", i, got, baseline)
 		}
 	}
 }
@@ -407,7 +407,7 @@ func TestFailedAttemptReleasesItsReservedPort(t *testing.T) {
 // M-B: without this the set grows every start/stop cycle until a long-lived process has no ports left to offer.
 func TestStopReleasesTheReservation(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	f := newFixture(t)
 	f.command(t, "honors-port")
@@ -416,7 +416,7 @@ func TestStopReleasesTheReservation(t *testing.T) {
 
 	out, err := f.start(t, 5*time.Second)
 	if err != nil {
-		t.Fatalf("arranque: %v", err)
+		t.Fatalf("start: %v", err)
 	}
 	f.cleanup(t, out)
 
@@ -426,10 +426,10 @@ func TestStopReleasesTheReservation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if meta.ReservedPort == 0 {
-		t.Fatal("meta.ReservedPort no se persistió: el stop no tendría qué liberar")
+		t.Fatal("meta.ReservedPort was not persisted: stop would have nothing to release")
 	}
 	if got := process.ReservedPortCount(); got != baseline+1 {
-		t.Fatalf("el set mide %d tras arrancar, want %d", got, baseline+1)
+		t.Fatalf("the set measures %d after starting, want %d", got, baseline+1)
 	}
 
 	if err := process.NewManager().Stop(process.StopSpec{
@@ -440,7 +440,7 @@ func TestStopReleasesTheReservation(t *testing.T) {
 	process.ReleasePort(meta.ReservedPort)
 
 	if got := process.ReservedPortCount(); got != baseline {
-		t.Errorf("tras detener, el set mide %d, want %d: la reserva no volvió", got, baseline)
+		t.Errorf("after stopping, the set measures %d, want %d: the reservation did not return", got, baseline)
 	}
 }
 
@@ -448,13 +448,13 @@ func TestStopReleasesTheReservation(t *testing.T) {
 func TestDynamicRequiresDefaultPort(t *testing.T) {
 	m := &manifest.Manifest{Name: "x", Command: "true", PortMode: manifest.PortModeDynamic}
 	if err := m.Validate(); err == nil {
-		t.Error("dynamic sin puerto por defecto debe rechazarse en validación")
+		t.Error("dynamic without a default port must be rejected in validation")
 	}
 }
 
 func TestR2HealthPathDecidesMainPort(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	f := newFixture(t)
 	f.manifest.HealthPath = "/health"
@@ -464,23 +464,23 @@ func TestR2HealthPathDecidesMainPort(t *testing.T) {
 
 	out, err := f.start(t, 10*time.Second)
 	if err != nil {
-		t.Fatalf("arranque dynamic: %v", err)
+		t.Fatalf("dynamic start: %v", err)
 	}
 	f.cleanup(t, out)
 
 	env := f.helperEnv(t)
 	good := mustAtoiT(t, env["GOOD_PORT"])
 	if out.Port != good {
-		t.Errorf("R2 debe elegir el listener que responde en health_path (%d), eligió %d", good, out.Port)
+		t.Errorf("R2 must choose the listener that responds on health_path (%d), chose %d", good, out.Port)
 	}
 	if !out.Meta.PortVerified {
-		t.Error("R2 verifica el puerto: alguien respondió")
+		t.Error("R2 verifies the port: someone responded")
 	}
 }
 
 func TestR3NonHTTPPicksLowestAndMarksUnverified(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	f := newFixture(t)
 	f.manifest.HealthPath = "/health"
@@ -490,17 +490,17 @@ func TestR3NonHTTPPicksLowestAndMarksUnverified(t *testing.T) {
 
 	out, err := f.start(t, 10*time.Second)
 	if err != nil {
-		t.Fatalf("arranque dynamic: %v", err)
+		t.Fatalf("dynamic start: %v", err)
 	}
 	f.cleanup(t, out)
 
 	env := f.helperEnv(t)
 	low := minPort(mustAtoiT(t, env["PORT_A"]), mustAtoiT(t, env["PORT_B"]))
 	if out.Port != low {
-		t.Errorf("R3 debe elegir el menor puerto %d, eligió %d", low, out.Port)
+		t.Errorf("R3 must choose the lowest port %d, chose %d", low, out.Port)
 	}
 	if out.Meta.PortVerified {
-		t.Error("sin respuesta HTTP el puerto no está verificado")
+		t.Error("without an HTTP response the port is not verified")
 	}
 	found := false
 	for _, w := range out.Warnings {
@@ -509,7 +509,7 @@ func TestR3NonHTTPPicksLowestAndMarksUnverified(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("debe declararse que no se puede saber cuál es el principal: %v", out.Warnings)
+		t.Errorf("it must be declared that it is impossible to know which is the main one: %v", out.Warnings)
 	}
 
 	// Deterministic across runs given the same set of listeners.
@@ -520,20 +520,20 @@ func TestR3NonHTTPPicksLowestAndMarksUnverified(t *testing.T) {
 		"VROOM_HELPER_PORT_B="+strconv.Itoa(freePort(t)))
 	out2, err := again.start(t, 10*time.Second)
 	if err != nil {
-		t.Fatalf("segundo arranque: %v", err)
+		t.Fatalf("second start: %v", err)
 	}
 	again.cleanup(t, out2)
 	env2 := again.helperEnv(t)
 	low2 := minPort(mustAtoiT(t, env2["PORT_A"]), mustAtoiT(t, env2["PORT_B"]))
 	if out2.Port != low2 {
-		t.Errorf("R3 debe ser determinista: %d vs %d", out2.Port, low2)
+		t.Errorf("R3 must be deterministic: %d vs %d", out2.Port, low2)
 	}
 }
 
 // M2: deadline expiry does not prove absence (a 12s Next.js and a UDP-only worker look alike for 12s), hence the second recovery window; TestSlowBindKeepsItsPort only covered the happy path.
 func TestBindsAfterDeadlineIsRecoveredNotNoPort(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	f := newFixture(t)
 	// the bind lands 3s in, discovery gives up at 700ms.
@@ -541,42 +541,42 @@ func TestBindsAfterDeadlineIsRecoveredNotNoPort(t *testing.T) {
 
 	out, err := f.start(t, 700*time.Millisecond)
 	if err != nil {
-		t.Fatalf("vencido el plazo no es un fallo de arranque: %v", err)
+		t.Fatalf("deadline expired is not a start failure: %v", err)
 	}
 	f.cleanup(t, out)
 
 	if out.Meta.State == state.StateNoPort {
-		t.Fatal("un servicio que hace bind pasado el plazo no es un servicio sin puerto")
+		t.Fatal("a service that binds after the deadline is not a service without a port")
 	}
 	if out.Meta.State != state.StateRunning {
-		t.Fatalf("State = %q, want running (la ventana de gracia debe recuperar el puerto)", out.Meta.State)
+		t.Fatalf("State = %q, want running (the grace window must recover the port)", out.Meta.State)
 	}
 	if out.Port == 0 {
-		t.Fatal("la ventana de gracia debía haber resuelto el puerto")
+		t.Fatal("the grace window should have resolved the port")
 	}
 	if !process.PortOpen(out.Port) {
-		t.Errorf("el puerto recuperado %d debería estar escuchando", out.Port)
+		t.Errorf("the recovered port %d should be listening", out.Port)
 	}
 	if !out.Meta.PortVerified {
-		t.Error("el puerto recuperado está verificado contra un listener real")
+		t.Error("the recovered port is verified against a real listener")
 	}
 }
 
 func TestGenuinelyNoPortIsStillNoPort(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	f := newFixture(t)
 	f.command(t, "udp-only") // alive and never opens a TCP port
 
 	out, err := f.start(t, 700*time.Millisecond)
 	if err != nil {
-		t.Fatalf("un servicio sin puerto TCP no es un fallo: %v", err)
+		t.Fatalf("a service without a TCP port is not a failure: %v", err)
 	}
 	f.cleanup(t, out)
 
 	if out.Meta.State != state.StateNoPort {
-		t.Errorf("State = %q, want no_port (vivo y sin listener TCP en toda la ventana)", out.Meta.State)
+		t.Errorf("State = %q, want no_port (alive and without a TCP listener throughout the window)", out.Meta.State)
 	}
 	if out.Meta.Port != 0 {
 		t.Errorf("meta.Port = %d, want 0", out.Meta.Port)
@@ -586,30 +586,30 @@ func TestGenuinelyNoPortIsStillNoPort(t *testing.T) {
 // A third case distinct from both no_port and all-fine: listeners exist but none can be called main, so it is named without deciding and no port is invented.
 func TestChurningListenersEndUnresolved(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	f := newFixture(t)
 	f.command(t, "churn") // new listeners every 100ms, an unstable set
 
 	out, err := f.start(t, 700*time.Millisecond)
 	if err != nil {
-		t.Fatalf("puerto sin decidir no es un fallo de arranque: %v", err)
+		t.Fatalf("undecided port is not a start failure: %v", err)
 	}
 	f.cleanup(t, out)
 
 	if out.Meta.State == state.StateNoPort {
-		t.Fatal("un servicio con listeners no es un servicio sin puerto")
+		t.Fatal("a service with listeners is not a service without a port")
 	}
 	if out.Meta.State != state.StatePortUnresolved {
 		t.Fatalf("State = %q, want port_unresolved", out.Meta.State)
 	}
 	if out.Meta.Port != 0 {
-		t.Errorf("no se decidió puerto, meta.Port debe seguir en 0, es %d", out.Meta.Port)
+		t.Errorf("no port was decided, meta.Port must remain 0, is %d", out.Meta.Port)
 	}
 	if out.Meta.PortVerified {
-		t.Error("un puerto sin decidir no puede marcarse verificado")
+		t.Error("an undecided port cannot be marked verified")
 	}
 	if len(out.Warnings) == 0 {
-		t.Error("el usuario tiene que enterarse de que el puerto no se resolvió")
+		t.Error("the user must be informed that the port was not resolved")
 	}
 }

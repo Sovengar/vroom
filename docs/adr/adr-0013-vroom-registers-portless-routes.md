@@ -1,423 +1,421 @@
-# ADR-0013 — vroom registra rutas en portless sin poseer el proxy
+# ADR-0013 — vroom registers routes in portless without owning the proxy
 
-- Estado: aceptada
-- Fecha: 2026-09-30
+- Status: accepted
+- Date: 2026-09-30
 - Feature: `0001-feature-portless-alias-routes`
-- Cierra: `adr-0012` limitación 6
+- Closes: `adr-0012` limitation 6
 
-## Contexto
+## Context
 
-Con los slices 1–3 (`adr-0012`), vroom es dueño del puerto: lo reserva, lo inyecta
-como `PORT`, descubre y verifica el real, y lo persiste. El proceso de la app es
-suyo. Eso está resuelto.
+With slices 1–3 (`adr-0012`), vroom owns the port: it reserves it, injects it
+as `PORT`, discovers and verifies the real one, and persists it. The app process is
+its own. That is resolved.
 
-Lo que queda abierto es la **dirección**. El puerto sigue siendo efímero, así que
-cualquier referencia externa al servicio —callback OAuth, regla CORS, README,
-bookmark, la config del proxy de otra app— queda atada a un número que cambia en
-cada arranque. `adr-0012` cerró esto como «slice aparte (S4)» y como *«`portless`
-ausente o incompatible es condición normal y no fatal»*.
+What remains open is the **address**. The port is still ephemeral, so
+any external reference to the service —OAuth callback, CORS rule, README,
+bookmark, another app's proxy config— is tied to a number that changes on
+every startup. `adr-0012` closed this as «separate slice (S4)» and as *«`portless`
+absent or incompatible is a normal, non-fatal condition»*.
 
-Ese slice llega con dos restricciones ya decididas por el usuario, que aquí no se
-relitigan:
+That slice arrives with two constraints already decided by the user, which are not
+relitigated here:
 
-- **vroom sólo registra alias.** No arranca, no gestiona, no supervisa, no muestra
-  el proxy. Se rechazaron explícitamente las dos alternativas: que vroom
-  auto-arranque el proxy, y que lo gestione como servicio visible en la TUI — que
-  además reintroduce la recursión de Stop-por-linaje, porque el `setsid` del proxy
-  es justo lo que el slice 1 arregló.
-- **La ausencia de portless degrada a aviso, nunca a error.** Es la misma postura
-  de fallo cerrado que gobierna el cambio de puertos dinámicos: cuando vroom no
-  puede probar algo, no lo afirma.
+- **vroom only registers aliases.** It does not start, manage, monitor, or display
+  the proxy. Both alternatives were explicitly rejected: vroom auto-starting the
+  proxy, and managing it as a visible service in the TUI — which also reintroduces
+  the Stop-by-lineage recursion, because the proxy's `setsid` is exactly what slice 1
+  fixed.
+- **The absence of portless degrades to a warning, never an error.** It is the same
+  fail-closed posture that governs dynamic port changing: when vroom cannot prove
+  something, it does not assert it.
 
-Lo que faltaba era evidencia. Ninguna línea de código en vroom mencionaba portless.
-Todo lo de abajo está **medido** contra portless 0.15.6 / Node 24.15.0, en parte
-en un proxy **aislado** (`PORTLESS_STATE_DIR` en `/tmp`, `PORTLESS_PORT=1399`,
-`PORTLESS_HTTPS=0`, `PORTLESS_SYNC_HOSTS=0`) para no tocar el proxy real del
-usuario. **Este ADR no acepta ningún riesgo**: cada hazard está medido o
-eliminado por diseño.
+What was missing was evidence. No line of code in vroom mentioned portless.
+Everything below is **measured** against portless 0.15.6 / Node 24.15.0, partly
+on an **isolated** proxy (`PORTLESS_STATE_DIR` in `/tmp`, `PORTLESS_PORT=1399`,
+`PORTLESS_HTTPS=0`, `PORTLESS_SYNC_HOSTS=0`) so as not to touch the user's real
+proxy. **This ADR accepts no risk**: every hazard is measured or eliminated by
+design.
 
-## Hechos medidos
+## Measured facts
 
-| # | Hecho | Por qué importa |
+| # | Fact | Why it matters |
 |---|---|---|
-| M1 | **`alias` es una escritura pura del fichero de estado: nunca contacta con el proxy.** Con el proxy caído sale `exit 0` y escribe la ruta igual | `exit 0` **no** prueba que la URL resuelva. Cambia el diseño entero |
-| M2 | Leer `routes.json` de vuelta sólo prueba que escribimos | La verificación tiene que ser **contra el proxy vivo** |
-| M3 | La ruta **sobrevive a un reinicio del proxy**: `kill -TERM` → `curl 000` → `proxy start` → `routes.json` sin cambios, `doctor`: `ok Routes: 1 active route` | Registrar aunque el proxy esté parado es **persistente y correcto** |
-| M4 | Escribir un alias **no daña las rutas vivas** de `portless run`: la ruta con `pid` propio sigue presente, su proceso sigue vivo, sigue sirviendo | vroom puede compartir proxy con portless |
-| M5 | **`prune` no toca rutas de alias** (`pid: 0`, contadas como `active`) | **vroom es lo único que puede limpiarlas** → reconciliación obligatoria |
-| M6 | **`proxy.port` sólo existe mientras el proxy corre**; al pararlo desaparece | Su ausencia **es** la señal de que no hay proxy. Nunca asumir `1355` |
-| M7 | Un nombre con punto se acepta y se conserva literal | El esquema `<worktree>.<proyecto>` funciona tal cual |
-| M8 | **Upsert incondicional**: mismo nombre + otro puerto → `exit 0`, sobrescribe en silencio. `--force` no cambia nada observable. Sin detección de conflictos | La lectura de vuelta es obligatoria, no pulido |
-| M9 | El puerto destino **no** tiene que estar escuchando; el proxy responde `502` hasta que aparece | Registrar **después** de descubrir no cuesta nada |
-| M10 | `--remove` de un nombre inexistente → `exit 1` | **Benigno**: un stop repetido no es un error |
-| M11 | Una app que **falla** bajo `portless run` imprime la URL pero **no registra ruta** | El espejo exacto del comportamiento correcto |
-| M12 | `portless get` **prefija la rama git actual** | Inservible para verificar |
-| M13 | portless deriva su prefijo de worktree de la **rama**, no del directorio | La convención nativa es inestable ante `git branch -m` |
-| M14 | `env -i PATH=/usr/bin:/bin` **no** resuelve `portless` (vía shims de mise) | Un `portless` desnudo no se puede asumir |
-| M15 | No hay API HTTP de administración (`/`, `/health`, `/api/routes`, `/routes`, `/status` → `404`) | El puerto del proxy se lee de `proxy.port` |
-| M16 | **`$PORTLESS_HOME` no existe**: el CLI honra `$PORTLESS_STATE_DIR` y no `$PORTLESS_HOME` | El seam debe resolver el mismo directorio que el binario, o vroom lee `proxy.port` de un sitio y el binario escribe `routes.json` en otro |
-| M17 | Un hostname con guion bajo, espacio, dos puntos o acentos se **rechaza** (exit 1), y uno con barra se **trunca en silencio** (`Feat/My_Branch.proj` → `feat.localhost`) | vroom tiene que sanear el nombre derivado: una rama de git está llena de guiones bajos y barras |
-| M18 | El proxy responde **404 a un host que no conoce** y **502 a uno que enruta con el backend caído** | 404 y 502 no son la misma categoría; 404 contradice el enrutado, 502 lo prueba |
+| M1 | **`alias` is a pure write to the state file: it never contacts the proxy.** With the proxy down it exits `exit 0` and writes the route anyway | `exit 0` does **not** prove that the URL resolves. It changes the entire design |
+| M2 | Reading `routes.json` back only proves that we wrote | Verification must be **against the live proxy** |
+| M3 | The route **survives a proxy restart**: `kill -TERM` → `curl 000` → `proxy start` → `routes.json` unchanged, `doctor`: `ok Routes: 1 active route` | Registering even when the proxy is stopped is **persistent and correct** |
+| M4 | Writing an alias **does not harm live routes** from `portless run`: the route with its own `pid` remains present, its process remains alive, it keeps serving | vroom can share a proxy with portless |
+| M5 | **`prune` does not touch alias routes** (`pid: 0`, counted as `active`) | **vroom is the only thing that can clean them** → Mandatory reconciliation |
+| M6 | **`proxy.port` only exists while the proxy runs**; stopping it makes it disappear | Its absence **is** the signal that there is no proxy. Never assume `1355` |
+| M7 | A name with a dot is accepted and preserved literally | The `<worktree>.<project>` scheme works as-is |
+| M8 | **Unconditional upsert**: same name + different port → `exit 0`, silently overwrites. `--force` changes nothing observable. No conflict detection | Reading back is mandatory, not polish |
+| M9 | The destination port does **not** have to be listening; the proxy responds `502` until it appears | Registering **after** discovering costs nothing |
+| M10 | `--remove` of a nonexistent name → `exit 1` | **Benign**: a repeated stop is not an error |
+| M11 | An app that **fails** under `portless run` prints the URL but **does not register a route** | The exact mirror of correct behavior |
+| M12 | `portless get` **prefixes the current git branch** | Useless for verification |
+| M13 | portless derives its worktree prefix from the **branch**, not the directory | The native convention is unstable under `git branch -m` |
+| M14 | `env -i PATH=/usr/bin:/bin` does **not** resolve `portless` (via mise shims) | A bare `portless` cannot be assumed |
+| M15 | There is no HTTP administration API (`/`, `/health`, `/api/routes`, `/routes`, `/status` → `404`) | The proxy port is read from `proxy.port` |
+| M16 | **`$PORTLESS_HOME` does not exist**: the CLI honors `$PORTLESS_STATE_DIR` and not `$PORTLESS_HOME` | The seam must resolve the same directory as the binary, or vroom reads `proxy.port` from one place and the binary writes `routes.json` in another |
+| M17 | A hostname with underscore, space, colon, or accents is **rejected** (exit 1), and one with a slash is **silently truncated** (`Feat/My_Branch.proj` → `feat.localhost`) | vroom must sanitize the derived name: a git branch is full of underscores and slashes |
+| M18 | The proxy responds **404 to a host it does not know** and **502 to one it routes with the backend down** | 404 and 502 are not the same category; 404 contradicts routing, 502 proves it |
 
-## Decisión
+## Decision
 
-1. **vroom registra; el proxy enruta.** El mecanismo es
-   `portless alias <name> <puerto real>`. vroom **no** pasa `PORTLESS_APP_PORT`:
-   esa variable la consume `portless run <cmd>`, donde portless arranca el hijo y
-   es dueño del proceso — el modelo que el usuario rechazó, y que además rompe el
-   Stop-por-linaje del slice 1.
+1. **vroom registers; the proxy routes.** The mechanism is
+   `portless alias <name> <real port>`. vroom does **not** pass `PORTLESS_APP_PORT`:
+   that variable is consumed by `portless run <cmd>`, where portless starts the child and
+   owns the process — the model the user rejected, and which also breaks
+   slice 1's Stop-by-lineage.
 
-2. **`route_mode = "off" | "auto" | "named"`, default `off`, más `route_name`.**
-   Adición pura, con la misma forma y trato que `port_mode` + `port`: el primer
-   campo tiene un único significado, el segundo conserva el suyo, y un manifiesto
-   que no declara nada se comporta exactamente como hoy — con `off`, vroom ni
-   siquiera busca el binario. `route_mode != "off"` exige puerto en algún modo;
-   `route_name` sin `named` se rechaza.
+2. **`route_mode = "off" | "auto" | "named"`, default `off`, plus `route_name`.**
+   Pure addition, with the same form and treatment as `port_mode` + `port`: the first
+   field has a single meaning, the second retains its own, and a manifest
+   that declares nothing behaves exactly as today — with `off`, vroom does not even
+   look for the binary. `route_mode != "off"` requires a port in some mode;
+   `route_name` without `named` is rejected.
 
-3. **El nombre es derivable y configurable.** `auto` da URL derivada de la
-   **rama** sin escribir nada; `named` da la URL **estable** que exigen un
-   callback OAuth o una regla CORS. Ambas hacen falta porque la convención
-   nativa de portless (M13) deriva de la rama y cambia con un `git branch -m`.
+3. **The name is derivable and configurable.** `auto` gives a URL derived from the
+   **branch** without writing anything; `named` gives the **stable** URL that an
+   OAuth callback or a CORS rule demands. Both are needed because portless's native
+   convention (M13) derives from the branch and changes with a `git branch -m`.
 
-   > **ALCANCE REAL DE `auto`.** Este texto decía "URL propia a cada worktree",
-   > y es falso: `DeriveName` recibe la rama y el proyecto, **no** la ruta del
-   > worktree. `auto` es scope de **rama**. Dos worktrees en la misma rama
-   > derivan el mismo nombre —dos clones en `main`, o un
-   > `git worktree --force` sobre una rama ya usada— y el segundo NO obtiene una
-   > segunda dirección sino un **conflicto limpio**, con la ruta del primero
-   > intacta (§5, decisión 5). `named` es la respuesta, y no una opción
-   > estética: es único por construcción. El ADR ya era honesto al citar M13; la
-   > sobreafirmación estaba en el comentario del código y en el README.
+   > **REAL SCOPE OF `auto`.** This text said "own URL for each worktree",
+   > and that is false: `DeriveName` receives the branch and the project, **not**
+   > the worktree path. `auto` is **branch** scope. Two worktrees on the same branch
+   > derive the same name —two clones on `main`, or a
+   > `git worktree --force` over an already-used branch— and the second does NOT get a
+   > second address but a **clean conflict**, with the first one's route intact
+   > (§5, decision 5). `named` is the answer, and not an aesthetic option:
+   > it is unique by construction. The ADR was already honest in citing M13; the
+   > overassertion was in the code comment and the README.
 
-4. **Se registra después de descubrir y antes de persistir el `Meta` final.** Por
-   **M9**, registrar antes sólo compra una ventana de `502`; registrar tarde
-   garantiza además que nunca se publica una ruta para un servicio
-   `port_unresolved` o `no_port`. El punto único de enganche es
-   `internal/startsvc`, por el que ya pasan TUI, CLI y stacks.
+4. **Registration happens after discovery and before persisting the final `Meta`.** Per
+   **M9**, registering earlier only buys a `502` window; registering later
+   also guarantees that a route is never published for a `port_unresolved`
+   or `no_port` service. The single hook point is
+   `internal/startsvc`, through which TUI, CLI, and stacks already pass.
 
-5. **La lectura de vuelta es obligatoria — y va ANTES de escribir.** Por **M8**
-   el alta es un upsert incondicional, así que escribir primero y leer después
-   es una **tautología**: la tabla compararía el puerto recién escrito contra sí
-   mismo y no podría distinguir la ruta propia de la de otro. Por eso se
-   **consulta el nombre antes de escribir** y, si lo tiene un puerto que no es
-   el nuestro ni el persistido, **no se escribe**: se degrada con
-   `route_conflict` y la ruta ajena queda intacta. Es el mismo fallo cerrado que
-   gobierna la limpieza, aplicado al alta.
+5. **Reading back is mandatory — and happens BEFORE writing.** Per **M8** the
+   registration is an unconditional upsert, so writing first and reading after
+   is a **tautology**: the table would compare the newly written port against itself
+   and could not distinguish our own route from another's. That is why
+   the name is **queried before writing** and, if it is held by a port that is
+   neither ours nor the persisted one, **nothing is written**: it degrades with
+   `route_conflict` and the foreign route remains intact. It is the same fail-closed
+   that governs cleanup, applied to registration.
 
-   Tras el alta se lee de vuelta igualmente, para cubrir la ventana entre la
-   consulta y la escritura.
+   After registration it is read back as well, to cover the window between the
+   query and the write.
 
-   > **CORRECCIÓN (review).** Esta decisión decía "tras registrar, vroom lee la
-   > ruta", y eso era una tautología en el caso común. El R1 de `plan.md` estaba
-   > marcado *eliminado* y no lo estaba: la evidencia del R1 es el **orden**, no
-   > la lectura de vuelta.
+   > **CORRECTION (review).** This decision said "after registering, vroom reads the
+   > route", and that was a tautology in the common case. The R1 in `plan.md` was
+   > marked *eliminated* and was not: the evidence for R1 is the **order**, not
+   > the read-back.
 
-   La distinción entre "de otro dueño" y "la nuestra, y la app reinició en otro
-   puerto" la da `portless.Ownership`: no un puerto, sino el hecho de que la ruta
-   siga siendo NUESTRA.
+   The distinction between "owned by another" and "ours, and the app restarted on a
+   different port" is given by `portless.Ownership`: not a port, but the fact that
+   the route is still OURS.
 
-   > **CORRECCIÓN (review): `prevPort` era una capacidad sin caducidad.**
-   > La primera versión pasaba el puerto persistido y lo comparaba así:
-   > `found && existing != port && existing != prevPort`. Un número persistido no
-   > caduca —el stop no limpiaba `RouteName`/`RoutePort`—, así que la concesión
-   > sobrevivía a la ruta que la había autorizado. La secuencia:
+   > **CORRECTION (review): `prevPort` was a capability with no expiry.**
+   > The first version passed the persisted port and compared it like this:
+   > `found && existing != port && existing != prevPort`. A persisted number does not
+   > expire —stop did not clean `RouteName`/`RoutePort`—, so the grant
+   > survived the route that had authorized it. The sequence:
    >
    > ```
-   > Apply("main.proj", 4321, 0)       -> registered, persistido 4321
-   > Remove("main.proj")               -> la ruta desaparece
-   > otro dueño registra main.proj     -> 4321
-   > Apply("main.proj", 5000, 4321)    -> registered, y la ruta del otro pasa a 5000
+   > Apply("main.proj", 4321, 0)       -> registered, persisted 4321
+   > Remove("main.proj")               -> the route disappears
+   > another owner registers main.proj  -> 4321
+   > Apply("main.proj", 5000, 4321)    -> registered, and the other's route moves to 5000
    > ```
    >
-   > es decir: la ruta de otro destruida y ningún conflicto. Lo que faltaba no era
-   > el puerto sino **si seguimos siendo el dueño**. Ahora el Meta persiste
-   > `RouteOwned`, que se concede al registrar y **se revoca al retirar**, y el
-   > predicado es `!prev.Authorises(existing)`.
+   > that is: another's route destroyed and no conflict. What was missing was not the
+   > port but **whether we are still the owner**. Now the Meta persists
+   > `RouteOwned`, which is granted on registration and **revoked on removal**, and the
+   > predicate is `!prev.Authorises(existing)`.
    >
-   > **Residual nombrado, porque un residual sin nombrar es como nació este
-   > HIGH:** el handle (`RouteName`/`RoutePort`) se conserva a propósito aunque la
-   > propiedad quede revocada. Así, si una retirada falla, la reconciliación sigue
-   > teniendo dónde mirar; y si más tarde el nombre lo ocupa otro, la propiedad ya
-   > está revocada y no le autoriza nada. Handle y propiedad no se contradicen:
-   > el handle dice DÓNDE mirar, la propiedad SI se puede pisar. Lo que NO se
-   > haría es limpiar el handle al retirar: convertiría una ruta huérfana en algo
-   > que sólo la reconciliación del arranque podría recuperar.
+   > **Named residual, because an unnamed residual is how this HIGH was born:** the
+   > handle (`RouteName`/`RoutePort`) is deliberately preserved even when ownership is
+   > revoked. That way, if a removal fails, reconciliation still has somewhere to
+   > look; and if the name is later taken by another, ownership is already revoked and
+   > authorizes nothing. Handle and ownership do not contradict each other: the handle
+   > says WHERE to look, ownership says WHETHER it can be overwritten. What would
+   > NOT be done is cleaning the handle on removal: it would turn an orphan route into
+   > something only startup reconciliation could recover.
 
-6. **Y además, se verifica contra el proxy vivo.** Ésta es la decisión que M1 y
-   M2 obligan a escribir y de la que este slice no podría prescindir:
+6. **And furthermore, it is verified against the live proxy.** This is the decision
+   that M1 and M2 force to be written and one this slice could not do without:
 
-   - El puerto del proxy se lee de `proxy.port`. Por **M6**, si el fichero **no
-     existe**, eso **es** el aviso de que no hay proxy → se degrada. **Nunca** se
-     cae a un puerto supuesto.
-   - Se emite **un** request al puerto del proxy, con el `Host` (y el SNI TLS)
-     puesto al hostname de la ruta, sobre la dirección de loopback — sin depender
-     de la resolución de nombres. **Cualquier** respuesta HTTP prueba que el proxy
-     enruta esa ruta, **incluido `502`**: un `502` dice "el proxy enruta y el
-     servicio de detrás no responde", que es información distinta de "el proxy no
-     sirve la ruta". Sólo un fallo de conexión o un timeout significa que no hay
-     proxy sirviendo.
-   - Si nada responde: `degraded`, y **no se publica `url`**. Por **M11** es el
-     mismo criterio que aplica portless cuando una app falla.
+   - The proxy port is read from `proxy.port`. Per **M6**, if the file **does not
+     exist**, that **is** the warning that there is no proxy → it degrades. It
+     **never** falls back to an assumed port.
+   - **One** request is sent to the proxy port, with the `Host` (and TLS SNI) set to
+     the route's hostname, over the loopback address — without depending on name
+     resolution. **Any** HTTP response proves that the proxy routes that route,
+     **including `502`**: a `502` says "the proxy routes and the service behind does
+     not respond", which is different information from "the proxy does not serve the
+     route". Only a connection failure or timeout means there is no proxy serving.
+   - If nothing responds: `degraded`, and **no `url` is published**. Per **M11** it is
+     the same criterion portless applies when an app fails.
 
-   Por **M3**, registrar con el proxy caído es persistente y correcto: la ruta se
-   sirve cuando el proxy vuelva. La verificación decide **qué se publica**, no si
-   se **registra**.
+   Per **M3**, registering with the proxy down is persistent and correct: the route is
+   served when the proxy returns. Verification decides **what is published**, not
+   whether it is **registered**.
 
-7. **El esquema de la URL se determina probando, no suponiendo.** Se intenta
-   `https` y, si no responde, `http`; se publica el que respondió. **Así el
-   caso TLS / puerto 443 no es un riesgo**: el diseño no contiene un supuesto que
-   el TLS pueda refutar, y no hizo falta medirlo. El coste es una sonda.
+7. **The URL scheme is determined by probing, not assuming.** `https` is tried and,
+   if it does not respond, `http`; the one that responded is published. **This way
+   the TLS / port 443 case is not a risk**: the design contains no assumption that
+   TLS could refute, and it did not need to be measured. The cost is one probe.
 
-8. **La reconciliación en cada arranque es obligatoria.** Por **M5**, `prune` no
-   toca las rutas de alias, luego **vroom es lo único que puede limpiarlas**. En
-   cada arranque vroom toma las rutas que **él mismo** persistió y, para cada una,
-   la lee contra el proxy vivo:
+8. **Reconciliation on every startup is mandatory.** Per **M5**, `prune` does not
+   touch alias routes, so **vroom is the only thing that can clean them**. On
+   every startup vroom takes the routes that **it itself** persisted and, for each
+   one, reads it against the live proxy:
 
-   - el nombre persistido ≠ el derivado ahora → si la antigua no responde, se
-     retira y se registra la nueva (cubre `git branch -m`);
-   - la ruta persistida ya no responde → se retira (cubre lo que dejó un vroom que
-     murió sin parar el servicio);
-   - responde con otro puerto → conflicto, se avisa, **no se registra nada encima**;
-   - responde y es la nuestra → no se toca (idempotencia).
+   - the persisted name ≠ the one derived now → if the old one does not respond, it
+     is removed and the new one is registered (covers `git branch -m`);
+   - the persisted route no longer responds → it is removed (covers what a vroom that
+     died without stopping the service left behind);
+   - responds with a different port → conflict, a warning is issued, **nothing is
+     registered on top**;
+   - responds and is ours → it is left alone (idempotence).
 
-   **Una ruta que responde y no es nuestra no se retira: se avisa.** El fallo
-   cerrado que gobierna todo el cambio de puertos aplica también a la limpieza:
-   borrar algo ajeno es peor que dejar una ruta de más.
+   **A route that responds and is not ours is not removed: a warning is issued.** The
+   fail-closed that governs all port changing also applies to cleanup: deleting
+   something foreign is worse than leaving an extra route.
 
-   Esto es lo que hace que «un vroom que muere deja rutas apuntando a puertos
-   muertos» no sea una limitación sino un mecanismo con recuperación.
+   This is what makes "a vroom that dies leaves routes pointing at dead ports" not a
+   limitation but a mechanism with recovery.
 
-9. **Ni el state dir ni el `PATH` se hardcodean.** State dir: `$PORTLESS_STATE_DIR`
-   → `$XDG_STATE_HOME/portless` → `$HOME/.portless`. Binario: `$PORTLESS_BIN` →
-   `exec.LookPath` → directorios de shim conocidos. Por **M14** un `portless`
-   desnudo no se puede asumir; y vroom corre bajo un gestor de servicios cuyo
-   entorno no es el shell de login del usuario, de modo que un path que funciona
-   en el shell del usuario y falla en el daemon es un bug, no una configuración.
+9. **Neither the state dir nor the `PATH` is hardcoded.** State dir: `$PORTLESS_STATE_DIR`
+   → `$XDG_STATE_HOME/portless` → `$HOME/.portless`. Binary: `$PORTLESS_BIN` →
+   `exec.LookPath` → known shim directories. Per **M14** a bare
+   `portless` cannot be assumed; and vroom runs under a service manager whose
+   environment is not the user's login shell, so a path that works in the user's
+   shell and fails in the daemon is a bug, not a configuration.
 
-   > **CORRECCIÓN MEDIDA (M16).** Este texto decía `$PORTLESS_HOME` como primer
-   > paso. Es incorrecto: contra portless 0.15.6, el CLI **ignora**
-   > `$PORTLESS_HOME` y honra `$PORTLESS_STATE_DIR`. Implementar el orden aquí
-   > documentado produce dos vistas distintas del mismo estado — vroom lee
-   > `proxy.port` de un directorio y el binario escribe `routes.json` en otro— y
-   > el síntoma es una ruta que se registra y luego **no se puede quitar**. Un
-   > seam que resuelve una ruta que la herramienta no resuelve no es una
-   > ventaja: es un modo de fallo silencioso. El orden correcto es el de arriba.
+   > **MEASURED CORRECTION (M16).** This text said `$PORTLESS_HOME` as the first
+   > step. That is incorrect: against portless 0.15.6, the CLI **ignores**
+   > `$PORTLESS_HOME` and honors `$PORTLESS_STATE_DIR`. Implementing the order
+   > documented here produces two different views of the same state — vroom reads
+   > `proxy.port` from one directory and the binary writes `routes.json` in another—
+   > and the symptom is a route that gets registered and then **cannot be removed**. A
+   > seam that resolves a path the tool does not resolve is not an advantage: it is a
+   > silent failure mode. The correct order is the one above.
 
-10. **Toda llamada está acotada por timeout.** Un `exec` sin cota contra un binario
-    colgado cuelga el arranque, y eso sí sería una pérdida de disponibilidad — la
-    degradación nunca puede ser peor que no tener la feature.
+10. **Every call is bounded by a timeout.** An unbounded `exec` against a hung binary
+    hangs startup, and that would indeed be a loss of availability — degradation can
+    never be worse than not having the feature.
 
-11. **El seam es inyectado y la suite es hermética.** El runner de CI no tiene
-    portless, ni Node 24, ni proxy. La integración vive detrás de un seam, con la
-    misma forma que el `procRoot` que ya usan las lecturas de `/proc`. Hay
-    **tres** tests de integración, marcados con `VROOM_PORTLESS_INTEGRATION=1` y
-    skipped sin portless real: alta/baja contra el CLI real, M3 (la ruta sobrevive
-    a un reinicio real del proxy, parado por PID) y M4 (escribir un alias no
-    expulsa una app viva de `portless run`).
+11. **The seam is injected and the suite is hermetic.** The CI runner does not have
+    portless, nor Node 24, nor a proxy. Integration lives behind a seam, in the
+    same form as the `procRoot` already used by `/proc` reads. There are
+    **three** integration tests, marked with `VROOM_PORTLESS_INTEGRATION=1` and
+    skipped without real portless: register/remove against the real CLI, M3 (the
+    route survives a real proxy restart, stopped by PID) and M4 (writing an alias
+    does not evict a live app from `portless run`).
 
-    > **CORRECCIÓN (review).** Este texto decía "a lo sumo un test de
-    > integración". El crecimiento está bien —los tres casos que no se pueden
-    > observar con un doble son los que más merecían un test—; lo que estaba
-    > mal era el documento, que describía un techo que ya no existe.
+    > **CORRECTION (review).** This text said "at most one integration test". The
+    > growth is fine —the three cases that cannot be observed with a double are the
+    > ones that most deserved a test—; what was wrong was the document, which
+    > described a ceiling that no longer exists.
 
-12. **El contrato JSON tiene tres estados, y el ausente también es uno.**
-    `route_mode` es la **intención**. `route` (`*RouteInfo`) es el **resultado**:
-    `name` (hostname *pretendido*, haya éxito o no), `status`
-    (`registered` | `degraded`), `url` (**sólo si `registered`**, y sólo con el
-    esquema comprobado) y `reason` (sólo si `degraded`). Lección de
-    `port_verified`, aplicada entera: **una URL que nadie verificó no se publica.**
+12. **The JSON contract has three states, and the absent one is also one.**
+    `route_mode` is the **intention**. `route` (`*RouteInfo`) is the
+    **result**: `name` (hostname *intended*, whether or not it succeeds), `status`
+    (`registered` | `degraded`), `url` (**only if `registered`**, and only with the
+    verified scheme) and `reason` (only if `degraded`). Lesson from
+    `port_verified`, applied in full: **a URL that no one verified is not published.**
 
-13. **Retirada en el stop, junto a `ReleasePort`, en los tres caminos** (TUI, CLI,
-    motor de stacks). Por **M10**, `--remove` de un nombre inexistente es `exit 1`
-    y es **benigno**: un stop repetido no es un error.
+13. **Removal on stop, alongside `ReleasePort`, in all three paths** (TUI, CLI,
+    stacks engine). Per **M10**, `--remove` of a nonexistent name is `exit 1`
+    and is **benign**: a repeated stop is not an error.
 
-    > **CORRECCIÓN (review, dos rondas).** La primera redacción de esta nota
-    > decía "cada camino tiene su test" y "un servicio ya muerto al pararse no
-    > retiraba nada". Ambas eran inexactas y el commit `fa7f3e8` las repitió:
+    > **CORRECTION (review, two rounds).** The first draft of this note said "each
+    > path has its test" and "an already-dead service on stop removed nothing". Both
+    > were inaccurate and commit `fa7f3e8` repeated them:
     >
-    > - Hay **6 call sites** de retirada en 3 paquetes (cli 1, tui 1, engine 3
-    >   + 1 compartido). La primera ronda verificó **4**; los dos call sites del
-    >   engine para servicio YA MUERTO seguían sin cubrir — y uno de ellos
-    >   llamaba a `portless.Release(nil, …)` con el cliente real hardcodeado,
-    >   inobservable para cualquier test. Ahora los **6** están cubiertos: el
-    >   engine tiene un `releaseRouteOnStop` único por el que pasan los tres,
-    >   y cada rama tiene su test (neutralizar cualquiera de las tres pone la
-    >   suite en rojo).
-    > - "Un servicio ya muerto no retiraba nada" sólo era cierto si además
-    >   `Port == 0`. Un servicio simplemente parado tiene `Port != 0`, así que
-    >   el guard ya se cumplía y `stopProcess` ya corría. El hueco real era el
-    >   meta `Pid=0, Pgid=0, Port=0` con `RouteName != ""`, alcanzable porque
-    >   `resolveDynamicPort` sólo registra ruta con `State==running && Port>0`
-    >   pero los campos heredados siguen persistidos.
+    > - There are **6 call sites** for removal in 3 packages (cli 1, tui 1, engine
+    >   3 + 1 shared). The first round verified **4**; the two engine call sites for
+    >   an ALREADY-DEAD service remained uncovered — and one of them called
+    >   `portless.Release(nil, …)` with the real client hardcoded, unobservable for
+    >   any test. Now all **6** are covered: the engine has a single
+    >   `releaseRouteOnStop` through which all three pass, and each branch has its
+    >   test (neutralizing any of the three turns the suite red).
+    > - "An already-dead service removed nothing" was only true if also
+    >   `Port == 0`. A simply-stopped service has `Port != 0`, so the guard was
+    >   already satisfied and `stopProcess` already ran. The real gap was the meta
+    >   `Pid=0, Pgid=0, Port=0` with `RouteName != ""`, reachable because
+    >   `resolveDynamicPort` only registers a route with `State==running && Port>0`
+    >   but the inherited fields remain persisted.
     >
-    > Y el bug que la inyección destapó sigue siendo real: la retirada estaba
-    > DENTRO del guard de proceso.
+    > And the bug the injection uncovered is still real: the removal was INSIDE the
+    > process guard.
 
-14. **"No responde" en la reconciliación significa "no hay nadie detrás", no
-    sólo "el proxy no responde".** Una ruta de un vroom muerto **sigue enruta**:
-    el proxy devuelve `502` porque el puerto ya no lo escucha nadie, y leer ese
-    `502` como "viva" la deja para siempre — que es justo lo que §8 existe para
-    evitar. `liveRoute` distingue por eso tres estados: no servida (`404` o sin
-    proxy), enruta-sin-backend (`502`/`504`) y viva. Y sólo se retira cuando
-    `held.Authorises(published)` — la propiedad persistida, no el puerto— para
-    que el fallo cerrado siga aplicando a la limpieza.
+14. **"No response" in reconciliation means "there is no one behind", not just "the
+    proxy does not respond".** A route from a dead vroom **is still routed**: the
+    proxy returns `502` because the port is no longer listened on by anyone, and
+    reading that `502` as "alive" leaves it forever — which is exactly what §8 exists
+    to prevent. `liveRoute` therefore distinguishes three states: not served (`404`
+    or no proxy), routed-without-backend (`502`/`504`), and alive. And it is only
+    removed when `held.Authorises(published)` — the persisted ownership, not the
+    port— so that fail-closed continues to apply to cleanup.
 
-    > **CORRECCIÓN (review).** Este texto decía que se retiraba cuando se podía
-    > probar la propiedad "por el nombre y el puerto que este servicio
-    > persistió". Eso fue exactamente lo que **no** hacía: `Reconcile` seguía
-    > recibiendo un puerto crudo. Y como la revocación conserva el handle a
-    > propósito —para que la reconciliación tenga dónde mirar—, ese puerto crudo
-    > era una **autoridad de borrado real** sobre un nombre que vroom había
-    > descartado ya. Secuencia: `Apply(x,4321)` → stop y Release (revoca, handle
-    > vivo) → otro dueño toma `x` en 4321 con el backend caído (`502`) → rama
-    > renombrada → `Reconcile` ve `prev != current` y **borra la ruta ajena**.
+    > **CORRECTION (review).** This text said it was removed when ownership could be
+    > proven "by the name and port this service persisted". That was exactly what it
+    > did **not** do: `Reconcile` was still receiving a raw port. And since
+    > revocation deliberately preserves the handle —so that reconciliation has
+    > somewhere to look—, that raw port was a **real deletion authority** over a name
+    > vroom had already discarded. Sequence: `Apply(x,4321)` → stop and Release
+    > (revokes, handle alive) → another owner takes `x` on 4321 with the backend down
+    > (`502`) → branch renamed → `Reconcile` sees `prev != current` and **deletes
+    > the foreign route**.
     >
-    > La misma concesión de §5, reutilizada tal cual: `Reconcile` ahora recibe
-    > `Ownership` y exige `Authorises` antes de borrar. Conservar el handle sigue
-    > siendo lo correcto; lo que estaba mal era el predicado.
+    > The same grant from §5, reused as-is: `Reconcile` now receives `Ownership`
+    > and requires `Authorises` before deleting. Preserving the handle is still
+    > correct; what was wrong was the predicate.
 
-    El mismo `502` cambia de signo según la pregunta: en el alta **prueba** el
-    enrutado y por eso la ruta se publica; en la limpieza significa que no hay
-    nadie detrás. Tratarlo igual en los dos sitios es un error en uno de los dos.
+    The same `502` changes meaning depending on the question: in registration it
+    **proves** routing and that is why the route is published; in cleanup it means
+    there is no one behind. Treating it the same in both places is an error in one
+    of the two.
 
-15. **`Result.Registered` es la señal de concesión, y concede mirando el
-    resultado.** Registrar ES conceder la propiedad, pero sólo si la escritura
-    ocurrió: `Apply` marca `Registered` justo después de que `Register` tuvo
-    éxito, y `applyRoute` concede con `res.Registered`.
+15. **`Result.Registered` is the grant signal, and it grants by looking at the
+    result.** Registering IS granting ownership, but only if the write occurred:
+    `Apply` sets `Registered` right after `Register` succeeded, and `applyRoute`
+    grants with `res.Registered`.
 
-    > **CORRECCIÓN (review, HIGH-A).** `applyRoute` hacía
-    > `meta.RouteOwned = true` **incondicionalmente**, sin mirar `res`. Un alta
-    > que nunca ocurrió —por conflicto, o sin binario— acuñaba igual una
-    > capacidad concedente, con el puerto pedido. Era el único punto de concesión
-    > del árbol, así que el defecto se propagaba a todo lo demás.
+    > **CORRECTION (review, HIGH-A).** `applyRoute` set `meta.RouteOwned = true`
+    > **unconditionally**, without looking at `res`. A registration that never
+    > happened —due to conflict, or without a binary— still minted a granting
+    > capability, with the requested port. It was the only grant point in the tree, so
+    > the defect propagated to everything else.
     >
-    > Y el arreglo NO es conceder con `Succeeded()`: eso significa registrada **y**
-    > verificada, así que *sub-concedería*. Una ruta escrita con el proxy parado
-    > es genuinamente nuestra y debe conservar su handle; sin él, un reinicio con
-    > el puerto movido chocaría contra su propia ruta, que es un conflicto
-    > inventado. Degradar el estado no deshace el hecho.
+    > And the fix is NOT to grant with `Succeeded()`: that means registered **and**
+    > verified, so it would *under-grant*. A route written with the proxy stopped is
+    > genuinely ours and must keep its handle; without it, a restart with the port
+    > moved would collide with its own route, which is an invented conflict.
+    > Degrading the state does not undo the fact.
 
-16. **Contabilidad de los sitios de propiedad.** Los tres hallazgos de la ronda 4
-    eran la misma forma: un dato escrito en un sitio y leído en otro sin que
-    nadie comprobara que los dos coincidieran. La lista completa, con su papel:
+16. **Ownership site accounting.** The three findings from round 4 were the same
+    shape: a datum written in one place and read in another without anyone verifying
+    that the two matched. The complete list, with its role:
 
-    | Sitio | Papel | Antes | Ahora |
+    | Site | Role | Before | Now |
     |---|---|---|---|
-    | `startsvc.applyRoute` | **grant** | incondicional, sin mirar `res` | `res.Registered` |
-    | `cli.releaseRouteOnStop` | **revoke** | correcto | correcto |
-    | `tui.releaseRoute` | **revoke** | correcto | correcto |
-    | `engine.releaseRouteOnStop` | **revoke** | correcto (3 call sites) | correcto |
-    | `startsvc.Start` (herencia) | **read** (traslado) | copiaba nombre y puerto, **no** la propiedad | copia los tres o ninguno |
-    | `startsvc.applyRoute` → `Apply` | **read** (decisión) | leía los tres | los tres |
-    | `startsvc.applyRoute` → `Reconcile` | **read** (decisión) | **leía nombre y puerto, no la propiedad** | recibe `Ownership` |
-    | `cli.buildProjectInfo` | **read** (JSON) | leía nombre y puerto | sin cambio: superficie, no decisión |
-    | — | **clear** | ningún sitio borra nombre+puerto | ninguno, a propósito |
+    | `startsvc.applyRoute` | **grant** | unconditional, without looking at `res` | `res.Registered` |
+    | `cli.releaseRouteOnStop` | **revoke** | correct | correct |
+    | `tui.releaseRoute` | **revoke** | correct | correct |
+    | `engine.releaseRouteOnStop` | **revoke** | correct (3 call sites) | correct |
+    | `startsvc.Start` (inheritance) | **read** (transfer) | copied name and port, **not** ownership | copies all three or none |
+    | `startsvc.applyRoute` → `Apply` | **read** (decision) | read all three | all three |
+    | `startsvc.applyRoute` → `Reconcile` | **read** (decision) | **read name and port, not ownership** | receives `Ownership` |
+    | `cli.buildProjectInfo` | **read** (JSON) | read name and port | no change: surface, not decision |
+    | — | **clear** | no site clears name+port | none, on purpose |
 
-    El sitio de la herencia no estaba en la lista del review y era el mismo
-    patrón: copiar dos de tres hechos deja la concesión perdida en silencio en
-    cada arranque.
+    The inheritance site was not in the review's list and was the same pattern:
+    copying two of three facts leaves the grant silently lost on every startup.
 
-17. **`RemoveAbsent` sólo revoca con exit 0 o con el benigno de M10.**
-    `requires Node >= 24`, `EACCES` y un `routes.json` corrupto salen **todos**
-    con exit 1, y un `default → nil` los revocaba a todos: una retirada fallida
-    declaraba la ruta como *no nuestra* mientras la ruta podía
-    seguir ahí, y sin propiedad ya nadie podía reclamarla. Es un fallo abierto
-    etiquetado como cierre. Ahora todo exit que no sea el de "no existe" propaga
-    como error, y quien revoca decide. `Remove` conserva su contrato benigno.
+17. **`RemoveAbsent` only revokes with exit 0 or with M10's benign one.**
+    `requires Node >= 24`, `EACCES`, and a corrupt `routes.json` all exit with
+    exit 1, and a `default → nil` revoked them all: a failed removal declared the
+    route as *not ours* while the route could still be there, and without ownership
+    no one could claim it. It is a fail-open labeled as closed. Now every exit other
+    than the "does not exist" one propagates as an error, and the revoker decides.
+    `Remove` keeps its benign contract.
 
-18. **En `routeUnknown` la autoridad es `held.Owned`, no `Authorises`.** Cuando
-    no se puede leer el puerto en vivo, `liveRoute` devuelve `published == 0`
-    siempre, así que comparar puertos no puede decidir nada: `Authorises(0)`
-    exige `Port > 0` y es siempre falso. La única evidencia que queda es la
-    concesión sin revocar sobre ese nombre.
+18. **In `routeUnknown` the authority is `held.Owned`, not `Authorises`.** When
+    the live port cannot be read, `liveRoute` always returns `published == 0`,
+    so comparing ports cannot decide anything: `Authorises(0)` requires `Port > 0`
+    and is always false. The only evidence left is the unrevoked grant on that name.
 
-    > **CORRECCIÓN (review, BLOQUEANTE).** La guarda anterior era
-    > `!held.Authorises(published) && published != 0`: **código muerto**, porque
-    > las dos condiciones son insatisfacibles en esa rama. `Remove` corría sin
-    > comprobar propiedad. Reproducido contra portless real en sus dos estados
-    > de disparo —proxy parado, y proxy en marcha que responde `404`—: la ruta
-    > ajena se borraba y no había aviso. Y `alias --remove` es una escritura
-    > pura (M1), así que el borrado tenía éxito con el proxy caído.
+    > **CORRECTION (review, BLOCKING).** The previous guard was
+    > `!held.Authorises(published) && published != 0`: **dead code**, because the two
+    > conditions are unsatisfiable in that branch. `Remove` ran without checking
+    > ownership. Reproduced against real portless in its two trigger states —proxy
+    > stopped, and proxy running that responds `404`—: the foreign route was deleted
+    > and there was no warning. And `alias --remove` is a pure write (M1), so the
+    > deletion succeeded with the proxy down.
     >
-    > Conceder con `!held.Owned` NO desactiva la limpieza de huérfanas: es
-    > justamente lo que la permite, porque el caso "nuestra huérfana con el
-    > proxy parado" tiene `Owned=true` y `published` ilegible.
+    > Granting with `!held.Owned` does NOT disable orphan cleanup: it is precisely
+    > what enables it, because the case "our orphan with the proxy stopped" has
+    > `Owned=true` and `published` unreadable.
 
-    > **CAMBIO DE COMPORTAMIENTO, ESCRITO A PROPÓSITO.** Un `meta.json`
-    > escrito por una versión anterior a `route_owned` no tiene ese campo, así
-    > que `Owned=false`. Consecuencia: **las huérfanas de vroom anteriores a la
-    > actualización dejan de auto-limpiarse en el arranque.** Es un cambio real
-    > y falla cerrado: la ruta se conserva, se avisa, y el handle se mantiene, de
-    > modo que sigue siendo recuperable. Se documenta aquí y no se descubre en
-    > producción. Quien actualice y vea un aviso de "no longer owns it" está
-    > viendo esto.
+    > **BEHAVIOR CHANGE, DELIBERATELY WRITTEN.** A `meta.json` written by a version
+    > prior to `route_owned` does not have that field, so `Owned=false`. Consequence:
+    > **orphans from vroom versions prior to the update stop auto-cleaning on
+    > startup.** It is a real change and fail-closed: the route is preserved, a
+    > warning is issued, and the handle is kept, so it remains recoverable. It is
+    > documented here and not discovered in production. Anyone who updates and sees a
+    > "no longer owns it" warning is seeing this.
 
-## Consecuencias
+## Consequences
 
-- Positivas: la salud de un servicio **nunca** depende de que exista su ruta; el
-  slice es publicable sin portless instalado; la suite es hermética; el estado que
-  leen los agentes distingue siempre intención de resultado, y **verificado** de
-  **escrito**.
-- Negativas / trade-offs: una dependencia externa más en el arranque, aunque
-  **acotada, derivada y degradable**; y como `exit 0` dejó de ser una señal,
-  **cada** arranque paga una lectura de vuelta **y** una verificación en vivo. Es
-  el precio de no poder afirmar una dirección falsa.
-- Por **M4**, vroom puede compartir el proxy del usuario con las sesiones de
-  `portless run` sin expulsar nada ajeno: no se gestionan entre sí.
-- **Ninguna limitación asumida.** Las dos que existían en el borrador de este
-  ADR —"un vroom que muere deja rutas permanentes" y "el esquema TLS no está
-  medido"— están **eliminadas por diseño**: la primera por la reconciliación
-  obligatoria (§8), la segunda por determinar el esquema probando (§7).
-- Coste residual, no riesgo de producto: registrar una ruta recolecta entradas
-  stale del `routes.json` del usuario. Es inofensivo (son PIDs muertos) y es
-  comportamiento de la herramienta.
+- Positive: a service's health **never** depends on its route existing; the
+  slice is shippable without portless installed; the suite is hermetic; the state that
+  agents read always distinguishes intention from result, and **verified** from
+  **written**.
+- Negative / trade-offs: one more external dependency at startup, though
+  **bounded, derived, and degradable**; and since `exit 0` is no longer a signal,
+  **every** startup pays for a read-back **and** a live verification. It is
+  the price of not being able to assert a false address.
+- Per **M4**, vroom can share the user's proxy with `portless run` sessions without
+  evicting anything foreign: they do not manage each other.
+- **No assumed limitations.** The two that existed in this ADR's draft —"a vroom
+  that dies leaves permanent routes" and "the TLS scheme is not measured"— are
+  **eliminated by design**: the first by mandatory reconciliation (§8), the second by
+  determining the scheme by probing (§7).
+- Residual cost, not product risk: registering a route collects stale entries from
+  the user's `routes.json`. It is harmless (they are dead PIDs) and it is the tool's
+  behavior.
 
-## Alternativas consideradas
+## Alternatives considered
 
-- **Pasar `PORTLESS_APP_PORT` al arrancar la app** (lo que dice el plan
-  archivado). Rechazada **por medición, no por gusto**: esa variable la consume
-  `portless run <cmd>`, donde **portless** arranca el hijo y es dueño del proceso.
-  Es el modelo que el usuario rechazó, y rompe el Stop-por-linaje del slice 1. Un
-  executor que siguiera el plan archivado al pie de la letra escribiría código que
-  no funciona.
-- **Escribir `~/.portless/routes.json` directamente** en vez de llamar a la CLI.
-  Rechazada: es el fichero de estado interno del proxy, sin contrato versionado, y
-  reintroduce el tipo de acoplamiento que los slices 1–3 eliminaron al hacer que
-  vroom sea dueño del puerto y nada más.
-- **Raspar `portless doctor` para el puerto del proxy.** Rechazada: la salida es
-  para humanos y cambia entre versiones. `proxy.port` es un fichero de estado con
-  el número pelado. No hay API HTTP que consultar (M15).
-- **Asumir el puerto por defecto (`1355`, o `80`/`443`).** Rechazada: contradice
-  **M6** y el caso TLS. Un puerto supuesto que además se puede mover es exactamente
-  el tipo de constante que este slice no debe introducir. Nada se supone: se lee,
-  y si no está, se degrada.
-- **Verificar con `portless get`.** Rechazada por medición (M12): prefija la rama
-  git actual, así que devuelve un nombre que no es el que se registró.
-- **Leer `routes.json` de vuelta como verificación suficiente.** Rechazada por
-  **M1** y **M2**: `alias` no contacta con el proxy, así que el fichero demuestra sólo que escribimos. Una ruta en el fichero con el proxy parado
-  parecería disponible y no lo es. **La verificación es contra el proxy vivo.**
-- **Confiar en `exit 0` de `alias` como prueba de propiedad.** Rechazada por
-  medición (M8): upsert incondicional sin detección de conflictos. Es la
-  alternativa que habría producido direcciones mentirosas en silencio.
-- **Suponer el esquema de la URL a partir de la configuración.** Rechazada: no
-  hace falta saberlo. Se prueban los esquemas y se publica el que responde; así
-  el caso TLS no está medido **y no importa**, porque no hay supuesto que el TLS
-  pueda refutar.
-- **Nombre derivado de la rama únicamente** (la convención nativa). Rechazada
-  porque no es estable ante `git branch -m` (M13) y una URL estable es justamente
-  lo que necesitan OAuth y CORS. Se conserva como `auto`, no como única opción.
-- **Un solo campo `route = "" | "auto" | "mi-nombre"`.** Rechazada: un enum de
-  string ambiguo documenta su propio tipo en el schema y rompe la simetría con el
-  precedente `port_mode` + `port`.
-- **Dejar la limpieza de rutas huérfanas para después / para `portless prune`.**
-  Rechazada por **M5**: `prune` no toca `pid: 0`. Esperar a un barrido externo es
-  esperar algo que no va a llegar. De aquí sale que la reconciliación sea
-  obligatoria y no una mejora futura.
-- **Retirar una ruta que responde pero no es nuestra** (limpieza agresiva).
-  Rechazada: contradice el fallo cerrado de `adr-0012`. Se avisa. Borrar algo ajeno
-  es el daño que este conjunto de ADRs existe para evitar.
-- **Arrancar o supervisar el proxy desde vroom.** Rechazada por el usuario, y por
-  §3.4 de `adr-0012`: el `setsid` del proxy es el huérfano que el slice 1 arregló,
-  y hacerlo servicio visible reintroduce la recursión.
-- **Fallo abierto cuando portless no está** (error de arranque). Rechazada:
-  contradice `adr-0012` limitación 6 y la postura de todo el cambio de puertos.
+- **Passing `PORTLESS_APP_PORT` when starting the app** (what the archived plan
+  says). Rejected **by measurement, not by taste**: that variable is consumed by
+  `portless run <cmd>`, where **portless** starts the child and owns the process.
+  It is the model the user rejected, and it breaks slice 1's Stop-by-lineage. An
+  executor that followed the archived plan to the letter would write code that does
+  not work.
+- **Writing `~/.portless/routes.json` directly** instead of calling the CLI.
+  Rejected: it is the proxy's internal state file, without a versioned contract, and
+  it reintroduces the type of coupling that slices 1–3 eliminated by making vroom own
+  the port and nothing else.
+- **Scraping `portless doctor` for the proxy port.** Rejected: the output is for
+  humans and changes between versions. `proxy.port` is a state file with the bare
+  number. There is no HTTP API to query (M15).
+- **Assuming the default port (`1355`, or `80`/`443`).** Rejected: it contradicts
+  **M6** and the TLS case. An assumed port that can also be moved is exactly the
+  type of constant this slice must not introduce. Nothing is assumed: it is read, and
+  if it is not there, it degrades.
+- **Verifying with `portless get`.** Rejected by measurement (M12): it prefixes the
+  current git branch, so it returns a name that is not the one that was registered.
+- **Reading `routes.json` back as sufficient verification.** Rejected by
+  **M1** and **M2**: `alias` does not contact the proxy, so the file only proves that
+  we wrote. A route in the file with the proxy stopped would appear available and is
+  not. **Verification is against the live proxy.**
+- **Trusting `exit 0` from `alias` as proof of ownership.** Rejected by measurement
+  (M8): unconditional upsert without conflict detection. It is the alternative that
+  would have produced lying addresses in silence.
+- **Assuming the URL scheme from configuration.** Rejected: there is no need to know
+  it. The schemes are probed and the one that responds is published; that way the TLS
+  case is not measured **and does not matter**, because there is no assumption that
+  TLS could refute.
+- **Name derived from the branch only** (the native convention). Rejected because it
+  is not stable under `git branch -m` (M13) and a stable URL is exactly what OAuth and
+  CORS need. It is kept as `auto`, not as the only option.
+- **A single field `route = "" | "auto" | "my-name"`.** Rejected: an ambiguous string
+  enum documents its own type in the schema and breaks the symmetry with the preceding
+  `port_mode` + `port`.
+- **Leaving orphan route cleanup for later / for `portless prune`.** Rejected by
+  **M5**: `prune` does not touch `pid: 0`. Waiting for an external sweep is waiting
+  for something that will not come. This is what makes reconciliation mandatory and
+  not a future improvement.
+- **Removing a route that responds but is not ours** (aggressive cleanup). Rejected:
+  it contradicts `adr-0012`'s fail-closed. A warning is issued. Deleting something
+  foreign is the harm this set of ADRs exists to prevent.
+- **Starting or monitoring the proxy from vroom.** Rejected by the user, and by §3.4
+  of `adr-0012`: the proxy's `setsid` is the orphan that slice 1 fixed, and making it
+  a visible service reintroduces the recursion.
+- **Fail-open when portless is not present** (startup error). Rejected: it
+  contradicts `adr-0012` limitation 6 and the posture of the entire port changing.

@@ -1,449 +1,468 @@
-# Propuesta — Puertos dinámicos y URLs estables para worktrees paralelos
+# Proposal — Dynamic ports and stable URLs for parallel worktrees
 
-- Estado: **propuesta** (para revisión; no implementada)
-- Fecha: 2026-09-30
-- Alcance: `vroom` (núcleo) + convención en los `.vroom.toml` de los proyectos del usuario
+- Status: **proposal** (for review; not implemented)
+- Date: 2026-09-30
+- Scope: `vroom` (core) + convention in the user's project `.vroom.toml` files
 
-> Este documento es un **informe de problema / necesidad / propuesta** pensado para
-> que otro agente lo revise de forma crítica y lo implemente si lo considera
-> correcto. Todo dato numérico de la sección "Evidencia" fue **medido** en esta
-> máquina, no estimado. Se marcan los puntos donde la propuesta es discutible.
+> This document is a **problem / need / proposal report** designed for
+> another agent to review critically and implement if deemed correct. All
+> numerical data in the "Evidence" section was **measured** on this machine,
+> not estimated. Points where the proposal is debatable are marked.
 
 ---
 
-## 1. Problema
+## 1. Problem
 
-El usuario gestiona sus proyectos con **git worktrees** y los worktrees son
-**copias del mismo repo**, cada una con su propio `.vroom.toml`. Como las copias
-son idénticas, **declaran los mismos puertos fijos**.
+The user manages their projects with **git worktrees** and the worktrees are
+**copies of the same repo**, each with its own `.vroom.toml`. Since the
+copies are identical, **they declare the same fixed ports**.
 
-Consecuencia directa: **no es posible levantar la misma app en dos worktrees a
-la vez.** Y el conflicto no es un fallo limpio: vroom tiene comportamientos que
-convierten la colisión en datos incorrectos y en muerte de procesos ajenos
-(detalle en §3.3).
+Direct consequence: **it is not possible to bring up the same app in two
+worktrees at once.** And the conflict is not a clean failure: vroom has
+behaviors that turn the collision into incorrect data and the killing of
+foreign processes (detail in §3.3).
 
-## 2. Necesidad
+## 2. Need
 
-Que vroom permita:
+That vroom allow:
 
-1. Levantar la misma aplicación en **N worktrees simultáneamente**, cada uno con
-   su propio puerto real, sin editar `.vroom.toml` por worktree.
-2. Poder **referenciar cada servicio por un nombre estable** y no por un número
-   de puerto, porque el número cambia en cada arranque. Sin esto, cualquier
-   configuración del proyecto (URLs de OAuth, CORS, redirect URIs, links del
-   README, bookmarks) queda atada a un valor efímero.
-3. Mantener intacto el arranque manual fuera de vroom (`npm run dev`,
-   `go run .`, `mise run dev`): los puertos por defecto **no deben cambiar** para
-   quien no usa vroom.
+1. Bringing up the same application in **N worktrees simultaneously**, each
+   with its own real port, without editing `.vroom.toml` per worktree.
+2. Being able to **reference each service by a stable name** and not by a
+   port number, because the number changes on every start. Without this, any
+   project configuration (OAuth URLs, CORS, redirect URIs, README links,
+   bookmarks) is tied to an ephemeral value.
+3. Keeping manual startup outside vroom intact (`npm run dev`, `go run .`,
+   `mise run dev`): the default ports **must not change** for those who do
+   not use vroom.
 
-## 3. Estado actual (verificado en el código)
+## 3. Current state (verified in the code)
 
-### 3.1 `StartSpec` no tiene campo `Port`
+### 3.1 `StartSpec` has no `Port` field
 
-`internal/process/process.go:26-31`. El arranque es **a ciegas**: vroom no
-valida disponibilidad de puerto, no reserva nada y no comprueba nada tras
-arrancar. El puerto del manifiesto se **copia literalmente** a
+`internal/process/process.go:26-31`. Startup is **blind**: vroom does not
+validate port availability, does not reserve anything, and does not verify
+anything after starting. The manifest's port is **copied literally** to
 `state.Meta.Port` (`internal/tui/app.go:543`, `internal/cli/cli.go:469`).
 
-### 3.2 El puerto del manifiesto tiene exactamente 4 usos
+### 3.2 The manifest's port has exactly 4 uses
 
-| # | Uso | Ubicación | Naturaleza |
+| # | Use | Location | Nature |
 |---|-----|-----------|-----------|
-| 1 | Señal de vida del estado | `internal/process/daemon_unix.go:122-126` | lectura |
-| 2 | Liberar el puerto al parar (`fuser -k`) | `internal/process/daemon_unix.go:104-105` | **acción** |
-| 3 | Gate de salud de stages (`WaitForPort`) | `internal/orchestrate/engine.go:302,340` | lectura |
-| 4 | Probe HTTP de la tab Health + display | `internal/tui/outputtabs.go:329,387`; `serviceview.go`, `dashboard.go`, `app.go:2142` | lectura |
+| 1 | State liveness signal | `internal/process/daemon_unix.go:122-126` | read |
+| 2 | Release the port on stop (`fuser -k`) | `internal/process/daemon_unix.go:104-105` | **action** |
+| 3 | Stage health gate (`WaitForPort`) | `internal/orchestrate/engine.go:302,340` | read |
+| 4 | Health tab HTTP probe + display | `internal/tui/outputtabs.go:329,387`; `serviceview.go`, `dashboard.go`, `app.go:2142` | read |
 
-Detalle crítico de (1): si `port > 0` y el PID está vivo pero el puerto no
-responde, el estado es `unknown`, **no** `running`. Y en el fallback de
-"reiniciado externamente", `PortOpen` + `PortOwnerPID` con `creation_time`
-distinta ⇒ `stopped`, precisamente para no reportar `running` por el proceso de
-otro servicio.
+Critical detail of (1): if `port > 0` and the PID is alive but the port does
+not respond, the state is `unknown`, **not** `running`. And in the
+"restarted externally" fallback, `PortOpen` + `PortOwnerPID` with a different
+`creation_time` ⇒ `stopped`, precisely so as not to report `running` because
+of another service's process.
 
-### 3.3 Consecuencias medidas con dos worktrees
+### 3.3 Consequences measured with two worktrees
 
-Dos servicios que declaran `port = 8080`:
+Two services declaring `port = 8080`:
 
-- **Bind duro duplicado** (Go/Python con `:8080` literal): el segundo proceso
-  **muere**. vroom lo detecta en ~300 ms.
-- **Auto-increment** (Next.js/Vite, `EADDRINUSE` → 8081): el segundo servicio
-  sube a 8081, pero vroom sigue creyendo 8080. Como 8080 responde (lo tiene el
-  worktree A), `Evaluate` reporta el worktree B como **`running` y "sano"**
-  cuando en realidad está escuchando en otro sitio. Falso positivo silencioso.
-- **`Stop` mata al twin.** `killPortHolder` ejecuta `fuser -k` sobre
-  `meta.Port` **sin comprobar propietario** (`daemon_unix.go:218-229`). Parar el
-  worktree A mata el proceso del worktree B.
+- **Duplicate hard bind** (Go/Python with literal `:8080`): the second
+  process **dies**. vroom detects it in ~300 ms.
+- **Auto-increment** (Next.js/Vite, `EADDRINUSE` → 8081): the second
+  service comes up on 8081, but vroom still believes 8080. Since 8080
+  responds (worktree A has it), `Evaluate` reports worktree B as **`running`
+  and "healthy"** when in reality it is listening elsewhere. Silent false
+  positive.
+- **`Stop` kills the twin.** `killPortHolder` runs `fuser -k` on
+  `meta.Port` **without checking ownership** (`daemon_unix.go:218-229`).
+  Stopping worktree A kills worktree B's process.
 
-### 3.4 Bug de Stop preexistente, independiente de los puertos
+### 3.4 Preexisting Stop bug, independent of ports
 
-`Stop` (`daemon_unix.go:89-108`) mata por **process group**. Cualquier
-`command_start` que se auto-demonice o llame a `setsid` deja hijos **fuera del
-grupo** que sobreviven al stop. Medido con portless:
+`Stop` (`daemon_unix.go:89-108`) kills by **process group**. Any
+`command_start` that daemonizes itself or calls `setsid` leaves children
+**outside the group** that survive the stop. Measured with portless:
 
 ```
 portless  PID/PGID/SID = 1066968
-backend   PID/PGID/SID = 1067797   ← otro grupo, sobrevive a kill(-1066968)
+backend   PID/PGID/SID = 1067797   ← another group, survives kill(-1066968)
 ```
 
-Tras el `kill -9` del grupo, el backend queda **huérfano, reparentado a init, y
-sigue escuchando** (confirmado con `ss`). Hoy esto ya afecta a `nohup`, `setsid`,
-`pm2`, `docker run -d`, etc. Es un bug de `Stop`, no de puertos, pero **es
-prerrequisito** para cualquier pieza que envuelva al hijo (ver §6.1).
+After the group's `kill -9`, the backend is left **orphaned, reparented to
+init, and still listening** (confirmed with `ss`). Today this already
+affects `nohup`, `setsid`, `pm2`, `docker run -d`, etc. It is a `Stop` bug,
+not a ports bug, but it is a **prerequisite** for any piece that wraps the
+child (see §6.1).
 
 ---
 
-## 4. Evidencia (medida, no estimada)
+## 4. Evidence (measured, not estimated)
 
-### 4.1 Primitivas disponibles
+### 4.1 Available primitives
 
-- `gopsutil v3.24.5` ya está en `go.mod`; `PortOwnerPID` ya usa
+- `gopsutil v3.24.5` is already in `go.mod`; `PortOwnerPID` already uses
   `gopsnet.ConnectionsPid("tcp", pid)` (`internal/process/detect.go:42-52`).
-- **`gopsutil v3 NO expone `Pgid()` en ningún OS** (verificado en
-  `process/process.go`): hay que leer `/proc/<pid>/stat` campo 5 o usar `ps`.
+- **`gopsutil v3 does not expose `Pgid()` on any OS** (verified in
+  `process/process.go`): one must read `/proc/<pid>/stat` field 5 or use
+  `ps`.
 
-### 4.2 Comportamiento del discovery (A)
+### 4.2 Discovery behavior (A)
 
-Pruebas con `sh -c` + `setsid`, sondeando cada 300 ms:
+Tests with `sh -c` + `setsid`, probing every 300 ms:
 
-| Escenario | Resultado |
+| Scenario | Result |
 |---|---|
-| Arranque con error, cierre inmediato | detectado a los **300 ms** |
-| Bind y muerte a los 200 ms | detectado a los 300 ms, puerto ya muerto (verificado con dial) |
-| Bind lento (JVM/Spring, 3.5 s) | detectado a los 3.5 s |
-| Bind inmediato (nieto `sh` → servidor) | detectado a los 300 ms |
-| **Solo UDP, nunca abre TCP** | **nunca se detecta** |
-| Dos listeners (metrics y http) | ambos se detectan |
+| Startup with error, immediate exit | detected at **300 ms** |
+| Bind and death at 200 ms | detected at 300 ms, port already dead (verified with dial) |
+| Slow bind (JVM/Spring, 3.5 s) | detected at 3.5 s |
+| Immediate bind (grandchild `sh` → server) | detected at 300 ms |
+| **UDP-only, never opens TCP** | **never detected** |
+| Two listeners (metrics and http) | both detected |
 
-**El riesgo de "esperar eternamente a un puerto" no se materializa, pero sólo
-porque el bucle comprueba la liveness del grupo en cada iteración.** Un bucle que
-sólo espere "aparezca un puerto" se queda hasta agotar el timeout. Es un requisito
-de diseño, no un detalle.
+**The risk of "waiting forever for a port" does not materialize, but only
+because the loop checks the group's liveness on each iteration.** A loop
+that only waits for "a port appears" stays until the timeout is exhausted.
+It is a design requirement, not a detail.
 
-### 4.3 Ambigüedad multi-puerto
+### 4.3 Multi-port ambiguity
 
-Si el servicio abre `metrics` antes que `http` (medido: 1.5 s de diferencia),
-tomar el **primer puerto visto** devuelve el equivocado. Resuelto en §6.4.
+If the service opens `metrics` before `http` (measured: 1.5 s difference),
+taking the **first port seen** returns the wrong one. Resolved in §6.4.
 
-### 4.4 Coste por llamada
+### 4.4 Cost per call
 
-| Primitiva | Coste |
+| Primitive | Cost |
 |---|---|
 | `gopsutil.Processes()` | 54–62 ms |
 | `gopsutil.Connections("tcp")` | 29 ms |
-| discovery por pgid (completo) | 61 ms |
-| discovery por linaje de ppid (completo) | 129 ms |
-| **snapshot `/proc` directo (pid→ppid)** | **11 ms** |
+| discovery by pgid (complete) | 61 ms |
+| discovery by ppid lineage (complete) | 129 ms |
+| **direct `/proc` snapshot (pid→ppid)** | **11 ms** |
 | **`/proc/net/tcp` (LISTEN)** | **1.7 ms** |
-| **discovery completo con `/proc` directo** | **13 ms** |
+| **complete discovery with direct `/proc`** | **13 ms** |
 
-⇒ **El discovery debe vivir en `start` / refresh explícito, NUNCA en el tick de
-la TUI.** Con `gopsutil`, 20 proyectos a 1 Hz serían **2.5 s de CPU por segundo**.
-Si se implementa, parsear `/proc` a mano en lugar de `gopsutil`.
+⇒ **Discovery must live in `start` / explicit refresh, NEVER in the TUI
+tick.** With `gopsutil`, 20 projects at 1 Hz would be **2.5 s of CPU per
+second**. If implemented, parse `/proc` by hand instead of `gopsutil`.
 
-### 4.5 portless con backend no-Node
+### 4.5 portless with non-Node backend
 
-`portless` **no es una herramienta de frontend**: es un proxy inverso genérico.
-Verificado con un backend Python:
+`portless` **is not a frontend tool**: it is a generic reverse proxy.
+Verified with a Python backend:
 
 ```
 portless api-a python3 server.py
-  → inyecta PORT=4042, HOST=127.0.0.1, PORTLESS_URL=http://api-a.localhost:1355
-  → ruta: http://api-a.localhost:1355 -> localhost:4042
+  → injects PORT=4042, HOST=127.0.0.1, PORTLESS_URL=http://api-a.localhost:1355
+  → route: http://api-a.localhost:1355 -> localhost:4042
 ```
 
-Además **auto-detecta el worktree git y prefija la rama como subdominio**
-(`https://fix-ui.myapp.localhost`) sin configuración. Requiere **Node 24+**.
+Furthermore, it **auto-detects the git worktree and prefixes the branch as
+a subdomain** (`https://fix-ui.myapp.localhost`) with no configuration.
+Requires **Node 24+**.
 
-### 4.6 Cómo se registra la ruta: `portless alias` (corregido)
+### 4.6 How the route is registered: `portless alias` (corrected)
 
-**MECANISMO CORREGIDO.** Esta sección decía `PORTLESS_APP_PORT`; **es el
-mecanismo equivocado**, y la diferencia no es de estilo:
+**CORRECTED MECHANISM.** This section used to say `PORTLESS_APP_PORT`; **it
+is the wrong mechanism**, and the difference is not stylistic:
 
-`PORTLESS_APP_PORT` la consume `portless run <cmd>`, donde **portless arranca el
-hijo y es dueño del proceso** — el modelo que el usuario rechazó, y que además
-rompe el Stop-por-linaje del slice 1. El mecanismo correcto, medido contra
-portless 0.15.6, es registrar el alias:
+`PORTLESS_APP_PORT` is consumed by `portless run <cmd>`, where **portless
+starts the child and owns the process** — the model the user rejected, and
+which also breaks the lineage-based Stop of slice 1. The correct mechanism,
+measured against portless 0.15.6, is to register the alias:
 
 ```
-portless alias <name> <puerto real>     # alta / upsert
-portless alias --remove <name>          # retirada (exit 1 si no existe: benigno)
-portless list                           # lectura de vuelta
+portless alias <name> <real port>     # add / upsert
+portless alias --remove <name>          # removal (exit 1 if not found: benign)
+portless list                           # read-back
 ```
 
 ```
 portless alias fix-ui.api 39677
-  → ruta: fix-ui.api.localhost -> localhost:39677
+  → route: fix-ui.api.localhost -> localhost:39677
 ```
 
-Es decir: **portless se usa como proxy puro**, sin decidir el puerto ni arrancar
-nada. La superposición entre "vroom reserva el puerto" y "portless lo asigna"
-desaparece porque portless ya no tiene nada que asignar.
+That is: **portless is used as a pure proxy**, without deciding the port or
+starting anything. The overlap between "vroom reserves the port" and
+"portless assigns it" disappears because portless no longer has anything to
+assign.
 
-**La topología de procesos NO cambia**: el backend lo arranca vroom y sigue yendo
-en su propio process group. El fix de `Stop` por linaje sigue siendo
-obligatorio, y es justo lo que este mecanismo preserva.
+**The process topology does NOT change**: the backend is started by vroom
+and continues to run in its own process group. The lineage-based `Stop` fix
+remains mandatory, and it is exactly what this mechanism preserves.
 
-Ver `adr-0013-vroom-registers-portless-routes.md`.
+See `adr-0013-vroom-registers-portless-routes.md`.
 
-### 4.7 Race de la reserva
+### 4.7 Reservation race
 
-`bind(127.0.0.1:0)` + `close` deja el puerto libre otra vez antes de que arranque
-el hijo: hay **ventana TOCTOU** (verificado). En el rango 4000–4999 la colisión es
-improbable, pero debe documentarse y/o reintentarse.
+`bind(127.0.0.1:0)` + `close` leaves the port free again before the child
+starts: there is a **TOCTOU window** (verified). In the range 4000–4999 the
+collision is improbable, but it must be documented and/or retried.
 
 ---
 
-## 5. Decisiones ya tomadas
+## 5. Decisions already made
 
-1. **Se mantiene `portless`.** Su proxy resuelve HTTPS con CA local, nombres por
-   subdominio, CORS/cookies entre subdominios y HMR (websockets) — piezas que
-   habría que reescribir y que además chocarían con el modelo de `Stop` de vroom.
-2. **vroom es dueño del puerto y del ciclo de vida; `portless` es el proxy
-   delante.** Se le pasa `PORTLESS_APP_PORT` y `portless` no decide.
-3. **El usuario modifica sus apps** para leer `PORT` con fallback al puerto por
-   defecto. Patrón validado:
+1. **`portless` is kept.** Its proxy provides HTTPS with a local CA,
+   subdomain-based names, CORS/cookies across subdomains, and HMR
+   (websockets) — pieces that would have to be rewritten and that would
+   also clash with vroom's `Stop` model.
+2. **vroom owns the port and the lifecycle; `portless` is the proxy in
+   front.** `PORTLESS_APP_PORT` is passed to it and `portless` does not
+   decide.
+3. **The user modifies their apps** to read `PORT` with a fallback to the
+   default port. Validated pattern:
    ```bash
-   PORT=${PORT:-8080}      # lee si vroom lo inyecta, si no el default
+   PORT=${PORT:-8080}      # reads if vroom injects it, otherwise the default
    ```
-4. **Se instalará Node 24.15.0 global** (hoy el shim de `portless` no resuelve
-   versión: el default de mise es 20.19.0).
-5. **El schema del manifiesto es libre.** Se puede cambiar lo que haga falta. La
-   propuesta concreta está en §6.2 y **no** es una decisión abierta.
-6. **Se mantiene `portless` a tope.** Es la pieza que aporta URL estable, HTTPS con
-   CA local y nombres por subdominio. No se contempla sustituirlo por un proxy
-   nativo de vroom; queda anotado en §8.3 sólo como salida futura.
+4. **Node 24.15.0 will be installed globally** (today the `portless` shim
+   does not resolve a version: mise's default is 20.19.0).
+5. **The manifest schema is free.** Whatever is needed can be changed. The
+   concrete proposal is in §6.2 and is **not** an open decision.
+6. **`portless` is kept at full capacity.** It is the piece that provides
+   stable URL, HTTPS with a local CA, and subdomain-based names. Replacing
+   it with a native vroom proxy is not contemplated; it is noted in §8.3
+   only as a future escape hatch.
 
 ---
 
-## 6. Propuesta
+## 6. Proposal
 
-Tres piezas, en este orden. **La primera es prerrequisito de la tercera.**
+Three pieces, in this order. **The first is a prerequisite of the third.**
 
-### 6.1 Pieza 1 — `Stop` por linaje (prerrequisito, y bug fix independiente)
+### 6.1 Piece 1 — `Stop` by lineage (prerequisite, and independent bug fix)
 
-**Qué:** al parar, no basta con `kill(-pgid)`. Construir el conjunto de PIDs
-descendientes del PID registrado (mapa `pid → ppid` desde `/proc`) y señalizar
-al grupo **y** a los descendientes que se hayan re-sid. Iterar hasta que el
-linaje esté vacío o venza el timeout.
+**What:** on stopping, `kill(-pgid)` is not enough. Build the set of
+descendant PIDs of the registered PID (map `pid → ppid` from `/proc`) and
+signal the group **and** the descendants that have re-sid. Iterate until the
+lineage is empty or the timeout expires.
 
-**Por qué:** hoy `Stop` deja huérfanos a los hijos que hacen `setsid` (`nohup`,
-`pm2`, `portless`, `docker run -d`). Es un bug que ya existe sin cambiar nada de
-puertos.
+**Why:** today `Stop` leaves orphans of children that call `setsid` (`nohup`,
+`pm2`, `portless`, `docker run -d`). It is a bug that already exists without
+changing anything about ports.
 
-**Efecto lateral:** hace posible el descubrimiento por linaje y elimina la
-dependencia de asumir "el servidor está en mi pgid".
+**Side effect:** it makes lineage-based discovery possible and removes the
+dependency on assuming "the server is in my pgid".
 
-**Restricción:** debe seguir funcionando el caso actual (grupo normal, sin re-sid)
-sin regresión.
+**Constraint:** the current case (normal group, no re-sid) must keep working
+without regression.
 
-### 6.2 Pieza 2 — Puertos dinámicos: reserva + inyección + descubrimiento
+### 6.2 Piece 2 — Dynamic ports: reservation + injection + discovery
 
-**Qué:**
+**What:**
 
-- `StartSpec` gana un campo `Env map[string]string` (hoy no existe).
-- Al arrancar en modo dinámico: reservar un puerto libre en el rango 4000–4999,
-  inyectar `PORT` (y `HOST=127.0.0.1`) en el entorno del hijo, y registrar la
-  ruta con `portless alias <name> <puerto real>` si el manifiesto declara
-  `route_mode` (§6.3). **No** se pasa `PORTLESS_APP_PORT`: esa variable la
-  consume `portless run <cmd>`, donde portless es dueño del proceso.
-- **Descubrir y verificar** el puerto real tras el arranque, y persistirlo en
-  `state.Meta.Port` (el campo que los 4 usos de §3.2 ya consumen).
-- El bucle de descubrimiento **debe** estar acotado por: (a) deadline, (b)
-  liveness del linaje (fallo rápido ~300 ms si el proceso muere con error), y
-  (c) **ventana de estabilización** antes de aceptar un puerto (ver §6.4).
-- Si tras el deadline no hay puerto TCP, registrar **"sin puerto"** de forma
-  explícita, no agotar el timeout en silencio (cubre UDP-only, §4.2).
-- Leer `/proc` directamente (11 ms) en lugar de `gopsutil.Processes()` (54 ms).
-- Desambiguar el caso multi-puerto según §6.4.
+- `StartSpec` gains an `Env map[string]string` field (does not exist today).
+- On starting in dynamic mode: reserve a free port in the range 4000–4999,
+  inject `PORT` (and `HOST=127.0.0.1`) into the child's environment, and
+  register the route with `portless alias <name> <real port>` if the
+  manifest declares `route_mode` (§6.3). `PORTLESS_APP_PORT` is **not**
+  passed: that variable is consumed by `portless run <cmd>`, where portless
+  owns the process.
+- **Discover and verify** the real port after startup, and persist it in
+  `state.Meta.Port` (the field that the 4 uses of §3.2 already consume).
+- The discovery loop **must** be bounded by: (a) deadline, (b) lineage
+  liveness (fast failure ~300 ms if the process dies with an error), and
+  (c) **stabilization window** before accepting a port (see §6.4).
+- If after the deadline there is no TCP port, explicitly record **"no
+  port"**, not silently exhaust the timeout (covers UDP-only, §4.2).
+- Read `/proc` directly (11 ms) instead of `gopsutil.Processes()` (54 ms).
+- Disambiguate the multi-port case per §6.4.
 
-**Por qué:** es la mitad que portless no puede hacer por nosotros (descubrir y
-verificar el puerto real) y la que hace funcionar la reserva sin colisiones.
+**Why:** it is the half that portless cannot do for us (discover and verify
+the real port) and the one that makes the reservation work without
+collisions.
 
-**Cuidado adicional:** `killPortHolder` (`daemon_unix.go:218`) debe **validar
-propiedad** antes de matar: comprobar que el PID dueño del puerto (`PortOwnerPID`)
-tiene `creation_time` coherente o pertenece a nuestro linaje. Con puertos
-dinámicos el riesgo de matar un proceso ajeno reciclado aumenta.
+**Additional care:** `killPortHolder` (`daemon_unix.go:218`) must **validate
+ownership** before killing: check that the PID owning the port
+(`PortOwnerPID`) has a coherent `creation_time` or belongs to our lineage.
+With dynamic ports the risk of killing a recycled foreign process increases.
 
-#### 6.2.1 Schema del manifiesto (decidido)
+#### 6.2.1 Manifest schema (decided)
 
-Hoy `port` (`manifest.go:43`) está sobrecargado: significa a la vez *"el puerto que
-usa la app"* y *"la señal que usa vroom para saber si el servicio vive"*, y `0`
-significa "deshabilitado" (validación en `manifest.go:90`). Eso es lo que hace el
-puerto *load-bearing*.
+Today `port` (`manifest.go:43`) is overloaded: it means both *"the port the
+app uses"* and *"the signal vroom uses to know if the service is alive"*, and
+`0` means "disabled" (validation in `manifest.go:90`). That is what makes the
+port *load-bearing*.
 
-**Propuesta: separar las dos cosas, sin romper compatibilidad hacia atrás.**
+**Proposal: separate the two things, without breaking backward
+compatibility.**
 
 ```toml
-port = 8080                 # puerto por defecto de la app (fallback). int, igual que hoy.
-port_mode = "dynamic"       # "fixed" (default, actual) | "dynamic" | "none"
+port = 8080                 # app's default port (fallback). int, same as today.
+port_mode = "dynamic"       # "fixed" (default, current) | "dynamic" | "none"
 ```
 
-- `port` conserva **un único significado**: el puerto que la app usa cuando no la
-  arranca vroom. Es exactamente el valor que la app usa en `PORT=${PORT:-8080}`,
-  así que el patrón de §5.3 y el manifiesto quedan alineados.
-- `port_mode` es una **adición pura**: sin `port_mode` el comportamiento es el de
-  hoy, cero regresión. `fixed` = vroom no toca puertos. `dynamic` = reserva +
-  inyecta + descubre. `none` = sustituye al `port = 0` actual (servicio sin
-  puerto, p. ej. un worker de cola).
-- No hace falta un tipo unión (`int` \| `string`) ni unmarshalling custom en TOML.
+- `port` retains **a single meaning**: the port the app uses when vroom does
+  not start it. It is exactly the value the app uses in `PORT=${PORT:-8080}`,
+  so the §5.3 pattern and the manifest are aligned.
+- `port_mode` is a **pure addition**: without `port_mode` the behavior is
+  today's, zero regression. `fixed` = vroom does not touch ports. `dynamic` =
+  reserve + inject + discover. `none` = replaces the current `port = 0`
+  (service without a port, e.g. a queue worker).
+- No union type (`int` \| `string`) or custom TOML unmarshalling is needed.
 
-**Compatibilidad:** el `port = 0` actual equivale a `port_mode = "none"`. Se
-puede conservar como alias silencioso o avisar por log; decisión de
-implementación.
+**Compatibility:** the current `port = 0` is equivalent to
+`port_mode = "none"`. It can be kept as a silent alias or warned via log;
+implementation decision.
 
-### 6.3 Pieza 3 — `portless` como proxy puro (decidido, ENTREGADO)
+### 6.3 Piece 3 — `portless` as a pure proxy (decided, DELIVERED)
 
-**Entregado** en `adr-0013-vroom-registers-portless-routes.md`.
+**Delivered** in `adr-0013-vroom-registers-portless-routes.md`.
 
-**Qué:** integrar `portless` como capa de nombres y TLS **delante**, sin dejar que
-asigne puertos ni arranque nada. En cada `start`, vroom registra la ruta
-`<rama>.<proyecto>.localhost → 127.0.0.1:<puerto REAL que vroom ya sabe>` con
-`portless alias`, la **lee de vuelta** para confirmar que es suya, y la
-**verifica contra el proxy vivo** antes de publicarla.
+**What:** integrate `portless` as a naming and TLS layer **in front**,
+without letting it assign ports or start anything. On each `start`, vroom
+registers the route `<branch>.<project>.localhost → 127.0.0.1:<REAL port
+that vroom already knows>` with `portless alias`, **reads it back** to
+confirm it is its own, and **verifies it against the live proxy** before
+publishing it.
 
-**Por qué:** aporta URL estable, HTTPS con CA local y resolución de nombres por
-subdominio — que es lo que rompe CORS/OAuth/HMR si el usuario accede por
-`localhost:<puerto>`. Con `route_mode = "named"` la URL es estable de verdad, que
-es lo que exigen un callback OAuth o una regla CORS.
+**Why:** it provides stable URL, HTTPS with a local CA, and subdomain-based
+name resolution — which is what breaks CORS/OAuth/HMR if the user accesses
+via `localhost:<port>`. With `route_mode = "named"` the URL is truly
+stable, which is what an OAuth callback or a CORS rule demands.
 
-**Lo que la medición cambió respecto a este texto:**
-- vroom **no** arranca el proxy. Se rechaza explícitamente: arrancarlo, o
-  gestionarlo como servicio visible, reintroduce el huérfano de `setsid` del
-  §3.4. Si no hay proxy alcanzable, vroom avisa **una vez** y el servicio sigue
-  vivo en su puerto.
-- **No** se asume el puerto del proxy (1355): se lee de `proxy.port`, que sólo
-  existe mientras corre. Su ausencia **es** la señal de que no hay proxy.
-- **No** hay `prune` que limpie las rutas de vroom: `prune` no toca las rutas de
-  alias (`pid: 0`, contadas como activas). Por eso la **reconciliación en cada
-  arranque es obligatoria**: vroom es lo único que puede limpiarlas.
-- El alta es un **upsert incondicional**: dos vrooms con el mismo nombre se pisan
-  en silencio. Por eso la lectura de vuelta es obligatoria, no pulido.
-- La ausencia de portless **nunca** es un fallo de arranque.
+**What the measurement changed about this text:**
+- vroom does **not** start the proxy. Explicitly rejected: starting it, or
+  managing it as a visible service, reintroduces the `setsid` orphan from
+  §3.4. If no proxy is reachable, vroom warns **once** and the service
+  stays alive on its port.
+- The proxy's port (1355) is **not** assumed: it is read from `proxy.port`,
+  which only exists while it is running. Its absence **is** the signal that there is no proxy.
+- There is **no** `prune` that cleans vroom's routes: `prune` does not touch
+  alias routes (`pid: 0`, counted as active). That is why **reconciliation
+  on every start is mandatory**: vroom is the only thing that can clean them.
+- The add is an **unconditional upsert**: two vrooms with the same name
+  silently overwrite each other. That is why the read-back is mandatory,
+  not a nicety.
+- The absence of portless is **never** a startup failure.
 
-**Dependencias y riesgos:** Node 24+ (un Node viejo degrada a aviso, y vroom no
-toca la configuración de node del usuario).
+**Dependencies and risks:** Node 24+ (an old Node degrades to a warning, and
+vroom does not touch the user's node configuration).
 
-**No-goal:** que `portless` gestione el ciclo de vida del proceso de la app, ni el
-del proxy. Su `setsid` es justo lo que rompe `Stop` de vroom (§3.4). vroom lo
-arranca y lo mata a él; portless solo enruta.
+**No-goal:** that `portless` manages the app process's lifecycle, or the
+proxy's. Its `setsid` is exactly what breaks vroom's `Stop` (§3.4). vroom
+starts it and kills it; portless only routes.
 
-### 6.4 Pieza 4 — Desambiguación multi-puerto (decidido, con evidencia)
+### 6.4 Piece 4 — Multi-port disambiguation (decided, with evidence)
 
-**Por qué hay que resolverlo:** un servicio puede abrir varios listeners — Spring
-con `management.server.port`, un exportador Prometheus, el puerto de debug de la
-JVM, gRPC junto a HTTP, workers de multiproceso. Medido: si el servicio abre
-`metrics` **antes** que el puerto principal, "primer puerto visto" elige el
-equivocado (§4.3).
+**Why it must be resolved:** a service can open multiple listeners — Spring
+with `management.server.port`, a Prometheus exporter, the JVM debug port,
+gRPC alongside HTTP, multiprocess workers. Measured: if the service opens
+`metrics` **before** the main port, "first port seen" chooses the wrong one
+(§4.3).
 
-**Observación que simplifica el problema:** la ambigüedad sólo existe cuando vroom
-*adivina*. Si la app honra `PORT` (compromiso de §5.3), vroom ya sabe de antemano
-cuál es el puerto y sólo tiene que **verificarlo**. Por eso la ambigüedad se
-resuelve en la ruta de reserva, no en la principal.
+**Observation that simplifies the problem:** the ambiguity only exists when
+vroom *guesses*. If the app honors `PORT` (§5.3 commitment), vroom already
+knows in advance which the port is and only has to **verify it**. That is
+why the ambiguity is resolved on the reservation path, not the main one.
 
-**Regla, en orden de preferencia:**
+**Rule, in order of preference:**
 
-| Regla | Condición | Resultado |
+| Rule | Condition | Result |
 |---|---|---|
-| **R1** | el puerto reservado está entre los listeners | ese es el puerto. Determinista, sin heurística. |
-| **R2** | varios listeners, el reservado no está | se sondea `health_path` (que **ya existe** en el manifiesto) en cada candidato; gana la mejor respuesta (200 > 2xx/3xx > 5xx > 404) |
-| **R3** | varios, empate en R2 (incluye "no es HTTP") | gana el de **menor número de puerto**, de forma determinista. Marcar el servicio como *puerto no verificado*. |
+| **R1** | the reserved port is among the listeners | that is the port. Deterministic, no heuristic. |
+| **R2** | multiple listeners, the reserved one is not among them | probe `health_path` (which **already exists** in the manifest) on each candidate; the best response wins (200 > 2xx/3xx > 5xx > 404) |
+| **R3** | multiple, tie in R2 (includes "not HTTP") | the **lowest port number** wins, deterministically. Mark the service as *unverified port*. |
 
-**Evidencia medida:**
+**Measured evidence:**
 
-| Caso | Candidatos | Resultado |
+| Case | Candidates | Result |
 |---|---|---|
-| Honra `PORT`, metrics abre **primero** | `[41501, 42501]` | R1 → **41501** (reservado) OK |
-| Honra `PORT`, main abre primero | `[41502, 42502]` | R1 → **41502** (reservado) OK |
-| **Ignora `PORT`**, metrics 404 en `/health`, main 200 | `[41510, 42510]` | R2 → **41510** OK |
-| Empate: ambos 200 en `/health` | `[41520, 42520]` | R3 → **41520**, determinista OK |
-| **No es HTTP** (gRPC-like, sockets crudos) | `[41530, 42530]` | R3 → fallback. **vroom no puede saber cuál es el principal** |
+| Honors `PORT`, metrics opens **first** | `[41501, 42501]` | R1 → **41501** (reserved) OK |
+| Honors `PORT`, main opens first | `[41502, 42502]` | R1 → **41502** (reserved) OK |
+| **Ignores `PORT`**, metrics 404 on `/health`, main 200 | `[41510, 42510]` | R2 → **41510** OK |
+| Tie: both 200 on `/health` | `[41520, 42520]` | R3 → **41520**, deterministic OK |
+| **Not HTTP** (gRPC-like, raw sockets) | `[41530, 42530]` | R3 → fallback. **vroom cannot know which is primary** |
 
-**Limitación honesta:** para servicios que no son HTTP y además ignoran `PORT`,
-vroom no tiene forma de saber cuál listener es el principal. La resolución por
-heurística es una moneda al aire y **no debe presentarse como certeza**. Como
-`health_path` ya cubre el caso HTTP (el mayoritario), y las apps que respetan el
-compromiso de §5.3 quedan cubiertas por R1, **no se añade ningún campo de
-manifiesto extra** hasta que aparezca un caso real que lo necesite.
+**Honest limitation:** for services that are not HTTP and also ignore `PORT`,
+vroom has no way to know which listener is the primary one. Heuristic
+resolution is a coin toss and **must not be presented as certainty**. Since
+`health_path` already covers the HTTP case (the majority), and apps that
+respect the §5.3 commitment are covered by R1, **no extra manifest field is
+added** until a real case that needs it appears.
 
-**Bug encontrado al implementar el bucle** (relevante para quien lo escriba): la
-primera versión de la sonda cerraba con "sin puerto" en cuanto una muestra venía
-vacía, es decir **antes de que el proceso tuviera tiempo de hacer bind**. La
-conclusión "no hay puertos" sólo es válida (a) si el linaje está muerto, o (b) tras
-una ventana de observación suficiente sin cambios. Sin ese segundo guard, un
-servicio lento se reporta sin puerto.
+**Bug found while implementing the loop** (relevant for whoever writes it):
+the first version of the probe closed with "no port" as soon as a sample
+came back empty, that is **before the process had time to bind**. The
+conclusion "there are no ports" is only valid (a) if the lineage is dead, or
+(b) after a sufficient observation window without changes. Without that
+second guard, a slow service is reported without a port.
 
 ---
 
-## 7. Puntos que siguen abiertos
+## 7. Points that remain open
 
-1. **Qué hacer si el proyecto no acepta `PORT`.** El discovery sigue funcionando
-   (§6.4), pero el puerto real puede diferir del reservado. Definir si eso es un
-   error de arranque o sólo un aviso informativo. *Recomendación: aviso, no error*
-   — el servicio funciona, simplemente no seized el puerto que se le ofreció.
-2. **Alcance de la reserva.** Rango fijo 4000–4999 (propuesto) o cualquier puerto
-   libre. El rango reduce la probabilidad de TOCTOU y facilita el debug manual.
-   *No bloqueante: se puede empezar por el rango y ampliar después.*
-3. **Ciclo de vida del proxy de `portless`.** Si lo arranca vroom, hay que
-   decidir si se gestiona como un servicio más de vroom (aparece en la lista) o
-   queda oculto como infraestructura. *No bloqueante.*
+1. **What to do if the project does not accept `PORT`.** Discovery still
+   works (§6.4), but the real port may differ from the reserved one. Define
+   whether that is a startup error or just an informational warning.
+   *Recommendation: warning, not error* — the service works, it simply did
+   not seize the port that was offered to it.
+2. **Reservation scope.** Fixed range 4000–4999 (proposed) or any free
+   port. The range reduces the TOCTOU probability and facilitates manual
+   debugging. *Not blocking: one can start with the range and expand later.*
+3. **`portless` proxy lifecycle.** If vroom starts it, it must be decided
+   whether it is managed as one more vroom service (appears in the list) or
+   stays hidden as infrastructure. *Not blocking.*
 
-Nada de esto impide empezar por la Pieza 1, que es independiente de los puertos.
+None of this prevents starting with Piece 1, which is independent of ports.
 
 ---
 
-## 8. Contexto de la implementación
+## 8. Implementation context
 
-### 8.1 Restricciones del repositorio
+### 8.1 Repository constraints
 
-- Gate local único: **`make check`** (build + lint + test). Debe quedar en verde.
-- `go build ./... && go vet ./... && go test ./...` antes de dar nada por bueno.
-- CI corre `Test` con `-race`; el scanner asume `fd` instalado.
-- **El binario del usuario es `~/.local/bin/vroom`, no el del repo.** Tras
-  cualquier cambio hay que desplegar: `go build -o ~/.local/bin/vroom ./cmd/vroom`
-  (o `make install`). Sin esto, la TUI que prueba el usuario sigue siendo la
-  versión vieja.
-- Convención de ADRs en `docs/adr/` (ver `adr-0011` para el formato).
+- Single local gate: **`make check`** (build + lint + test). Must be green.
+- `go build ./... && go vet ./... && go test ./...` before considering
+  anything done.
+- CI runs `Test` with `-race`; the scanner assumes `fd` is installed.
+- **The user's binary is `~/.local/bin/vroom`, not the repo's.** After any
+  change it must be deployed: `go build -o ~/.local/bin/vroom ./cmd/vroom`
+  (or `make install`). Without this, the TUI the user tests is still the
+  old version.
+- ADR convention in `docs/adr/` (see `adr-0011` for the format).
 
-### 8.2 Zonas de código tocadas
+### 8.2 Touched code areas
 
 - `internal/process/process.go` — `StartSpec.Env`, `StopSpec`
-- `internal/process/daemon_unix.go` — `Stop` por linaje, `killPortHolder` con
-  validación de propiedad
-- `internal/process/detect.go` — nuevas primitivas de discovery
+- `internal/process/daemon_unix.go` — lineage-based `Stop`,
+  `killPortHolder` with ownership validation
+- `internal/process/detect.go` — new discovery primitives
 - `internal/manifest/manifest.go` — `port_mode`
-- `internal/state/state.go` — `Meta.Port` pasa a ser el puerto real
-- `internal/cli/cli.go`, `internal/tui/*` — mostrar puerto real + URL
-- `internal/orchestrate/health.go` — `WaitForPort` con el puerto real
+- `internal/state/state.go` — `Meta.Port` becomes the real port
+- `internal/cli/cli.go`, `internal/tui/*` — show real port + URL
+- `internal/orchestrate/health.go` — `WaitForPort` with the real port
 
-### 8.3 Salida de emergencia (no elegida)
+### 8.3 Emergency escape hatch (not chosen)
 
-Si en el futuro Node resultara problemático, un proxy nativo en vroom (estilo
-Caddy) sería el sustituto: ~400 líneas, mismo contrato (`nombre → puerto`). El
-resto del diseño —reserva, inyección, discovery, `Meta.Port`— no cambiaría, porque
-vroom siempre es el dueño del puerto. Anotado para que la decisión sea reversible.
-
----
-
-## 9. Criterios de aceptación
-
-- [ ] Dos worktrees del mismo repo con el mismo `.vroom.toml` conviven, cada uno
-      con un puerto distinto, ambos `running` y ambos con URL estable propia.
-- [ ] Un servicio que muere con error al arrancar se reporta `stopped`/fallo en
-      tiempo acotado (~<1 s), no tras agotar timeout.
-- [ ] Un servicio que sólo abre UDP no cuelga el arranque (se marca "sin puerto").
-- [ ] Un servicio lento (bind a los 3.5 s) se reporta con puerto, no como "sin
-      puerto" (guard de estabilización, §6.4).
-- [ ] Un servicio con dos listeners elige el principal de forma determinista
-      (R1 si honra `PORT`; R2 por `health_path` si no).
-- [ ] `Stop` no deja procesos huérfanos, ni siquiera cuando el hijo hace `setsid`
-      o `portless` lo re-sid.
-- [ ] Parar un worktree **no** mata el proceso de su twin.
-- [ ] Arranque manual fuera de vroom sigue usando el puerto por defecto.
-- [ ] Un manifiesto existente sin `port_mode` se comporta exactamente como hoy.
-- [ ] `make check` en verde; binario desplegado a `~/.local/bin/vroom`.
+If Node were to become problematic in the future, a native proxy in vroom
+(Caddy-style) would be the substitute: ~400 lines, same contract
+(`name → port`). The rest of the design —reservation, injection, discovery,
+`Meta.Port`— would not change, because vroom is always the owner of the
+port. Noted so the decision is reversible.
 
 ---
 
-*Informe generado tras investigación con validación empírica (sondas en
-`/tmp/opencode/portprobe*` y `/tmp/opencode/mpprobe`). No se ha modificado código
-del repositorio.*
+## 9. Acceptance criteria
+
+- [ ] Two worktrees of the same repo with the same `.vroom.toml` coexist,
+      each with a distinct port, both `running` and both with their own
+      stable URL.
+- [ ] A service that dies with an error on startup is reported
+      `stopped`/failure in bounded time (~<1 s), not after exhausting the
+      timeout.
+- [ ] A service that only opens UDP does not hang startup (marked "no
+      port").
+- [ ] A slow service (bind at 3.5 s) is reported with a port, not as "no
+      port" (stabilization guard, §6.4).
+- [ ] A service with two listeners chooses the primary one deterministically
+      (R1 if it honors `PORT`; R2 by `health_path` if not).
+- [ ] `Stop` leaves no orphaned processes, not even when the child calls
+      `setsid` or `portless` re-sids it.
+- [ ] Stopping a worktree does **not** kill its twin's process.
+- [ ] Manual startup outside vroom keeps using the default port.
+- [ ] An existing manifest without `port_mode` behaves exactly as today.
+- [ ] `make check` green; binary deployed to `~/.local/bin/vroom`.
+
+---
+
+*Report generated after investigation with empirical validation (probes in
+`/tmp/opencode/portprobe*` and `/tmp/opencode/mpprobe`). No repository code
+was modified.*

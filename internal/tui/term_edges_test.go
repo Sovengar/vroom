@@ -14,17 +14,17 @@ import (
 func TestResolveShellUsaElDelUsuarioYElDeSuPropioEsElQueExiste(t *testing.T) {
 	t.Setenv("SHELL", "/bin/zsh")
 	if got := resolveShell(); got != "/bin/zsh" {
-		t.Errorf("con SHELL = %q, want /bin/zsh", got)
+		t.Errorf("with SHELL = %q, want /bin/zsh", got)
 	}
 
 	t.Setenv("SHELL", "")
 	if got := resolveShell(); got != "sh" {
-		t.Errorf("sin SHELL = %q, want sh: un path absoluto sería inventado", got)
+		t.Errorf("without SHELL = %q, want sh: an absolute path would be invented", got)
 	}
 
 	t.Setenv("SHELL", "/no/existe/un/shell")
 	if _, err := newTermSession(40, 10, t.TempDir()); err == nil {
-		t.Error("un $SHELL inexistente no puede abrir una terminal: el usuario vería un modal vacío sin explicación")
+		t.Error("a nonexistent $SHELL cannot open a terminal: the user would see an empty modal with no explanation")
 	}
 }
 
@@ -40,12 +40,12 @@ func TestTermEnvHeredaElEntornoYGarantizaTerm(t *testing.T) {
 		if k, v, ok := strings.Cut(kv, "="); ok && k == "TERM" {
 			terms++
 			if v != "xterm-256color" {
-				t.Errorf("TERM = %q, want xterm-256color: sin él el shell asume un terminal Unix", v)
+				t.Errorf("TERM = %q, want xterm-256color: without it the shell assumes a Unix terminal", v)
 			}
 		}
 	}
 	if terms != 1 {
-		t.Errorf("hay %d variables TERM, want exactamente 1", terms)
+		t.Errorf("there are %d TERM variables, want exactly 1", terms)
 	}
 
 	var marker bool
@@ -55,13 +55,13 @@ func TestTermEnvHeredaElEntornoYGarantizaTerm(t *testing.T) {
 		}
 	}
 	if !marker {
-		t.Error("termEnv no heredó el entorno del proceso: un shell sin su PATH no arranca nada")
+		t.Error("termEnv did not inherit the process environment: a shell without its PATH starts nothing")
 	}
 
 	t.Setenv("TERM", "alacritty")
 	for _, kv := range termEnv() {
 		if k, _, ok := strings.Cut(kv, "="); ok && k == "TERM" && kv != "TERM=alacritty" {
-			t.Errorf("con TERM del usuario hay un segundo TERM: %q", kv)
+			t.Errorf("with user TERM there is a second TERM: %q", kv)
 		}
 	}
 }
@@ -74,15 +74,15 @@ func TestResizeEWriteIgnoranUnaSesionCerrada(t *testing.T) {
 	w, h := s.dims()
 	s.resize(80, 24)
 	if gotW, gotH := s.dims(); gotW != w || gotH != h {
-		t.Errorf("resize de una sesión cerrada cambió las dimensiones: %d,%d -> %d,%d", w, h, gotW, gotH)
+		t.Errorf("resize of a closed session changed dimensions: %d,%d -> %d,%d", w, h, gotW, gotH)
 	}
-	s.write([]byte("esto no debe llegar a ningún sitio"))
+	s.write([]byte("this must not reach anywhere"))
 
 	if s.alive() {
-		t.Error("alive = true en una sesión cerrada")
+		t.Error("alive = true on a closed session")
 	}
 	if got := s.screen(); got != "" {
-		t.Errorf("screen de una sesión cerrada = %q, want cadena vacía", got)
+		t.Errorf("screen of a closed session = %q, want empty string", got)
 	}
 }
 
@@ -94,10 +94,10 @@ func TestResizeIgnoraLasDimensionesInvalidasYLasValidasNo(t *testing.T) {
 	for _, dims := range [][2]int{{0, 10}, {40, 0}, {-5, 10}, {40, -5}} {
 		s.resize(dims[0], dims[1])
 		if w, h := s.dims(); w != 40 || h != 10 {
-			t.Errorf("resize(%d,%d) aplicó dimensiones inválidas: %d,%d", dims[0], dims[1], w, h)
+			t.Errorf("resize(%d,%d) applied invalid dimensions: %d,%d", dims[0], dims[1], w, h)
 		}
 		if len(pty.resizes) != 0 {
-			t.Errorf("resize(%d,%d) llegó al PTY: %v", dims[0], dims[1], pty.resizes)
+			t.Errorf("resize(%d,%d) reached the PTY: %v", dims[0], dims[1], pty.resizes)
 		}
 	}
 
@@ -106,7 +106,7 @@ func TestResizeIgnoraLasDimensionesInvalidasYLasValidasNo(t *testing.T) {
 		t.Errorf("dims = %d,%d, want 80,24", w, h)
 	}
 	if len(pty.resizes) != 1 || pty.resizes[0] != [2]int{80, 24} {
-		t.Errorf("el PTY no recibió el resize: %v", pty.resizes)
+		t.Errorf("the PTY did not receive the resize: %v", pty.resizes)
 	}
 }
 
@@ -121,7 +121,7 @@ func TestStartSessionCorrigeLasDimensionesInvalidasEnElOrigen(t *testing.T) {
 
 	w, h := s.dims()
 	if w != 1 || h != 1 {
-		t.Errorf("dims = %d,%d, want 1,1: un grid de 0x0 no es un grid", w, h)
+		t.Errorf("dims = %d,%d, want 1,1: a 0x0 grid is not a grid", w, h)
 	}
 }
 
@@ -129,12 +129,12 @@ func TestStartSessionCorrigeLasDimensionesInvalidasEnElOrigen(t *testing.T) {
 func TestWaitSinProcesoNoEsUnError(t *testing.T) {
 	s := newStubSession(40, 10, &stubPty{})
 	if err := s.wait(); err != nil {
-		t.Errorf("wait de una sesión sin proceso = %v, want nil", err)
+		t.Errorf("wait of a session without process = %v, want nil", err)
 	}
 
 	vacia := &termSession{}
 	if err := vacia.wait(); err != nil {
-		t.Errorf("wait de una sesión vacía = %v, want nil", err)
+		t.Errorf("wait of an empty session = %v, want nil", err)
 	}
 }
 
@@ -145,7 +145,7 @@ func TestReadPtyDevuelveEOFCuandoNoHayBytesQueLeer(t *testing.T) {
 
 	msg := readPtyCmd(s)()
 	if _, ok := msg.(ptyEOFMsg); !ok {
-		t.Errorf("readPtyCmd devolvió %T, want ptyEOFMsg: un read vacío es EOF y cierra la sesión", msg)
+		t.Errorf("readPtyCmd returned %T, want ptyEOFMsg: an empty read is EOF and closes the session", msg)
 	}
 }
 
@@ -160,7 +160,7 @@ func TestLabelEsElBasenameDelCwd(t *testing.T) {
 	for _, tt := range tests {
 		s := &termSession{dir: tt.dir}
 		if got := s.label(); got != tt.want {
-			t.Errorf("label de %q = %q, want %q", tt.dir, got, tt.want)
+			t.Errorf("label of %q = %q, want %q", tt.dir, got, tt.want)
 		}
 	}
 }
@@ -181,10 +181,10 @@ func TestTermWYTermHTienenSueloYTope(t *testing.T) {
 			t.Errorf("%dx%d: termH = %d, want >= %d", tt.w, tt.h, got, termMinH)
 		}
 		if got := m.termH(); got > termMaxH {
-			t.Errorf("%dx%d: termH = %d, want <= %d: el modal se saldría de la pantalla", tt.w, tt.h, got, termMaxH)
+			t.Errorf("%dx%d: termH = %d, want <= %d: the modal would overflow the screen", tt.w, tt.h, got, termMaxH)
 		}
 		if m.termW()+boxFrame > tt.w && tt.w > 40 {
-			t.Errorf("%dx%d: el grid mide %d de ancho, más el marco no cabe", tt.w, tt.h, m.termW())
+			t.Errorf("%dx%d: the grid is %d wide, plus the frame does not fit", tt.w, tt.h, m.termW())
 		}
 	}
 }
@@ -196,19 +196,19 @@ func TestTermCwdEsElProyectoSeleccionadoYNoElRoot(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	want := projectPath(t, m, "tienda-api")
 	if got := m.termCwd(); got != want {
-		t.Errorf("termCwd = %q, want la ruta del proyecto %q", got, want)
+		t.Errorf("termCwd = %q, want the path of project %q", got, want)
 	}
 	if got := m.termCwdLabel(); got != "tienda-api" {
 		t.Errorf("termCwdLabel = %q, want tienda-api", got)
 	}
 
-	// sinSeleccion builds its own tree, so the root must be read from the model under test and not from the previous one.
-	enHeader := sinSeleccion(t)
+	// noSelection builds its own tree, so the root must be read from the model under test and not from the previous one.
+	enHeader := noSelection(t)
 	if got := enHeader.termCwd(); got != enHeader.root {
-		t.Errorf("sin proyecto termCwd = %q, want el root %q", got, enHeader.root)
+		t.Errorf("without project termCwd = %q, want the root %q", got, enHeader.root)
 	}
 	if got := enHeader.termCwdLabel(); got != filepath.Base(enHeader.root) {
-		t.Errorf("sin proyecto termCwdLabel = %q, want el basename del root", got)
+		t.Errorf("without project termCwdLabel = %q, want the basename of the root", got)
 	}
 }
 
@@ -222,22 +222,22 @@ func TestOpenTermConShellInvalidoAvisaYNoAbreElModal(t *testing.T) {
 	next, cmd := m.openTerm()
 	got := next.(Model)
 	if cmd != nil {
-		t.Error("sin shell no hay nada que lanzar")
+		t.Error("without a shell there is nothing to launch")
 	}
 	if got.termOpen {
-		t.Error("sin shell el modal no puede abrirse: se vería un rectángulo vacío")
+		t.Error("without a shell the modal cannot open: it would show an empty rectangle")
 	}
 	if got.term != nil {
-		t.Error("no debe quedar una sesión a medias")
+		t.Error("no half-open session should remain")
 	}
 	if !strings.Contains(got.message, "terminal") {
-		t.Errorf("= %q, want un aviso que diga que es la terminal", got.message)
+		t.Errorf("= %q, want a warning that mentions the terminal", got.message)
 	}
 }
 
 // Recreating the shell would lose the user's cwd, exported vars and half-typed command, so the live session is reused and only resized.
 func TestOpenTermReutilizaLaSesionVivaYLaRedimensiona(t *testing.T) {
-	t.Run("reutiliza sin recrear", func(t *testing.T) {
+	t.Run("reuses without recreating", func(t *testing.T) {
 		// A stub session, not a real shell: proving openTerm creates no new shell with a real one would leave a process behind per test.
 		pty := &stubPty{}
 		s := newStubSession(40, 10, pty)
@@ -249,17 +249,17 @@ func TestOpenTermReutilizaLaSesionVivaYLaRedimensiona(t *testing.T) {
 		next, cmd := m.openTerm()
 		got := next.(Model)
 		if cmd != nil {
-			t.Error("reutilizar una sesión viva no necesita emitir comandos")
+			t.Error("reusing a live session does not need to emit commands")
 		}
 		if got.term != s {
-			t.Error("la segunda apertura creó una sesión nueva: se perdería el shell del usuario y quedaría un proceso huérfano")
+			t.Error("the second open created a new session: the user's shell would be lost and an orphan process would remain")
 		}
 		if !got.termOpen {
-			t.Error("la sesión viva tiene que re-mostrarse")
+			t.Error("the live session must be re-shown")
 		}
 	})
 
-	t.Run("redimensiona la sesión viva cuando el layout cambia", func(t *testing.T) {
+	t.Run("resizes the live session when the layout changes", func(t *testing.T) {
 		pty := &stubPty{}
 		s := newStubSession(40, 10, pty)
 
@@ -272,17 +272,17 @@ func TestOpenTermReutilizaLaSesionVivaYLaRedimensiona(t *testing.T) {
 		got, _ := m.openTerm()
 		model := got.(Model)
 		if model.term != s {
-			t.Fatal("un cambio de layout no puede crear una sesión nueva")
+			t.Fatal("a layout change cannot create a new session")
 		}
 		if len(pty.resizes) == 0 {
-			t.Error("con el layout cambiado el grid no se redimensionó: las líneas quedan cortadas")
+			t.Error("with the layout changed the grid was not resized: lines get cut off")
 		}
 		if w, h := s.dims(); w != m.termW() || h != m.termH() {
-			t.Errorf("dims = %d,%d, want %d,%d: el grid no se ajustó al modal nuevo", w, h, m.termW(), m.termH())
+			t.Errorf("dims = %d,%d, want %d,%d: the grid did not adjust to the new modal", w, h, m.termW(), m.termH())
 		}
 	})
 
-	t.Run("no redimensiona si el tamaño no cambia", func(t *testing.T) {
+	t.Run("does not resize if the size does not change", func(t *testing.T) {
 		pty := &stubPty{}
 		m, _ := newTestModel(t)
 		m = moveCursorTo(t, m, "tienda-api")
@@ -290,7 +290,7 @@ func TestOpenTermReutilizaLaSesionVivaYLaRedimensiona(t *testing.T) {
 
 		got, _ := m.openTerm()
 		if len(pty.resizes) != 0 {
-			t.Errorf("sin cambio de layout hay un resize de sobra: %v", pty.resizes)
+			t.Errorf("without a layout change there is a spurious resize: %v", pty.resizes)
 		}
 		_ = got
 	})
@@ -299,7 +299,7 @@ func TestOpenTermReutilizaLaSesionVivaYLaRedimensiona(t *testing.T) {
 // Update's read loop does the PTY-to-emulator pump, so it is replicated by hand here as readPtyCmd plus write.
 func TestOpenTermAbreElShellEnElProyectoConSizeCorrecto(t *testing.T) {
 	if _, err := os.Stat("/bin/sh"); err != nil {
-		t.Skip("no hay /bin/sh en esta máquina")
+		t.Skip("no /bin/sh on this machine")
 	}
 
 	m, _ := newTestModel(t)
@@ -326,19 +326,19 @@ func TestOpenTermAbreElShellEnElProyectoConSizeCorrecto(t *testing.T) {
 					found = true
 				}
 			case ptyEOFMsg:
-				t.Fatalf("EOF antes de ver la salida; screen = %q", s.screen())
+				t.Fatalf("EOF before seeing the output; screen = %q", s.screen())
 			default:
-				t.Fatalf("msg inesperado: %T", msg)
+				t.Fatalf("unexpected msg: %T", msg)
 			}
 		case <-deadline:
-			t.Fatalf("la salida del shell no llegó; screen = %q", s.screen())
+			t.Fatalf("the shell output did not arrive; screen = %q", s.screen())
 		}
 	}
 
 	// Compared with the newlines stripped because the emulator can wrap the path across several lines.
 	plano := strings.ReplaceAll(s.screen(), "\n", "")
 	if !strings.Contains(plano, filepath.Base(want)) {
-		t.Errorf("el shell se abrió en otro sitio: %q no contiene %q", plano, filepath.Base(want))
+		t.Errorf("the shell opened somewhere else: %q does not contain %q", plano, filepath.Base(want))
 	}
 }
 
@@ -354,7 +354,7 @@ func TestTermKeyIgnoraLoQueNoEsUnaTecla(t *testing.T) {
 
 	// termKey takes a tea.KeyMsg, so the signature is the filter; what is pinned here is that nothing inside calls msg.String(), which would panic on another type.
 	noTeclas := []tea.Msg{
-		ptyDataMsg{data: []byte("esto no es una tecla")},
+		ptyDataMsg{data: []byte("this is not a key")},
 		ptyEOFMsg{},
 		ptyExitMsg{},
 		tickMsg{},
@@ -362,16 +362,16 @@ func TestTermKeyIgnoraLoQueNoEsUnaTecla(t *testing.T) {
 	}
 	for _, msg := range noTeclas {
 		if _, esTecla := msg.(tea.KeyMsg); esTecla {
-			t.Fatalf("%T no estaba en la lista de no-teclas", msg)
+			t.Fatalf("%T was not in the non-key list", msg)
 		}
 	}
 	if n := len(s.pty.(*stubPty).bytesWritten()); n != 0 {
-		t.Fatalf("se escribieron %d bytes en el PTY antes de ninguna tecla", n)
+		t.Fatalf("%d bytes were written to the PTY before any key", n)
 	}
 	before := len(s.pty.(*stubPty).bytesWritten())
 	next, _ := m.termKey(keyPress("a"))
 	if !next.(Model).termOpen {
-		t.Error("una tecla normal cerró el modal")
+		t.Error("a normal key closed the modal")
 	}
 	waitFor(t, 2*time.Second, func() bool {
 		return len(s.pty.(*stubPty).bytesWritten()) > before
@@ -392,20 +392,20 @@ func TestCtrlQOcultaElModalYDejaLaSesionViva(t *testing.T) {
 	got := next.(Model)
 
 	if cmd != nil {
-		t.Error("ctrl+q no emite comandos: sólo oculta el modal")
+		t.Error("ctrl+q emits no commands: it only hides the modal")
 	}
 	if got.termOpen {
-		t.Error("ctrl+q tiene que ocultar el modal")
+		t.Error("ctrl+q must hide the modal")
 	}
 	if got.term != s {
-		t.Error("ctrl+q tiene que dejar la sesión viva: cerrarla perdería el shell del usuario")
+		t.Error("ctrl+q must leave the session alive: closing it would lose the user's shell")
 	}
 	if !s.alive() {
-		t.Error("la sesión quedó apagada: ctrl+q oculta, no mata")
+		t.Error("the session was shut down: ctrl+q hides, it does not kill")
 	}
 
 	reabierto, _ := got.openTerm()
 	if re := reabierto.(Model); re.term != s || !re.termOpen {
-		t.Error("reabrir tiene que enseñar la misma sesión, no crear otra")
+		t.Error("reopening must show the same session, not create another")
 	}
 }

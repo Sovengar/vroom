@@ -23,7 +23,7 @@ const helperEnv = "VROOM_START_HELPER"
 func TestHelperService(t *testing.T) {
 	mode := os.Getenv(helperEnv)
 	if mode == "" || flag.Lookup("test.run").Value.String() != "^TestHelperService$" {
-		t.Skip("proceso helper, no un test")
+		t.Skip("helper process, not a test")
 	}
 
 	report("PORT_SEEN", os.Getenv("PORT"))
@@ -244,7 +244,7 @@ func (f *fixture) helperEnv(t *testing.T) map[string]string {
 		time.Sleep(50 * time.Millisecond)
 	}
 	if err != nil {
-		t.Fatalf("el helper no escribió su entorno: %v", err)
+		t.Fatalf("the helper did not write its environment: %v", err)
 	}
 	out := map[string]string{}
 	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
@@ -271,7 +271,7 @@ func mustAtoiT(t *testing.T, s string) int {
 	t.Helper()
 	n, err := strconv.Atoi(s)
 	if err != nil {
-		t.Fatalf("el helper no reportó %q: %v", s, err)
+		t.Fatalf("the helper did not report %q: %v", s, err)
 	}
 	return n
 }

@@ -15,7 +15,7 @@ import (
 // The other tests all passed the reserved port, so they exited by R1 without waiting and never reached the discoverSettle countdown.
 func TestDiscoverPortEsperaAQueElConjuntoDeListenersSeEstabilice(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	requireProc(t)
 
@@ -41,27 +41,27 @@ func TestDiscoverPortEsperaAQueElConjuntoDeListenersSeEstabilice(t *testing.T) {
 	esperado := time.Since(inicio)
 
 	if d.Port != port {
-		t.Errorf("DiscoverPort = %+v, want el puerto %d del único listener", d, port)
+		t.Errorf("DiscoverPort = %+v, want port %d of the only listener", d, port)
 	}
 	if !d.Verified {
-		t.Error("Verified en false con un solo listener estabilizado: la UI no puede afirmar que " +
-			"la ruta funciona y el servicio aparece sin URL")
+		t.Error("Verified is false with a single stabilized listener: the UI cannot claim that " +
+			"the route works and the service appears without a URL")
 	}
 	// It must have WAITED: accepting the first sample is exactly the bug the settle window prevents.
 	if esperado < discoverSettle {
-		t.Errorf("decidió en %s, want al menos %s: aceptó la primera muestra sin esperar a que el "+
-			"conjunto dejara de crecer, que es exactamente el bug que la ventana previene",
+		t.Errorf("decided in %s, want at least %s: accepted the first sample without waiting for the "+
+			"set to stop growing, which is exactly the bug the window prevents",
 			esperado, discoverSettle)
 	}
 	if d.Unresolved {
-		t.Error("Unresolved con un único listener que no cambia: no hay nada que no se pueda decidir")
+		t.Error("Unresolved with a single listener that doesn't change: there is nothing that cannot be decided")
 	}
 }
 
-// MEDIDO: Unresolved yields port_unresolved while an empty result yields no_port, which asserts something never checked - that the service exposes no TCP port at all.
+// MEASURED: Unresolved yields port_unresolved while an empty result yields no_port, which asserts something never checked - that the service exposes no TCP port at all.
 func TestDiscoverPortNoDecideUnConjuntoQueNoSeEstabiliza(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	requireProc(t)
 
@@ -81,27 +81,27 @@ func TestDiscoverPortNoDecideUnConjuntoQueNoSeEstabiliza(t *testing.T) {
 	d := DiscoverPort(res.Pid, 0, "/health", 900*time.Millisecond)
 
 	if !d.Unresolved {
-		t.Errorf("DiscoverPort = %+v, want Unresolved: hay listeners y el plazo venció sin que el "+
-			"conjunto se estabilizara, y hay que decirlo en vez de inventar un puerto", d)
+		t.Errorf("DiscoverPort = %+v, want Unresolved: there are listeners and the deadline expired without the "+
+			"set stabilizing, and that must be reported instead of inventing a port", d)
 	}
 	if d.Port != 0 {
-		t.Errorf("Port = %d con Unresolved, want 0: un puerto sin decidir es peor que ninguno, "+
-			"porque la UI lo publica", d.Port)
+		t.Errorf("Port = %d with Unresolved, want 0: an undecided port is worse than none, "+
+			"because the UI publishes it", d.Port)
 	}
 	if d.Verified {
-		t.Error("Verified en true sin decidir: afirmaría que la ruta funciona sin haberlo comprobado")
+		t.Error("Verified is true without deciding: it would claim the route works without having verified it")
 	}
 	if d.LineageDead {
-		t.Error("LineageDead con el helper corriendo: sin deciding el puerto, el proceso sigue ahí")
+		t.Error("LineageDead with the helper running: without deciding the port, the process is still there")
 	}
 }
 
 func TestDescendantsDeUnProcRootInexistenteNoDevuelveNada(t *testing.T) {
 	if got := descendantsAt("/proc/definitely-not-here", os.Getpid()); len(got) != 0 {
-		t.Errorf("descendantsAt con un /proc inexistente devolvió %v, want nada", got)
+		t.Errorf("descendantsAt with a nonexistent /proc returned %v, want nothing", got)
 	}
 	if got := lineageListenersAt("/proc/definitely-not-here", os.Getpid()); got != nil {
-		t.Errorf("lineageListenersAt con un /proc inexistente devolvió %v, want nil", got)
+		t.Errorf("lineageListenersAt with a nonexistent /proc returned %v, want nil", got)
 	}
 }
 
@@ -110,7 +110,7 @@ func TestDescendantsFromTerminaAnteUnCicloEnElArbol(t *testing.T) {
 	snap := map[int]procInfo{
 		1: {pid: 1, ppid: 3},
 		2: {pid: 2, ppid: 1},
-		3: {pid: 3, ppid: 3}, // padre de sí mismo: se salta al construir `children`
+		3: {pid: 3, ppid: 3}, // parent of itself: skipped when building `children`
 		4: {pid: 4, ppid: 2},
 	}
 
@@ -118,12 +118,12 @@ func TestDescendantsFromTerminaAnteUnCicloEnElArbol(t *testing.T) {
 	got := descendantsFrom(snap, 1)
 
 	if len(got) != 2 || got[0] != 2 || got[1] != 4 {
-		t.Errorf("descendantsFrom = %v, want [2 4]: tiene que recorrer el ciclo una vez y "+
-			"parar, sin incluir la raíz ni repetir", got)
+		t.Errorf("descendantsFrom = %v, want [2 4]: it must traverse the cycle once and "+
+			"stop, without including the root or repeating", got)
 	}
 	for _, pid := range got {
 		if pid == 1 {
-			t.Error("la raíz aparece como descendiente suyo: el Stop por linaje se intentaría a sí mismo")
+			t.Error("the root appears as its own descendant: Stop by lineage would kill itself")
 		}
 	}
 }
@@ -133,13 +133,13 @@ func TestDescendantsFromIgnoraUnProcesoQueEsSuPropioPadre(t *testing.T) {
 	snap := map[int]procInfo{
 		1: {pid: 1, ppid: 0},
 		2: {pid: 2, ppid: 1},
-		3: {pid: 3, ppid: 3}, // su propio padre
+		3: {pid: 3, ppid: 3}, // its own parent
 	}
 
 	got := descendantsFrom(snap, 1)
 	for _, pid := range got {
 		if pid == 3 {
-			t.Errorf("descendantsFrom = %v incluye al 3, que es su propio padre: se colgaría solo", got)
+			t.Errorf("descendantsFrom = %v includes 3, which is its own parent: it would hang by itself", got)
 		}
 	}
 	if len(got) != 1 || got[0] != 2 {
@@ -153,16 +153,16 @@ func TestParseThreadStatConUnStimeNoNumericoEsUnStatInvalido(t *testing.T) {
 	path := filepath.Join(dir, "stat")
 
 	// 13 fields after the ')': utime in rest[11] is good, stime in rest[12] is garbage.
-	escribirStat(t, path, "R 0 0 0 0 0 0 0 0 0 0 1234 no-es-un-número")
+	escribirStat(t, path, "R 0 0 0 0 0 0 0 0 0 0 1234 not-a-number")
 	if _, _, err := parseThreadStat(path); err == nil {
-		t.Fatal("un stime no numérico tiene que ser un stat inválido, no ticks 1234")
+		t.Fatal("a non-numeric stime must be an invalid stat, not ticks 1234")
 	}
 
 	// The good case too, so this tests parsing and not only rejection.
 	escribirStat(t, path, "R 0 0 0 0 0 0 0 0 0 0 100 200")
 	state, ticks, err := parseThreadStat(path)
 	if err != nil {
-		t.Fatalf("un stat válido dio error: %v", err)
+		t.Fatalf("a valid stat returned error: %v", err)
 	}
 	if state != "R" {
 		t.Errorf("state = %q, want R", state)
@@ -174,7 +174,7 @@ func TestParseThreadStatConUnStimeNoNumericoEsUnStatInvalido(t *testing.T) {
 
 func escribirStat(t *testing.T, path, rest string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte("42 (un nombre con (paréntesis) "+rest+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("42 (a name with (parentheses) "+rest+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -192,23 +192,23 @@ func TestEvaluateConUnPuertoDePropietarioAmbiguoDegradaAIndeterminado(t *testing
 
 	v6, err := net.Listen("tcp6", fmt.Sprintf("[::1]:%d", port))
 	if err != nil {
-		t.Skipf("esta máquina no puede escuchar en ::1 con el mismo número: %v", err)
+		t.Skipf("this machine cannot listen on ::1 with the same port number: %v", err)
 	}
 	defer func() { _ = v6.Close() }()
 
-	// MEDIDO: both entries belong to the SAME process and there are still two, so ambiguity needs no second process - one process on both address families is enough.
+	// MEASURED: both entries belong to the SAME process and there are still two, so ambiguity needs no second process - one process on both address families is enough.
 	if pids := PortOwnerPIDs(port); len(pids) != 2 {
-		t.Skipf("esta máquina no da dos dueños para el mismo número de puerto (obtuve %v): "+
-			"la condición del test no se cumple", pids)
+		t.Skipf("this machine does not give two owners for the same port number (got %v): "+
+			"the test condition is not met", pids)
 	}
 
 	got := NewManager().Evaluate(EvalSpec{
-		Pid:  0, // el PID del meta está muerto: es el fallback externo
+		Pid:  0, // the meta PID is dead: this is the external fallback
 		Port: port,
 	})
 	if got != StatusUnknown {
-		t.Errorf("Evaluate = %v, want unknown con un propietario ambiguo: afirmar running sería "+
-			"reportar sano un servicio del que no hay prueba, que es justo el twin de otro worktree", got)
+		t.Errorf("Evaluate = %v, want unknown with an ambiguous owner: claiming running would "+
+			"report as healthy a service for which there is no proof, which is exactly the twin of another worktree", got)
 	}
 }
 
@@ -231,12 +231,12 @@ func TestEvaluateConElPuertoDeUnProcesoVivoLoDaPorRunningConPruebaDePropiedad(t 
 	}
 
 	got := NewManager().Evaluate(EvalSpec{
-		Pid:            0, // el meta no tiene PID: se decidió por puerto
+		Pid:            0, // the meta has no PID: decided by port
 		Port:           port,
 		CreationTimeMs: ct,
 	})
 	if got != StatusRunning {
-		t.Errorf("Evaluate = %v, want running: hay un único dueño vivo y su creation time es la del meta", got)
+		t.Errorf("Evaluate = %v, want running: there is a single live owner and its creation time matches the meta's", got)
 	}
 
 	otro := NewManager().Evaluate(EvalSpec{
@@ -245,21 +245,21 @@ func TestEvaluateConElPuertoDeUnProcesoVivoLoDaPorRunningConPruebaDePropiedad(t 
 		CreationTimeMs: ct + 1,
 	})
 	if otro != StatusStopped {
-		t.Errorf("Evaluate = %v con un creation time ajeno, want stopped: el puerto lo tiene alguien "+
-			"que no es el servicio del meta", otro)
+		t.Errorf("Evaluate = %v with a foreign creation time, want stopped: the port is held by someone "+
+			"who is not the meta's service", otro)
 	}
 }
 
 // The in-memory set and the system are two sources of truth, and a foreign holder means take the next port rather than fail: the range belongs to the kernel, not to vroom.
 func TestReservePortSaltaLosPuertosQueElSistemaYaTieneOcupados(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: socket real")
+		t.Skip("integration: real socket")
 	}
 
 	// Occupies the FIRST port of the range, exactly where the loop starts, so the first iteration must fail and continue.
 	bloqueo, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", DynamicPortLow))
 	if err != nil {
-		t.Skipf("el puerto %d del rango está ocupado por otra cosa: %v", DynamicPortLow, err)
+		t.Skipf("port %d in the range is occupied by something else: %v", DynamicPortLow, err)
 	}
 	defer func() { _ = bloqueo.Close() }()
 
@@ -270,10 +270,10 @@ func TestReservePortSaltaLosPuertosQueElSistemaYaTieneOcupados(t *testing.T) {
 	t.Cleanup(func() { ReleasePort(p) })
 
 	if p == DynamicPortLow {
-		t.Errorf("ReservePort devolvió %d, que está ocupado: el pool tiene que saltar al siguiente "+
-			"del rango, no devolver un puerto que nadie puede abrir", DynamicPortLow)
+		t.Errorf("ReservePort returned %d, which is occupied: the pool must skip to the next "+
+			"in the range, not return a port that no one can open", DynamicPortLow)
 	}
 	if p < DynamicPortLow || p > DynamicPortHigh {
-		t.Errorf("ReservePort = %d, fuera del rango [%d, %d]", p, DynamicPortLow, DynamicPortHigh)
+		t.Errorf("ReservePort = %d, outside the range [%d, %d]", p, DynamicPortLow, DynamicPortHigh)
 	}
 }

@@ -15,11 +15,11 @@ import (
 	"vroom/internal/state"
 )
 
-func TestStopCmdEscribeEnElLogLosAvisosDelParado(t *testing.T) {
+func TestStopCmdWritesStopWarningsToLog(t *testing.T) {
 	m, store := newTestModel(t)
-	p := primerProyectoConfigurado(t, m)
+	p := firstConfiguredProject(t, m)
 
-	port := puertoConDueñoAmbiguo(t)
+	port := portWithAmbiguousOwner(t)
 
 	if err := store.SaveMeta(p.Path, state.Meta{Pid: 0, Port: port}); err != nil {
 		t.Fatal(err)
@@ -27,31 +27,31 @@ func TestStopCmdEscribeEnElLogLosAvisosDelParado(t *testing.T) {
 
 	cmd := stopCmd(store, process.NewManager(), p.Path, "")
 	if cmd == nil {
-		t.Fatal("stopCmd tiene que devolver un comando")
+		t.Fatal("stopCmd must return a command")
 	}
 	if _, ok := cmd().(stoppedMsg); !ok {
-		t.Fatalf("el comando devolvió %T, want stoppedMsg", cmd())
+		t.Fatalf("the command returned %T, want stoppedMsg", cmd())
 	}
 
 	log, err := os.ReadFile(store.StderrLog(p.Path))
 	if err != nil {
-		t.Fatalf("no hay log de stderr del servicio: %v", err)
+		t.Fatalf("no stderr log for the service: %v", err)
 	}
-	aviso := string(log)
-	if !strings.Contains(aviso, "vroom ▶ stop") {
-		t.Errorf("el log de stderr = %q, want una línea de aviso de stop: un aviso que no se "+
-			"escribe en ningún sitio no es un aviso", aviso)
+	warning := string(log)
+	if !strings.Contains(warning, "vroom ▶ stop") {
+		t.Errorf("stderr log = %q, want a stop warning line: a warning that is not written "+
+			"anywhere is not a warning", warning)
 	}
-	if !strings.Contains(aviso, "no se mata nada") {
-		t.Errorf("el aviso = %q, want que explique que no se mata nada: el usuario tiene que "+
-			"entender por qué su puerto sigue ocupado", aviso)
+	if !strings.Contains(warning, "nothing is killed") {
+		t.Errorf("the warning = %q, want it to explain that nothing is killed: the user "+
+			"needs to understand why their port is still occupied", warning)
 	}
 }
 
 // Regression anchor for the "spawned but meta failed" bug: the propagated error carries no PID because the child is already killed by then.
-func TestStartCmdPropagaElFalloDePersistirElMeta(t *testing.T) {
+func TestStartCmdPropagatesMetaPersistFailure(t *testing.T) {
 	m, store := newTestModel(t)
-	p := primerProyectoConfigurado(t, m)
+	p := firstConfiguredProject(t, m)
 
 	// A command that really spawns, so the failure under test is the persistence one and not an impossible spawn.
 	p.Manifest = &manifest.Manifest{Name: "tienda-api", Command: "sleep 30", Port: 8081}
@@ -60,36 +60,36 @@ func TestStartCmdPropagaElFalloDePersistirElMeta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// MEDIDO: SaveMeta writes meta.json.tmp and then renames, so with meta.json already a non-empty directory the rename fails with EISDIR.
-	if err := os.MkdirAll(filepath.Join(dir, "meta.json", "bloqueo"), 0o755); err != nil {
+	// MEASURED: SaveMeta writes meta.json.tmp and then renames, so with meta.json already a non-empty directory the rename fails with EISDIR.
+	if err := os.MkdirAll(filepath.Join(dir, "meta.json", "lock"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("meta de %s en el directorio de servicio %s", p.Path, dir)
+	t.Logf("meta of %s in the service directory %s", p.Path, dir)
 
 	cmd := startCmd(store, &stubManager{}, p)
 	if cmd == nil {
-		t.Fatal("startCmd tiene que devolver un comando")
+		t.Fatal("startCmd must return a command")
 	}
 	msg, ok := cmd().(startedMsg)
 	if !ok {
-		t.Fatalf("el comando devolvió %T, want startedMsg", cmd())
+		t.Fatalf("the command returned %T, want startedMsg", cmd())
 	}
 	if msg.err == nil {
-		t.Error("startedMsg.err = nil con un meta que no se puede guardar: el servicio se quedaría " +
-			"parado en la TUI sin explicación de por qué")
+		t.Error("startedMsg.err = nil with a meta that cannot be saved: the service would " +
+			"remain stopped in the TUI without explanation of why")
 	}
 	if msg.path != p.Path {
-		t.Errorf("path = %q, want %q: el mensaje tiene que decir a qué servicio se refiere", msg.path, p.Path)
+		t.Errorf("path = %q, want %q: the message must say which service it refers to", msg.path, p.Path)
 	}
 	if msg.res.Pid != 0 {
-		t.Errorf("startedMsg.res.Pid = %d con un meta que no se pudo guardar, want 0: el proceso se "+
-			"para antes de propagar el error, así que el mensaje no puede llevar un pid que el "+
-			"usuario no pueda parar", msg.res.Pid)
+		t.Errorf("startedMsg.res.Pid = %d with a meta that could not be saved, want 0: the "+
+			"process stops before propagating the error, so the message cannot carry a "+
+			"pid that the user cannot stop", msg.res.Pid)
 	}
 }
 
 // stackStats resolves every stack before launching any, so an unresolvable name in the second must leave the first untouched.
-func TestToggleDeGrupoDeStacksAvisaDeUnStackQueNoResuelve(t *testing.T) {
+func TestToggleStackGroupWarnsOfUnresolvableStack(t *testing.T) {
 	isolateConfig(t)
 	root := writeTestTree(t, false)
 	writeStr(t, filepath.Join(root, orchestrate.ComposeFileName), `primary_group = "tienda"
@@ -102,21 +102,21 @@ primary_group = "tienda"
   services = ["tienda-web", "tienda-api"]
 
 [[stack]]
-name = "roto"
+name = "broken"
 primary_group = "tienda"
   [[stack.stage]]
-  name = "roto"
-  services = ["servicio-que-no-existe"]
+  name = "broken"
+  services = ["service-that-does-not-exist"]
 `)
 	store := state.NewStoreAt(t.TempDir())
 	m := New(store, &stubManager{}, root)
 	m.width, m.height = 100, 30
 	m.updateLayout()
 	if m.engine == nil {
-		t.Fatalf("New no construyó el engine")
+		t.Fatalf("New did not build the engine")
 	}
 	if len(m.stacksForPrimary("tienda")) != 2 {
-		t.Fatalf("hay %d stacks, want 2", len(m.stacksForPrimary("tienda")))
+		t.Fatalf("there are %d stacks, want 2", len(m.stacksForPrimary("tienda")))
 	}
 
 	for _, p := range m.projects {
@@ -125,30 +125,30 @@ primary_group = "tienda"
 		}
 	}
 
-	nuevo, cmd := m.toggleComposers("tienda")
-	got, ok := nuevo.(Model)
+	new, cmd := m.toggleComposers("tienda")
+	got, ok := new.(Model)
 	if !ok {
-		t.Fatalf("toggleComposers devolvió %T, want Model", nuevo)
+		t.Fatalf("toggleComposers returned %T, want Model", new)
 	}
 	if cmd != nil {
-		t.Error("un stack que no resuelve no puede lanzar nada: ni siquiera el otro")
+		t.Error("a stack that does not resolve cannot launch anything: not even the other one")
 	}
 	if !strings.Contains(got.message, "stack conflict") {
-		t.Errorf("message = %q, want que diga que hay un conflicto de stack", got.message)
+		t.Errorf("message = %q, want it to say there is a stack conflict", got.message)
 	}
-	if !strings.Contains(got.message, "servicio-que-no-existe") {
-		t.Errorf("message = %q, want que nombre el servicio que no resuelve", got.message)
+	if !strings.Contains(got.message, "service-that-does-not-exist") {
+		t.Errorf("message = %q, want it to name the service that does not resolve", got.message)
 	}
 	for _, p := range m.projects {
 		if sv := got.services[p.Path]; sv != nil && sv.Status != statusStopped {
-			t.Errorf("%s quedó en %q tras un conflicto de stack: el fallo se detectó ANTES de "+
-				"lanzar nada, y así tiene que quedar", p.Name, sv.Status)
+			t.Errorf("%s remained in %q after a stack conflict: the failure was detected "+
+				"BEFORE launching anything, and that is how it must remain", p.Name, sv.Status)
 		}
 	}
 }
 
 // Regression anchor: before this, no test pressed the key on an itemStack row, only called toggleStack directly.
-func TestToggleSobreUnStackDeVerdadVaPorLaRamaDelStack(t *testing.T) {
+func TestToggleOnRealStackGoesThroughStackBranch(t *testing.T) {
 	m := newStackModel(t)
 
 	idx := -1
@@ -159,44 +159,44 @@ func TestToggleSobreUnStackDeVerdadVaPorLaRamaDelStack(t *testing.T) {
 		}
 	}
 	if idx < 0 {
-		t.Fatal("el árbol con compose file no trajo ninguna fila de stack: este test no está probando nada")
+		t.Fatal("the tree with compose file did not bring any stack row: this test is not testing anything")
 	}
 	m.cursor = idx
 
-	nuevo, cmd := m.toggleSelected()
-	got, ok := nuevo.(Model)
+	new, cmd := m.toggleSelected()
+	got, ok := new.(Model)
 	if !ok {
-		t.Fatalf("toggleSelected devolvió %T, want Model", nuevo)
+		t.Fatalf("toggleSelected returned %T, want Model", new)
 	}
 	if cmd == nil {
-		t.Error("pulsar la tecla sobre un stack parado tiene que lanzar la orquestación")
+		t.Error("pressing the key on a stopped stack must launch the orchestration")
 	}
 	if !strings.Contains(got.message, "launching stack") {
-		t.Errorf("message = %q, want que diga que está lanzando el stack: es la confirmación "+
-			"de que la tecla fue a la fila que el cursor señalaba", got.message)
+		t.Errorf("message = %q, want it to say it is launching the stack: it is the "+
+			"confirmation that the key went to the row the cursor was pointing at", got.message)
 	}
 }
 
 // Without the nil-sv continue an unknown member panics mid-launch while the rest of the group is already starting.
-func TestToggleDeGrupoSaltaAlMiembroSinEstadoConocidoEnElGrupoElegido(t *testing.T) {
+func TestToggleGroupSkipsMemberWithoutKnownStateInSelectedGroup(t *testing.T) {
 	m, _ := newTestModel(t)
 
-	prim := ""
+	primary := ""
 	idx := -1
 	for i, e := range m.tree {
 		if e.kind == itemPrimary {
-			prim = e.primary
+			primary = e.primary
 			idx = i
 			break
 		}
 	}
-	if prim == "" {
-		t.Skip("el árbol de test no trae grupos")
+	if primary == "" {
+		t.Skip("the test tree does not have groups")
 	}
 
-	miembros := m.nodeMembers(prim, "")
-	if len(miembros) < 2 {
-		t.Skipf("el grupo tiene %d miembros, want al menos 2", len(miembros))
+	members := m.nodeMembers(primary, "")
+	if len(members) < 2 {
+		t.Skipf("the group has %d members, want at least 2", len(members))
 	}
 
 	for _, p := range m.projects {
@@ -204,111 +204,111 @@ func TestToggleDeGrupoSaltaAlMiembroSinEstadoConocidoEnElGrupoElegido(t *testing
 			sv.Status = statusStopped
 		}
 	}
-	perdido := miembros[0].Path
-	delete(m.services, perdido)
+	lost := members[0].Path
+	delete(m.services, lost)
 
 	m.cursor = idx
-	nuevo, _ := m.toggleSelected()
-	got, ok := nuevo.(Model)
+	new, _ := m.toggleSelected()
+	got, ok := new.(Model)
 	if !ok {
-		t.Fatalf("toggleSelected devolvió %T, want Model", nuevo)
+		t.Fatalf("toggleSelected returned %T, want Model", new)
 	}
-	if sv := got.services[perdido]; sv != nil {
-		t.Errorf("el miembro sin estado %s volvió a aparecer con estado %v", perdido, sv.Status)
+	if sv := got.services[lost]; sv != nil {
+		t.Errorf("the member without state %s reappeared with state %v", lost, sv.Status)
 	}
-	for _, p := range miembros[1:] {
+	for _, p := range members[1:] {
 		sv := got.services[p.Path]
 		if sv == nil {
-			t.Fatalf("el miembro %s sin estado desapareció del mapa en el camino", p.Path)
+			t.Fatalf("the member %s without state disappeared from the map along the way", p.Path)
 		}
 		if sv.Status != statusStarting {
-			t.Errorf("%s quedó en %q tras arrancar el grupo, want starting: saltarse un miembro "+
-				"sin estado no puede ser una excusa para no arrancar los demás", p.Name, sv.Status)
+			t.Errorf("%s remained in %q after starting the group, want starting: skipping "+
+				"a member without state cannot be an excuse for not starting the others", p.Name, sv.Status)
 		}
 	}
 }
 
-func TestPickerInnerWTieneSueloEnUnTerminalEstrecho(t *testing.T) {
+func TestPickerInnerWHasFloorOnNarrowTerminal(t *testing.T) {
 	m, _ := newTestModel(t)
 	m.width = 20
 	m.updateLayout()
-	m.pickerItems = []pickerItem{{Name: "un servicio con nombre larguísimo", Description: "y su descripción"}}
+	m.pickerItems = []pickerItem{{Name: "a service with a very long name", Description: "and its description"}}
 
 	if w := m.pickerInnerW(); w != 28 {
-		t.Errorf("pickerInnerW() = %d con un terminal de 20 columnas, want 28: por debajo el modal "+
-			"no es usable y el usuario no puede leer lo que elige", w)
+		t.Errorf("pickerInnerW() = %d with a 20-column terminal, want 28: below that the "+
+			"modal is not usable and the user cannot read what they choose", w)
 	}
 
 	if s := m.pickerBox(); s == "" {
-		t.Error("pickerBox() devolvió vacío")
+		t.Error("pickerBox() returned empty")
 	}
 }
 
-func TestElArbolOcultaLosStacksDeLosGruposPlegados(t *testing.T) {
-	m := modeloConDosPrimariosYStacks(t)
+func TestTreeHidesStacksOfCollapsedGroups(t *testing.T) {
+	m := modelWithTwoPrimariesAndStacks(t)
 
-	todos := m.tree
-	conStacks := -1
-	for i, e := range todos {
+	all := m.tree
+	withStacks := -1
+	for i, e := range all {
 		if e.kind == itemSecondary && e.secondary == composersGroup {
-			conStacks = i
+			withStacks = i
 			break
 		}
 	}
-	if conStacks < 0 {
-		t.Fatalf("el árbol no trajo ninguna cabecera de Composers: hay %d filas", len(todos))
+	if withStacks < 0 {
+		t.Fatalf("the tree did not bring any Composers header: there are %d rows", len(all))
 	}
 
-	primConStacks := todos[conStacks].primary
+	primaryWithStacks := all[withStacks].primary
 	p := projectPath(t, m, "tienda-web")
-	primSinStacks := manifestPrimary(t, p)
+	primaryWithoutStacks := manifestPrimary(t, p)
 
-	if !m.treeTieneFila(func(e treeItem) bool {
-		return e.kind == itemSecondary && e.primary == primSinStacks && e.secondary == composersGroup
+	if !m.treeHasRow(func(e treeItem) bool {
+		return e.kind == itemSecondary && e.primary == primaryWithoutStacks && e.secondary == composersGroup
 	}) {
-		t.Errorf("el primario %s no tiene stacks pero abrió cabecera de Composers: una fila que "+
-			"no lleva a nada es ruido", primSinStacks)
+		t.Errorf("the primary %s has no stacks but opened a Composers header: a row "+
+			"that leads nowhere is noise", primaryWithoutStacks)
 	}
 
-	colapsado := m
-	colapsado.collapsed = map[string]bool{primConStacks: true}
-	arbol := colapsado.buildTree()
-	for _, e := range arbol {
-		if e.primary == primConStacks && (e.kind == itemStack || e.secondary == composersGroup) {
-			t.Errorf("con el primario %s plegado apareció la fila %v/%v: plegar un grupo tiene que "+
-				"esconder también sus stacks, o se quedan flotando sin dueño", primConStacks, e.kind, e.secondary)
+	collapsed := m
+	collapsed.collapsed = map[string]bool{primaryWithStacks: true}
+	tree := collapsed.buildTree()
+	for _, e := range tree {
+		if e.primary == primaryWithStacks && (e.kind == itemStack || e.secondary == composersGroup) {
+			t.Errorf("with the primary %s collapsed the row %v/%v appeared: collapsing a "+
+				"group must also hide its stacks, or they remain floating without an owner", primaryWithStacks, e.kind, e.secondary)
 		}
 	}
 
-	porComposers := m
-	porComposers.collapsed = map[string]bool{porComposers.secondaryKey(primConStacks, composersGroup): true}
-	arbol = porComposers.buildTree()
-	vioStacks := false
-	for _, e := range arbol {
-		if e.primary == primConStacks && e.kind == itemStack {
-			vioStacks = true
+	byComposers := m
+	byComposers.collapsed = map[string]bool{byComposers.secondaryKey(primaryWithStacks, composersGroup): true}
+	tree = byComposers.buildTree()
+	sawStacks := false
+	for _, e := range tree {
+		if e.primary == primaryWithStacks && e.kind == itemStack {
+			sawStacks = true
 		}
 	}
-	if vioStacks {
-		t.Errorf("con la cabecera de Composers de %s plegada sus stacks siguen en el árbol",
-			primConStacks)
+	if sawStacks {
+		t.Errorf("with the Composers header of %s collapsed its stacks are still in the tree",
+			primaryWithStacks)
 	}
-	if !porComposers.treeTieneFila(func(e treeItem) bool {
+	if !byComposers.treeHasRow(func(e treeItem) bool {
 		return e.kind == itemProject && e.project.Path == p
 	}) {
-		t.Errorf("plegar la cabecera de Composers de %s se llevó también los proyectos del grupo: "+
-			"una cosa es plegar los stacks y otra el grupo entero", primConStacks)
+		t.Errorf("collapsing the Composers header of %s also took the group's projects: "+
+			"one thing is collapsing the stacks and another the entire group", primaryWithStacks)
 	}
 }
 
 // A real second primary is required because a group with no stacks must not open an empty Composers header.
-func modeloConDosPrimariosYStacks(t *testing.T) Model {
+func modelWithTwoPrimariesAndStacks(t *testing.T) Model {
 	t.Helper()
 	isolateConfig(t)
 	root := writeTestTree(t, false)
 
 	writeStr(t, filepath.Join(root, "blog", ".vroom.toml"),
-		"name = \"blog\"\ncommand_start = \"true\"\nprimary_group = \"otro\"\n")
+		"name = \"blog\"\ncommand_start = \"true\"\nprimary_group = \"other\"\n")
 
 	writeStr(t, filepath.Join(root, orchestrate.ComposeFileName), `primary_group = "tienda"
 
@@ -326,7 +326,7 @@ primary_group = "tienda"
 	return m
 }
 
-func (m Model) treeTieneFila(pred func(treeItem) bool) bool {
+func (m Model) treeHasRow(pred func(treeItem) bool) bool {
 	for _, e := range m.buildTree() {
 		if pred(e) {
 			return true
@@ -344,8 +344,8 @@ func manifestPrimary(t *testing.T, path string) string {
 	return mf.PrimaryGroup
 }
 
-// MEDIDO: /proc/net/tcp lists one entry per socket, so the same pid shows up as two owners of one port and killPortHolderWith refuses to kill what it cannot attribute.
-func puertoConDueñoAmbiguo(t *testing.T) int {
+// MEASURED: /proc/net/tcp lists one entry per socket, so the same pid shows up as two owners of one port and killPortHolderWith refuses to kill what it cannot attribute.
+func portWithAmbiguousOwner(t *testing.T) int {
 	t.Helper()
 	ln4, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -354,15 +354,15 @@ func puertoConDueñoAmbiguo(t *testing.T) int {
 	// t.Cleanup, not defer: a defer would free the port right when the test needs it held and the assertions would pass without provoking anything.
 	t.Cleanup(func() { _ = ln4.Close() })
 
-	puerto := ln4.Addr().(*net.TCPAddr).Port
-	ln6, err := net.Listen("tcp6", fmt.Sprintf("[::1]:%d", puerto))
+	port := ln4.Addr().(*net.TCPAddr).Port
+	ln6, err := net.Listen("tcp6", fmt.Sprintf("[::1]:%d", port))
 	if err != nil {
 		// Skip instead of fail when the host has no IPv6, so a missing family is not reported as a pass.
-		t.Skipf("no se pudo abrir el mismo puerto en IPv6: %v", err)
+		t.Skipf("could not open the same port in IPv6: %v", err)
 	}
 	t.Cleanup(func() { _ = ln6.Close() })
 
-	// MEDIDO: without these accept loops PortOwnerPIDs finds nothing, since it reads real SYN_RECV/ESTABLISHED entries from /proc/net/tcp.
+	// MEASURED: without these accept loops PortOwnerPIDs finds nothing, since it reads real SYN_RECV/ESTABLISHED entries from /proc/net/tcp.
 	for _, ln := range []net.Listener{ln4, ln6} {
 		go func(ln net.Listener) {
 			for {
@@ -374,27 +374,27 @@ func puertoConDueñoAmbiguo(t *testing.T) int {
 			}
 		}(ln)
 	}
-	esperaDueño(t, puerto)
-	if !process.PortOpen(puerto) {
-		t.Fatalf("el puerto %d no está abierto, así que el camino que se quiere probar —el "+
-			"puerto ocupado que no se puede atribuir— no se va a recorrer", puerto)
+	waitForOwner(t, port)
+	if !process.PortOpen(port) {
+		t.Fatalf("port %d is not open, so the path to be tested —the occupied port that "+
+			"cannot be attributed— will not be traversed", port)
 	}
 
-	return puerto
+	return port
 }
 
-func esperaDueño(t *testing.T, puerto int) {
+func waitForOwner(t *testing.T, port int) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(process.PortOwnerPIDs(puerto)) >= 2 {
+		if len(process.PortOwnerPIDs(port)) >= 2 {
 			return
 		}
 		// A connection closed instantly can vanish from the kernel before it is read, so one is kept alive.
 		go func() {
 			for _, addr := range []string{
-				fmt.Sprintf("127.0.0.1:%d", puerto),
-				fmt.Sprintf("[::1]:%d", puerto),
+				fmt.Sprintf("127.0.0.1:%d", port),
+				fmt.Sprintf("[::1]:%d", port),
 			} {
 				c, err := net.Dial("tcp", addr)
 				if err == nil {
@@ -404,12 +404,12 @@ func esperaDueño(t *testing.T, puerto int) {
 		}()
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Skipf("el puerto %d no llegó a tener dos dueños en /proc/net/tcp en 3s: este test no "+
-		"puede provocar el aviso en este host", puerto)
+	t.Skipf("port %d did not get two owners in /proc/net/tcp in 3s: this test cannot "+
+		"provoke the warning on this host", port)
 }
 
 // A stack whose primary has no scanned projects (deleted directory, stack copied from another workspace) used to vanish with it, leaving a valid compose stack with no row to press.
-func TestElArbolMuestraLosStacksDeUnPrimarioSinProyectos(t *testing.T) {
+func TestTreeShowsStacksOfPrimaryWithoutProjects(t *testing.T) {
 	isolateConfig(t)
 	root := writeTestTree(t, false)
 	writeStr(t, filepath.Join(root, orchestrate.ComposeFileName), `primary_group = "tienda"
@@ -422,10 +422,10 @@ primary_group = "tienda"
   services = ["tienda-web", "tienda-api"]
 
 [[stack]]
-name = "fantasma"
-primary_group = "grupo-que-no-tiene-proyectos"
+name = "ghost"
+primary_group = "group-without-projects"
   [[stack.stage]]
-  name = "fantasma"
+  name = "ghost"
   services = ["tienda-web"]
 `)
 
@@ -433,27 +433,27 @@ primary_group = "grupo-que-no-tiene-proyectos"
 	m.width, m.height = 100, 30
 	m.updateLayout()
 
-	stacks := m.stacksForPrimary("grupo-que-no-tiene-proyectos")
+	stacks := m.stacksForPrimary("group-without-projects")
 	if len(stacks) != 1 {
-		t.Fatalf("hay %d stacks para el grupo fantasma, want 1", len(stacks))
+		t.Fatalf("there are %d stacks for the ghost group, want 1", len(stacks))
 	}
 
-	visto := false
+	seen := false
 	for _, e := range m.tree {
-		if e.kind == itemStack && e.primary == "grupo-que-no-tiene-proyectos" {
-			visto = true
+		if e.kind == itemStack && e.primary == "group-without-projects" {
+			seen = true
 			if e.stack == nil {
-				t.Error("la fila del stack del grupo fantasma salió con stack nil: el cursor puede " +
-					"señalarla y `toggleSelected` no sabría qué lanzar")
+				t.Error("the ghost group's stack row came out with stack nil: the cursor " +
+					"can point at it and `toggleSelected` would not know what to launch")
 			}
 		}
 	}
-	if !visto {
-		var filas []string
+	if !seen {
+		var rows []string
 		for _, e := range m.tree {
-			filas = append(filas, string(rune('0'+int(e.kind)))+":"+e.primary+"/"+e.secondary)
+			rows = append(rows, string(rune('0'+int(e.kind)))+":"+e.primary+"/"+e.secondary)
 		}
-		t.Errorf("el stack del grupo fantasma no aparece en el árbol (%v): el usuario tiene un "+
-			"compose con ese stack y no tiene ninguna fila que pulsar", filas)
+		t.Errorf("the ghost group's stack does not appear in the tree (%v): the user has "+
+			"a compose with that stack and has no row to press", rows)
 	}
 }

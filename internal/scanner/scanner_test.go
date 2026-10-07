@@ -56,10 +56,10 @@ func TestScanDetectsVroomTomlProject(t *testing.T) {
 	}
 	p := find(result.Projects, "myapp")
 	if p == nil {
-		t.Fatalf("proyecto myapp no detectado: %+v", result.Projects)
+		t.Fatalf("myapp project not detected: %+v", result.Projects)
 	}
 	if !p.Configured {
-		t.Error("proyecto con manifiesto válido debe estar configurado")
+		t.Error("project with valid manifest must be configured")
 	}
 }
 
@@ -73,7 +73,7 @@ func TestScanIgnoresDirsWithoutManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(result.Projects) != 0 {
-		t.Errorf("debe ignorar dirs sin .vroom.toml, got %+v", result.Projects)
+		t.Errorf("must ignore dirs without .vroom.toml, got %+v", result.Projects)
 	}
 }
 
@@ -85,7 +85,7 @@ func TestScanDepth2(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(result.Projects) != 1 || result.Projects[0].Name != "b" {
-		t.Errorf("proyecto a depth 2 debe detectarse, got %+v", result.Projects)
+		t.Errorf("project at depth 2 must be detected, got %+v", result.Projects)
 	}
 }
 
@@ -97,7 +97,7 @@ func TestScanDepth3IgnoredWithDepth2(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(result.Projects) != 0 {
-		t.Errorf("proyecto a depth 3 debe ignorarse con depth=2, got %+v", result.Projects)
+		t.Errorf("project at depth 3 must be ignored with depth=2, got %+v", result.Projects)
 	}
 }
 
@@ -109,26 +109,26 @@ func TestScanDepth3DetectedWithDepth4(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(result.Projects) != 1 || result.Projects[0].Name != "c" {
-		t.Errorf("proyecto a depth 3 debe detectarse con depth=4, got %+v", result.Projects)
+		t.Errorf("project at depth 3 must be detected with depth=4, got %+v", result.Projects)
 	}
 }
 
 func TestScanMalformedManifest(t *testing.T) {
 	tr := newTree(t).
-		file("broken/.vroom.toml", "name = [toml roto")
+		file("broken/.vroom.toml", "name = [broken toml")
 	result, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
 	}
 	p := find(result.Projects, "broken")
 	if p == nil {
-		t.Fatal("proyecto con manifiesto malformado debe seguir visible")
+		t.Fatal("project with malformed manifest must remain visible")
 	}
 	if p.Configured {
-		t.Error("manifiesto malformado no debe marcarse configurado")
+		t.Error("malformed manifest must not be marked configured")
 	}
 	if p.ManifestErr == "" {
-		t.Error("debe reportar el error de parseo")
+		t.Error("must report the parse error")
 	}
 }
 
@@ -141,7 +141,7 @@ func TestScanFindsVroomTomlInHiddenDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(result.Projects) != 2 {
-		t.Errorf("esperaba 2 proyectos (incluyendo .hidden), got %d: %v", len(result.Projects), projectNames(result.Projects))
+		t.Errorf("expected 2 projects (including .hidden), got %d: %v", len(result.Projects), projectNames(result.Projects))
 	}
 }
 
@@ -154,29 +154,29 @@ func TestScanSortsByPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(result.Projects) != 2 {
-		t.Fatalf("esperaba 2 proyectos, got %d", len(result.Projects))
+		t.Fatalf("expected 2 projects, got %d", len(result.Projects))
 	}
 	if result.Projects[0].Name != "alpha" || result.Projects[1].Name != "zebra" {
-		t.Errorf("orden inesperado: %s, %s", result.Projects[0].Name, result.Projects[1].Name)
+		t.Errorf("unexpected order: %s, %s", result.Projects[0].Name, result.Projects[1].Name)
 	}
 }
 
 func TestScanManifestWithGroups(t *testing.T) {
 	tr := newTree(t).
-		file("api/.vroom.toml", "name = \"api\"\nprimary_group = \"tienda\"\nsecondary_group = \"backend\"\ncommand_start = \"go run .\"\nport = 8080\n")
+		file("api/.vroom.toml", "name = \"api\"\nprimary_group = \"shop\"\nsecondary_group = \"backend\"\ncommand_start = \"go run .\"\nport = 8080\n")
 	result, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(result.Projects) != 1 {
-		t.Fatalf("esperaba 1 proyecto, got %+v", result.Projects)
+		t.Fatalf("expected 1 project, got %+v", result.Projects)
 	}
 	p := result.Projects[0]
 	if !p.Configured || p.Manifest == nil {
-		t.Error("debe estar configurado")
+		t.Error("must be configured")
 	}
-	if p.Manifest.PrimaryGroup != "tienda" || p.Manifest.SecondaryGroup != "backend" {
-		t.Errorf("groups = %q/%q, want tienda/backend", p.Manifest.PrimaryGroup, p.Manifest.SecondaryGroup)
+	if p.Manifest.PrimaryGroup != "shop" || p.Manifest.SecondaryGroup != "backend" {
+		t.Errorf("groups = %q/%q, want shop/backend", p.Manifest.PrimaryGroup, p.Manifest.SecondaryGroup)
 	}
 	if p.Manifest.Port != 8080 {
 		t.Errorf("port = %d, want 8080", p.Manifest.Port)
@@ -189,11 +189,11 @@ func TestScanPlaygroundFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(result.Projects) != 8 {
-		t.Fatalf("esperaba 8 proyectos, got %d: %v", len(result.Projects), projectNames(result.Projects))
+		t.Fatalf("expected 8 projects, got %d: %v", len(result.Projects), projectNames(result.Projects))
 	}
 	for _, p := range result.Projects {
 		if !p.Configured || p.Manifest == nil {
-			t.Errorf("%s: debe estar configurado", p.Name)
+			t.Errorf("%s: must be configured", p.Name)
 		}
 	}
 }
@@ -206,10 +206,10 @@ func TestScanResultIndicatesMethod(t *testing.T) {
 		t.Fatal(err)
 	}
 	if fdPath() != "" && !result.UsedFD {
-		t.Error("fd disponible pero UsedFD=false")
+		t.Error("fd available but UsedFD=false")
 	}
 	if fdPath() == "" && result.UsedFD {
-		t.Error("fd no disponible pero UsedFD=true")
+		t.Error("fd not available but UsedFD=true")
 	}
 }
 
@@ -266,13 +266,13 @@ func TestScanAnnotatesWorktrees(t *testing.T) {
 	}
 	p := find(result.Projects, "repo-wt-a")
 	if p == nil {
-		t.Fatalf("worktree repo-wt-a no detectado: %v", projectNames(result.Projects))
+		t.Fatalf("worktree repo-wt-a not detected: %v", projectNames(result.Projects))
 	}
 	if !p.IsWorktree || p.RepoRoot != main {
-		t.Errorf("anotación = worktree:%v repoRoot:%q, want true %q", p.IsWorktree, p.RepoRoot, main)
+		t.Errorf("annotation = worktree:%v repoRoot:%q, want true %q", p.IsWorktree, p.RepoRoot, main)
 	}
 	if r := find(result.Projects, "repo"); r == nil || r.IsWorktree {
-		t.Errorf("el main checkout no debe marcarse worktree: %+v", r)
+		t.Errorf("the main checkout must not be marked worktree: %+v", r)
 	}
 }
 
@@ -280,21 +280,21 @@ func TestScanSynthesizesUnconfiguredWorktree(t *testing.T) {
 	tr := newTree(t).
 		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
 		file("repo/.git/config", "[core]\n\tbare = false\n").
-		mkdir("repo-wt-sin-mf")
+		mkdir("repo-wt-no-mf")
 	main := filepath.Join(tr.path(), "repo")
-	wt := filepath.Join(tr.path(), "repo-wt-sin-mf")
+	wt := filepath.Join(tr.path(), "repo-wt-no-mf")
 	t.Setenv("PATH", fakeGitPATH(t, porcelainRepo(main, wt), 0))
 
 	result, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := find(result.Projects, "repo-wt-sin-mf")
+	p := find(result.Projects, "repo-wt-no-mf")
 	if p == nil {
-		t.Fatalf("worktree sin manifiesto no sintetizado: %v", projectNames(result.Projects))
+		t.Fatalf("worktree without manifest not synthesized: %v", projectNames(result.Projects))
 	}
 	if p.Configured || !p.IsWorktree || p.RepoRoot != main {
-		t.Errorf("fila sintetizada inesperada: %+v", p)
+		t.Errorf("unexpected synthesized row: %+v", p)
 	}
 }
 
@@ -312,7 +312,7 @@ func TestScanSkipsPrunableWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	if p := find(result.Projects, "repo-wt-gone"); p != nil {
-		t.Errorf("worktree prunable no debe aparecer: %+v", p)
+		t.Errorf("prunable worktree must not appear: %+v", p)
 	}
 }
 
@@ -333,7 +333,7 @@ func TestScanKeepsPrunableWorktreeWhenDirExists(t *testing.T) {
 	}
 	p := find(result.Projects, "repo-wt-a")
 	if p == nil || !p.IsWorktree || p.RepoRoot != main {
-		t.Errorf("prunable con directorio existente debe anotarse como worktree: %+v", p)
+		t.Errorf("prunable with existing directory must be annotated as worktree: %+v", p)
 	}
 }
 
@@ -353,13 +353,13 @@ func TestScanDetectsBareRepo(t *testing.T) {
 	}
 	b := find(result.Projects, "bare")
 	if b == nil {
-		t.Fatalf("bare repo no detectado: %v", projectNames(result.Projects))
+		t.Fatalf("bare repo not detected: %v", projectNames(result.Projects))
 	}
 	if !b.IsBareContainer || b.Configured || b.Manifest != nil {
-		t.Errorf("contenedor bare inesperado: %+v", b)
+		t.Errorf("unexpected bare container: %+v", b)
 	}
 	if n := find(result.Projects, "normal"); n == nil || n.IsBareContainer {
-		t.Errorf("dir con .git no debe ser contenedor: %+v", n)
+		t.Errorf("dir with .git must not be a container: %+v", n)
 	}
 }
 
@@ -369,10 +369,10 @@ func TestFinalizeDedupsBareContainer(t *testing.T) {
 	bare := Project{Path: dir, Name: "bare", IsBareContainer: true}
 	got := finalize([]Project{project}, []Project{bare}, t.TempDir())
 	if len(got) != 1 {
-		t.Fatalf("esperaba 1 fila, got %d: %+v", len(got), got)
+		t.Fatalf("expected 1 row, got %d: %+v", len(got), got)
 	}
 	if got[0].IsBareContainer || !got[0].Configured {
-		t.Errorf("debe conservarse el proyecto, no el contenedor: %+v", got[0])
+		t.Errorf("the project must be kept, not the container: %+v", got[0])
 	}
 }
 
@@ -394,14 +394,14 @@ func TestScanBareRepoDiscoversManifestlessWorktree(t *testing.T) {
 	}
 	b := find(result.Projects, "bare")
 	if b == nil || !b.IsBareContainer {
-		t.Fatalf("bare container no detectado: %+v", b)
+		t.Fatalf("bare container not detected: %+v", b)
 	}
 	p := find(result.Projects, "bare-wt-a")
 	if p == nil {
-		t.Fatalf("worktree sin manifiesto del bare no sintetizado: %v", projectNames(result.Projects))
+		t.Fatalf("worktree without manifest of the bare not synthesized: %v", projectNames(result.Projects))
 	}
 	if !p.IsWorktree || p.RepoRoot != bare || p.Configured {
-		t.Errorf("worktree del bare mal anotado: %+v", p)
+		t.Errorf("worktree of the bare badly annotated: %+v", p)
 	}
 }
 
@@ -417,10 +417,10 @@ func TestScanDegradesWhenGitUnavailable(t *testing.T) {
 	}
 	p := find(result.Projects, "repo")
 	if p == nil {
-		t.Fatal("el proyecto debe seguir visible sin git")
+		t.Fatal("the project must remain visible without git")
 	}
 	if p.WorktreeErr == "" {
-		t.Error("debe registrar el motivo de la degradación")
+		t.Error("must record the reason for the degradation")
 	}
 }
 
@@ -436,7 +436,7 @@ func TestScanWorktreeListFailure(t *testing.T) {
 	}
 	p := find(result.Projects, "repo")
 	if p == nil || p.WorktreeErr == "" {
-		t.Errorf("debe registrar el error de topología: %+v", p)
+		t.Errorf("must record the topology error: %+v", p)
 	}
 }
 
@@ -452,7 +452,7 @@ func TestScanWorktreeListMalformed(t *testing.T) {
 	}
 	p := find(result.Projects, "repo")
 	if p == nil || p.WorktreeErr == "" {
-		t.Errorf("salida malformada debe registrar error: %+v", p)
+		t.Errorf("malformed output must record error: %+v", p)
 	}
 }
 
@@ -471,7 +471,7 @@ func TestScanWorktreeOutsideRoot(t *testing.T) {
 	}
 	p := find(result.Projects, "repo-wt-a")
 	if p == nil || !p.IsWorktree || p.RepoRoot != outside {
-		t.Fatalf("worktree fuera de root mal anotado: %+v", p)
+		t.Fatalf("worktree outside root badly annotated: %+v", p)
 	}
 }
 
@@ -497,13 +497,13 @@ func TestScanWithWalkDetectsBareWithoutExtraWalk(t *testing.T) {
 		t.Fatal(err)
 	}
 	if calls != 1 {
-		t.Errorf("walkDir invocado %d veces, want 1 (sin walk extra)", calls)
+		t.Errorf("walkDir invoked %d times, want 1 (no extra walk)", calls)
 	}
 	if find(projects, "proj") == nil {
-		t.Error("proyecto no detectado en el walk")
+		t.Error("project not detected in the walk")
 	}
 	if find(bare, "bare") == nil {
-		t.Error("bare repo no detectado en el walk")
+		t.Error("bare repo not detected in the walk")
 	}
 }
 
@@ -537,13 +537,13 @@ func TestScanWithFDUsesNoWalkForBare(t *testing.T) {
 		t.Fatal(err)
 	}
 	if calls != 0 {
-		t.Errorf("scanWithFD no debe usar WalkDir, got %d invocaciones", calls)
+		t.Errorf("scanWithFD must not use WalkDir, got %d invocations", calls)
 	}
 	if find(projects, "proj") == nil {
-		t.Error("proyecto no detectado por fd")
+		t.Error("project not detected by fd")
 	}
 	if find(bare, "bare") == nil {
-		t.Error("bare repo no detectado por fd")
+		t.Error("bare repo not detected by fd")
 	}
 }
 
@@ -589,12 +589,12 @@ func TestQueryWorktreeRelationsOneGitCallPerRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	if calls := gitCallCount(t, counter); calls != 1 {
-		t.Errorf("git invocado %d veces, want 1 (una consulta por repo)", calls)
+		t.Errorf("git invoked %d times, want 1 (one query per repo)", calls)
 	}
 	for _, name := range []string{"repo-wt-a", "repo-wt-b"} {
 		p := find(result.Projects, name)
 		if p == nil || !p.IsWorktree || p.RepoRoot != repo {
-			t.Errorf("%s mal anotado: %+v", name, p)
+			t.Errorf("%s badly annotated: %+v", name, p)
 		}
 	}
 }

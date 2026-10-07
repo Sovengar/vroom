@@ -40,12 +40,12 @@ func TestInitDevuelveLosCincoRelojes(t *testing.T) {
 	m, _ := newTestModel(t)
 	cmd := m.Init()
 	if cmd == nil {
-		t.Fatal("Init devolvió nil: sin relojes la TUI no se actualiza nunca")
+		t.Fatal("Init returned nil: without clocks the TUI never updates")
 	}
 
 	msgs := collectBatch(t, cmd)
 	if len(msgs) < 5 {
-		t.Errorf("Init produjo %d mensajes, want al menos 5 (polling, consola y dos spinners)", len(msgs))
+		t.Errorf("Init produced %d messages, want at least 5 (polling, console and two spinners)", len(msgs))
 	}
 	var sawTick, sawConsoleTick bool
 	for _, msg := range msgs {
@@ -53,30 +53,30 @@ func TestInitDevuelveLosCincoRelojes(t *testing.T) {
 		case tickMsg:
 			sawTick = true
 			if time.Time(v).IsZero() {
-				t.Error("el tick de estado no lleva su marca de tiempo")
+				t.Error("the state tick does not carry its timestamp")
 			}
 		case consoleTickMsg:
 			sawConsoleTick = true
 			if time.Time(v).IsZero() {
-				t.Error("el tick de consola no lleva su marca de tiempo")
+				t.Error("the console tick does not carry its timestamp")
 			}
 		}
 	}
 	if !sawTick {
-		t.Error("Init no arrancó el reloj de estado: la TUI mostraría estados rancios para siempre")
+		t.Error("Init did not start the state clock: the TUI would show stale states forever")
 	}
 	if !sawConsoleTick {
-		t.Error("Init no arrancó el reloj de consola: los logs no se moverían sin recargar")
+		t.Error("Init did not start the console clock: logs would not move without reloading")
 	}
 }
 
 // Each clock is run for real, waiting out its interval, because only executing it proves it returns its own message.
 func TestTickCmdDevuelveSuMsg(t *testing.T) {
 	if msg := runCmd(tickCmd()); !isTickOfState(msg) {
-		t.Errorf("tickCmd devolvió %T, want tickMsg", msg)
+		t.Errorf("tickCmd returned %T, want tickMsg", msg)
 	}
 	if msg := runCmd(consoleTickCmd()); !isConsoleTick(msg) {
-		t.Errorf("consoleTickCmd devolvió %T, want consoleTickMsg", msg)
+		t.Errorf("consoleTickCmd returned %T, want consoleTickMsg", msg)
 	}
 }
 
@@ -85,22 +85,22 @@ func TestThreadsCmdMuestreaElPidYPropagaElError(t *testing.T) {
 	msg := runCmd(threadsCmd("/tmp/x", 0))
 	th, ok := msg.(threadsMsg)
 	if !ok {
-		t.Fatalf("threadsCmd devolvió %T", msg)
+		t.Fatalf("threadsCmd returned %T", msg)
 	}
 	if th.path != "/tmp/x" {
-		t.Errorf("path = %q, want /tmp/x: sin el path el msg no se puede atribuir a un servicio", th.path)
+		t.Errorf("path = %q, want /tmp/x: without the path the msg cannot be attributed to a service", th.path)
 	}
 	if th.err == nil {
-		t.Error("un PID inexistente debería venir con error: si no, la UI mostraría cero hilos como un hecho")
+		t.Error("a non-existent PID should come with an error: otherwise, the UI would show zero threads as a fact")
 	}
 
 	msg = runCmd(threadsCmd("/tmp/x", livePID(t)))
 	th = msg.(threadsMsg)
 	if th.err != nil {
-		t.Errorf("un proceso real no debería dar error de muestreo: %v", th.err)
+		t.Errorf("a real process should not give a sampling error: %v", th.err)
 	}
 	if len(th.threads) == 0 {
-		t.Error("un proceso vivo tiene al menos un hilo: un lista vacía haría pensar que está muerto")
+		t.Error("a live process has at least one thread: an empty list would make one think it is dead")
 	}
 }
 
@@ -136,32 +136,32 @@ func TestRefreshCmdRecorreSoloLosConfiguradosYAtribuyeElMotivo(t *testing.T) {
 	msg := runCmd(refreshCmd(store, &stubManager{}, m.projects))
 	ref, ok := msg.(refreshedMsg)
 	if !ok {
-		t.Fatalf("refreshCmd devolvió %T", msg)
+		t.Fatalf("refreshCmd returned %T", msg)
 	}
 
 	// Fail-closed on purpose: an unreadable meta reports stopped plus a warn, and the warn must name the project because the column shows one at a time.
 	got := ref.results[rotoPath]
 	if got.status != process.StatusStopped {
-		t.Errorf("un meta ilegible dio %q, want stopped (fallo cerrado)", got.status)
+		t.Errorf("an unreadable meta gave %q, want stopped (fail-closed)", got.status)
 	}
 	if got.warn == "" {
-		t.Fatal("un meta ilegible sin warn afirma 'parado' como si fuera un hecho")
+		t.Fatal("an unreadable meta without warn asserts 'stopped' as if it were a fact")
 	}
-	if !strings.Contains(got.warn, "tienda-web") || !strings.Contains(got.warn, "meta.json ilegible") {
-		t.Errorf("el aviso no dice qué proyecto y por qué: %q", got.warn)
+	if !strings.Contains(got.warn, "tienda-web") || !strings.Contains(got.warn, "unreadable meta.json") {
+		t.Errorf("the warning does not say which project and why: %q", got.warn)
 	}
 
 	// stubManager's Evaluate reports stopped even for the live PID, so what matters here is that a result exists and carries the git branch.
 	if got, ok := ref.results[apiPath]; !ok {
-		t.Error("no hay resultado para un servicio configurado")
+		t.Error("no result for a configured service")
 	} else if got.meta.Pid != live {
-		t.Errorf("meta.Pid = %d, want el del Meta persistido", got.meta.Pid)
+		t.Errorf("meta.Pid = %d, want the one from the persisted Meta", got.meta.Pid)
 	}
 
 	// A service never started is still queried and comes back stopped: a missing meta is a fact, not a failure, or every cold start would fill the TUI with warnings.
 	sinMetaPath := filepath.Join(root, "suelto")
 	if got := ref.results[sinMetaPath].status; got != process.StatusStopped {
-		t.Errorf("un servicio sin meta dio %q, want stopped: un meta ausente es un hecho, no un fallo", got)
+		t.Errorf("a service without meta gave %q, want stopped: a missing meta is a fact, not a failure", got)
 	}
 
 	noCfg := filepath.Join(root, "sin-manifiesto")
@@ -175,7 +175,7 @@ func TestRefreshCmdRecorreSoloLosConfiguradosYAtribuyeElMotivo(t *testing.T) {
 	m2.projects = append(m2.projects, scanner.Project{Path: noCfg, Name: "sin-manifiesto", Configured: false})
 	ref2 := runCmd(refreshCmd(store, &stubManager{}, m2.projects)).(refreshedMsg)
 	if _, ok := ref2.results[noCfg]; ok {
-		t.Error("refreshCmd preguntó por un proyecto sin manifiesto: no hay nada que preguntar")
+		t.Error("refreshCmd queried a project without manifest: there is nothing to query")
 	}
 }
 
@@ -195,11 +195,11 @@ func TestRefreshCmdPropagaLaRamaGitDeCadaProyecto(t *testing.T) {
 		}
 		r, ok := ref.results[p.Path]
 		if !ok {
-			t.Errorf("no hay resultado para el proyecto configurado %s", p.Name)
+			t.Errorf("no result for the configured project %s", p.Name)
 			continue
 		}
 		if p.Name == "tienda-api" && !strings.Contains(r.branch, "main") {
-			t.Errorf("la rama de %s es %q, want main: el .git/HEAD del árbol apunta a refs/heads/main", p.Name, r.branch)
+			t.Errorf("the branch of %s is %q, want main: the .git/HEAD of the tree points to refs/heads/main", p.Name, r.branch)
 		}
 	}
 
@@ -209,7 +209,7 @@ func TestRefreshCmdPropagaLaRamaGitDeCadaProyecto(t *testing.T) {
 			continue
 		}
 		if r, ok := ref.results[p.Path]; ok && r.branch != "" {
-			t.Errorf("%s no es un repo y aun así trae rama %q", p.Name, r.branch)
+			t.Errorf("%s is not a repo and yet carries branch %q", p.Name, r.branch)
 		}
 	}
 }
@@ -220,10 +220,10 @@ func TestJobCmdDistingueElFalloDelComandoDelFalloDeLanzamiento(t *testing.T) {
 	out := filepath.Join(dir, "stdout.log")
 	errLog := filepath.Join(dir, "stderr.log")
 
-	t.Run("el comando falla con su exit code", func(t *testing.T) {
+	t.Run("the command fails with its exit code", func(t *testing.T) {
 		jm := runCmd(jobCmd(dir, "build", "echo fuera; exit 7", dir, out, errLog)).(jobMsg)
 		if jm.err != nil {
-			t.Errorf("un exit 7 no es un error de vroom: %v", jm.err)
+			t.Errorf("an exit 7 is not a vroom error: %v", jm.err)
 		}
 		if jm.exitCode != 7 {
 			t.Errorf("exitCode = %d, want 7", jm.exitCode)
@@ -233,30 +233,30 @@ func TestJobCmdDistingueElFalloDelComandoDelFalloDeLanzamiento(t *testing.T) {
 		}
 	})
 
-	t.Run("el comando sale bien", func(t *testing.T) {
+	t.Run("the command exits successfully", func(t *testing.T) {
 		jm := runCmd(jobCmd(dir, "install", "echo dentro", dir, out, errLog)).(jobMsg)
 		if jm.err != nil || jm.exitCode != 0 {
-			t.Errorf("un job correcto dio err=%v exit=%d", jm.err, jm.exitCode)
+			t.Errorf("a correct job gave err=%v exit=%d", jm.err, jm.exitCode)
 		}
 	})
 
-	t.Run("el comando no se puede lanzar", func(t *testing.T) {
+	t.Run("the command cannot be launched", func(t *testing.T) {
 		t.Setenv("PATH", "") // no sh in PATH
 		jm := runCmd(jobCmd(dir, "build", "echo hola", dir, out, errLog)).(jobMsg)
 		if jm.err == nil {
-			t.Error("sin intérprete el job tiene que traer error: si no, parecería un build correcto")
+			t.Error("without an interpreter the job must carry an error: otherwise, it would look like a correct build")
 		}
 		if jm.exitCode != 0 {
-			t.Errorf("exitCode = %d sin proceso no puede haber exit code", jm.exitCode)
+			t.Errorf("exitCode = %d without a process there can be no exit code", jm.exitCode)
 		}
 	})
 
-	t.Run("el log no se puede escribir", func(t *testing.T) {
+	t.Run("the log cannot be written", func(t *testing.T) {
 		// stdout.log is a directory, so the banner cannot be written.
 		blocked := makeDir(t, filepath.Join(dir, "stdout-es-dir"))
 		jm := runCmd(jobCmd(dir, "build", "echo hola", dir, blocked, errLog)).(jobMsg)
 		if jm.err == nil {
-			t.Error("sin log no se puede ejecutar el comando: el agente vería ok sin salida")
+			t.Error("without a log the command cannot be executed: the agent would see ok without output")
 		}
 	})
 }
@@ -268,7 +268,7 @@ func TestAppendLineCreaElFicheroYAnadeAlFinal(t *testing.T) {
 	path := filepath.Join(dir, "linea.log")
 
 	if err := appendLine(path, "primera"); err != nil {
-		t.Fatalf("appendLine en un path nuevo: %v", err)
+		t.Fatalf("appendLine on a new path: %v", err)
 	}
 	if err := appendLine(path, "segunda"); err != nil {
 		t.Fatal(err)
@@ -278,7 +278,7 @@ func TestAppendLineCreaElFicheroYAnadeAlFinal(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := string(body); got != "primera\nsegunda\n" {
-		t.Errorf("contenido = %q, want las dos líneas en orden", got)
+		t.Errorf("content = %q, want the two lines in order", got)
 	}
 }
 
@@ -287,11 +287,11 @@ func TestAppendLineFallaDondeNoPuedeEscribir(t *testing.T) {
 	dir := t.TempDir()
 	blocked := makeDir(t, filepath.Join(dir, "bloqueado"))
 	if err := appendLine(blocked, "x"); err == nil {
-		t.Error("appendLine sobre un directorio debería fallar")
+		t.Error("appendLine on a directory should fail")
 	}
 
 	if err := appendLine(filepath.Join(dir, "no-existe", "x.log"), "y"); err == nil {
-		t.Error("appendLine no debe crear directorios: su contrato es escribir una línea, no un árbol")
+		t.Error("appendLine must not create directories: its contract is to write a line, not a tree")
 	}
 }
 
@@ -316,13 +316,13 @@ func TestReadNewStripped(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(got, "\x1b") {
-		t.Errorf("quedan códigos ANSI en la salida: %q", got)
+		t.Errorf("ANSI codes remain in the output: %q", got)
 	}
 	if !strings.Contains(got, "rojo") {
-		t.Errorf("se perdió el texto al quitar ANSI: %q", got)
+		t.Errorf("the text was lost when removing ANSI: %q", got)
 	}
 	if off != int64(len("\x1b[31mrojo\x1b[0m\n")) {
-		t.Errorf("offset = %d, want el tamaño del fichero", off)
+		t.Errorf("offset = %d, want the file size", off)
 	}
 
 	if err := os.WriteFile(path, []byte("\x1b[31mrojo\x1b[0m\nmas\n"), 0o644); err != nil {
@@ -333,29 +333,29 @@ func TestReadNewStripped(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != "mas\n" {
-		t.Errorf("segunda lectura = %q, want sólo lo nuevo", got)
+		t.Errorf("second read = %q, want only the new content", got)
 	}
 
 	// A log that does not exist yet is not an error, or every cold start would fill the console tick with warnings.
 	missing := filepath.Join(t.TempDir(), "no-existe.log")
 	got, same, err := readNewStripped(missing, 1234)
 	if err != nil {
-		t.Errorf("un log ausente no es un error: %v", err)
+		t.Errorf("a missing log is not an error: %v", err)
 	}
 	if got != "" {
-		t.Errorf("data = %q de un log ausente, want vacio", got)
+		t.Errorf("data = %q from a missing log, want empty", got)
 	}
 	if same != 1234 {
-		t.Errorf("offset = %d con un log ausente, want el que se pasó: avanzar perdería bytes", same)
+		t.Errorf("offset = %d with a missing log, want the one passed: advancing would lose bytes", same)
 	}
 
 	asDir := makeDir(t, filepath.Join(t.TempDir(), "log-es-dir"))
 	_, same, err = readNewStripped(asDir, 1234)
 	if err == nil {
-		t.Error("un log ilegible debe propagar el error: si no, la consola mostraría contenido vacío como si fuera verdad")
+		t.Error("an unreadable log must propagate the error: otherwise, the console would show empty content as if it were true")
 	}
 	if same != 1234 {
-		t.Errorf("offset = %d tras un error, want 1234: avanzar perdería justo los bytes que no se leyeron", same)
+		t.Errorf("offset = %d after an error, want 1234: advancing would lose exactly the bytes that were not read", same)
 	}
 
 	// A log truncated below the offset is re-read whole: rotation must not make the console go blank.
@@ -368,7 +368,7 @@ func TestReadNewStripped(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != "nuevo\n" {
-		t.Errorf("tras una rotación la consola mostró %q, want el contenido entero", got)
+		t.Errorf("after a rotation the console showed %q, want the entire content", got)
 	}
 }
 
@@ -387,7 +387,7 @@ func TestConsoleReadDevuelveOffsetIndependientePorFlujo(t *testing.T) {
 	msg := runCmd(consoleTailCmd("/tmp/x", 0, 0, out, errLog))
 	d, ok := msg.(consoleDeltaMsg)
 	if !ok {
-		t.Fatalf("consoleTailCmd devolvió %T", msg)
+		t.Fatalf("consoleTailCmd returned %T", msg)
 	}
 	if d.path != "/tmp/x" {
 		t.Errorf("path = %q, want /tmp/x", d.path)
@@ -396,24 +396,24 @@ func TestConsoleReadDevuelveOffsetIndependientePorFlujo(t *testing.T) {
 		t.Errorf("stdout = %q", d.stdout)
 	}
 	if d.offS != int64(len("salida\n")) {
-		t.Errorf("offS = %d, want el tamaño de stdout", d.offS)
+		t.Errorf("offS = %d, want the size of stdout", d.offS)
 	}
 	if d.offE != 0 {
-		t.Errorf("offE = %d con un stderr vacío, want 0", d.offE)
+		t.Errorf("offE = %d with an empty stderr, want 0", d.offE)
 	}
 	if d.errS != nil {
-		t.Errorf("errS = %v con un log legible", d.errS)
+		t.Errorf("errS = %v with a readable log", d.errS)
 	}
 }
 
 // The intervals differ on purpose: polling the store and evaluating processes is expensive, while a log line is noticed instantly and tail.ReadNew is cheap.
 func TestTickCmdEsMasLentoQueElTickDeConsola(t *testing.T) {
 	if consoleTick >= pollInterval {
-		t.Errorf("consoleTick (%v) debería ser más rápido que pollInterval (%v): "+
-			"el log se nota al instante y el store no", consoleTick, pollInterval)
+		t.Errorf("consoleTick (%v) should be faster than pollInterval (%v): "+
+			"the log is noticed instantly and the store is not", consoleTick, pollInterval)
 	}
 	if consoleTick <= 0 || pollInterval <= 0 {
-		t.Error("un reloj en cero es un busy loop")
+		t.Error("a clock at zero is a busy loop")
 	}
 }
 

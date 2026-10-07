@@ -11,7 +11,7 @@ import (
 
 // gopsutil is pure Go and portable, unlike os.FindProcess, which succeeds on Linux even when the process does not exist.
 func Alive(pid int, creationTimeMs int64) bool {
-	return vivoCon(func(pid int) (int64, error) {
+	return aliveWith(func(pid int) (int64, error) {
 		p, err := gopsprocess.NewProcess(int32(pid))
 		if err != nil {
 			return 0, err
@@ -21,7 +21,7 @@ func Alive(pid int, creationTimeMs int64) bool {
 }
 
 // The lookup is injected because both of Alive's error branches are races; above all, "could not ask" must never answer true for a process that was live.
-func vivoCon(creationTime func(int) (int64, error), pid int, creationTimeMs int64) bool {
+func aliveWith(creationTime func(int) (int64, error), pid int, creationTimeMs int64) bool {
 	ct, err := creationTime(pid)
 	if err != nil {
 		return false // pid free, gone, or it died mid-lookup
@@ -49,14 +49,14 @@ func PortOwnerPID(port int) int32 {
 
 // More than one owner means the port is shared (same number in IPv4 and IPv6, or two processes), so ownership is NOT proven.
 func PortOwnerPIDs(port int) []int32 {
-	return dueñosCon(func() ([]gopsnet.ConnectionStat, error) {
+	return ownersWith(func() ([]gopsnet.ConnectionStat, error) {
 		return gopsnet.ConnectionsPid("tcp", 0)
 	}, port)
 }
 
 // Injected because this value decides whether vroom kills a process, and "no owner" has to mean the same as "could not ask".
-func dueñosCon(leer func() ([]gopsnet.ConnectionStat, error), port int) []int32 {
-	conns, err := leer()
+func ownersWith(read func() ([]gopsnet.ConnectionStat, error), port int) []int32 {
+	conns, err := read()
 	if err != nil {
 		return nil
 	}

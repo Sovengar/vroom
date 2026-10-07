@@ -46,20 +46,20 @@ func TestBranchWorktree(t *testing.T) {
 	// The absolute gitdir case needs its HEAD created under /tmp/elsewhere, outside the temp dir.
 	writeFile(t, filepath.Join("/tmp", "elsewhere", ".git", "worktrees", "w", "HEAD"), "ref: refs/heads/wt-branch\n")
 	if got := Branch(root); got != "wt-branch" {
-		t.Errorf("worktree absoluto: got %q", got)
+		t.Errorf("absolute worktree: got %q", got)
 	}
 
 	root2 := t.TempDir()
 	writeFile(t, filepath.Join(root2, ".git"), "gitdir: ../dotfiles/.git/worktrees/x\n")
 	writeFile(t, filepath.Join(filepath.Dir(root2), "dotfiles", ".git", "worktrees", "x", "HEAD"), "ref: refs/heads/rel\n")
 	if got := Branch(root2); got != "rel" {
-		t.Errorf("worktree relativo: got %q", got)
+		t.Errorf("relative worktree: got %q", got)
 	}
 }
 
 func TestBranchNoRepo(t *testing.T) {
 	if got := Branch(t.TempDir()); got != "" {
-		t.Errorf("got %q, want vacío", got)
+		t.Errorf("got %q, want empty", got)
 	}
 }
 

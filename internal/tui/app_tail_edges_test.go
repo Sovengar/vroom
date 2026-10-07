@@ -23,27 +23,27 @@ func TestLasTeclasDePosicionDeLaConsolaPausanYReanudanElFollow(t *testing.T) {
 
 	arriba, _ := press(m, m.cfg.KeyFor("top"))
 	if arriba.consoleFollow {
-		t.Error("ir arriba tiene que pausar el follow: si no, el texto se mueve solo mientras se lee")
+		t.Error("going up must pause follow: otherwise the text scrolls on its own while reading")
 	}
 
 	abajo, _ := press(arriba, m.cfg.KeyFor("bottom"))
 	if !abajo.consoleFollow {
-		t.Error("ir abajo tiene que reanudar el follow: si no, el log deja de fluir solo y el usuario tiene que acordarse")
+		t.Error("going down must resume follow: otherwise the log stops auto-scrolling and the user has to remember")
 	}
 }
 
 // A stack has no logs of its own -- only its services do -- so "the stack's logs" means nothing.
 func TestLaTeclaDeLogsSeNiegaSobreUnStack(t *testing.T) {
 	m := newStackModel(t)
-	cursorEn(t, &m, "front")
+	cursorOn(t, &m, "front")
 
 	next, cmd := m.handleKey(keyMsg(m.cfg.KeyFor("logs")))
 	got := next.(Model)
 	if cmd != nil {
-		t.Error("sobre un stack no hay editor que abrir")
+		t.Error("on a stack there is no editor to open")
 	}
 	if !strings.Contains(got.message, "not available for stacks") {
-		t.Errorf("aviso = %q, want que diga que no está disponible para stacks", got.message)
+		t.Errorf("message = %q, want it to say it is not available for stacks", got.message)
 	}
 }
 
@@ -54,23 +54,23 @@ func TestElAliasOCierraLosMismosLogsQueLaTecla(t *testing.T) {
 	t.Setenv("EDITOR", "/bin/sh")
 
 	if next, _ := m.handleKey(keyMsg("o")); next.(Model).message != "" || m.cfg.KeyFor("logs") != "l" {
-		t.Skip("precondición: `o` no debe estar mapeado a otra acción")
+		t.Skip("precondition: `o` must not be mapped to another action")
 	}
 
 	// tienda-web has no command_build, so the observable effect of binding "o" is the "no command" warning rather than a launch.
 	conConfig, _ := newTestModelWithConfig(t, "[keybindings]\nbuild = \"o\"\n")
 	conConfig = moveCursorTo(t, conConfig, "tienda-web")
 	if conConfig.cfg.KeyFor("build") != "o" {
-		t.Fatalf("precondición: el config debería haber mapeado build a o, got %q", conConfig.cfg.KeyFor("build"))
+		t.Fatalf("precondition: config should have mapped build to o, got %q", conConfig.cfg.KeyFor("build"))
 	}
 	t.Setenv("EDITOR", "/bin/sh")
 	next, _ := conConfig.handleKey(keyMsg("o"))
 	got := next.(Model)
 	if got.message == "" {
-		t.Fatal("con o mapeado a build la tecla tiene que hacer algo: aquí el aviso de que no hay command_build")
+		t.Fatal("with o mapped to build the key must do something: here the warning that there is no command_build")
 	}
 	if strings.Contains(got.message, "editor") {
-		t.Errorf("aviso = %q: con o mapeado a build no puede abrirse el editor", got.message)
+		t.Errorf("message = %q: with o mapped to build the editor cannot open", got.message)
 	}
 }
 
@@ -83,17 +83,17 @@ func TestElLayoutSeRecapaDeUnaPantallaEnormeYDeUnaDiminuta(t *testing.T) {
 		m.updateLayout()
 
 		if m.bodyH < 1 {
-			t.Errorf("%dx%d: bodyH = %d, want >= 1: sin alto no hay árbol", dims[0], dims[1], m.bodyH)
+			t.Errorf("%dx%d: bodyH = %d, want >= 1: without height there is no tree", dims[0], dims[1], m.bodyH)
 		}
 		if m.contentH < 0 {
 			t.Errorf("%dx%d: contentH = %d, want >= 0", dims[0], dims[1], m.contentH)
 		}
-		// MEDIDO: rightW reaching 0 is the documented degradation below ~34 cells, but negative is not allowed because bordered.draw swaps the sides and draws the box inside out.
+		// MEASURED: rightW reaching 0 is the documented degradation below ~34 cells, but negative is not allowed because bordered.draw swaps the sides and draws the box inside out.
 		if m.rightW < 0 {
-			t.Errorf("%dx%d: rightW = %d, want >= 0: un ancho negativo invierte la caja", dims[0], dims[1], m.rightW)
+			t.Errorf("%dx%d: rightW = %d, want >= 0: a negative width inverts the box", dims[0], dims[1], m.rightW)
 		}
 		if m.consoleView.Height() < 1 && m.contentH > 0 {
-			t.Errorf("%dx%d: el viewport de consola tiene alto %d con contentH %d", dims[0], dims[1], m.consoleView.Height(), m.contentH)
+			t.Errorf("%dx%d: console viewport has height %d with contentH %d", dims[0], dims[1], m.consoleView.Height(), m.contentH)
 		}
 	}
 }
@@ -114,10 +114,10 @@ func TestWindowSizeReencajaElArbolCuandoElCursorQuedaFuera(t *testing.T) {
 
 	got := updateMsg(t, pequena, tea.WindowSizeMsg{Width: 60, Height: 8})
 	if got.treeTop > cursorLine {
-		t.Errorf("treeTop = %d con el cursor en la línea %d: la ventana del árbol quedó por debajo del cursor", got.treeTop, cursorLine)
+		t.Errorf("treeTop = %d with cursor on line %d: the tree window ended up below the cursor", got.treeTop, cursorLine)
 	}
 	if max := cursorLine; got.treeTop > max {
-		t.Errorf("treeTop = %d no puede pasar de la línea del cursor %d", got.treeTop, max)
+		t.Errorf("treeTop = %d cannot exceed the cursor line %d", got.treeTop, max)
 	}
 }
 
@@ -133,7 +133,7 @@ func TestWindowSizeRedimensionaLaTerminalViva(t *testing.T) {
 
 	updateMsg(t, m, tea.WindowSizeMsg{Width: 200, Height: 60})
 	if len(s.pty.(*stubPty).resizes) == 0 {
-		t.Error("con el layout cambiado la sesión de terminal no se redimensionó: sus líneas quedan cortadas")
+		t.Error("with the layout changed the terminal session was not resized: its lines end up cut off")
 	}
 }
 
@@ -146,27 +146,27 @@ func TestUpdateConCadaMensajeDeMuestreoLoIntegraEnSuSitio(t *testing.T) {
 
 	got := updateMsg(t, m, metricsMsg{path: path, m: process.Metrics{Ticks: 100}})
 	if got.metrics[path] == nil {
-		t.Error("metricsMsg no dejó muestra: el panel se queda en sampling para siempre")
+		t.Error("metricsMsg left no sample: the panel stays on sampling forever")
 	}
 
 	got = updateMsg(t, got, envMsg{path: path, vars: []string{"A=1"}, err: nil})
 	if len(got.envVars[path]) != 1 {
-		t.Error("envMsg no dejó el entorno: la pestaña Env se queda leyendo")
+		t.Error("envMsg left no environment: the Env tab stays loading")
 	}
 
 	got = updateMsg(t, got, gitMsg{path: path, st: gitStatusDePrueba()})
 	if _, ok := got.gitStatus[path]; !ok {
-		t.Error("gitMsg no dejó estado: la pestaña Git se queda leyendo")
+		t.Error("gitMsg left no state: the Git tab stays loading")
 	}
 
 	got = updateMsg(t, got, healthMsg{path: path, r: &healthResult{StatusCode: 200}})
 	if got.healthRes[path] == nil {
-		t.Error("healthMsg no dejó resultado: la pestaña Health se queda sondeando")
+		t.Error("healthMsg left no result: the Health tab stays polling")
 	}
 
 	got = updateMsg(t, got, threadsMsg{path: path, threads: []process.ThreadInfo{{TID: 1, Name: "main", State: "R"}}})
 	if got.threads[path] == nil {
-		t.Error("threadsMsg no dejó filas: la tabla de hilos se queda muestreando")
+		t.Error("threadsMsg left no rows: the threads table stays sampling")
 	}
 }
 
@@ -176,12 +176,12 @@ func TestUpdateConUnPtyDataSinTerminalNoRevienta(t *testing.T) {
 	m.term = nil
 	m.termOpen = true
 
-	next, cmd := m.Update(ptyDataMsg{data: []byte("datos sin destino")})
+	next, cmd := m.Update(ptyDataMsg{data: []byte("data without destination")})
 	if next.(Model).termOpen != true {
-		t.Error("un ptyData sin sesión no puede cambiar el estado del modal")
+		t.Error("a ptyData without a session cannot change the modal state")
 	}
 	if cmd != nil {
-		t.Error("un ptyData sin sesión no puede pedir otra lectura: no hay PTY")
+		t.Error("a ptyData without a session cannot request another read: there is no PTY")
 	}
 }
 
@@ -193,56 +193,56 @@ func TestNavigateConElArbolVacioNoHaceNada(t *testing.T) {
 	for _, k := range []string{"j", "k", "down", "up"} {
 		next, cmd := m.navigate(k)
 		if cmd != nil || len(next.(Model).tree) != 0 {
-			t.Errorf("navigate(%q) con el árbol vacío hizo algo", k)
+			t.Errorf("navigate(%q) with an empty tree did something", k)
 		}
 	}
 }
 
 // A repo row is synthesized rather than a project, so without its warning "s" would do nothing at all on it.
 func TestToggleSelectedRepartePorElTipoDeFila(t *testing.T) {
-	t.Run("header primario: acción de grupo", func(t *testing.T) {
+	t.Run("primary header: group action", func(t *testing.T) {
 		m, _ := newTestModel(t)
-		cursorEn(t, &m, "tienda")
+		cursorOn(t, &m, "tienda")
 		it, _ := m.selectedItem()
 		if it.kind != itemPrimary {
-			t.Fatalf("precondición: el cursor debe estar en un primario, got %v", it.kind)
+			t.Fatalf("precondition: cursor must be on a primary, got %v", it.kind)
 		}
 		next, _ := m.toggleSelected()
 		_ = next
 	})
 
-	t.Run("header secundario: acción de grupo", func(t *testing.T) {
+	t.Run("secondary header: group action", func(t *testing.T) {
 		m, _ := newTestModel(t)
-		cursorEn(t, &m, "tienda-api")
+		cursorOn(t, &m, "tienda-api")
 		it, _ := m.selectedItem()
 		if it.kind != itemProject {
-			t.Fatalf("precondición: el cursor debe estar en un proyecto, got %v", it.kind)
+			t.Fatalf("precondition: cursor must be on a project, got %v", it.kind)
 		}
 		// The test tree has no secondary header, so a real one is injected.
 		m.tree[m.cursor] = treeItem{kind: itemSecondary, primary: "tienda", secondary: "backend"}
 		next, _ := m.toggleSelected()
 		if strings.Contains(next.(Model).message, "select a service") {
-			t.Error("un secundario tiene que ir a la acción de grupo, no al aviso de sin selección")
+			t.Error("a secondary must go to the group action, not to the no-selection warning")
 		}
 	})
 
-	t.Run("header de composers: el motor de stacks", func(t *testing.T) {
+	t.Run("composers header: the stacks engine", func(t *testing.T) {
 		m := newStackModel(t)
-		cursorEn(t, &m, "tienda")
+		cursorOn(t, &m, "tienda")
 		it, _ := m.selectedItem()
 		m.tree[m.cursor] = treeItem{kind: itemSecondary, primary: "tienda", secondary: composersGroup}
 
 		next, _ := m.toggleSelected()
 		got := next.(Model)
 		if got.message == "" {
-			t.Error("el header de composers tiene que decir algo: lanza o para stacks, nunca se queda callado")
+			t.Error("the composers header must say something: launch o for stacks, it never stays silent")
 		}
 		_ = it
 	})
 
-	t.Run("fila de repo: un aviso que invite a expandir", func(t *testing.T) {
+	t.Run("repo row: a warning that invites expanding", func(t *testing.T) {
 		m, _ := newTestModel(t)
-		cursorEn(t, &m, "tienda-api")
+		cursorOn(t, &m, "tienda-api")
 		m.tree[m.cursor] = treeItem{
 			kind: itemRepo, repoPath: t.TempDir(), hasKids: true,
 			project: scanner.Project{Path: t.TempDir(), Name: "repo", Configured: true},
@@ -251,19 +251,19 @@ func TestToggleSelectedRepartePorElTipoDeFila(t *testing.T) {
 		next, cmd := m.toggleSelected()
 		got := next.(Model)
 		if cmd != nil {
-			t.Error("una fila de repo no tiene servicio que arrancar: sus worktrees están debajo")
+			t.Error("a repo row has no service to start: its worktrees are below")
 		}
 		if !strings.Contains(got.message, "expand") {
-			t.Errorf("aviso = %q, want que invite a expandir el repo", got.message)
+			t.Errorf("message = %q, want it to invite expanding the repo", got.message)
 		}
 	})
 
-	t.Run("sin nada bajo el cursor", func(t *testing.T) {
+	t.Run("nothing under the cursor", func(t *testing.T) {
 		m, _ := newTestModel(t)
 		m.tree = nil
 		next, cmd := m.toggleSelected()
 		if cmd != nil || next.(Model).message != "" {
-			t.Error("sin selección `s` no puede hacer ni decir nada: no hay a qué")
+			t.Error("with no selection `s` cannot do or say anything: there is nothing to act on")
 		}
 	})
 }
@@ -271,7 +271,7 @@ func TestToggleSelectedRepartePorElTipoDeFila(t *testing.T) {
 // Marking stopping is what lets the user see the change before the engine has finished.
 func TestToggleNodeCuandoTodosEstanVivosLosPara(t *testing.T) {
 	m, _ := newTestModel(t)
-	cursorEn(t, &m, "tienda")
+	cursorOn(t, &m, "tienda")
 
 	api, web := projectPath(t, m, "tienda-api"), projectPath(t, m, "tienda-web")
 	markRunning(&m, api, livePID(t))
@@ -279,12 +279,12 @@ func TestToggleNodeCuandoTodosEstanVivosLosPara(t *testing.T) {
 
 	next, cmd := m.toggleNode("tienda", "")
 	if cmd == nil {
-		t.Fatal("con todos vivos tiene que parar algo")
+		t.Fatal("with everything running it must stop something")
 	}
 	got := next.(Model)
 	for _, ruta := range []string{api, web} {
 		if sv := got.services[ruta]; sv != nil && sv.Status != statusStopping {
-			t.Errorf("el servicio vivo quedó en %q, want stopping: si no, el usuario ve running y pulsa stop otra vez", sv.Status)
+			t.Errorf("the running service ended up in %q, want stopping: otherwise the user sees running and presses stop again", sv.Status)
 		}
 	}
 }
@@ -292,7 +292,7 @@ func TestToggleNodeCuandoTodosEstanVivosLosPara(t *testing.T) {
 // Stale output shown under a freshly started service reads as the new process failing with old errors.
 func TestToggleNodeLimpiaLaConsolaDeLosQueArranca(t *testing.T) {
 	m, _ := newTestModel(t)
-	cursorEn(t, &m, "tienda")
+	cursorOn(t, &m, "tienda")
 
 	api, web := projectPath(t, m, "tienda-api"), projectPath(t, m, "tienda-web")
 	// The service about to start still has a previous run's output on disk.
@@ -315,11 +315,11 @@ func TestToggleNodeLimpiaLaConsolaDeLosQueArranca(t *testing.T) {
 
 	cs := got.consoleStateFor(web)
 	if cs.merged != "" || cs.stdout != "" || cs.stderr != "" {
-		t.Errorf("el servicio que arrancó conserva el log anterior: %q", cs.merged)
+		t.Errorf("the service that started keeps the previous log: %q", cs.merged)
 	}
 	if got.consoleStateFor(web).off[0] == 0 {
-		t.Error("el offset de stdout quedó a cero con un log que ya tenía contenido: " +
-			"el siguiente tail reinsertaría la vida anterior del servicio")
+		t.Error("the stdout offset ended up at zero with a log that already had content: " +
+			"the next tail would reinsert the service's previous life")
 	}
 }
 
@@ -338,7 +338,7 @@ func TestMarkStackStoppingIgnoraLosNombresQueNoResuelven(t *testing.T) {
 	m.markStackStopping(stack)
 
 	if m.services[ruta].Status != statusStopping {
-		t.Errorf("el servicio que sí resuelve quedó en %q: un nombre irresoluble no puede impedir parar el resto", m.services[ruta].Status)
+		t.Errorf("the service that does resolve ended up in %q: an unresolvable name cannot prevent stopping the rest", m.services[ruta].Status)
 	}
 }
 
@@ -358,7 +358,7 @@ func TestMarkStackStoppingNoRepiteElServicioQueSaleEnDosEtapas(t *testing.T) {
 	m.markStackStopping(stack)
 
 	if m.services[ruta].Status != statusStopping {
-		t.Errorf("estado = %q, want stopping", m.services[ruta].Status)
+		t.Errorf("status = %q, want stopping", m.services[ruta].Status)
 	}
 }
 
@@ -367,7 +367,7 @@ func TestDispatchAskAvisaDelFallbackDeEstrategiaAntesDeLanzar(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	m.askPromptOpen = true
-	m.askAgent = agenteFalso()
+	m.askAgent = fakeAgent()
 	m.promptInput.SetValue("arregla el bug")
 	m.askLauncher = nuevoLauncherSinHerdr(t)
 	m.promptInput.Focus()
@@ -375,10 +375,10 @@ func TestDispatchAskAvisaDelFallbackDeEstrategiaAntesDeLanzar(t *testing.T) {
 	next, cmd := m.dispatchAsk()
 	got := next.(Model)
 	if cmd == nil {
-		t.Fatal("tiene que despachar algo")
+		t.Fatal("it must dispatch something")
 	}
 	if !strings.Contains(got.message, "herdr") {
-		t.Errorf("aviso = %q, want que diga que herdr no está disponible: el usuario tiene que saber por qué corre en primer plano", got.message)
+		t.Errorf("message = %q, want it to say herdr is not available: the user has to know why it runs in the foreground", got.message)
 	}
 }
 
@@ -387,7 +387,7 @@ func TestDispatchAskConEstrategiaInlineUsaExecProcess(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	m.askPromptOpen = true
-	m.askAgent = agenteFalso()
+	m.askAgent = fakeAgent()
 	m.promptInput.SetValue("arregla el bug")
 	m.askLauncher = nuevoLauncherInline(t)
 	m.promptInput.Focus()
@@ -395,14 +395,14 @@ func TestDispatchAskConEstrategiaInlineUsaExecProcess(t *testing.T) {
 	next, cmd := m.dispatchAsk()
 	got := next.(Model)
 	if cmd == nil {
-		t.Fatal("inline tiene que devolver el comando de suspensión")
+		t.Fatal("inline must return the suspend command")
 	}
 	// Inline carries no warning: it is what was asked for, not a fallback.
 	if got.message != "" {
-		t.Errorf("aviso = %q en inline: inline es lo pedido cuando se pide inline", got.message)
+		t.Errorf("message = %q in inline: inline is what was asked for when inline is requested", got.message)
 	}
 	if got.askPromptOpen {
-		t.Error("el modal tiene que cerrarse también en inline")
+		t.Error("the modal must close in inline too")
 	}
 }
 
@@ -417,10 +417,10 @@ func TestRestartSelectedConElEstadoPortPendingNoEsRunning(t *testing.T) {
 	next, cmd := m.restartSelected()
 	got := next.(Model)
 	if cmd != nil {
-		t.Error("port_pending no es running: no se reinicia un proceso vivo por un puerto sin confirmar")
+		t.Error("port_pending is not running: a live process is not restarted over an unconfirmed port")
 	}
 	if !strings.Contains(got.message, "running") {
-		t.Errorf("aviso = %q, want que diga que sólo se reinicia lo que está corriendo", got.message)
+		t.Errorf("message = %q, want it to say that only what is running gets restarted", got.message)
 	}
 }
 
@@ -435,10 +435,10 @@ func TestEditLogsCmdTraeElEditorYSuMensajeDeError(t *testing.T) {
 	next, cmd := m.openLogEditor()
 	got := next.(Model)
 	if cmd == nil {
-		t.Fatal("con un editor que existe tiene que devolver el comando")
+		t.Fatal("with an existing editor it must return the command")
 	}
 	if got.message != "" {
-		t.Errorf("aviso = %q al abrir un editor que existe: no hay motivo", got.message)
+		t.Errorf("message = %q when opening an existing editor: there is no reason", got.message)
 	}
 }
 
@@ -471,10 +471,10 @@ func TestLosTresModalesSeSuperponenSobreElDashboard(t *testing.T) {
 			tt.abrir(&v)
 			got := v.View().Content
 			if got == base {
-				t.Error("el modal no se dibujó: el contenido es el del dashboard a secas")
+				t.Error("the modal did not render: the content is the plain dashboard")
 			}
 			if tt.quiere != "" && !strings.Contains(stripANSIOf(got), tt.quiere) {
-				t.Errorf("el modal no trae %q", tt.quiere)
+				t.Errorf("the modal does not contain %q", tt.quiere)
 			}
 			if v.term != nil {
 				v.term.shutdown()
@@ -482,7 +482,7 @@ func TestLosTresModalesSeSuperponenSobreElDashboard(t *testing.T) {
 		})
 	}
 
-	t.Run("ask tiene prioridad sobre los otros dos", func(t *testing.T) {
+	t.Run("ask takes priority over the other two", func(t *testing.T) {
 		v := m
 		v.askPromptOpen = true
 		v.promptInput.SetValue("hola")
@@ -490,7 +490,7 @@ func TestLosTresModalesSeSuperponenSobreElDashboard(t *testing.T) {
 		v.pickerItems = []pickerItem{{Name: "build"}}
 		got := stripANSIOf(v.View().Content)
 		if !strings.Contains(got, "enter launch") {
-			t.Error("con ask y picker abiertos, ask manda: es el que se ha abierto último")
+			t.Error("with ask and picker open, ask takes priority: it is the one opened last")
 		}
 	})
 }
@@ -505,17 +505,17 @@ func TestElPromptDelAskSeDimensionaTrasCambiarElPrompt(t *testing.T) {
 	m.sizeAskPrompt()
 
 	if got := m.promptInput.Width(); got < 8 {
-		t.Errorf("ancho del textarea = %d: con un prompt largo el área de escritura desaparece", got)
+		t.Errorf("textarea width = %d: with a long prompt the writing area disappears", got)
 	}
 	if m.promptInput.MaxHeight < askMinHeight {
-		t.Errorf("alto = %d, want >= %d", m.promptInput.MaxHeight, askMinHeight)
+		t.Errorf("height = %d, want >= %d", m.promptInput.MaxHeight, askMinHeight)
 	}
 }
 
 func nuevoLauncherSinHerdr(t *testing.T) *launcher.Launcher {
 	t.Helper()
 	t.Setenv("HERDR_ENV", "")
-	t.Setenv("PATH", t.TempDir()) // sin herdr en el PATH
+	t.Setenv("PATH", t.TempDir()) // no herdr in PATH
 	return launcher.New(herdrExplicita())
 }
 

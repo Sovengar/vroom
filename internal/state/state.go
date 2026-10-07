@@ -120,8 +120,8 @@ func (s *Store) SaveMeta(projectPath string, m Meta) error {
 func writeJSONAtomic(target string, v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		panic(fmt.Sprintf("json.MarshalIndent de %T falló y eso no puede pasar con los tipos que "+
-			"vroom guarda aquí: %v", v, err))
+		panic(fmt.Sprintf("json.MarshalIndent of %T failed and that cannot happen with the types "+
+			"vroom stores here: %v", v, err))
 	}
 	tmp := target + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {

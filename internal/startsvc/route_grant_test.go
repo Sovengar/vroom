@@ -25,8 +25,8 @@ func TestConflictDoesNotGrantOwnership(t *testing.T) {
 	f.cleanup(t, out)
 
 	if out.Meta.RouteOwned {
-		t.Error("un alta que no registró no debe conceder propiedad: es la capacidad " +
-			"que permite pisar la ruta de otro en el arranque siguiente")
+		t.Error("a registration that did not register must not grant ownership: it is the capability " +
+			"that allows overwriting another's route on the next start")
 	}
 }
 
@@ -34,7 +34,7 @@ func TestRegisteredButUnverifiedStillGrantsOwnership(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
 	f.manifest.RouteMode = manifest.RouteModeAuto
-	// ReasonProxyNotRunning carries Registered, meaning written to disk but unverified, which is still ours.
+	// ReasonsProxyNotRunning carries Registered, meaning written to disk but unverified, which is still ours.
 	routes := &resultSpy{result: portless.Result{
 		Name: "svc", Host: "svc.localhost",
 		Status: portless.StatusDegraded, Reason: portless.ReasonProxyNotRunning,
@@ -48,10 +48,10 @@ func TestRegisteredButUnverifiedStillGrantsOwnership(t *testing.T) {
 	f.cleanup(t, out)
 
 	if !out.Meta.RouteOwned {
-		t.Error("una ruta registrada aunque no verificada es nuestra: debe conservar la propiedad")
+		t.Error("a registered route even if unverified is ours: it must preserve ownership")
 	}
 	if out.Meta.RouteName == "" {
-		t.Error("y debe conservar el handle")
+		t.Error("and it must preserve the handle")
 	}
 }
 
@@ -74,11 +74,11 @@ func TestRenamedBranchDoesNotRemoveRevokedRoute(t *testing.T) {
 	f.cleanup(t, out)
 
 	if routes.reconciledWithOwnership.Owned {
-		t.Error("con la propiedad revocada, Reconcile no debe recibir una concesión")
+		t.Error("with ownership revoked, Reconcile must not receive a grant")
 	}
 	if routes.removedPrev {
-		t.Error("con la propiedad revocada, reconciliar no puede borrar un nombre: " +
-			"el handle vivo no es autoridad para borrar")
+		t.Error("with ownership revoked, reconciling cannot delete a name: " +
+			"a live handle is not authority to delete")
 	}
 }
 
@@ -102,7 +102,7 @@ func TestRenamedBranchStillRemovesOurOwnDeadRoute(t *testing.T) {
 
 	// Reconcile runs before Apply, so what it receives is the ownership the previous start persisted.
 	if !routes.reconciledWithOwnership.Authorises(4321) {
-		t.Errorf("Reconcile debe recibir la Ownership persistida, no un puerto crudo: %+v",
+		t.Errorf("Reconcile must receive the persisted Ownership, not a raw port: %+v",
 			routes.reconciledWithOwnership)
 	}
 }

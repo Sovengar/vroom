@@ -18,7 +18,7 @@ func TestScrollDetailsNoBajaDeCero(t *testing.T) {
 
 	m.scrollDetails(-detailsHeight)
 	if m.detailsTop != 0 {
-		t.Errorf("detailsTop = %d tras subir del todo, want 0: el clamp es lo que evita leer por encima del buffer", m.detailsTop)
+		t.Errorf("detailsTop = %d after scrolling all the way up, want 0: the clamp is what prevents reading above the buffer", m.detailsTop)
 	}
 
 	m.scrollDetails(3)
@@ -45,26 +45,26 @@ func TestPgUpPgDownEnUnNodoDesplazanElPanelDeDetalles(t *testing.T) {
 	m2, _ := press(m, "pgup")
 	got := m2
 	if got.detailsTop != 0 {
-		t.Errorf("pgup en un nodo ya estaba arriba: detailsTop = %d, want 0 (el clamp)", got.detailsTop)
+		t.Errorf("pgup on a node already at the top: detailsTop = %d, want 0 (the clamp)", got.detailsTop)
 	}
 	if !got.consoleFollow {
-		t.Error("pgup sobre un nodo no debe pausar el follow de la consola: el scroll fue al panel")
+		t.Error("pgup on a node should not pause console follow: the scroll went to the panel")
 	}
 
 	m3, _ := press(got, "pgdown")
 	down := m3
 	if down.detailsTop != detailsHeight {
-		t.Errorf("detailsTop = %d tras pgdown en un nodo, want %d", down.detailsTop, detailsHeight)
+		t.Errorf("detailsTop = %d after pgdown on a node, want %d", down.detailsTop, detailsHeight)
 	}
 
 	m4 := moveCursorTo(t, down, "tienda-api")
 	m5, _ := press(m4, "pgup")
 	proj := m5
 	if proj.detailsTop != down.detailsTop {
-		t.Errorf("pgup con un proyecto seleccionado movió el panel: detailsTop %d -> %d", down.detailsTop, proj.detailsTop)
+		t.Errorf("pgup with a selected project moved the panel: detailsTop %d -> %d", down.detailsTop, proj.detailsTop)
 	}
 	if proj.consoleFollow {
-		t.Error("pgup con un proyecto seleccionado debería pausar el follow de la consola")
+		t.Error("pgup with a selected project should pause console follow")
 	}
 }
 
@@ -74,7 +74,7 @@ func TestRefreshBatchPideEstadoGitYLaPestanaActiva(t *testing.T) {
 
 	cmd := m.refreshBatch()
 	if cmd == nil {
-		t.Fatal("refreshBatch devolvió nil: el refresh manual no haría nada")
+		t.Fatal("refreshBatch returned nil: manual refresh would do nothing")
 	}
 
 	msgs := collectBatch(t, cmd)
@@ -85,7 +85,7 @@ func TestRefreshBatchPideEstadoGitYLaPestanaActiva(t *testing.T) {
 		}
 	}
 	if !sawRefresh {
-		t.Error("refreshBatch no pidió un refreshedMsg: el estado de los servicios quedaría rancio")
+		t.Error("refreshBatch did not request a refreshedMsg: service state would become stale")
 	}
 
 	// Tail is requested regardless of liveness: a just-dead service still has bytes, and filtering by liveness would blank the last output the user came for.
@@ -101,17 +101,17 @@ func TestRefreshBatchPideEstadoGitYLaPestanaActiva(t *testing.T) {
 		}
 	}
 	if !sawLiveRefresh {
-		t.Error("sin refreshedMsg el estado de los servicios queda rancio")
+		t.Error("without refreshedMsg service state becomes stale")
 	}
 	if !sawTail {
-		t.Error("con la pestaña de consola no se pidió el tail: la consola se congelaría aunque el servicio escriba")
+		t.Error("with the console tab the tail was not requested: the console would freeze even if the service writes")
 	}
 
 	none := m
-	none.cursor = findPrimary(none, "tienda") // un header no es un proyecto
+	none.cursor = findPrimary(none, "tienda") // a header is not a project
 	if cmd := none.refreshTab(); cmd != nil {
 		if msgs := collectBatch(t, cmd); len(msgs) > 0 {
-			t.Errorf("sobre un header de grupo se pidieron datos: %d comandos", len(msgs))
+			t.Errorf("on a group header data was requested: %d commands", len(msgs))
 		}
 	}
 }
@@ -119,31 +119,31 @@ func TestRefreshBatchPideEstadoGitYLaPestanaActiva(t *testing.T) {
 func TestToggleStackSinEngineLoDice(t *testing.T) {
 	m, _ := newTestModel(t)
 	if m.engine != nil {
-		t.Skip("este modelo tiene engine: el caso sin engine no se puede provocar")
+		t.Skip("this model has an engine: the no-engine case cannot be triggered")
 	}
 
 	out, cmd := m.toggleStack(&orchestrate.Stack{Name: "front"})
 	got := out.(Model)
 	if cmd != nil {
-		t.Error("sin engine no debería volver ningún Cmd")
+		t.Error("without engine no Cmd should be returned")
 	}
 	if !strings.Contains(got.message, "orchestration engine not available") {
-		t.Errorf("el aviso no explica por qué no pasa nada: %q", got.message)
+		t.Errorf("the message does not explain why nothing happens: %q", got.message)
 	}
 }
 
 func TestToggleComposersSinEngineLoDice(t *testing.T) {
 	m, _ := newTestModel(t)
 	if m.engine != nil {
-		t.Skip("este modelo tiene engine: el caso sin engine no se puede provocar")
+		t.Skip("this model has an engine: the no-engine case cannot be triggered")
 	}
 	out, cmd := m.toggleComposers("tienda")
 	got := out.(Model)
 	if cmd != nil {
-		t.Error("sin engine no debería volver ningún Cmd")
+		t.Error("without engine no Cmd should be returned")
 	}
 	if !strings.Contains(got.message, "orchestration engine not available") {
-		t.Errorf("el aviso no explica por qué: %q", got.message)
+		t.Errorf("the message does not explain why: %q", got.message)
 	}
 }
 
@@ -152,7 +152,7 @@ func TestStacksForPrimaryFiltraPorGrupoYToleraAusenciaDeCompose(t *testing.T) {
 
 	// nil means no compose file, and the TUI reads nil as "do not paint the Composers section".
 	if got := m.stacksForPrimary("tienda"); got != nil {
-		t.Errorf("sin compose file dio %v, want nil", namesOfStacks(got))
+		t.Errorf("without compose file gave %v, want nil", namesOfStacks(got))
 	}
 
 	// Each stack carries its own PrimaryGroup, which overrides the compose file's global group.
@@ -165,10 +165,10 @@ func TestStacksForPrimaryFiltraPorGrupoYToleraAusenciaDeCompose(t *testing.T) {
 	}
 	got := m.stacksForPrimary("tienda")
 	if len(got) != 1 || got[0].Name != "front" {
-		t.Errorf("stacksForPrimary(tienda) = %v, want sólo front", namesOfStacks(got))
+		t.Errorf("stacksForPrimary(tienda) = %v, want only front", namesOfStacks(got))
 	}
 	if got := m.stacksForPrimary("no-existe"); len(got) != 0 {
-		t.Errorf("un primary sin stacks dio %v, want vacío", namesOfStacks(got))
+		t.Errorf("a primary without stacks gave %v, want empty", namesOfStacks(got))
 	}
 }
 
@@ -191,15 +191,15 @@ func TestMarkStackStoppingSoloMarcaLoQueEstaVivo(t *testing.T) {
 	m.markStackStopping(stack)
 
 	if got := m.services[web].Status; got != statusStopping {
-		t.Errorf("el servicio vivo quedó en %q, want stopping", got)
+		t.Errorf("the live service was left in %q, want stopping", got)
 	}
 	if got := m.services[api].Status; got == statusStopping {
-		t.Errorf("un servicio ya parado quedó en stopping: parecería que se está parando algo parado")
+		t.Errorf("an already stopped service was left in stopping: it would look like something stopped is being stopped")
 	}
 
 	m.markStackStopping(stack)
 	if got := m.services[web].Status; got != statusStopping {
-		t.Errorf("la segunda pasada cambió el estado a %q", got)
+		t.Errorf("the second pass changed the state to %q", got)
 	}
 }
 
@@ -212,7 +212,7 @@ func TestMarkStackStoppingConServicioInexistenteNoRompe(t *testing.T) {
 	m.markStackStopping(stack)
 	for path, sv := range m.services {
 		if sv.Status == statusStopping {
-			t.Errorf("%s quedó en stopping sin que ningún servicio vivo lo pidiera", path)
+			t.Errorf("%s was left in stopping without any live service requesting it", path)
 		}
 	}
 }
@@ -232,7 +232,7 @@ func TestHarnessMarkRunningDejaElServicioVivo(t *testing.T) {
 	markRunning(&m, path, 4242)
 
 	if !m.isRunning(path) {
-		t.Error("markRunning no dejó el servicio vivo: los tests de stopping estarían probando otra cosa")
+		t.Error("markRunning did not leave the service alive: the stopping tests would be testing something else")
 	}
 	if got := m.services[path].Status; got != statusRunning {
 		t.Errorf("Status = %q, want running", got)

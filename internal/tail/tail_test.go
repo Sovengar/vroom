@@ -16,7 +16,7 @@ func TestReadNewIncremental(t *testing.T) {
 
 	data, off, err := ReadNew(path, 0)
 	if err != nil || data != "line1\n" || off != 6 {
-		t.Fatalf("primera lectura: data=%q off=%d err=%v", data, off, err)
+		t.Fatalf("first read: data=%q off=%d err=%v", data, off, err)
 	}
 
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
@@ -30,12 +30,12 @@ func TestReadNewIncremental(t *testing.T) {
 
 	data, off, err = ReadNew(path, off)
 	if err != nil || data != "line2\n" || off != 12 {
-		t.Fatalf("lectura incremental: data=%q off=%d err=%v", data, off, err)
+		t.Fatalf("incremental read: data=%q off=%d err=%v", data, off, err)
 	}
 
 	data, _, err = ReadNew(path, off)
 	if err != nil || data != "" {
-		t.Fatalf("sin crecimiento debe devolver vacío: data=%q err=%v", data, err)
+		t.Fatalf("no growth must return empty: data=%q err=%v", data, err)
 	}
 }
 
@@ -60,7 +60,7 @@ func TestReadNewAfterTruncate(t *testing.T) {
 	}
 	data, off2, err := ReadNew(path, off)
 	if err != nil || data != "c\n" || off2 != 2 {
-		t.Fatalf("tras truncado: data=%q off=%d err=%v", data, off2, err)
+		t.Fatalf("after truncate: data=%q off=%d err=%v", data, off2, err)
 	}
 }
 
@@ -68,14 +68,14 @@ func TestStripANSI(t *testing.T) {
 	tests := []struct {
 		name, in, want string
 	}{
-		{"sin escapes", "plain log line\n", "plain log line\n"},
+		{"no escapes", "plain log line\n", "plain log line\n"},
 		{"color CSI", "\x1b[32mOK\x1b[0m started\n", "OK started\n"},
-		{"CSI con parámetros", "\x1b[1;31;40mbold red\x1b[m end", "bold red end"},
+		{"CSI with parameters", "\x1b[1;31;40mbold red\x1b[m end", "bold red end"},
 		{"OSC title", "\x1b]0;window title\x07rest", "rest"},
-		{"OSC con ST", "\x1b]8;;http://x\x1b\\link\x1b]8;;\x1b\\", "link"},
-		{"escape 2 bytes", "a\x1bM b", "a b"},
-		{"CSI incompleto al final", "text\x1b[32", "text"},
-		{"multibyte preservado", "año ñ\r\x1b[K", "año ñ\r"},
+		{"OSC with ST", "\x1b]8;;http://x\x1b\\link\x1b]8;;\x1b\\", "link"},
+		{"2-byte escape", "a\x1bM b", "a b"},
+		{"incomplete CSI at the end", "text\x1b[32", "text"},
+		{"multibyte preserved", "cafe \u03bb\r\x1b[K", "cafe \u03bb\r"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -88,27 +88,27 @@ func TestStripANSI(t *testing.T) {
 
 func TestCapBuffer(t *testing.T) {
 	if got := CapBuffer("short", 64); got != "short" {
-		t.Errorf("bajo el cap no debe tocar: %q", got)
+		t.Errorf("below the cap it must not touch: %q", got)
 	}
 
 	big := strings.Repeat("line\n", 30) // 150 bytes
 	got := CapBuffer(big, 60)
 	if len(got) > 60 {
-		t.Errorf("cap excedido: %d", len(got))
+		t.Errorf("cap exceeded: %d", len(got))
 	}
 	if !strings.HasSuffix(big, got) {
-		t.Error("cap debe conservar el final")
+		t.Error("cap must preserve the end")
 	}
 	if !strings.HasPrefix(got, "line\n") {
-		t.Errorf("corte debe ser por línea completa: %q", got)
+		t.Errorf("cut must be by complete line: %q", got)
 	}
 
-	one := strings.Repeat("x", 100) + "ñ"
+	one := strings.Repeat("x", 100) + "\u03bb"
 	got = CapBuffer(one, 50)
 	if got != one[52:] {
-		t.Errorf("línea única: %q", got)
+		t.Errorf("single line: %q", got)
 	}
 	if !utf8.ValidString(got) {
-		t.Error("no debe partir un rune multibyte")
+		t.Error("must not split a multibyte rune")
 	}
 }

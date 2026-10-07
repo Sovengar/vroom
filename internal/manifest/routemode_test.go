@@ -9,8 +9,8 @@ func TestEffectiveRouteModeDefaults(t *testing.T) {
 		m    Manifest
 		want string
 	}{
-		{"sin route_mode", Manifest{Name: "x", Command: "run", Port: 8080}, RouteModeOff},
-		{"off explícito", Manifest{RouteMode: RouteModeOff}, RouteModeOff},
+		{"without route_mode", Manifest{Name: "x", Command: "run", Port: 8080}, RouteModeOff},
+		{"explicit off", Manifest{RouteMode: RouteModeOff}, RouteModeOff},
 		{"auto", Manifest{RouteMode: RouteModeAuto}, RouteModeAuto},
 		{"named", Manifest{RouteMode: RouteModeNamed}, RouteModeNamed},
 	}
@@ -27,25 +27,25 @@ func TestEffectiveRouteModeDefaults(t *testing.T) {
 func TestValidateRejectsUnknownRouteMode(t *testing.T) {
 	m := Manifest{Name: "x", Command: "run", Port: 8080, RouteMode: "prestable"}
 	if err := m.Validate(); err == nil {
-		t.Fatal("route_mode inválido debe rechazarse")
+		t.Fatal("invalid route_mode must be rejected")
 	}
 }
 
 // A route points at a port, so accepting route_mode without one would be a promise vroom cannot keep.
 func TestValidateRouteModeRequiresAPort(t *testing.T) {
 	rejected := []Manifest{
-		{Name: "x", Command: "run", RouteMode: RouteModeAuto}, // sin puerto
+		{Name: "x", Command: "run", RouteMode: RouteModeAuto}, // without port
 		{Name: "x", Command: "run", PortMode: PortModeNone, RouteMode: RouteModeAuto},
-		{Name: "x", Command: "run", PortMode: PortModeDynamic, RouteMode: RouteModeAuto}, // sin default
+		{Name: "x", Command: "run", PortMode: PortModeDynamic, RouteMode: RouteModeAuto}, // without default
 	}
 	for i, m := range rejected {
 		if err := m.Validate(); err == nil {
-			t.Errorf("manifiesto %d route_mode sin puerto debía rechazarse: %+v", i, m)
+			t.Errorf("manifest %d route_mode without port should have been rejected: %+v", i, m)
 		}
 	}
 	accept := Manifest{Name: "x", Command: "run", Port: 8080, RouteMode: RouteModeAuto}
 	if err := accept.Validate(); err != nil {
-		t.Errorf("route_mode con puerto debe aceptarse: %v", err)
+		t.Errorf("route_mode with port must be accepted: %v", err)
 	}
 }
 
@@ -58,12 +58,12 @@ func TestValidateRouteNameRequiresNamedMode(t *testing.T) {
 	}
 	for i, m := range rejected {
 		if err := m.Validate(); err == nil {
-			t.Errorf("manifiesto %d route_name sin named debía rechazarse: %+v", i, m)
+			t.Errorf("manifest %d route_name without named should have been rejected: %+v", i, m)
 		}
 	}
 	accept := Manifest{Name: "x", Command: "run", Port: 8080, RouteMode: RouteModeNamed, RouteName: "mi-nombre"}
 	if err := accept.Validate(); err != nil {
-		t.Errorf("route_name con named debe aceptarse: %v", err)
+		t.Errorf("route_name with named must be accepted: %v", err)
 	}
 }
 
@@ -77,10 +77,10 @@ func TestManifestWithoutRouteModeIsUnchanged(t *testing.T) {
 	}
 	for i, m := range legacy {
 		if err := m.Validate(); err != nil {
-			t.Errorf("manifiesto legacy %d rechazado: %v", i, err)
+			t.Errorf("legacy manifest %d rejected: %v", i, err)
 		}
 		if got := m.EffectiveRouteMode(); got != RouteModeOff {
-			t.Errorf("manifiesto legacy %d debe quedar en off, got %q", i, got)
+			t.Errorf("legacy manifest %d must stay off, got %q", i, got)
 		}
 	}
 }

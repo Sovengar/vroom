@@ -75,7 +75,7 @@ func waitFor(t *testing.T, d time.Duration, cond func() bool) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatal("condición no alcanzada antes del deadline")
+	t.Fatal("condition not met before deadline")
 }
 
 func keyPress(s string) tea.KeyPressMsg {
@@ -137,10 +137,10 @@ func TestSendKeyAfterShutdown(t *testing.T) {
 	s.shutdown()
 	s.sendKey(keyPress("x"))
 	if got := string(p.bytesWritten()); got != "" {
-		t.Errorf("writes tras shutdown: %q", got)
+		t.Errorf("writes after shutdown: %q", got)
 	}
 	if !p.isClosed() {
-		t.Error("el pty stub debe quedar cerrado")
+		t.Error("the pty stub must be closed")
 	}
 }
 
@@ -160,7 +160,7 @@ func TestSessionResize(t *testing.T) {
 // $SHELL is a script that sleeps 30s so the session is still alive when these assertions run.
 func TestBangOpensTerminal(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("requiere PTY unix")
+		t.Skip("requires unix PTY")
 	}
 	sleepBin := fakeBin(t, "sleepy")
 	if err := os.WriteFile(sleepBin+"/sleepy", []byte("#!/bin/sh\nsleep 30\n"), 0o755); err != nil {
@@ -174,16 +174,16 @@ func TestBangOpensTerminal(t *testing.T) {
 
 	m2, cmd := press(m, "!")
 	if cmd == nil {
-		t.Fatal("! debe armar el loop de lectura (readPtyCmd)")
+		t.Fatal("! must set up the read loop (readPtyCmd)")
 	}
 	if !m2.termOpen || m2.term == nil {
-		t.Fatal("! debe abrir el modal y crear la sesión")
+		t.Fatal("! must open the modal and create the session")
 	}
 	if got := m2.term.cmd.Dir; got != wantDir {
-		t.Errorf("cwd de la sesión = %q, want %q", got, wantDir)
+		t.Errorf("session cwd = %q, want %q", got, wantDir)
 	}
 	if !m2.term.alive() {
-		t.Error("la sesión debe quedar viva")
+		t.Error("the session must stay alive")
 	}
 	_ = store
 	// Kill the session here or the real PTY child process outlives the test binary.
@@ -191,7 +191,7 @@ func TestBangOpensTerminal(t *testing.T) {
 		c()
 	}
 	if m2.term.alive() {
-		t.Error("closeCmd debe apagar la sesión")
+		t.Error("closeCmd must shut down the session")
 	}
 }
 
@@ -203,22 +203,22 @@ func TestCtrlQHidesKeepsSession(t *testing.T) {
 
 	m2, _ := press(m, "ctrl+q")
 	if m2.termOpen {
-		t.Error("ctrl+q debe ocultar el modal")
+		t.Error("ctrl+q must hide the modal")
 	}
 	if m2.term == nil || !m2.term.alive() {
-		t.Fatal("ctrl+q NO debe matar la sesión")
+		t.Fatal("ctrl+q must NOT kill the session")
 	}
 
 	before := len(p.bytesWritten())
 	m3, _ := press(m2, "!")
 	if !m3.termOpen {
-		t.Error("! debe re-mostrar el modal")
+		t.Error("! must re-show the modal")
 	}
 	if m3.term != m2.term {
-		t.Error("reabrir debe conservar la MISMA sesión")
+		t.Error("reopening must preserve the SAME session")
 	}
 	if got := string(p.bytesWritten()); len(got) != before {
-		t.Errorf("reabrir no debe escribir al PTY: %q", got)
+		t.Errorf("reopening must not write to the PTY: %q", got)
 	}
 }
 
@@ -230,10 +230,10 @@ func TestTermModalCapturesKeys(t *testing.T) {
 
 	m2, cmd := press(m, "q")
 	if cmd != nil {
-		t.Error("q con terminal abierta no debe emitir quit")
+		t.Error("q with terminal open must not emit quit")
 	}
 	if !m2.termOpen {
-		t.Error("q con terminal abierta no debe cerrar el modal")
+		t.Error("q with terminal open must not close the modal")
 	}
 	waitFor(t, time.Second, func() bool {
 		return strings.Contains(string(p.bytesWritten()), "q")
@@ -247,7 +247,7 @@ func TestTermModalCapturesKeys(t *testing.T) {
 	next, cmd2 := m2.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	m3 := next.(Model)
 	if cmd2 != nil {
-		t.Error("ctrl+c con terminal abierta no debe emitir quit")
+		t.Error("ctrl+c with terminal open must not emit quit")
 	}
 	waitFor(t, time.Second, func() bool {
 		return strings.Contains(string(p.bytesWritten()), "\x03")
@@ -264,11 +264,11 @@ func TestPtyDataFeedsEmulator(t *testing.T) {
 	next, cmd := m.Update(ptyDataMsg{data: []byte("hello term\r\n")})
 	m2 := next.(Model)
 	if cmd == nil {
-		t.Error("ptyDataMsg debe re-armar readPtyCmd")
+		t.Error("ptyDataMsg must re-arm readPtyCmd")
 	}
 	out := m2.term.screen()
 	if !strings.Contains(out, "hello term") {
-		t.Errorf("screen = %q, want el texto recibido", out)
+		t.Errorf("screen = %q, want the received text", out)
 	}
 }
 
@@ -281,22 +281,22 @@ func TestPtyExitLifecycle(t *testing.T) {
 	next, cmd := m.Update(ptyEOFMsg{})
 	m2 := next.(Model)
 	if cmd != nil {
-		t.Error("EOF no debe armar nada: el reaper ya está armado")
+		t.Error("EOF must not arm anything: the reaper is already armed")
 	}
 	if m2.term == nil {
-		t.Error("EOF no debe limpiar la sesión (aún no hay reaper)")
+		t.Error("EOF must not clear the session (no reaper yet)")
 	}
 
 	next2, _ := m2.Update(ptyExitMsg{err: nil})
 	m3 := next2.(Model)
 	if m3.term != nil {
-		t.Error("ptyExitMsg debe limpiar la sesión (term = nil)")
+		t.Error("ptyExitMsg must clear the session (term = nil)")
 	}
 	if m3.termOpen {
-		t.Error("ptyExitMsg debe cerrar el modal")
+		t.Error("ptyExitMsg must close the modal")
 	}
 	if !strings.Contains(m3.message, "terminal closed") {
-		t.Errorf("message = %q, want aviso de cierre", m3.message)
+		t.Errorf("message = %q, want close notification", m3.message)
 	}
 }
 
@@ -324,23 +324,23 @@ func TestQuitCmdKillsSession(t *testing.T) {
 
 	cmd := m.quitCmd()
 	if cmd == nil {
-		t.Fatal("quitCmd debe devolver un comando")
+		t.Fatal("quitCmd must return a command")
 	}
 	// The Sequence must lead with closeCmd, not QuitMsg, because bubbletea runs the batch in order.
 	msg := cmd()
 	if _, ok := msg.(tea.QuitMsg); ok {
-		t.Fatal("el primer cmd del quit con sesión NO debe ser QuitMsg")
+		t.Fatal("the first cmd of quit with session must NOT be QuitMsg")
 	}
 	m.term.closeCmd()()
 	waitFor(t, time.Second, func() bool { return !m.term.alive() })
 	if !p.isClosed() {
-		t.Error("el pty stub debe quedar cerrado tras el quit")
+		t.Error("the pty stub must be closed after quit")
 	}
 
 	m2, _ := newTestModel(t)
 	cmd2 := m2.quitCmd()
 	if _, ok := cmd2().(tea.QuitMsg); !ok {
-		t.Error("quitCmd sin sesión debe ser QuitMsg directo")
+		t.Error("quitCmd without session must be direct QuitMsg")
 	}
 }
 
@@ -351,7 +351,7 @@ func TestTermBoxRender(t *testing.T) {
 	m.termOpen = true
 	box := m.termBox()
 	if !strings.Contains(box, "terminal closed") {
-		t.Errorf("box sin sesión = %q, want placeholder", box)
+		t.Errorf("box without session = %q, want placeholder", box)
 	}
 
 	p := &stubPty{}
@@ -361,13 +361,13 @@ func TestTermBoxRender(t *testing.T) {
 	m.term = s
 	box = m.termBox()
 	if !strings.Contains(box, "terminal — tienda-api") {
-		t.Errorf("box sin título de proyecto: %q", box)
+		t.Errorf("box without project title: %q", box)
 	}
 	if !strings.Contains(box, "ctrl+q hide") {
-		t.Errorf("box sin hint: %q", box)
+		t.Errorf("box without hint: %q", box)
 	}
 	if !strings.Contains(box, "prompt$") {
-		t.Errorf("box sin contenido del emulador: %q", box)
+		t.Errorf("box without emulator content: %q", box)
 	}
 	s.shutdown()
 }
@@ -375,11 +375,11 @@ func TestTermBoxRender(t *testing.T) {
 // The one test that drives a real PTY process, so it covers the seam no stub reaches.
 func TestTermSessionIntegration(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("requiere PTY unix")
+		t.Skip("requires unix PTY")
 	}
 	s, err := startSession(80, 10, t.TempDir(), []string{"sh"})
 	if err != nil {
-		t.Skipf("no se pudo abrir un PTY: %v", err)
+		t.Skipf("could not open a PTY: %v", err)
 	}
 	defer s.shutdown()
 
@@ -410,12 +410,12 @@ func TestTermSessionIntegration(t *testing.T) {
 					found = true
 				}
 			case ptyEOFMsg:
-				t.Fatal("EOF antes de ver el marcador")
+				t.Fatal("EOF before seeing the marker")
 			default:
-				t.Fatalf("msg inesperado: %T", msg)
+				t.Fatalf("unexpected msg: %T", msg)
 			}
 		case <-deadline:
-			t.Fatalf("marcador no llegó; screen = %q", s.screen())
+			t.Fatalf("marker did not arrive; screen = %q", s.screen())
 		}
 	}
 
@@ -431,11 +431,11 @@ func TestTermSessionIntegration(t *testing.T) {
 	select {
 	case msg := <-ch:
 		if em, ok := msg.(ptyExitMsg); !ok {
-			t.Fatalf("waitCmd produjo %T", msg)
+			t.Fatalf("waitCmd produced %T", msg)
 		} else if em.err != nil {
-			t.Logf("wait err (informativo): %v", em.err)
+			t.Logf("wait err (informational): %v", em.err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("el reaper no detectó la salida del shell")
+		t.Fatal("the reaper did not detect shell exit")
 	}
 }

@@ -48,17 +48,17 @@ func TestJSONSeparatesIntentFromOutcome(t *testing.T) {
 	out := marshalInfo(t, info)
 
 	if out["route_mode"] != manifest.RouteModeNamed {
-		t.Errorf("route_mode debe publicar la INTENCIÓN, got %v", out["route_mode"])
+		t.Errorf("route_mode must publish the INTENT, got %v", out["route_mode"])
 	}
 	route, ok := out["route"].(map[string]any)
 	if !ok {
-		t.Fatalf("debe haber objeto de ruta, got %v", out["route"])
+		t.Fatalf("there must be a route object, got %v", out["route"])
 	}
 	if route["status"] != portless.StatusDegraded {
-		t.Errorf("el objeto route debe reflejar el RESULTADO, got %v", route["status"])
+		t.Errorf("the route object must reflect the OUTCOME, got %v", route["status"])
 	}
 	if route["name"] != "mi-url" {
-		t.Errorf("el nombre publicado es el PRETENDIDO, got %v", route["name"])
+		t.Errorf("the published name is the INTENDED one, got %v", route["name"])
 	}
 }
 
@@ -77,7 +77,7 @@ func TestPublishedRouteNameIsNeverAURL(t *testing.T) {
 	route, _ := marshalInfo(t, info)["route"].(map[string]any)
 	name, _ := route["name"].(string)
 	if name != "feat.api" {
-		t.Errorf("el nombre debe ser el nombre, no una url: %q", name)
+		t.Errorf("the name must be the name, not a url: %q", name)
 	}
 }
 
@@ -102,16 +102,16 @@ func TestDegradedRoutePublishesNoURL(t *testing.T) {
 		out := marshalInfo(t, buildProjectInfo(&stubManager{}, store, nil, projectWith(dir, m)))
 		route, ok := out["route"].(map[string]any)
 		if !ok {
-			t.Fatalf("[%s] debe haber objeto de ruta", reason)
+			t.Fatalf("[%s] there must be a route object", reason)
 		}
 		if _, hasURL := route["url"]; hasURL {
-			t.Errorf("[%s] una ruta degradada NO puede publicar url", reason)
+			t.Errorf("[%s] a degraded route CANNOT publish a url", reason)
 		}
 		if route["reason"] != reason {
-			t.Errorf("[%s] debe haber motivo legible por máquina, got %v", reason, route["reason"])
+			t.Errorf("[%s] there must be a machine-readable reason, got %v", reason, route["reason"])
 		}
 		if route["status"] == portless.StatusRegistered {
-			t.Errorf("[%s] ningún campo puede afirmar que haya una ruta disponible", reason)
+			t.Errorf("[%s] no field can claim that a route is available", reason)
 		}
 	}
 }
@@ -130,10 +130,10 @@ func TestRegisteredRoutePublishesItsURL(t *testing.T) {
 	}
 	route, ok := marshalInfo(t, buildProjectInfo(&stubManager{}, store, nil, projectWith(dir, m)))["route"].(map[string]any)
 	if !ok {
-		t.Fatal("una ruta registrada debe publicarse")
+		t.Fatal("a registered route must be published")
 	}
 	if route["url"] != "https://p.localhost" {
-		t.Errorf("una ruta registrada publica su url, got %v", route["url"])
+		t.Errorf("a registered route publishes its url, got %v", route["url"])
 	}
 }
 
@@ -144,10 +144,10 @@ func TestNoRouteContractPublishesNoRouteObject(t *testing.T) {
 	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080}
 	out := marshalInfo(t, buildProjectInfo(&stubManager{}, store, nil, projectWith(dir, m)))
 	if _, has := out["route"]; has {
-		t.Error("sin contrato de ruta el objeto route debe estar AUSENTE")
+		t.Error("without a route contract the route object must be ABSENT")
 	}
 	if _, has := out["route_mode"]; has {
-		t.Error("route_mode = off no es información: se omite")
+		t.Error("route_mode = off is not information: it is omitted")
 	}
 }
 
@@ -162,11 +162,11 @@ func TestLegacyManifestJSONIsUnchanged(t *testing.T) {
 	out := marshalInfo(t, buildProjectInfo(&stubManager{}, store, nil, projectWith(dir, m)))
 	for _, forbidden := range []string{"route", "route_mode", "route_name", "route_url"} {
 		if _, has := out[forbidden]; has {
-			t.Errorf("un manifiesto legacy no debe publicar %q", forbidden)
+			t.Errorf("a legacy manifest must not publish %q", forbidden)
 		}
 	}
 	if out["port"].(float64) != 8080 {
-		t.Errorf("el puerto debe seguir publicándose igual: %v", out["port"])
+		t.Errorf("the port must keep being published the same: %v", out["port"])
 	}
 }
 
@@ -183,7 +183,7 @@ func TestJSONDoesNotAssertRouteJustBecauseItIsWritten(t *testing.T) {
 	}
 	out := marshalInfo(t, buildProjectInfo(&stubManager{}, store, nil, projectWith(dir, m)))
 	if _, has := out["route"]; has {
-		t.Error("una ruta escrita y no verificada no puede aparecer como disponible")
+		t.Error("a written and unverified route cannot appear as available")
 	}
 }
 

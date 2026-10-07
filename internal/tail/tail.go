@@ -11,11 +11,11 @@ import (
 
 // A missing log is not an error: the service has not started yet, so the console simply gets nothing.
 func ReadNew(path string, offset int64) (data string, newOffset int64, err error) {
-	return readNew(path, offset, tamanoDe)
+	return readNew(path, offset, sizeOf)
 }
 
 // Injected because its error is reachable: between Open and Stat the log can rotate away, so the failure needs to be testable instead of an inline Stat.
-func tamanoDe(f *os.File) (int64, error) {
+func sizeOf(f *os.File) (int64, error) {
 	info, err := f.Stat()
 	if err != nil {
 		return 0, err
@@ -23,8 +23,8 @@ func tamanoDe(f *os.File) (int64, error) {
 	return info.Size(), nil
 }
 
-// MEDIDO (bug): Seek(0, io.SeekEnd) on a DIRECTORY descriptor reports ~2^63 bytes on ext4 and panicked inside make, while Stat reports a small size and lets ReadAt fail with EISDIR.
-func readNew(path string, offset int64, tamano func(*os.File) (int64, error)) (string, int64, error) {
+// MEASURED (bug): Seek(0, io.SeekEnd) on a DIRECTORY descriptor reports ~2^63 bytes on ext4 and panicked inside make, while Stat reports a small size and lets ReadAt fail with EISDIR.
+func readNew(path string, offset int64, sizeFn func(*os.File) (int64, error)) (string, int64, error) {
 	// The negative clamp runs before Open because every exit returns the caller's offset untouched, so clamping only the read path would break that contract.
 	if offset < 0 {
 		offset = 0
@@ -39,7 +39,7 @@ func readNew(path string, offset int64, tamano func(*os.File) (int64, error)) (s
 	}
 	defer func() { _ = f.Close() }()
 
-	size, err := tamano(f)
+	size, err := sizeFn(f)
 	if err != nil {
 		return "", offset, err
 	}

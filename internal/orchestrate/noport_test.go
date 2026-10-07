@@ -19,7 +19,7 @@ import (
 // Not a test: this is the portless service (UDP only), re-executed as the command of a real launch.
 func TestHelperNoPort(t *testing.T) {
 	if os.Getenv("VROOM_NOPORT_HELPER") != "1" {
-		t.Skip("proceso helper, no un test")
+		t.Skip("helper process, not a test")
 	}
 	port, err := strconv.Atoi(os.Getenv("VROOM_NOPORT_PORT"))
 	if err != nil {
@@ -79,7 +79,7 @@ func freeUDPPort(t *testing.T) (int, error) {
 
 func TestLaunchNoPortServiceDoesNotAbortStack(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 
 	worker, workerDir := noportFixture(t)
@@ -111,10 +111,10 @@ func TestLaunchNoPortServiceDoesNotAbortStack(t *testing.T) {
 	}
 
 	if !result.OK {
-		t.Fatalf("un servicio sin puerto no debe fallar la launch: %s", result.Error)
+		t.Fatalf("a portless service must not fail the launch: %s", result.Error)
 	}
 	if result.Error != "" {
-		t.Errorf("result.Error = %q, want vacío", result.Error)
+		t.Errorf("result.Error = %q, want empty", result.Error)
 	}
 
 	byName := map[string]ServiceResult{}
@@ -123,51 +123,51 @@ func TestLaunchNoPortServiceDoesNotAbortStack(t *testing.T) {
 	}
 	w, ok := byName["worker"]
 	if !ok {
-		t.Fatalf("el servicio sin puerto no aparece en el resultado: %+v", result.Stages[0].Services)
+		t.Fatalf("the portless service is missing from the result: %+v", result.Stages[0].Services)
 	}
 	if w.Error != "" {
-		t.Errorf("el servicio sin puerto se reportó como error: %q", w.Error)
+		t.Errorf("the portless service was reported as error: %q", w.Error)
 	}
 	if !w.NoPort {
-		t.Error("el servicio sin puerto debe marcarse NoPort, no como health check failed")
+		t.Error("the portless service must be marked NoPort, not as health check failed")
 	}
 	if w.Action != "started" {
 		t.Errorf("action = %q, want started", w.Action)
 	}
 	api := byName["api"]
 	if api.NoPort {
-		t.Error("el hermano con puerto no debe marcarse NoPort")
+		t.Error("the sibling with a port must not be marked NoPort")
 	}
 
 	apiMeta, err := store.LoadMeta(sibling.Path)
 	if err != nil {
-		t.Fatalf("meta del hermano: %v", err)
+		t.Fatalf("sibling meta: %v", err)
 	}
 	if apiMeta.Pid == 0 {
-		t.Fatal("el hermano quedó sin PID: el stack se abortó")
+		t.Fatal("the sibling lost its PID: the stack was aborted")
 	}
 	if !process.Alive(apiMeta.Pid, apiMeta.CreationTimeMs) {
-		t.Errorf("el hermano %d está muerto: el stack se abortó", apiMeta.Pid)
+		t.Errorf("sibling %d is dead: the stack was aborted", apiMeta.Pid)
 	}
 
 	workerMeta, err := store.LoadMeta(workerDir)
 	if err != nil {
-		t.Fatalf("meta del servicio sin puerto: %v", err)
+		t.Fatalf("portless service meta: %v", err)
 	}
 	if !process.Alive(workerMeta.Pid, workerMeta.CreationTimeMs) {
-		t.Errorf("el servicio sin puerto %d debe seguir vivo y ser operable", workerMeta.Pid)
+		t.Errorf("portless service %d must stay alive and be operable", workerMeta.Pid)
 	}
 	if workerMeta.State != state.StateNoPort {
 		t.Errorf("meta.State = %q, want no_port", workerMeta.State)
 	}
 	if workerMeta.Port != 0 {
-		t.Errorf("meta.Port = %d, want 0 (no expone puerto TCP)", workerMeta.Port)
+		t.Errorf("meta.Port = %d, want 0 (exposes no TCP port)", workerMeta.Port)
 	}
 }
 
 func TestLaunchAlreadyRunningNoPortServiceDoesNotAbort(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 
 	worker, workerDir := noportFixture(t)
@@ -186,15 +186,15 @@ func TestLaunchAlreadyRunningNoPortServiceDoesNotAbort(t *testing.T) {
 	}}}
 	t.Cleanup(func() { _ = engine.StopStack(stack, projects) })
 	if res, err := engine.Launch(stack, projects); err != nil || !res.OK {
-		t.Fatalf("primera launch: %v %s", err, res.Error)
+		t.Fatalf("first launch: %v %s", err, res.Error)
 	}
 
 	res, err := engine.Launch(stack, projects)
 	if err != nil {
-		t.Fatalf("segunda launch: %v", err)
+		t.Fatalf("second launch: %v", err)
 	}
 	if !res.OK {
-		t.Fatalf("el camino already_running no debe abortar: %s", res.Error)
+		t.Fatalf("the already_running path must not abort: %s", res.Error)
 	}
 
 	byName := map[string]ServiceResult{}
@@ -202,16 +202,16 @@ func TestLaunchAlreadyRunningNoPortServiceDoesNotAbort(t *testing.T) {
 		byName[sr.Name] = sr
 	}
 	if w := byName["worker"]; w.Action != "already_running" || !w.NoPort || w.Error != "" {
-		t.Errorf("worker = %+v, want already_running sin error y NoPort", w)
+		t.Errorf("worker = %+v, want already_running with no error and NoPort", w)
 	}
 
 	workerMeta, _ := store.LoadMeta(workerDir)
 	if !process.Alive(workerMeta.Pid, workerMeta.CreationTimeMs) {
-		t.Error("el servicio sin puerto debe seguir vivo")
+		t.Error("the portless service must stay alive")
 	}
 	siblingMeta, _ := store.LoadMeta(sibling.Path)
 	if !process.Alive(siblingMeta.Pid, siblingMeta.CreationTimeMs) {
-		t.Error("el hermano debe seguir vivo: la segunda launch abortó")
+		t.Error("the sibling must stay alive: the second launch aborted")
 	}
 }
 
@@ -250,13 +250,13 @@ func TestLaunchPortPendingServiceStillFails(t *testing.T) {
 		t.Fatalf("Launch: %v", err)
 	}
 	if res.OK {
-		t.Fatal("un puerto pendiente debe fallar la etapa: no se puede dar por buena")
+		t.Fatal("a pending port must fail the stage: it cannot be treated as good")
 	}
 	if !strings.Contains(res.Error, "pending") {
-		t.Errorf("la causa debe nombrarse como pendiente, no como timeout genérico: %q", res.Error)
+		t.Errorf("the cause must be named as pending, not as a generic timeout: %q", res.Error)
 	}
 	if strings.Contains(res.Error, "no TCP port") {
-		t.Errorf("un puerto pendiente no es lo mismo que no tener puerto: %q", res.Error)
+		t.Errorf("a pending port is not the same as having no port: %q", res.Error)
 	}
 }
 
@@ -274,7 +274,7 @@ func closedTCPPort(t *testing.T) int {
 // M-A: an unresolved port is a third non-fatal result; it used to fall into the generic Port <= 0 -> ErrPortPending, a hard error whose stageErr and abortAndCleanup killed the healthy sibling, so the assertion is behavioural: the launch does not fail and the sibling is still alive with its CreationTimeMs intact.
 func TestLaunchPortUnresolvedDoesNotAbortStack(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 
 	// The unresolved service is seeded as running with its discovery already finished, which is what the state means; provoking a slow discovery would mean waiting out the grace window.
@@ -326,7 +326,7 @@ func TestLaunchPortUnresolvedDoesNotAbortStack(t *testing.T) {
 	}
 
 	if !result.OK {
-		t.Fatalf("un puerto sin resolver no debe fallar la launch: %s", result.Error)
+		t.Fatalf("an unresolved port must not fail the launch: %s", result.Error)
 	}
 
 	byName := map[string]ServiceResult{}
@@ -336,36 +336,36 @@ func TestLaunchPortUnresolvedDoesNotAbortStack(t *testing.T) {
 	slowRes := byName["slow"]
 
 	if !slowRes.PortUnresolved {
-		t.Errorf("el servicio con el puerto sin decidir debe marcarse PortUnresolved: %+v", slowRes)
+		t.Errorf("the service with the undecided port must be marked PortUnresolved: %+v", slowRes)
 	}
 	if slowRes.NoPort {
-		t.Error("puerto sin resolver no es lo mismo que no tener puerto TCP")
+		t.Error("unresolved port is not the same as having no TCP port")
 	}
 	if slowRes.Error != "" {
-		t.Errorf("un puerto sin resolver no es un fallo: %q", slowRes.Error)
+		t.Errorf("an unresolved port is not a failure: %q", slowRes.Error)
 	}
 	if byName["api"].PortUnresolved || byName["api"].NoPort {
-		t.Errorf("el hermano sano no debe llevar ninguna marca de puerto: %+v", byName["api"])
+		t.Errorf("the healthy sibling must not carry any port flag: %+v", byName["api"])
 	}
 
 	// "pending" would send the user waiting for a discovery that already finished.
 	if strings.Contains(result.Error, "pending") || strings.Contains(slowRes.Error, "pending") {
-		t.Errorf("un puerto sin resolver no puede describirse como pending: %q / %q", result.Error, slowRes.Error)
+		t.Errorf("an unresolved port cannot be described as pending: %q / %q", result.Error, slowRes.Error)
 	}
 
 	apiMeta, err := store.LoadMeta(sibling.Path)
 	if err != nil {
-		t.Fatalf("meta del hermano: %v", err)
+		t.Fatalf("sibling meta: %v", err)
 	}
 	if apiMeta.Pid == 0 {
-		t.Fatal("el hermano quedó sin PID: el stack se abortó")
+		t.Fatal("the sibling lost its PID: the stack was aborted")
 	}
 	if !process.Alive(apiMeta.Pid, apiMeta.CreationTimeMs) {
-		t.Errorf("el hermano %d está muerto: abortAndCleanup lo apagó", apiMeta.Pid)
+		t.Errorf("sibling %d is dead: abortAndCleanup shut it down", apiMeta.Pid)
 	}
 
 	if !process.Alive(live.Pid, live.CreationTimeMs) {
-		t.Errorf("el servicio %d debe seguir vivo y ser detenible", live.Pid)
+		t.Errorf("service %d must stay alive and be stoppable", live.Pid)
 	}
 }
 
@@ -394,9 +394,9 @@ func TestAwaitPortUnresolvedIsNotPending(t *testing.T) {
 		t.Fatalf("AwaitPort = %v, want ErrPortUnresolved", err)
 	}
 	if errors.Is(err, ErrPortPending) {
-		t.Error("un puerto sin resolver no puede confundirse con uno pendiente")
+		t.Error("an unresolved port cannot be confused with a pending one")
 	}
 	if !strings.Contains(err.Error(), "unresolved") {
-		t.Errorf("el mensaje debe nombrarse unresolved, no pending: %q", err.Error())
+		t.Errorf("the message must be named unresolved, not pending: %q", err.Error())
 	}
 }

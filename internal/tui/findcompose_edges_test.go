@@ -28,7 +28,7 @@ func TestFindComposeFileTerminaEnLaRaizDelSistema(t *testing.T) {
 		t.Fatalf("findComposeFile: %v", err)
 	}
 	if cf == nil {
-		t.Fatal("no encontró el compose que está en el propio directorio del proyecto")
+		t.Fatal("did not find the compose that is in the project's own directory")
 	}
 
 	// Without the guard this test never returns, so the go test timeout is the detector, which is why it uses a real dir and no mock.
@@ -40,6 +40,6 @@ func TestFindComposeFileTerminaEnLaRaizDelSistema(t *testing.T) {
 
 	_, err = findComposeFile(root, []scanner.Project{{Path: vacio, Configured: true}})
 	if err == nil {
-		t.Error("findComposeFile encontró un compose subiendo hasta la raíz del sistema")
+		t.Error("findComposeFile found a compose climbing up to the system root")
 	}
 }

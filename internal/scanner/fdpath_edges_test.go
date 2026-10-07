@@ -9,21 +9,21 @@ import (
 // The candidate list is data, not branching logic: order decides, so the system path must precede the packaged one.
 func TestFdInPathsDevuelveLaPrimeraQueExiste(t *testing.T) {
 	dir := t.TempDir()
-	segunda := filepath.Join(dir, "segunda")
+	segunda := filepath.Join(dir, "second")
 	if err := os.WriteFile(segunda, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	primera := filepath.Join(dir, "primera")
+	primera := filepath.Join(dir, "first")
 	if err := os.WriteFile(primera, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	if got := fdInPaths([]string{primera, segunda}); got != primera {
-		t.Errorf("fdInPaths = %q con las dos presentes, want %q: el orden decide cuál gana, y el "+
-			"del sistema va primero", got, primera)
+		t.Errorf("fdInPaths = %q with both present, want %q: the order decides which one wins, and the "+
+			"system one goes first", got, primera)
 	}
-	if got := fdInPaths([]string{filepath.Join(dir, "ausente"), segunda}); got != segunda {
-		t.Errorf("fdInPaths = %q con la primera ausente, want %q", got, segunda)
+	if got := fdInPaths([]string{filepath.Join(dir, "absent"), segunda}); got != segunda {
+		t.Errorf("fdInPaths = %q with the first absent, want %q", got, segunda)
 	}
 }
 
@@ -38,7 +38,7 @@ func TestFdInPathsDevuelveVacioSinNingunaRutaUsable(t *testing.T) {
 		t.Errorf("fdInPaths([]) = %q, want \"\"", got)
 	}
 	if got := fdInPaths([]string{filepath.Join(dir, "no-existe")}); got != "" {
-		t.Errorf("fdInPaths con una ruta inexistente = %q, want \"\": sin candidato no hay fd", got)
+		t.Errorf("fdInPaths with a nonexistent path = %q, want \"\": without a candidate there is no fd", got)
 	}
 
 	// A directory named fd is not a candidate: exec fails with EISDIR, and a mere err == nil check made Scan surface that instead of falling back to the walk.
@@ -47,13 +47,13 @@ func TestFdInPathsDevuelveVacioSinNingunaRutaUsable(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := fdInPaths([]string{sub}); got != "" {
-		t.Errorf("fdInPaths = %q con un directorio, want \"\": no se puede ejecutar", got)
+		t.Errorf("fdInPaths = %q with a directory, want \"\": it cannot be executed", got)
 	}
 }
 
 // Reporting UsedFD true while falling back would mean claiming a tool that cannot be exec'd.
 func TestScanCaeAlWalkSinFdEnElPath(t *testing.T) {
-	// MEDIDO: LookPath always fails on an empty PATH, so the fallback branch is reached without touching /usr.
+	// MEASURED: LookPath always fails on an empty PATH, so the fallback branch is reached without touching /usr.
 	t.Setenv("PATH", "")
 
 	root := t.TempDir()
@@ -70,12 +70,12 @@ func TestScanCaeAlWalkSinFdEnElPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(res.Projects) != 1 {
-		t.Fatalf("el walk encontró %d proyectos, want 1", len(res.Projects))
+		t.Fatalf("the walk found %d projects, want 1", len(res.Projects))
 	}
 	// With fd absent there is no baseline to diff against, so only the well-formed project is checked; fd/walk parity lives in paths_test.go.
 	p := res.Projects[0]
 	if !p.Configured || p.Manifest == nil || p.Manifest.Name != "app" {
-		t.Errorf("proyecto = %+v, want Configured con Manifest.Name=app: la caída al walk tiene "+
-			"que devolver exactamente lo mismo que el camino con fd", p)
+		t.Errorf("project = %+v, want Configured with Manifest.Name=app: the fallback to walk has "+
+			"to return exactly the same as the fd path", p)
 	}
 }

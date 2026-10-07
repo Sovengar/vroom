@@ -19,82 +19,82 @@ import (
 // Each of these consults something outside the process, so the lookup was injected rather than the check relaxed: the verdict stays, only the source of the datum moves.
 
 // EPERM and ESRCH cannot both be provoked without a second user on the machine, so the whole errno map is pinned here as a table.
-func TestGrupoExisteTraduceCadaErrno(t *testing.T) {
-	casos := []struct {
-		err  error
-		want bool
-		por  string
+func TestGroupExistsTranslatesEachErrno(t *testing.T) {
+	cases := []struct {
+		err     error
+		want    bool
+		because string
 	}{
-		{nil, true, "kill con éxito: el grupo existe y es consultable"},
-		{syscall.ESRCH, false, "ESRCH: no hay ningún proceso en ese grupo"},
-		{syscall.EPERM, true, "EPERM: el grupo existe, pero es de otro usuario. Decir false " +
-			"haría que Stop creyera que ya no queda nadie por lo que hacer"},
-		{syscall.EINVAL, false, "un errno que no es un veredicto sobre el grupo no se traduce a " +
-			"'existe': la consulta falló, y no se afirma nada"},
-		{errors.New("otro"), false, "un error que no es un errno tampoco"},
+		{nil, true, "kill with success: the group exists and is queryable"},
+		{syscall.ESRCH, false, "ESRCH: there is no process in that group"},
+		{syscall.EPERM, true, "EPERM: the group exists, but belongs to another user. Saying false " +
+			"would make Stop believe there is nothing left to do"},
+		{syscall.EINVAL, false, "an errno that is not a verdict about the group does not translate to " +
+			"'exists': the query failed, and nothing is asserted"},
+		{errors.New("other"), false, "an error that is not an errno either"},
 	}
-	for _, c := range casos {
-		if got := grupoExiste(c.err); got != c.want {
-			t.Errorf("grupoExiste(%v) = %v, want %v: %s", c.err, got, c.want, c.por)
+	for _, c := range cases {
+		if got := groupExists(c.err); got != c.want {
+			t.Errorf("groupExists(%v) = %v, want %v: %s", c.err, got, c.want, c.because)
 		}
 	}
 
 	if pgidAlive(0) {
-		t.Error("pgidAlive(0) = true: preguntaría por el grupo de vroom, que siempre existe")
+		t.Error("pgidAlive(0) = true: it would ask for vroom's group, which always exists")
 	}
 	if pgidAlive(-1) {
-		t.Error("pgidAlive(-1) = true: un pgid negativo no es un grupo")
+		t.Error("pgidAlive(-1) = true: a negative pgid is not a group")
 	}
 }
 
-func TestVivoConDistingueLosTresVeredictos(t *testing.T) {
-	const guardado = 1_700_000_000_000
+func TestAliveWithDistinguishesTheThreeVerdicts(t *testing.T) {
+	const saved = 1_700_000_000_000
 
-	if !vivoCon(func(int) (int64, error) { return guardado, nil }, 42, guardado) {
-		t.Error("vivoCon = false con el creation_time intacto: un servicio en marcha se declararía parado")
+	if !aliveWith(func(int) (int64, error) { return saved, nil }, 42, saved) {
+		t.Error("aliveWith = false with creation_time intact: a running service would be declared stopped")
 	}
-	if vivoCon(func(int) (int64, error) { return guardado + 1, nil }, 42, guardado) {
-		t.Error("vivoCon = true con un creation_time distinto: el PID fue reciclado y no es " +
-			"nuestro servicio")
+	if aliveWith(func(int) (int64, error) { return saved + 1, nil }, 42, saved) {
+		t.Error("aliveWith = true with a different creation_time: the PID was recycled and is not " +
+			"our service")
 	}
-	if vivoCon(func(int) (int64, error) { return 0, syscall.ESRCH }, 42, guardado) {
-		t.Error("vivoCon = true para un PID que no existe")
+	if aliveWith(func(int) (int64, error) { return 0, syscall.ESRCH }, 42, saved) {
+		t.Error("aliveWith = true for a PID that does not exist")
 	}
-	if vivoCon(func(int) (int64, error) { return 0, errors.New("se fue mientras lo miraba") }, 42, guardado) {
-		t.Error("vivoCon = true sin poder preguntar: afirmar que algo vive sin haberlo visto es el " +
-			"peor error posible aquí")
+	if aliveWith(func(int) (int64, error) { return 0, errors.New("it left while looking at it") }, 42, saved) {
+		t.Error("aliveWith = true without being able to ask: asserting that something is alive without having seen it is the " +
+			"worst possible error here")
 	}
 }
 
 // nil and not an empty slice is what makes it explicit: nil is "could not ask", [] is "asked and nobody owns it".
-func TestDueñosConTrataIgualNoVerYNoSaber(t *testing.T) {
-	const puerto = 4321
+func TestOwnersWithTreatsSameNotSeeAndNotKnow(t *testing.T) {
+	const port = 4321
 
-	escuchan := func(status string, pid int32, p uint32) gopsnet.ConnectionStat {
+	listening := func(status string, pid int32, p uint32) gopsnet.ConnectionStat {
 		return gopsnet.ConnectionStat{Status: status, Pid: pid, Laddr: gopsnet.Addr{Port: p}}
 	}
 	conns := []gopsnet.ConnectionStat{
-		escuchan("LISTEN", 100, puerto),
-		escuchan("LISTEN", 200, puerto+1), // otro puerto
-		escuchan("ESTABLISHED", 300, puerto),
-		escuchan("LISTEN", 0, puerto), // sin dueño: no cuenta
+		listening("LISTEN", 100, port),
+		listening("LISTEN", 200, port+1), // another port
+		listening("ESTABLISHED", 300, port),
+		listening("LISTEN", 0, port), // without owner: does not count
 	}
 
-	got := dueñosCon(func() ([]gopsnet.ConnectionStat, error) { return conns, nil }, puerto)
+	got := ownersWith(func() ([]gopsnet.ConnectionStat, error) { return conns, nil }, port)
 	if len(got) != 1 || got[0] != 100 {
-		t.Errorf("dueñosCon = %v, want [100]: sólo LISTEN, sólo ese puerto y sólo con pid", got)
+		t.Errorf("ownersWith = %v, want [100]: only LISTEN, only that port and only with pid", got)
 	}
 
-	if g := dueñosCon(func() ([]gopsnet.ConnectionStat, error) { return nil, errors.New("proc restricted") },
-		puerto); g != nil {
-		t.Errorf("dueñosCon con error = %v, want nil: sin prueba de propiedad no se mata nada", g)
+	if g := ownersWith(func() ([]gopsnet.ConnectionStat, error) { return nil, errors.New("proc restricted") },
+		port); g != nil {
+		t.Errorf("ownersWith with error = %v, want nil: without ownership proof nothing is killed", g)
 	}
-	if g := dueñosCon(func() ([]gopsnet.ConnectionStat, error) { return nil, nil }, puerto); g != nil {
-		t.Errorf("dueñosCon sin conexiones = %v, want nil", g)
+	if g := ownersWith(func() ([]gopsnet.ConnectionStat, error) { return nil, nil }, port); g != nil {
+		t.Errorf("ownersWith without connections = %v, want nil", g)
 	}
 }
 
-func TestDescendantsFromTerminaConUnCiclo(t *testing.T) {
+func TestDescendantsFromEndsWithACycle(t *testing.T) {
 	snap := map[int]procInfo{
 		1: {ppid: 2},
 		2: {ppid: 1},
@@ -104,143 +104,143 @@ func TestDescendantsFromTerminaConUnCiclo(t *testing.T) {
 	got := descendantsFrom(snap, 1)
 	// From 1 the children are 2 and 3; 2's child is 1, already seen, so the walk stops and the result is [2, 3].
 	if len(got) != 2 {
-		t.Fatalf("descendantsFrom = %v, want [2 3]: el ciclo tiene que cortar en el nodo ya visto", got)
+		t.Fatalf("descendantsFrom = %v, want [2 3]: the cycle must cut at the already seen node", got)
 	}
 	for _, pid := range got {
 		if pid != 2 && pid != 3 {
-			t.Errorf("descendantsFrom = %v, want sólo los descendientes reales de 1", got)
+			t.Errorf("descendantsFrom = %v, want only the real descendants of 1", got)
 		}
 	}
 }
 
 // An empty directory as the /proc root is exactly what a process in a container without proc mounted sees.
-func TestCaptureLineDegradaSinProcs(t *testing.T) {
-	vacio := t.TempDir() // existe y está vacío: ReadDir funciona, no hay procesos
+func TestCaptureLineDegradesWithoutProcs(t *testing.T) {
+	empty := t.TempDir() // exists and is empty: ReadDir works, there are no processes
 
-	casos := []struct {
-		nombre string
-		spec   StopSpec
+	cases := []struct {
+		name string
+		spec StopSpec
 	}{
-		{"sin pid ni pgid", StopSpec{}},
-		{"sin snapshot", StopSpec{Pid: 12345, Pgid: 12345}},
+		{"without pid or pgid", StopSpec{}},
+		{"without snapshot", StopSpec{Pid: 12345, Pgid: 12345}},
 	}
-	for _, c := range casos {
-		t.Run(c.nombre, func(t *testing.T) {
-			root, lineage := captureLineageWith(c.spec, vacio)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			root, lineage := captureLineageWith(c.spec, empty)
 			if root != 0 || lineage != nil {
-				t.Errorf("captureLineageWith = (%d, %v), want (0, nil): sin prueba de linaje no se "+
-					"señala a nadie", root, lineage)
+				t.Errorf("captureLineageWith = (%d, %v), want (0, nil): without lineage proof no one is "+
+					"pointed at", root, lineage)
 			}
 		})
 	}
 
 	// A root that is not a directory: ReadDir fails with ENOTDIR, the other path to the same error.
-	fichero := filepath.Join(t.TempDir(), "no-soy-proc")
-	if err := os.WriteFile(fichero, []byte("x"), 0o644); err != nil {
+	file := filepath.Join(t.TempDir(), "not-proc")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if root, lineage := captureLineageWith(StopSpec{Pid: 1, Pgid: 1}, fichero); root != 0 || lineage != nil {
-		t.Errorf("captureLineageWith con un root ilegible = (%d, %v), want (0, nil)", root, lineage)
+	if root, lineage := captureLineageWith(StopSpec{Pid: 1, Pgid: 1}, file); root != 0 || lineage != nil {
+		t.Errorf("captureLineageWith with an unreadable root = (%d, %v), want (0, nil)", root, lineage)
 	}
 }
 
-func TestReserveWithNoMarcaUnPuertoQueNoSePudoDevolver(t *testing.T) {
+func TestReserveWithDoesNotMarkAPortThatCouldNotBeReleased(t *testing.T) {
 	// An already-closed listener: Close on it fails with "use of closed".
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	cerrado := ln
+	closed := ln
 	if err := ln.Close(); err != nil {
 		t.Fatal(err)
 	}
 
 	// The set is snapshotted first because the exact port attempted depends on what the rest of the suite already reserved; what matters is that the set does not grow.
-	antes := puertosReservados()
+	before := reservedPortsSnapshot()
 
-	_, err = reserveWith(func(string, string) (net.Listener, error) { return cerrado, nil })
+	_, err = reserveWith(func(string, string) (net.Listener, error) { return closed, nil })
 	if err == nil {
-		t.Fatal("reserveWith = nil con un listener que no se puede cerrar: el puerto puede seguir " +
-			"ocupado por él")
+		t.Fatal("reserveWith = nil with a listener that cannot be closed: the port may remain " +
+			"occupied by it")
 	}
 	if !strings.Contains(err.Error(), "could not release the reserved port") {
-		t.Errorf("err = %q, want que diga que no se pudo devolver el puerto", err)
+		t.Errorf("err = %q, want it to say the port could not be returned", err)
 	}
-	despues := puertosReservados()
-	for p := range despues {
-		if !antes[p] {
-			t.Errorf("el puerto %d quedó marcado como reservado tras un cierre fallido: el rango "+
-				"se encogería un hueco por cada fallo, sin explicación", p)
+	after := reservedPortsSnapshot()
+	for p := range after {
+		if !before[p] {
+			t.Errorf("port %d was marked as reserved after a failed close: the range "+
+				"would shrink by one slot per failure, without explanation", p)
 		}
 	}
 }
 
-// MEDIDO: a fake pgrep on the PATH controls only the shape of its output, which is what this function promises to understand; the "another process exists" result comes from a real pid.
-func TestPatternMatchToleraUnaSalidaDePgrepQueNoEsSoloPids(t *testing.T) {
-	otro := procesosDePrueba(t, 1) // un `sleep` real con un nombre reconocible
-	pid := strconv.Itoa(otro[0])
+// MEASURED: a fake pgrep on the PATH controls only the shape of its output, which is what this function promises to understand; the "another process exists" result comes from a real pid.
+func TestPatternMatchToleratesAPgrepOutputThatIsNotJustPids(t *testing.T) {
+	other := testProcesses(t, 1) // a real `sleep` with a recognizable name
+	pid := strconv.Itoa(other[0])
 
-	casos := []struct {
-		nombre string
-		salida string
+	cases := []struct {
+		name   string
+		output string
 		want   bool
 	}{
-		{"una línea en blanco y un pid", "\n" + pid + "\n\n", true},
-		{"una línea que no es un número", "pgrep: algo raro\n" + pid + "\n", true},
-		{"sólo basura", "esto no es un pid\n", false},
-		{"nada, pero con salida 0", "", false},
+		{"a blank line and a pid", "\n" + pid + "\n\n", true},
+		{"a line that is not a number", "pgrep: something weird\n" + pid + "\n", true},
+		{"only garbage", "this is not a pid\n", false},
+		{"nothing, but with exit 0", "", false},
 	}
-	for _, c := range casos {
-		t.Run(c.nombre, func(t *testing.T) {
-			conPgrepFalso(t, c.salida)
-			if got := PatternMatch(pruebaPatron); got != c.want {
-				t.Errorf("PatternMatch con la salida %q = %v, want %v", c.salida, got, c.want)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			withFakePgrep(t, c.output)
+			if got := PatternMatch(testPattern); got != c.want {
+				t.Errorf("PatternMatch with output %q = %v, want %v", c.output, got, c.want)
 			}
 		})
 	}
 }
 
-// MEDIDO: the last-resort killer is fuser -k, so a fake fuser that kills nothing stands in for a container without fuser; the port outlives the wait and a warning is owed.
-func TestKillPortHolderAvisaCuandoElPuertoNoSeLibera(t *testing.T) {
+// MEASURED: the last-resort killer is fuser -k, so a fake fuser that kills nothing stands in for a container without fuser; the port outlives the wait and a warning is owed.
+func TestKillPortHolderWarnsWhenThePortIsNotFreed(t *testing.T) {
 	// An open port with a known owner, which is what lets killPortHolderWith reach the last resort instead of refusing outright.
-	ln := escucharEn(t)
-	puerto := puertoDe(t, ln)
+	ln := listenOn(t)
+	port := portOf(t, ln)
 	pid := os.Getpid()
 
-	var avisos []string
-	conFuserFalso(t) // no mata nada
-	killPortHolderWith(puerto, pid, []int{pid}, func(int) []int32 { return []int32{int32(pid)} },
-		func(f string, a ...any) { avisos = append(avisos, fmt.Sprintf(f, a...)) })
+	var warnings []string
+	withFakeFuser(t) // kills nothing
+	killPortHolderWith(port, pid, []int{pid}, func(int) []int32 { return []int32{int32(pid)} },
+		func(f string, a ...any) { warnings = append(warnings, fmt.Sprintf(f, a...)) })
 
-	if len(avisos) != 1 {
-		t.Fatalf("avisos = %v, want exactamente uno: sin dueño atribuible hay dos "+
-			"renuncias, y con dueño propio pero puerto ocupado hay una", avisos)
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %v, want exactly one: without attributable owner there are two "+
+			"renunciations, and with own owner but occupied port there is one", warnings)
 	}
-	if !strings.Contains(avisos[0], "sigue ocupado") {
-		t.Errorf("aviso = %q, want que diga que el puerto sigue ocupado tras el kill", avisos[0])
+	if !strings.Contains(warnings[0], "still occupied") {
+		t.Errorf("warning = %q, want it to say the port is still occupied after the kill", warnings[0])
 	}
 }
 
 // It does not have to match anything real: what is controlled is what the fake prints.
-const pruebaPatron = "vroom-test-patterno-que-no-existe"
+const testPattern = "vroom-test-pattern-that-does-not-exist"
 
 // It exits 0 on purpose even with no matches, which is the rare case that lets an empty output reach the parser.
-func conPgrepFalso(t *testing.T, salida string) {
+func withFakePgrep(t *testing.T, output string) {
 	t.Helper()
 	dir := t.TempDir()
 	// The output goes in a file the fake cats: a heredoc looked nicer but cat reads stdin, and exec.Command gives the child /dev/null, not the heredoc.
-	if err := os.WriteFile(filepath.Join(dir, "salida.txt"), []byte(salida), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "output.txt"), []byte(output), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// PATH is prepended rather than replaced: with a single-directory PATH the script itself cannot find cat, and that is exactly how a real pgrep fails.
 	if err := os.WriteFile(filepath.Join(dir, "pgrep"),
-		[]byte("#!/bin/sh\ncat "+filepath.Join(dir, "salida.txt")+"\nexit 0\n"), 0o755); err != nil {
+		[]byte("#!/bin/sh\ncat "+filepath.Join(dir, "output.txt")+"\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-func conFuserFalso(t *testing.T) {
+func withFakeFuser(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "fuser"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
@@ -249,7 +249,7 @@ func conFuserFalso(t *testing.T) {
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 }
 
-func procesosDePrueba(t *testing.T, n int) []int {
+func testProcesses(t *testing.T, n int) []int {
 	t.Helper()
 	var pids []int
 	for range n {
@@ -264,7 +264,7 @@ func procesosDePrueba(t *testing.T, n int) []int {
 	return pids
 }
 
-func puertosReservados() map[int]bool {
+func reservedPortsSnapshot() map[int]bool {
 	reserveMu.Lock()
 	defer reserveMu.Unlock()
 	out := make(map[int]bool, len(reservedPorts))
@@ -274,7 +274,7 @@ func puertosReservados() map[int]bool {
 	return out
 }
 
-func escucharEn(t *testing.T) net.Listener {
+func listenOn(t *testing.T) net.Listener {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -284,75 +284,75 @@ func escucharEn(t *testing.T) net.Listener {
 	return ln
 }
 
-func puertoDe(t *testing.T, ln net.Listener) int {
+func portOf(t *testing.T, ln net.Listener) int {
 	t.Helper()
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
-// MEDIDO: the surviving-SIGKILL case cannot be built here (setpriv --reuid gives EPERM and unshare -U leaves children with the same uid), so what is asserted is WHEN the ladder warns.
-func TestElAvisoDeEscalonDependeDeQueHuboRootYDeQueNoMurio(t *testing.T) {
-	casos := []struct {
-		nombre    string
-		root      int
-		noMurio   bool
-		wantAviso bool
-		por       string
+// MEASURED: the surviving-SIGKILL case cannot be built here (setpriv --reuid gives EPERM and unshare -U leaves children with the same uid), so what is asserted is WHEN the ladder warns.
+func TestTheLadderWarningDependsOnWhetherThereWasRootAndWhetherItDidNotDie(t *testing.T) {
+	cases := []struct {
+		name        string
+		root        int
+		didNotDie   bool
+		wantWarning bool
+		because     string
 	}{
-		{"hubo root y sobrevivió alguien", 100, true, true, "se agotó la escalera: hay que decirlo"},
-		{"hubo root y todo murió", 100, false, false, "el servicio se paró bien: un aviso aquí " +
-			"sería ruido"},
-		{"no hubo root", 0, true, false, "sin root no había nada que parar y `terminate` ni se " +
-			"llama; avisar de un linaje vacío sería mentir"},
+		{"there was root and someone survived", 100, true, true, "the ladder was exhausted: it must be said"},
+		{"there was root and everything died", 100, false, false, "the service stopped well: a warning here " +
+			"would be noise"},
+		{"there was no root", 0, true, false, "without root there was nothing to stop and `terminate` is not even " +
+			"called; warning about an empty lineage would be lying"},
 	}
-	for _, c := range casos {
-		t.Run(c.nombre, func(t *testing.T) {
-			var avisos []string
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var warnings []string
 			StopSpec{Warn: func(f string, a ...any) {
-				avisos = append(avisos, fmt.Sprintf(f, a...))
-			}}.avisaSiSeAgotó(c.root, []int{c.root, 200}, c.noMurio)
+				warnings = append(warnings, fmt.Sprintf(f, a...))
+			}}.warnIfExhausted(c.root, []int{c.root, 200}, c.didNotDie)
 
-			if c.wantAviso {
-				if len(avisos) != 1 {
-					t.Fatalf("avisos = %v, want exactamente uno", avisos)
+			if c.wantWarning {
+				if len(warnings) != 1 {
+					t.Fatalf("warnings = %v, want exactly one", warnings)
 				}
-				if !strings.Contains(avisos[0], "SIGKILL") {
-					t.Errorf("aviso = %q, want que nombre el SIGKILL: si se agotó la escalera, "+
-						"el usuario tiene que saber que no fue culpa de la cortesía", avisos[0])
+				if !strings.Contains(warnings[0], "SIGKILL") {
+					t.Errorf("warning = %q, want it to name SIGKILL: if the ladder was exhausted, "+
+						"the user has to know it was not courtesy's fault", warnings[0])
 				}
-				if !strings.Contains(avisos[0], strconv.Itoa(c.root)) {
-					t.Errorf("aviso = %q, want el pid del root: sin él el usuario no puede buscar "+
-						"el proceso que se resiste", avisos[0])
+				if !strings.Contains(warnings[0], strconv.Itoa(c.root)) {
+					t.Errorf("warning = %q, want the root's pid: without it the user cannot search "+
+						"for the resisting process", warnings[0])
 				}
 				return
 			}
-			if len(avisos) != 0 {
-				t.Errorf("avisos = %v, want ninguno: %s", avisos, c.por)
+			if len(warnings) != 0 {
+				t.Errorf("warnings = %v, want none: %s", warnings, c.because)
 			}
 		})
 	}
 }
 
-// MEDIDO: a kernel thread fits exactly - /proc reports state R so lineageRunning counts it alive, while a normal user gets EPERM on SIGKILL.
-func TestTerminateDevuelveFalsoConUnProcesoQueNoSePuedeMatar(t *testing.T) {
-	kthread := hiloDelKernel()
+// MEASURED: a kernel thread fits exactly - /proc reports state R so lineageRunning counts it alive, while a normal user gets EPERM on SIGKILL.
+func TestTerminateReturnsFalseWithAProcessThatCannotBeKilled(t *testing.T) {
+	kthread := kernelThread()
 	if kthread == 0 {
-		t.Skip("esta máquina no tiene un hilo del kernel legible en /proc")
+		t.Skip("this machine has no readable kernel thread in /proc")
 	}
 	// If signalling ever succeeds the scenario no longer applies and terminate would go back to returning true.
 	if err := syscall.Kill(kthread, syscall.SIGKILL); err == nil {
-		t.Skip("este usuario puede matar hilos del kernel: el escenario de prueba ya no aplica")
+		t.Skip("this user can kill kernel threads: the test scenario no longer applies")
 	}
 
-	root := lanzar(t, "sleep", "30")
+	root := launch(t, "sleep", "30")
 
 	if terminate(root, 0, []int{root, kthread}, 200*time.Millisecond) {
-		t.Error("terminate = true con un proceso imparable en el linaje: la escalera se agotó y " +
-			"`Stop` no avisaría de nada")
+		t.Error("terminate = true with an unkillable process in the lineage: the ladder was exhausted and " +
+			"`Stop` would not warn about anything")
 	}
 }
 
 // Picks a kernel thread: a live state with ppid 0 or 2, or 0 if none is readable.
-func hiloDelKernel() int {
+func kernelThread() int {
 	entries, err := os.ReadDir(procRoot)
 	if err != nil {
 		return 0
@@ -371,7 +371,7 @@ func hiloDelKernel() int {
 	return 0
 }
 
-func lanzar(t *testing.T, name string, args ...string) int {
+func launch(t *testing.T, name string, args ...string) int {
 	t.Helper()
 	cmd := exec.Command(name, args...)
 	if err := cmd.Start(); err != nil {

@@ -28,7 +28,7 @@ func TestStopStackParaCadaServicioUnaSolaVez(t *testing.T) {
 	}
 
 	stack := &Stack{
-		Name: "doble",
+		Name: "double",
 		Stages: []Stage{
 			{Name: "base", Services: []string{"api", "web"}},
 			{Name: "extra", Services: []string{"api"}},
@@ -40,12 +40,12 @@ func TestStopStackParaCadaServicioUnaSolaVez(t *testing.T) {
 	}
 
 	if len(paradas) != 2 {
-		t.Fatalf("se pararon %d servicios (%v), want 2: un servicio nombrado en dos etapas es "+
-			"el MISMO servicio, y pararlo dos veces acaba pidiendo al gestor que suelte un puerto "+
-			"que ya puede tener otro", len(paradas), paradas)
+		t.Fatalf("%d services were stopped (%v), want 2: a service named in two stages is "+
+			"the SAME service, and stopping it twice ends up asking the manager to release a port "+
+			"that may already belong to someone else", len(paradas), paradas)
 	}
 	if paradas[0] == paradas[1] {
-		t.Errorf("las dos paradas son del mismo servicio (%q): el `seen` no está filtrando", paradas[0])
+		t.Errorf("both stops are of the same service (%q): the `seen` is not filtering", paradas[0])
 	}
 }
 
@@ -58,29 +58,29 @@ func TestLaRetiradaFallidaNoRevocaLaPropiedadDeLaRuta(t *testing.T) {
 
 	e := NewEngine(&noKillManager{}, state.NewStoreAt(t.TempDir()))
 
-	meta := state.Meta{RouteOwned: true, RouteName: "mi-ruta"}
+	meta := state.Meta{RouteOwned: true, RouteName: "my-route"}
 	e.releaseRouteOnStop(&meta)
 
 	if !meta.RouteOwned {
-		t.Error("RouteOwned = false con una retirada que falló: la ruta sigue puesta y ahora " +
-			"nadie tiene su handle, así que no la puede limpiar nadie")
+		t.Error("RouteOwned = false with a removal that failed: the route is still up and now " +
+			"nobody has its handle, so nobody can clean it up")
 	}
 	if !fallando.intentos {
-		t.Error("no se intentó retirar la ruta")
+		t.Error("the route removal was not attempted")
 	}
 }
 
-// The other two branches (stub installed, test binary) are used daily; this one makes the engine talk to the real portless, and an accidental nil here must not read as "this service has no route". MEDIDO: IsTestBinary decides on the os.Args[0] suffix, so overriding it reproduces the installed binary's entry without touching the function.
+// The other two branches (stub installed, test binary) are used daily; this one makes the engine talk to the real portless, and an accidental nil here must not read as "this service has no route". MEASURED: IsTestBinary decides on the os.Args[0] suffix, so overriding it reproduces the installed binary's entry without touching the function.
 func TestEngineRouteReleaserDevuelveNilFueraDeUnBinarioDeTest(t *testing.T) {
 	original := os.Args[0]
 	t.Cleanup(func() { os.Args[0] = original })
 
 	os.Args[0] = "/usr/local/bin/vroom"
 	if portless.IsTestBinary() {
-		t.Fatal("IsTestBinary sigue diciendo que es un test con un argv de producción")
+		t.Fatal("IsTestBinary still says it is a test with a production argv")
 	}
 	if got := engineRouteReleaser(); got != nil {
-		t.Errorf("engineRouteReleaser() = %v con un binario de producción, want nil", got)
+		t.Errorf("engineRouteReleaser() = %v with a production binary, want nil", got)
 	}
 }
 
@@ -88,7 +88,7 @@ type falloReleaser struct{ intentos bool }
 
 func (r *falloReleaser) RemoveAbsent(string) error {
 	r.intentos = true
-	return errors.New("portless no pudo retirar la ruta")
+	return errors.New("portless could not remove the route")
 }
 
 type registroManager struct{ paradas *[]string }

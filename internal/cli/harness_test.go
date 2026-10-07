@@ -14,7 +14,7 @@ import (
 
 // Commands here run real against a real tree on a real disk with no scanner, store or manager doubles, because a double would only test the double; only the env is substituted so the developer's state is untouched.
 
-var errWrite = errors.New("no se pudo escribir")
+var errWrite = errors.New("could not write")
 
 // Returning the store is what lets a test check the on-disk effect, because a command can claim anything about itself.
 func chdirTree(t *testing.T, root string) *state.Store {
@@ -117,14 +117,14 @@ func waitGone(t *testing.T, pid int) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Errorf("el proceso %d sigue vivo tras el stop: waitGone agotó su plazo", pid)
+	t.Errorf("process %d still alive after stop: waitGone timed out", pid)
 }
 
 // Tests that start something must stop it, or every sleep 30 leaves a zombie process accumulating on the runner.
 func stopService(t *testing.T, store *state.Store, path string) {
 	t.Helper()
 	if err := stopCleanup(store, process.NewManager(), path); err != nil {
-		t.Fatalf("limpieza del servicio %s: %v", path, err)
+		t.Fatalf("service cleanup %s: %v", path, err)
 	}
 }
 

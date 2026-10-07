@@ -1,246 +1,253 @@
-# ADR-0012 — Contrato de propiedad del puerto y puertos dinámicos por worktree
+# ADR-0012 — Port ownership contract and dynamic ports per worktree
 
-- Estado: aceptada
-- Fecha: 2026-09-30
+- Status: accepted
+- Date: 2026-09-30
 - Feature: `0011-feature-dynamic-ports`
 
-## Contexto
+## Context
 
-El puerto de un servicio estaba atado al `.vroom.toml`, y el manifiesto es un
-snapshot que se lee una vez en el scan. Eso funciona mientras cada proyecto
-tenga su propio directorio. Con **N worktrees del mismo repo** todos declaran
-el mismo `port`, sólo uno arranca y los demás chocan con `EADDRINUSE` o, peor,
-`Evaluate` los da por vivos porque "el puerto está abierto" — el del twin.
+A service's port was tied to the `.vroom.toml`, and the manifest is a
+snapshot read once at scan time. That works while each project has its own
+directory. With **N worktrees of the same repo** they all declare the same
+`port`, only one starts and the rest collide with `EADDRINUSE` or, worse,
+`Evaluate` considers them alive because "the port is open" — the twin's.
 
-A eso se suman dos problemas preexistentes que el caso de los puertos
-efímeros vuelve mucho más peligroso un `fuser` equivocado:
+Added to that are two preexisting problems that the ephemeral port case
+makes a wrong `fuser` much more dangerous:
 
-1. `Stop` señalizaba `kill(-pgid)`, que **no alcanza a los descendientes que
-   hicieron `setsid`** (`nohup`, `pm2`, `docker run -d`, `portless`): quedan en
-   otro process group y siguen escuchando.
-2. El último recurso de `Stop` era `fuser -k` sobre el puerto, sin comprobar
-   dueño, y el guard era `Pgid > 0 || Port > 0` con los cuatro call sites
-   preservando `Port` con `Pgid = 0`. Detener un servicio ya parado mataba a
-   quien tuviera ese puerto — normalmente el twin.
+1. `Stop` signaled `kill(-pgid)`, which **does not reach descendants that
+   called `setsid`** (`nohup`, `pm2`, `docker run -d`, `portless`): they
+   remain in another process group and keep listening.
+2. `Stop`'s last resort was `fuser -k` on the port, without checking
+   ownership, and the guard was `Pgid > 0 || Port > 0` with all four call
+   sites preserving `Port` with `Pgid = 0`. Stopping an already-stopped
+   service killed whoever held that port — normally the twin.
 
-## Decisión
+## Decision
 
-1. **`port_mode` es un campo aditivo de tres estados**, con `fixed` por
-   defecto. Ausente significa `fixed`, y `port = 0` sigue siendo un alias
-   silencioso de `none` para no romper ningún manifiesto existente.
+1. **`port_mode` is an additive three-state field**, with `fixed` as the
+   default. Absent means `fixed`, and `port = 0` remains a silent alias for
+   `none` so as not to break any existing manifest.
 
-2. **`port` conserva un único significado**: el puerto por defecto de la app,
-   el mismo valor de `PORT=${PORT:-N}`. Manifiesto y app quedan alineados por
-   construcción.
+2. **`port` retains a single meaning**: the app's default port, the same
+   value as `PORT=${PORT:-N}`. Manifest and app are aligned by construction.
 
-3. **En `dynamic`, vroom es el único dueño del puerto.** Reserva uno libre en
-   `4000–4999`, lo inyecta como `PORT` (junto a `HOST=127.0.0.1`) y descubre y
-   verifica el puerto real antes de devolver el control. La reserva lleva un
-   mutex y un set en memoria de puertos ya entregados: **dentro de un proceso
-   vroom** dos reservas concurrentes nunca coinciden. Entre procesos vroom
-   distintos la ventana `bind`+`close` sigue abierta (ver trade-offs).
+3. **In `dynamic`, vroom is the sole owner of the port.** It reserves a free
+   one in `4000–4999`, injects it as `PORT` (along with `HOST=127.0.0.1`),
+   and discovers and verifies the real port before returning control. The
+   reservation carries a mutex and an in-memory set of already-issued ports:
+   **within a single vroom process** two concurrent reservations never
+   collide. Between distinct vroom processes the `bind`+`close` window
+   remains open (see trade-offs).
 
-   **La reserva tiene ciclo de vida: se adquiere al arrancar y se devuelve al
-   parar.** El puerto reservado se persiste aparte del real
-   (`Meta.ReservedPort`), porque los dos tienen vidas distintas: el real es lo
-   que se muestra y se sondea, el reservado es lo que hay que liberar. Sin
-   persistirlo no hay forma de que el stop sepa qué devolver. Los cuatro
-   caminos de parada (TUI, CLI, `stopService` y `abortAndCleanup`) lo liberan y
-   ponen `ReservedPort = 0`, porque un stop repetido que leyera una reserva
-   vieja liberaría un puerto que otro servicio ya tiene tomado.
+   **The reservation has a lifecycle: it is acquired at start and returned
+   at stop.** The reserved port is persisted separately from the real one
+   (`Meta.ReservedPort`), because the two have different lifetimes: the real
+   one is what is displayed and probed, the reserved one is what must be
+   released. Without persisting it there is no way for stop to know what to
+   return. All four stop paths (TUI, CLI, `stopService`, and
+   `abortAndCleanup`) release it and set `ReservedPort = 0`, because a
+   repeated stop reading a stale reservation would release a port another
+   service has already taken.
 
-   El set es **por proceso y muere con él**: un crash no encoge el rango
-   permanentemente, el siguiente vroom arranca con el set vacío. Y una entrada
-   obsoleta solo puede hacer que se salte un puerto realmente libre, nunca
-   provocar una colisión, porque `bind` es la verdad sobre ocupación.
-   El descubrimiento
-   está acotado por tres cosas: deadline, **liveness del linaje** (fallo rápido
-   de orden de 1 s si el proceso muere) y **ventana de estabilización**: el
-   conjunto de listeners debe llevar 500 ms sin cambiar antes de aceptarse. Una
-   app que abre metrics en una goroutine y el principal en otra produce dos
-   muestras distintas, y aceptar la primera elige el listener equivocado.
+   The set is **per process and dies with it**: a crash does not shrink the
+   range permanently, the next vroom starts with an empty set. And a stale
+   entry can only cause a genuinely free port to be skipped, never cause a
+   collision, because `bind` is the truth about occupancy.
+   Discovery is bounded by three things: deadline, **lineage liveness**
+   (fast failure on the order of 1 s if the process dies), and
+   **stabilization window**: the set of listeners must remain unchanged for
+   500 ms before being accepted. An app that opens metrics in one goroutine
+   and the main one in another produces two different samples, and accepting
+   the first chooses the wrong listener.
 
-4. **El puerto real es la única verdad.** `meta.Port` pasa a ser el puerto
-   efectivamente escuchado y las seis superficies nombradas lo leen. Qué hace
-   cada una con un puerto **no confirmado**:
+4. **The real port is the only truth.** `meta.Port` becomes the port
+   effectively listened on and the six named surfaces read it. What each one
+   does with an **unconfirmed** port:
 
-   | Superficie | Puerto no confirmado |
+   | Surface | Unconfirmed port |
    |---|---|
-   | badge, vista de servicio, dashboard | `port_unresolved` no cae al declarado; muestra "port unresolved" sin número |
-   | tab Health | no sondea nada y explica por qué |
-   | gate de salud de stacks | `port_unresolved` es un resultado no fatal; `port_pending` sí falla la etapa |
-   | **JSON de la CLI** | `port` vale `0`; el declarado se publica aparte en `declared_port` |
-   | `meta.Port` en disco | `0`, con `State` explícito |
+   | badge, service view, dashboard | `port_unresolved` does not fall back to the declared one; shows "port unresolved" with no number |
+   | Health tab | probes nothing and explains why |
+   | stack health gate | `port_unresolved` is a non-fatal result; `port_pending` does fail the stage |
+   | **CLI JSON** | `port` is `0`; the declared one is published separately in `declared_port` |
+   | `meta.Port` on disk | `0`, with explicit `State` |
 
-   Sólo cuando **no hay servicio en marcha** se usa el declarado: parado, es
-   la única información que existe. El declarado vive además en
-   `declared_port`, así que un agente puede consultar la intención del
-   manifiesto sin que se confunda con el puerto real.
+   Only when **no service is running** is the declared one used: stopped, it
+   is the only information that exists. The declared one also lives in
+   `declared_port`, so an agent can query the manifest's intent without it
+   being confused with the real port.
 
-5. **El entorno del hijo se fusiona explícitamente** con `os.Environ()` antes
-   de inyectar. En Go, `cmd.Env == nil` hereda y cualquier slice no-nil
-   **reemplaza** el entorno entero.
+5. **The child's environment is merged explicitly** with `os.Environ()`
+   before injecting. In Go, `cmd.Env == nil` inherits and any non-nil slice
+   **replaces** the entire environment.
 
-6. **`Stop` señaliza el linaje, no sólo el grupo.** El linaje real se lee de
-   `/proc` y se captura **antes** de señalizar: al morir la raíz sus hijos se
-   reparentan a init y la relación se pierde.
+6. **`Stop` signals the lineage, not just the group.** The real lineage is
+   read from `/proc` and captured **before** signaling: when the root dies
+   its children are reparented to init and the relationship is lost.
 
-   Y hay **dos raíces creíbles**, no una: con PGID se mata el grupo y los
-   re-sid por su lineage; con sólo PID, sin grupo al que matar, se señaliza la
-   raíz y su linaje. Ambas comparten la MISMA escalera de escalada, para que
-   no puedan divergir en semántica. `StopSpec.Pid` está documentado como raíz
-   del linaje: como objetivo de muerte era decorativo, porque todo el bloque
-   estaba bajo `Pgid > 0` y un spec con sólo PID no hacía absolutamente nada.
-   Sin ninguna raíz creíble, `Stop` sigue siendo un no-op y el fallback de
-   puerto no se dispara: la prueba de propiedad no se debilita.
+   And there are **two credible roots**, not one: with PGID the group is
+   killed and the re-sids by their lineage; with only PID, with no group to
+   kill, the root and its lineage are signaled. Both share the SAME
+   escalation ladder, so they cannot diverge in semantics. `StopSpec.Pid`
+   is documented as the lineage root: as a kill target it was decorative,
+   because the whole block was under `Pgid > 0` and a spec with only PID did
+   absolutely nothing. With no credible root, `Stop` remains a no-op and
+   the port fallback does not fire: the ownership test is not weakened.
 
-7. **El guard de propiedad del puerto falla cerrado.** `fuser -k` sólo corre si
-   hay **un único dueño conocido** y **pertenece al linaje** del servicio. Cero
-   dueños (permisos, `/proc` ilegible), varios dueños (mismo número en IPv4 e
-   IPv6) o un dueño ajeno: no se mata nada y se emite un aviso. El aviso viaja
-   por `StopSpec.Warn` hasta el log del servicio y la TUI.
+7. **The port ownership guard fails closed.** `fuser -k` only runs if there
+   is **a single known owner** and it **belongs to the service's lineage**.
+   Zero owners (permissions, unreadable `/proc`), multiple owners (same
+   number on IPv4 and IPv6), or a foreign owner: nothing is killed and a
+   warning is emitted. The warning travels via `StopSpec.Warn` to the
+   service log and the TUI.
 
-8. **El propietario indeterminado no resuelve a "vivo".** `PortOwnerPID`
-   devuelve 0 ante ambigüedad y `Evaluate` degrada a indeterminado en vez de
-   aplicar el veredicto optimista.
+8. **Undetermined owner does not resolve to "alive".** `PortOwnerPID`
+   returns 0 on ambiguity and `Evaluate` degrades to undetermined instead of
+   applying the optimistic verdict.
 
-9. **El descubrimiento lee `/proc` directamente** (11 ms) y cruza
-   `/proc/net/tcp{,6}` con `/proc/<pid>/fd` del linaje. `gopsutil.Processes()`
-   cuesta 54–62 ms medidos en esta máquina, y el descubrimiento **no vive en
-   el tick de la TUI**.
+9. **Discovery reads `/proc` directly** (11 ms) and crosses
+   `/proc/net/tcp{,6}` with `/proc/<pid>/fd` of the lineage.
+   `gopsutil.Processes()` costs 54–62 ms measured on this machine, and
+   discovery **does not live in the TUI tick**.
 
-10. **"Puerto pendiente", "sin puerto" y "puerto sin resolver" son tres
-    estados con nombre** (`port_pending`, `no_port`, `port_unresolved`),
-    declarados a la vez en `state` y en `process`. El pendiente no se disfraza
-    de sano con el spinner genérico, y los tres siguen siendo detenibles.
+10. **"Port pending", "no port", and "port unresolved" are three named
+    states** (`port_pending`, `no_port`, `port_unresolved`), declared in both
+    `state` and `process`. Pending is not disguised as healthy with the
+    generic spinner, and all three remain stoppable.
 
-11. **El vencimiento del plazo de discovery no prueba que no haya puerto.**
-    Un servicio que tarda 12 s en levantar y uno solo-UDP lucen igual durante
-    12 s. Por eso hay una segunda ventana acotada
-    (`DefaultDynamicUnresolvedGrace`): si el puerto aparece ahí, se resuelve
-    como siempre y no queda sin resolver. Sólo si tampoco aparece un solo
-    listener en plazo + gracia se afirma `no_port`. Y cuando hay listeners
-    pero ninguno se puede declarar principal, el resultado es
-    `port_unresolved`, que no es lo mismo que "no tiene puerto".
+11. **Discovery deadline expiry does not prove there is no port.** A service
+    that takes 12 s to come up and a UDP-only one look the same for 12 s.
+    That is why there is a second bounded window
+    (`DefaultDynamicUnresolvedGrace`): if the port appears there, it resolves
+    as always and does not remain unresolved. Only if not even a single
+    listener appears within deadline + grace is `no_port` asserted. And when
+    there are listeners but none can be declared primary, the result is
+    `port_unresolved`, which is not the same as "has no port".
 
-12. **"Pendiente" y "sin resolver" no comparten veredicto.** El discovery en
-    vuelo sigue siendo un gate real (`ErrPortPending`): una etapa no puede
-    darse por buena con el puerto sin decidir. Pero `port_unresolved` es
-    terminal —el discovery ya terminó— y es un **tercer resultado no fatal**
-    (`PortUnresolved`), distinto de `PortNone`. Tratarlo como error encadenaba
-    hasta `abortAndCleanup`, que apagaba a los hermanos sanos; y su mensaje
-    decía "pending", mandando al usuario a esperar algo que ya había acabado.
+12. **"Pending" and "unresolved" do not share a verdict.** In-flight
+    discovery is still a real gate (`ErrPortPending`): a stage cannot be
+    considered good with the port undecided. But `port_unresolved` is
+    terminal —discovery has already finished— and it is a **third non-fatal
+    result** (`PortUnresolved`), distinct from `PortNone`. Treating it as an
+    error chained all the way to `abortAndCleanup`, which shut down healthy
+    siblings; and its message said "pending", telling the user to wait for
+    something that had already finished.
 
-    Los estados de puerto también cuentan como "el proceso está en pie": un
-    servicio vivo con el puerto pendiente, sin puerto o sin resolver NO se
-    reinicia en cada launch. Solo `running` era "vivo" antes de que existieran
-    estos estados, y reiniciar un servicio sano por no tener el puerto cerrado
-    es un fallo por sí mismo.
+    Port states also count as "the process is up": a live service with the
+    port pending, without a port, or unresolved is NOT restarted on every
+    launch. Only `running` was "alive" before these states existed, and
+    restarting a healthy service for not having the port closed is a failure
+    in itself.
 
-13. **Un puerto que vroom no ha verificado no es objetivo de sonda.** Con el
-    puerto sin resolver, `displayPort` devuelve 0 en vez de caer al puerto
-    declarado, y la tab Health no emite probe. Sondear el declarado puede
-    alcanzar el puerto del twin de otro worktree, y presentarlo como propio
-    es peor que no mostrar nada.
+13. **A port vroom has not verified is not a probe target.** With the port
+    unresolved, `displayPort` returns 0 instead of falling back to the
+    declared port, and the Health tab emits no probe. Probing the declared
+    one can reach another worktree's twin port, and presenting it as one's
+    own is worse than showing nothing.
 
-## Consecuencias
+## Consequences
 
-### Positivas
+### Positives
 
-- El mismo `.vroom.toml` sirve para N worktrees a la vez.
-- Parar un worktree no toca al twin, y un `Stop` ya no deja listeners
-  huérfanos de descendientes re-`sid`.
-- El fallo es visible y local: el aviso de propiedad nombra el puerto y el
-  proceso que no se pudo probar.
-- El fallo de arranque es rápido y con causa distinta: un servicio que muere
-  se reporta en ~1 s en vez de agotar el timeout del discovery.
+- The same `.vroom.toml` serves N worktrees at once.
+- Stopping a worktree does not touch the twin, and a `Stop` no longer leaves
+  orphaned listeners from re-`sid` descendants.
+- Failure is visible and local: the ownership warning names the port and the
+  process that could not be proven.
+- Startup failure is fast and with a distinct cause: a dying service is
+  reported in ~1 s instead of exhausting the discovery timeout.
 
-### Negativas / trade-offs
+### Negatives / trade-offs
 
-- El arranque en `dynamic` se alarga lo que tarde el proceso en hacer bind
-  (hasta ~3,5 s en el caso de los tests). La ventana spawn→`SaveMeta` deja de
-  ser sub-milisegundo.
-- **TOCTOU de la reserva:** `bind` + `close` devuelve el puerto al pool antes de
-  que arranque el hijo. Esa ventana **no** es improbable en el caso dominante.
-  Corregido: la colisión vroom-contra-vroom dentro de un mismo proceso no es un
-  caso raro sino el normal, porque `toggleNode` devuelve `tea.Batch` (bubbletea
-  corre los comandos en paralelo) y `Launch` arranca cada servicio de una etapa
-  en su propia goroutine. Medido antes del arreglo: **99,5 %** de colisiones
-  entre pares de reservas concurrentes, porque todas entraban por el primer
-  hueco libre del rango. Ahora hay un mutex y un set en memoria de puertos
-  entregados (`ReservePort` / `ReleasePort`), de modo que **dos reservas
-  concurrentes en el mismo proceso vroom nunca devuelven el mismo puerto**, y un
-  intento fallido devuelve el suyo.
-  Lo que **no** queda protegido: dos procesos vroom **distintos**. Cada uno
-  tiene su propio set y ambos hacen `bind`+`close` sobre el mismo pool del
-  kernel. Esa es la ventana que queda abierta; mitigarla exigiría socket passing
-  o un fichero de lock, y el hijo es `sh -c`, así que no hay a quién pasarle el
-  descriptor. Un `EADDRINUSE` en ese caso lo reporta la app, no vroom.
-- Se necesita una variable de entorno en la app (`PORT=${PORT:-8080}`). Una app
-  que no la honra funciona, pero hay que avisar y descubrir su puerto real.
-- El fallo cerrado puede dejar un listener huérfano genuino vivo tras un stop.
-  Es un coste consciente: el daño silencioso entre worktrees es peor que un
-  huérfano visible más un aviso.
-- `/proc` es específico de Linux. La convención `xxxAt(root, pid)` deja el
-  reader inyectable, pero una implementación Windows necesita otro reader.
+- Startup in `dynamic` is extended by however long the process takes to bind
+  (up to ~3.5 s in the test case). The spawn→`SaveMeta` window is no longer
+  sub-millisecond.
+- **Reservation TOCTOU:** `bind` + `close` returns the port to the pool
+  before the child starts. That window is **not** improbable in the dominant
+  case. Fixed: vroom-against-vroom collision within the same process is not
+  a rare case but the normal one, because `toggleNode` returns `tea.Batch`
+  (bubbletea runs commands in parallel) and `Launch` starts each service of
+  a stage in its own goroutine. Measured before the fix: **99.5 %** of
+  collisions between concurrent reservation pairs, because all of them
+  entered through the first free slot in the range. Now there is a mutex and
+  an in-memory set of issued ports (`ReservePort` / `ReleasePort`), so that
+  **two concurrent reservations in the same vroom process never return the
+  same port**, and a failed attempt returns its own.
+  What is **not** protected: two **distinct** vroom processes. Each has its
+  own set and both do `bind`+`close` on the same kernel pool. That is the
+  window that remains open; mitigating it would require socket passing or a
+  lock file, and the child is `sh -c`, so there is no one to pass the
+  descriptor to. An `EADDRINUSE` in that case is reported by the app, not
+  vroom.
+- An environment variable is needed in the app (`PORT=${PORT:-8080}`). An
+  app that does not honor it works, but there must be a warning and its real
+  port must be discovered.
+- Failing closed can leave a genuine orphaned listener alive after a stop.
+  It is a conscious cost: silent damage between worktrees is worse than a
+  visible orphan plus a warning.
+- `/proc` is Linux-specific. The `xxxAt(root, pid)` convention leaves the
+  reader injectable, but a Windows implementation needs another reader.
 
-### Limitaciones documentadas (no garantías)
+### Documented limitations (not guarantees)
 
-1. **App no-HTTP que además ignora `PORT`:** vroom no tiene forma de saber
-   cuál listener es el principal. Se elige el de menor número, de forma
-   determinista, y el servicio se marca como no verificado: en la TUI el
-   puerto aparece sin confirmar, y en el JSON `port` trae el número elegido
-   con `port_verified: false`. Ese `false` **es emisible** porque el campo es
-   un `*bool` tri-estado, no un `bool` con `omitempty` — que era
-   precisamente lo que hacía la marca invisible en la superficie que leen
-   los agentes.
-2. **Listeners que se abren más de 500 ms escalonados:** la ventana de
-   estabilización cubre la apertura típica en dos goroutines. Si el conjunto
-   no se estabiliza dentro del plazo, el resultado no es un puerto inventado
-   sino `port_unresolved`: hay listeners, no se sabe cuál es el principal, y
-   se dice. Es un resultado no fatal. Una app que abre un listener principal
-   segundos después de otro acaba con listeners que nunca se estabilizan y
-   por tanto sin puerto declarado, no con el equivocado.
-3. **Servicio sólo-UDP:** sin puerto TCP descubrible. Se registra "sin puerto"
-   (`no_port`), nunca un cuelgue. La afirmación descansa en la ausencia de
-   listeners durante plazo + gracia (16 s por defecto), no en una prueba
-   positiva: un servicio que tarde más que eso en abrir su puerto acaba en
-   `port_unresolved` y se le dice al usuario, en vez de etiquetarlo como
-   "sin puerto".
-4. **Bind duro duplicado** (la app ignora `PORT` y hace bind literal): sigue
-   siendo un fallo de arranque de la app. vroom lo reporta más rápido y mejor;
-   no lo evita.
-5. **El puerto puede cambiar entre ticks.** `p.Manifest` es un snapshot de scan
-   y `meta.Port` se lee de disco en cada tick. Aceptado. El sub-guard sí es
-   firme: una sonda y el estado se refieren al mismo proceso; nunca se informa
-   "vivo y sano" con un puerto de otra generación.
-6. ~~**`portless` ausente o incompatible** es condición normal y no fatal.~~
-   **CERRADA por `adr-0013-vroom-registers-portless-routes.md`.** Sigue siendo
-  no fatal, y ahora además es el comportamiento *implementado* y no una
-  intención: vroom registra la ruta con `portless alias`, la verifica contra el
-   proxy vivo, y sin portless —o sin su proxy, o con un binario roto o
-  colgado— el servicio arranca igual, queda sano y el usuario recibe un aviso.
-   La salud de un servicio nunca depende de que exista su ruta.
+1. **Non-HTTP app that also ignores `PORT`:** vroom has no way to know which
+   listener is the primary one. The lowest-numbered one is chosen,
+   deterministically, and the service is marked as unverified: in the TUI
+   the port appears unconfirmed, and in the JSON `port` carries the chosen
+   number with `port_verified: false`. That `false` **is emittable** because
+   the field is a tri-state `*bool`, not a `bool` with `omitempty` — which
+   was precisely what made the mark invisible on the surface that agents
+   read.
+2. **Listeners that open more than 500 ms apart:** the stabilization window
+   covers the typical two-goroutine opening. If the set does not stabilize
+   within the deadline, the result is not an invented port but
+   `port_unresolved`: there are listeners, it is not known which is primary,
+   and that is stated. It is a non-fatal result. An app that opens a primary
+   listener seconds after another ends up with listeners that never
+   stabilize and therefore with no declared port, not with the wrong one.
+3. **UDP-only service:** no discoverable TCP port. "No port" is recorded
+   (`no_port`), never a hang. The assertion rests on the absence of
+   listeners during deadline + grace (16 s by default), not on a positive
+   test: a service that takes longer than that to open its port ends up in
+   `port_unresolved` and the user is told, instead of being labeled as "no
+   port".
+4. **Duplicate hard bind** (the app ignores `PORT` and does a literal bind):
+   it remains an app startup failure. vroom reports it faster and better;
+   it does not prevent it.
+5. **The port can change between ticks.** `p.Manifest` is a scan snapshot and
+   `meta.Port` is read from disk on each tick. Accepted. The sub-guard is
+   firm: a probe and the state refer to the same process; "alive and
+   healthy" is never reported with a port from another generation.
+6. ~~**Missing or incompatible `portless`** is a normal, non-fatal
+   condition.~~ **CLOSED by
+   `adr-0013-vroom-registers-portless-routes.md`.** It remains non-fatal,
+   and is now additionally the *implemented* behavior and not an intention:
+   vroom registers the route with `portless alias`, verifies it against the
+   live proxy, and without portless —or without its proxy, or with a broken
+   or hung binary— the service still starts, stays healthy, and the user
+   receives a warning. A service's health never depends on its route
+   existing.
 
-## Alternativas consideradas
+## Alternatives considered
 
-- **Unión `int | string` en `port`** (`port = 8080` vs `port = "dynamic"`).
-  Rechazada: un campo con dos tipos rompe la compatibilidad de todo consumidor
-  que ya lo lee como `int`, y hace que "sin puerto" deje de ser
-  representable. El campo aditivo mantiene `port` con un solo significado y
-  hace la retrocompatibilidad trivial por construcción.
-- **`gopsutil` para el descubrimiento de linaje y listeners** (54–62 ms por
-  snapshot frente a 11 ms de `/proc` directo, y `Pgid()` **no existe en
-  gopsutil v3.24.5 en ningún SO**). Rechazada: el tick ya paga un `Evaluate`
-  por proyecto cada 2 s; sumarle 5× el coste lo convertiría en trabajo por
-  segundo con N proyectos. Se conserva la convención de raíz inyectada del repo
-  (`xxxAt(root, pid)` con `procRoot`) para que los tests usen fixtures
-  sintéticos en vez de `/proc` real.
-- **Matar-vs-preguntar en el guard de propiedad.** La alternativa era seguir
-  con `fuser -k` incondicional. Se eligió fallar cerrado: preguntar al usuario
-  por cada stop con puerto ocupado rompe el flujo de la TUI, y matar a ciegas
-  es exactamente el daño que este ADR elimina.
-- **Re-resolver el puerto en cada tick** para seguir el cambio entre
-  ejecuciones. Rechazada: el snapshot del manifiesto es barato y el cambio
-  entre ticks es raro; medir de nuevo en el tick convertiría una operación de
-  11 ms por servicio en trabajo constante. Se acepta la limitación 4.
+- **`int | string` union in `port`** (`port = 8080` vs `port = "dynamic"`).
+  Rejected: a field with two types breaks the compatibility of every
+  consumer that already reads it as `int`, and makes "no port" no longer
+  representable. The additive field keeps `port` with a single meaning and
+  makes backward compatibility trivial by construction.
+- **`gopsutil` for lineage and listener discovery** (54–62 ms per snapshot
+  versus 11 ms for direct `/proc`, and `Pgid()` **does not exist in gopsutil
+  v3.24.5 on any OS**). Rejected: the tick already pays one `Evaluate` per
+  project every 2 s; adding 5× the cost would turn it into per-second work
+  with N projects. The repo's injected-root convention is preserved
+  (`xxxAt(root, pid)` with `procRoot`) so tests use synthetic fixtures
+  instead of real `/proc`.
+- **Kill-vs-ask in the ownership guard.** The alternative was to continue
+  with unconditional `fuser -k`. Failing closed was chosen: asking the user
+  on every stop with a busy port breaks the TUI flow, and killing blindly is
+  exactly the damage this ADR eliminates.
+- **Re-resolving the port on every tick** to track the change between runs.
+  Rejected: the manifest snapshot is cheap and the change between ticks is
+  rare; measuring again on the tick would turn an 11 ms per-service
+  operation into constant work. Limitation 4 is accepted.

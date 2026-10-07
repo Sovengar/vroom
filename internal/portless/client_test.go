@@ -20,10 +20,10 @@ func TestRegisterSinBinarioFalla(t *testing.T) {
 	err := New(WithBinary("")).Register("svc", 8080)
 
 	if err == nil {
-		t.Fatal("Register sin binario deberia fallar")
+		t.Fatal("Register without binary should fail")
 	}
 	if !strings.Contains(err.Error(), ReasonPortlessMissing) {
-		t.Errorf("el error %q no dice que falta el binario", err)
+		t.Errorf("error %q does not say the binary is missing", err)
 	}
 }
 
@@ -35,16 +35,16 @@ func TestRegisterPropagaElErrorDelBinario(t *testing.T) {
 	err := c.Register("svc", 8080)
 
 	if err == nil {
-		t.Fatal("Register deberia propagar el fallo del binario")
+		t.Fatal("Register should propagate the binary failure")
 	}
 	if !strings.Contains(err.Error(), "Node") {
-		t.Errorf("el error perdio el mensaje del binario: %q", err)
+		t.Errorf("error lost the binary message: %q", err)
 	}
 }
 
 // MEASURED (M8): `alias` is an unconditional upsert that exits 0, so its exit code proves nothing about a name held on another port.
 func TestRegisterConExitDistintoDeCero(t *testing.T) {
-	t.Run("exit 1 sin error de transporte", func(t *testing.T) {
+	t.Run("exit 1 without transport error", func(t *testing.T) {
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			return "Error: requires Node >= 24", 1, nil
 		})
@@ -52,14 +52,14 @@ func TestRegisterConExitDistintoDeCero(t *testing.T) {
 		err := c.Register("svc", 8080)
 
 		if err == nil {
-			t.Fatal("Register con exit 1 deberia fallar aunque exec no devuelva error")
+			t.Fatal("Register with exit 1 should fail even if exec returns no error")
 		}
 		if !strings.Contains(err.Error(), ReasonPortlessFailed) {
-			t.Errorf("el error %q no clasifica el fallo del binario", err)
+			t.Errorf("error %q does not classify the binary failure", err)
 		}
 	})
 
-	t.Run("exit 0 es exito", func(t *testing.T) {
+	t.Run("exit 0 is success", func(t *testing.T) {
 		var sawArgs []string
 		c := newClientFor(t, func(_ context.Context, _ string, args ...string) (string, int, error) {
 			sawArgs = args
@@ -67,18 +67,18 @@ func TestRegisterConExitDistintoDeCero(t *testing.T) {
 		})
 
 		if err := c.Register("svc", 8080); err != nil {
-			t.Fatalf("Register con exit 0 fallo: %v", err)
+			t.Fatalf("Register with exit 0 failed: %v", err)
 		}
 		joined := strings.Join(sawArgs, " ")
 		if !strings.Contains(joined, "svc") || !strings.Contains(joined, "8080") {
-			t.Errorf("Register invoco %q, faltan el nombre o el puerto", joined)
+			t.Errorf("Register invoked %q, missing name or port", joined)
 		}
 	})
 }
 
 // Remove deliberately differs from RemoveAbsent: swallowing absence is its contract, RemoveAbsent must still tell it from a real failure.
 func TestRemoveEsBenignoPorContrato(t *testing.T) {
-	t.Run("nombre vacio: no hace nada", func(t *testing.T) {
+	t.Run("empty name: does nothing", func(t *testing.T) {
 		called := false
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			called = true
@@ -88,27 +88,27 @@ func TestRemoveEsBenignoPorContrato(t *testing.T) {
 			t.Errorf("Remove(\"\") = %v, want nil", err)
 		}
 		if called {
-			t.Error("Remove invoco el binario con nombre vacio")
+			t.Error("Remove invoked the binary with empty name")
 		}
 	})
 
-	t.Run("sin binario: nada que retirar", func(t *testing.T) {
+	t.Run("without binary: nothing to remove", func(t *testing.T) {
 		c := New(WithBinary(""))
 		if err := c.Remove("svc"); err != nil {
-			t.Errorf("Remove sin binario = %v, want nil", err)
+			t.Errorf("Remove without binary = %v, want nil", err)
 		}
 	})
 
-	t.Run("no existia (M10, exit 1): benigno", func(t *testing.T) {
+	t.Run("did not exist (M10, exit 1): benign", func(t *testing.T) {
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			return "", 1, errors.New(`Error: No alias found for "svc.localhost".`)
 		})
 		if err := c.Remove("svc"); err != nil {
-			t.Errorf("Remove de una ruta ausente = %v, want nil (benigno por contrato)", err)
+			t.Errorf("Remove of an absent route = %v, want nil (benign by contract)", err)
 		}
 	})
 
-	t.Run("retirada efectiva", func(t *testing.T) {
+	t.Run("effective removal", func(t *testing.T) {
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			return "Removed alias: svc.localhost", 0, nil
 		})
@@ -117,55 +117,55 @@ func TestRemoveEsBenignoPorContrato(t *testing.T) {
 		}
 	})
 
-	t.Run("fallo real con code 0: propaga", func(t *testing.T) {
+	t.Run("real failure with code 0: propagates", func(t *testing.T) {
 		// code 0 with an error is the timeout profile: the deadline killed the process, so removing that way could leave the route live.
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			return "", 0, context.DeadlineExceeded
 		})
 		err := c.Remove("svc")
 		if err == nil {
-			t.Fatal("Remove con timeout deberia propagar")
+			t.Fatal("Remove with timeout should propagate")
 		}
 		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Errorf("el error no conserva el DeadlineExceeded: %v", err)
+			t.Errorf("error does not preserve DeadlineExceeded: %v", err)
 		}
 	})
 }
 
 func TestRemoveAbsentSoloRevocaEnExitoYAusencia(t *testing.T) {
-	t.Run("nombre vacio", func(t *testing.T) {
+	t.Run("empty name", func(t *testing.T) {
 		c := New(WithBinary(""))
 		if err := c.RemoveAbsent(""); err != nil {
 			t.Errorf("RemoveAbsent(\"\") = %v, want nil", err)
 		}
 	})
 
-	t.Run("sin binario", func(t *testing.T) {
+	t.Run("without binary", func(t *testing.T) {
 		if err := New(WithBinary("")).RemoveAbsent("svc"); err != nil {
-			t.Errorf("RemoveAbsent sin binario = %v, want nil", err)
+			t.Errorf("RemoveAbsent without binary = %v, want nil", err)
 		}
 	})
 
-	t.Run("exito: nil", func(t *testing.T) {
+	t.Run("success: nil", func(t *testing.T) {
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			return "Removed", 0, nil
 		})
 		if err := c.RemoveAbsent("svc"); err != nil {
-			t.Errorf("retirada efectiva = %v, want nil", err)
+			t.Errorf("effective removal = %v, want nil", err)
 		}
 	})
 
-	t.Run("benigno M10: ErrRouteAbsent, distinguible de nil", func(t *testing.T) {
+	t.Run("benign M10: ErrRouteAbsent, distinguishable from nil", func(t *testing.T) {
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			return "", 1, errors.New(`Error: No alias found for "svc.localhost".`)
 		})
 		err := c.RemoveAbsent("svc")
 		if !errors.Is(err, ErrRouteAbsent) {
-			t.Errorf("ruta ausente = %v, want ErrRouteAbsent: quien revoca necesita distinguirlo de un fallo", err)
+			t.Errorf("absent route = %v, want ErrRouteAbsent: whoever revokes needs to distinguish it from a failure", err)
 		}
 	})
 
-	t.Run("exit 1 que NO es M10: fallo, no revoca", func(t *testing.T) {
+	t.Run("exit 1 that is NOT M10: failure, does not revoke", func(t *testing.T) {
 		// All exit 1 but real failures: the original default->nil revoked every one of them.
 		for _, msg := range []string{
 			"requires Node >= 24",
@@ -177,25 +177,25 @@ func TestRemoveAbsentSoloRevocaEnExitoYAusencia(t *testing.T) {
 			})
 			err := c.RemoveAbsent("svc")
 			if err == nil {
-				t.Errorf("%q: se devolvio nil, se declararia cerrada una retirada que fallo", msg)
+				t.Errorf("%q: nil was returned, a failed removal would be declared closed", msg)
 			}
 			if errors.Is(err, ErrRouteAbsent) {
-				t.Errorf("%q: se confundio un fallo con la ausencia benigna", msg)
+				t.Errorf("%q: a failure was confused with benign absence", msg)
 			}
 		}
 	})
 
-	t.Run("exit != 1 sin error: construye el error con el codigo", func(t *testing.T) {
+	t.Run("exit != 1 without error: builds the error with the code", func(t *testing.T) {
 		// Without an error built here the caller gets nil and revokes on an exit 2.
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			return "", 2, nil
 		})
 		err := c.RemoveAbsent("svc")
 		if err == nil {
-			t.Fatal("exit 2 sin error de transporte deberia producir error")
+			t.Fatal("exit 2 without transport error should produce error")
 		}
 		if !strings.Contains(err.Error(), "2") {
-			t.Errorf("el error %q no menciona el codigo de salida", err)
+			t.Errorf("error %q does not mention the exit code", err)
 		}
 	})
 }
@@ -207,13 +207,13 @@ func TestIsRouteAbsentNoConfundeLosSimilares(t *testing.T) {
 		err  error
 		want bool
 	}{
-		{"el mensaje medido", errors.New(`Error: No alias found for "svc.localhost".`), true},
-		{"en minusculas", errors.New(`error: no alias found for "x.localhost".`), true},
-		{"envuelto", wrappedRouteAbsentText(), true},
-		{"node viejo", errors.New("requires Node >= 24"), false},
-		{"permisos", errors.New("EACCES: permission denied"), false},
-		{"json corrupto", errors.New("SyntaxError: Unexpected token }"), false},
-		{"contexto sin alias", errors.New("cannot resolve alias"), false},
+		{"the measured message", errors.New(`Error: No alias found for "svc.localhost".`), true},
+		{"in lowercase", errors.New(`error: no alias found for "x.localhost".`), true},
+		{"wrapped", wrappedRouteAbsentText(), true},
+		{"old node", errors.New("requires Node >= 24"), false},
+		{"permissions", errors.New("EACCES: permission denied"), false},
+		{"corrupt json", errors.New("SyntaxError: Unexpected token }"), false},
+		{"context without alias", errors.New("cannot resolve alias"), false},
 		{"nil", nil, false},
 	}
 
@@ -228,42 +228,42 @@ func TestIsRouteAbsentNoConfundeLosSimilares(t *testing.T) {
 
 // Its three failures are all errors: a "not found" disguised as a failure makes Apply write over another owner's route.
 func TestLookup(t *testing.T) {
-	t.Run("sin binario", func(t *testing.T) {
+	t.Run("without binary", func(t *testing.T) {
 		_, found, err := New(WithBinary("")).Lookup("svc")
 		if err == nil {
-			t.Fatal("Lookup sin binario deberia fallar")
+			t.Fatal("Lookup without binary should fail")
 		}
 		if found {
-			t.Error("found=true sin binario")
+			t.Error("found=true without binary")
 		}
 		if !strings.Contains(err.Error(), ReasonPortlessMissing) {
-			t.Errorf("el error %q no dice que falta el binario", err)
+			t.Errorf("error %q does not say the binary is missing", err)
 		}
 	})
 
-	t.Run("fallo de transporte", func(t *testing.T) {
+	t.Run("transport failure", func(t *testing.T) {
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			return "", 0, context.DeadlineExceeded
 		})
 		if _, _, err := c.Lookup("svc"); err == nil {
-			t.Error("Lookup deberia propagar el fallo de transporte")
+			t.Error("Lookup should propagate the transport failure")
 		}
 	})
 
-	t.Run("exit != 0 sin error de transporte", func(t *testing.T) {
+	t.Run("exit != 0 without transport error", func(t *testing.T) {
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			return "", 1, nil
 		})
 		_, found, err := c.Lookup("svc")
 		if err == nil {
-			t.Fatal("exit 1 sin error deberia fallar")
+			t.Fatal("exit 1 without error should fail")
 		}
 		if found {
-			t.Error("found=true con salida fallida")
+			t.Error("found=true with failed exit")
 		}
 	})
 
-	t.Run("puerto ilegible en la salida", func(t *testing.T) {
+	t.Run("unreadable port in output", func(t *testing.T) {
 		// Hand-written because real portless never emits it: a host that matches with an unreadable port must not get an invented one.
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			out := "  http://" + Hostname("svc") + ":1355  ->  localhost:99999999999999999999999  (alias)\n"
@@ -271,15 +271,15 @@ func TestLookup(t *testing.T) {
 		})
 		_, found, err := c.Lookup("svc")
 		if found {
-			t.Error("found=true con un puerto ilegible: se afirmaria un puerto que no es")
+			t.Error("found=true with an unreadable port: a port that is not one would be asserted")
 		}
 		// A 20-digit port overflows Atoi, which is a real error and not a "not found".
 		if err == nil {
-			t.Error("un puerto desbordado deberia ser error, no ausencia")
+			t.Error("an overflowed port should be an error, not absence")
 		}
 	})
 
-	t.Run("la ruta existe con su puerto", func(t *testing.T) {
+	t.Run("the route exists with its port", func(t *testing.T) {
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			host := Hostname("svc")
 			return "\nActive routes:\n\n  http://" + host + ":1355  ->  localhost:8080  (alias)\n", 0, nil
@@ -289,14 +289,14 @@ func TestLookup(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !found {
-			t.Error("found=false para una ruta listada")
+			t.Error("found=false for a listed route")
 		}
 		if port != 8080 {
 			t.Errorf("port = %d, want 8080", port)
 		}
 	})
 
-	t.Run("la tabla no la contiene", func(t *testing.T) {
+	t.Run("the table does not contain it", func(t *testing.T) {
 		c := newClientFor(t, func(context.Context, string, ...string) (string, int, error) {
 			other := Hostname("otro")
 			return "  http://" + other + ":1355  ->  localhost:8080  (alias)\n", 0, nil
@@ -306,31 +306,31 @@ func TestLookup(t *testing.T) {
 			t.Fatal(err)
 		}
 		if found {
-			t.Error("found=true para una ruta que no esta en la tabla")
+			t.Error("found=true for a route that is not in the table")
 		}
 		if port != 0 {
-			t.Errorf("port = %d en una ausencia, want 0", port)
+			t.Errorf("port = %d in an absence, want 0", port)
 		}
 	})
 }
 
 // MEASURED (M6): proxy.port exists only while the proxy runs, so its absence IS the no-proxy signal; a corrupt file is indistinguishable from a stopped one.
 func TestProxyPort(t *testing.T) {
-	t.Run("sin state dir", func(t *testing.T) {
+	t.Run("without state dir", func(t *testing.T) {
 		c := New(WithBinary("/fake/portless"))
 		if _, err := c.ProxyPort(); !errors.Is(err, ErrProxyNotRunning) {
-			t.Errorf("sin state dir = %v, want ErrProxyNotRunning", err)
+			t.Errorf("without state dir = %v, want ErrProxyNotRunning", err)
 		}
 	})
 
-	t.Run("sin proxy.port", func(t *testing.T) {
+	t.Run("without proxy.port", func(t *testing.T) {
 		c := New(WithBinary("/fake/portless"), WithStateDir(t.TempDir()))
 		if _, err := c.ProxyPort(); !errors.Is(err, ErrProxyNotRunning) {
-			t.Errorf("sin proxy.port = %v, want ErrProxyNotRunning", err)
+			t.Errorf("without proxy.port = %v, want ErrProxyNotRunning", err)
 		}
 	})
 
-	t.Run("proxy.port ilegible", func(t *testing.T) {
+	t.Run("unreadable proxy.port", func(t *testing.T) {
 		for _, content := range []string{"abc", "", "0", "-1", "70000", "1355\n\nbasura"} {
 			dir := t.TempDir()
 			if err := os.WriteFile(filepath.Join(dir, proxyPortFile), []byte(content), 0o644); err != nil {
@@ -338,12 +338,12 @@ func TestProxyPort(t *testing.T) {
 			}
 			c := New(WithBinary("/fake/portless"), WithStateDir(dir))
 			if _, err := c.ProxyPort(); !errors.Is(err, ErrProxyNotRunning) {
-				t.Errorf("proxy.port=%q dio %v, want ErrProxyNotRunning: degradar es lo seguro", content, err)
+				t.Errorf("proxy.port=%q gave %v, want ErrProxyNotRunning: degrading is the safe option", content, err)
 			}
 		}
 	})
 
-	t.Run("el puerto valido se lee", func(t *testing.T) {
+	t.Run("the valid port is read", func(t *testing.T) {
 		dir := t.TempDir()
 		// MEASURED: 4 bytes with no trailing newline.
 		if err := os.WriteFile(filepath.Join(dir, proxyPortFile), []byte("1399"), 0o644); err != nil {
@@ -359,7 +359,7 @@ func TestProxyPort(t *testing.T) {
 		}
 	})
 
-	t.Run("proxy.port es un directorio", func(t *testing.T) {
+	t.Run("proxy.port is a directory", func(t *testing.T) {
 		// A read error that is not NotExist must propagate: it is a different cause for whoever debugs it.
 		dir := t.TempDir()
 		if err := os.MkdirAll(filepath.Join(dir, proxyPortFile), 0o755); err != nil {
@@ -368,17 +368,17 @@ func TestProxyPort(t *testing.T) {
 		c := New(WithBinary("/fake/portless"), WithStateDir(dir))
 		_, err := c.ProxyPort()
 		if errors.Is(err, ErrProxyNotRunning) {
-			t.Error("un proxy.port ilegible se disfrazo de 'no hay proxy'")
+			t.Error("an unreadable proxy.port disguised itself as 'no proxy'")
 		}
 		if err == nil {
-			t.Error("deberia propagar el error de lectura")
+			t.Error("should propagate the read error")
 		}
 	})
 }
 
 // WaitDelay is what bounds wall-clock time: without it a surviving child holding the pipes hangs Wait past the deadline.
 func TestExecCommandAcotaConElDeadline(t *testing.T) {
-	t.Run("un hijo que ignora la muerte no cuelga Wait", func(t *testing.T) {
+	t.Run("a child that ignores death does not hang Wait", func(t *testing.T) {
 		dir := t.TempDir()
 		script := filepath.Join(dir, "colgado")
 		if err := os.WriteFile(script, []byte("#!/bin/sh\ntrap '' TERM\nsleep 30\n"), 0o755); err != nil {
@@ -400,18 +400,18 @@ func TestExecCommandAcotaConElDeadline(t *testing.T) {
 		select {
 		case <-done:
 		case <-time.After(5 * time.Second):
-			t.Fatal("execCommand no volvio: WaitDelay no acota el reloj de verdad")
+			t.Fatal("execCommand did not return: WaitDelay does not bound the real clock")
 		}
 
 		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Errorf("err = %v, want DeadlineExceeded (envuelto)", err)
+			t.Errorf("err = %v, want DeadlineExceeded (wrapped)", err)
 		}
 		if code == 0 {
-			t.Error("code = 0 en un proceso que no termino bien")
+			t.Error("code = 0 in a process that did not terminate properly")
 		}
 	})
 
-	t.Run("exito: stdout y codigo 0", func(t *testing.T) {
+	t.Run("success: stdout and code 0", func(t *testing.T) {
 		dir := t.TempDir()
 		script := filepath.Join(dir, "ok")
 		if err := os.WriteFile(script, []byte("#!/bin/sh\necho hola\necho salida-err >&2\n"), 0o755); err != nil {
@@ -431,7 +431,7 @@ func TestExecCommandAcotaConElDeadline(t *testing.T) {
 		}
 	})
 
-	t.Run("fallo con stderr: el mensaje llega al error", func(t *testing.T) {
+	t.Run("failure with stderr: the message reaches the error", func(t *testing.T) {
 		dir := t.TempDir()
 		script := filepath.Join(dir, "falla")
 		if err := os.WriteFile(script, []byte("#!/bin/sh\necho 'requires Node >= 24' >&2\nexit 1\n"), 0o755); err != nil {
@@ -441,17 +441,17 @@ func TestExecCommandAcotaConElDeadline(t *testing.T) {
 		_, code, err := execCommand(context.Background(), script)
 
 		if err == nil {
-			t.Fatal("un exit 1 deberia ser error")
+			t.Fatal("an exit 1 should be an error")
 		}
 		if code != 1 {
 			t.Errorf("code = %d, want 1", code)
 		}
 		if !strings.Contains(err.Error(), "Node") {
-			t.Errorf("el error no incluye stderr: %q", err)
+			t.Errorf("error does not include stderr: %q", err)
 		}
 	})
 
-	t.Run("fallo sin stderr: el error no queda vacio", func(t *testing.T) {
+	t.Run("failure without stderr: the error is not left empty", func(t *testing.T) {
 		dir := t.TempDir()
 		script := filepath.Join(dir, "silencioso")
 		if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 3\n"), 0o755); err != nil {
@@ -461,43 +461,43 @@ func TestExecCommandAcotaConElDeadline(t *testing.T) {
 		_, code, err := execCommand(context.Background(), script)
 
 		if err == nil {
-			t.Fatal("un exit 3 deberia ser error")
+			t.Fatal("an exit 3 should be an error")
 		}
 		if code != 3 {
 			t.Errorf("code = %d, want 3", code)
 		}
 		if !strings.Contains(err.Error(), "exit status 3") {
-			t.Errorf("sin stderr el error deberia traer el status: %q", err)
+			t.Errorf("without stderr the error should carry the status: %q", err)
 		}
 	})
 }
 
 // A literal path here is the bug of vroom running under a service manager whose env is not the login shell.
 func TestMiseShimDirsNoDevuelveLiterales(t *testing.T) {
-	t.Run("con HOME, ambos son derivados", func(t *testing.T) {
+	t.Run("with HOME, both are derived", func(t *testing.T) {
 		home := t.TempDir()
 		t.Setenv("HOME", home)
 
 		got := miseShimDirs()
 
 		if len(got) != 2 {
-			t.Fatalf("got = %v, want 2 directorios", got)
+			t.Fatalf("got = %v, want 2 directories", got)
 		}
 		for _, dir := range got {
 			if !strings.HasPrefix(dir, home) {
-				t.Errorf("el shim dir %q no deriva del HOME %q", dir, home)
+				t.Errorf("the shim dir %q does not derive from HOME %q", dir, home)
 			}
 		}
 	})
 
-	t.Run("sin HOME: nil en vez de un path inventado", func(t *testing.T) {
+	t.Run("without HOME: nil instead of an invented path", func(t *testing.T) {
 		t.Setenv("HOME", "")
 		if got := miseShimDirs(); got != nil {
-			t.Errorf("got = %v, want nil: un path de usuario concreto seria un modo de fallo silencioso", got)
+			t.Errorf("got = %v, want nil: a concrete user path would be a silent failure mode", got)
 		}
 	})
 }
 
 func wrappedRouteAbsentText() error {
-	return fmt.Errorf("retirando la ruta: %s", `Error: No alias found for "svc.localhost".`)
+	return fmt.Errorf("removing the route: %s", `Error: No alias found for "svc.localhost".`)
 }

@@ -36,10 +36,10 @@ func TestReadNewSobreviveAlBarridoDeOffsets(t *testing.T) {
 			data, nuevo, err := ReadNew(ruta, off)
 			// The sweep asserts only "no panic" plus the two universal invariants below; the offset contract lives in the focused tests, since a rotation deliberately lowers it and a negative offset is clamped back to 0.
 			if nuevo < 0 {
-				t.Errorf("ReadNew(%q, %d) devolvió un offset NEGATIVO (%d)", ruta, off, nuevo)
+				t.Errorf("ReadNew(%q, %d) returned a NEGATIVE offset (%d)", ruta, off, nuevo)
 			}
 			if ruta == casos[0] && len(data) > 10 {
-				t.Errorf("ReadNew(%q, %d) devolvió %d bytes de un fichero de 10", ruta, off, len(data))
+				t.Errorf("ReadNew(%q, %d) returned %d bytes from a 10-byte file", ruta, off, len(data))
 			}
 			_ = err
 		}

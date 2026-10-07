@@ -33,25 +33,25 @@ func TestLaunchAsyncEntregaElResultadoYCierraElCanal(t *testing.T) {
 	select {
 	case result, ok := <-ch:
 		if !ok {
-			t.Fatal("el canal llegó cerrado sin entregar resultado")
+			t.Fatal("the channel arrived closed without delivering a result")
 		}
 		if !result.OK || result.Stack != "async" {
-			t.Errorf("resultado = %+v, want OK y stack async", result)
+			t.Errorf("result = %+v, want OK and stack async", result)
 		}
 		if len(result.Stages) != 1 || len(result.Stages[0].Services) != 1 {
-			t.Fatalf("el resultado no trae la etapa con su servicio: %+v", result)
+			t.Fatalf("the result does not carry the stage with its service: %+v", result)
 		}
 	case <-time.After(30 * time.Second):
-		t.Fatal("LaunchAsync no entregó nada en 30s: la TUI se quedaría colgada")
+		t.Fatal("LaunchAsync delivered nothing in 30s: the TUI would hang")
 	}
 
 	select {
 	case _, ok := <-ch:
 		if ok {
-			t.Fatal("el canal entregó un segundo resultado")
+			t.Fatal("the channel delivered a second result")
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("el canal no se cerró tras entregar el resultado")
+		t.Fatal("the channel was not closed after delivering the result")
 	}
 }
 
@@ -60,23 +60,23 @@ func TestLaunchAsyncConErrorDeValidacionLoEntregaComoResultado(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	engine := NewEngine(&mockManager{}, store)
 
-	stack := &Stack{Name: "roto", PrimaryGroup: "g1", Stages: []Stage{
-		{Name: "s1", Services: []string{"no-existe"}, Timeout: time.Second},
+	stack := &Stack{Name: "broken", PrimaryGroup: "g1", Stages: []Stage{
+		{Name: "s1", Services: []string{"does-not-exist"}, Timeout: time.Second},
 	}}
 
 	select {
 	case result := <-engine.LaunchAsync(stack, nil):
 		if result.OK {
-			t.Error("un stack con un servicio inexistente no puede salir OK")
+			t.Error("a stack with a nonexistent service cannot come out OK")
 		}
-		if result.Stack != "roto" {
-			t.Errorf("Stack = %q, want roto: el error tiene que decir sobre qué stack fue", result.Stack)
+		if result.Stack != "broken" {
+			t.Errorf("Stack = %q, want broken: the error has to say which stack it was on", result.Stack)
 		}
 		if result.Error == "" {
-			t.Error("sin Error el usuario ve un stack rojo sin explicación")
+			t.Error("without Error the user sees a red stack with no explanation")
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("LaunchAsync no entregó nada")
+		t.Fatal("LaunchAsync delivered nothing")
 	}
 }
 
@@ -94,14 +94,14 @@ func TestStopServiceSinManifiestoNoHaceNada(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	engine.stopService(scanner.Project{Path: path, Name: "sin-manifiesto", Manifest: nil})
+	engine.stopService(scanner.Project{Path: path, Name: "no-manifest", Manifest: nil})
 
 	meta, err := store.LoadMeta(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if meta.Pid != 4242 {
-		t.Errorf("Pid = %d tras parar un proyecto sin manifiesto, want 4242: no hay servicio que parar", meta.Pid)
+		t.Errorf("Pid = %d after stopping a project without manifest, want 4242: there is no service to stop", meta.Pid)
 	}
 }
 
@@ -112,15 +112,15 @@ func TestStopServiceConMetaAusenteNoFalla(t *testing.T) {
 
 	p := scanner.Project{
 		Path:       t.TempDir(),
-		Name:       "nunca-arrancado",
+		Name:       "never-started",
 		Configured: true,
-		Manifest:   &manifest.Manifest{Name: "nunca-arrancado", Command: "./x", PortMode: manifest.PortModeNone},
+		Manifest:   &manifest.Manifest{Name: "never-started", Command: "./x", PortMode: manifest.PortModeNone},
 	}
 	engine.stopService(p)
 
-	stack := &Stack{Name: "s", Stages: []Stage{{Name: "e", Services: []string{"nunca-arrancado"}}}}
+	stack := &Stack{Name: "s", Stages: []Stage{{Name: "e", Services: []string{"never-started"}}}}
 	if err := engine.StopStack(stack, []scanner.Project{p}); err != nil {
-		t.Errorf("StopStack de un servicio sin meta dio error %v", err)
+		t.Errorf("StopStack of a service without meta gave error %v", err)
 	}
 }
 
@@ -131,7 +131,7 @@ func TestStopServiceRetiraLaRutaYElPuertoDeUnServicioYaMuerto(t *testing.T) {
 	engine := NewEngine(&mockManager{}, store)
 
 	path := t.TempDir()
-	const routeName = "vroom-test-ruta-muerta"
+	const routeName = "vroom-test-dead-route"
 	// All zeros means a dead service, but the route is still taken and owned.
 	meta := state.Meta{
 		State:      state.StateRunning,
@@ -144,8 +144,8 @@ func TestStopServiceRetiraLaRutaYElPuertoDeUnServicioYaMuerto(t *testing.T) {
 
 	engine.stopService(scanner.Project{
 		Path:     path,
-		Name:     "muerto",
-		Manifest: &manifest.Manifest{Name: "muerto", Command: "./x", PortMode: manifest.PortModeNone},
+		Name:     "dead",
+		Manifest: &manifest.Manifest{Name: "dead", Command: "./x", PortMode: manifest.PortModeNone},
 	})
 
 	got, err := store.LoadMeta(path)
@@ -153,13 +153,13 @@ func TestStopServiceRetiraLaRutaYElPuertoDeUnServicioYaMuerto(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.RouteOwned {
-		t.Error("RouteOwned sigue en true tras parar un servicio muerto: la ruta queda tomada para siempre")
+		t.Error("RouteOwned is still true after stopping a dead service: the route stays taken forever")
 	}
 	if got.State != state.StateStopped {
 		t.Errorf("State = %q, want %q", got.State, state.StateStopped)
 	}
 	if got.Pid != 0 || got.Pgid != 0 {
-		t.Errorf("Pid/Pgid = %d/%d tras parar, want 0/0", got.Pid, got.Pgid)
+		t.Errorf("Pid/Pgid = %d/%d after stopping, want 0/0", got.Pid, got.Pgid)
 	}
 }
 
@@ -171,7 +171,7 @@ func TestStopServiceNoRetiraUnaRutaQueNoEraSuya(t *testing.T) {
 	path := t.TempDir()
 	if err := store.SaveMeta(path, state.Meta{
 		State:      state.StateRunning,
-		RouteName:  "vroom-test-ruta-ajena",
+		RouteName:  "vroom-test-foreign-route",
 		RouteOwned: false,
 	}); err != nil {
 		t.Fatal(err)
@@ -179,8 +179,8 @@ func TestStopServiceNoRetiraUnaRutaQueNoEraSuya(t *testing.T) {
 
 	engine.stopService(scanner.Project{
 		Path:     path,
-		Name:     "ajeno",
-		Manifest: &manifest.Manifest{Name: "ajeno", Command: "./x", PortMode: manifest.PortModeNone},
+		Name:     "foreign",
+		Manifest: &manifest.Manifest{Name: "foreign", Command: "./x", PortMode: manifest.PortModeNone},
 	})
 
 	got, err := store.LoadMeta(path)
@@ -188,10 +188,10 @@ func TestStopServiceNoRetiraUnaRutaQueNoEraSuya(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.RouteOwned {
-		t.Error("RouteOwned = true tras parar un servicio cuya ruta no era suya")
+		t.Error("RouteOwned = true after stopping a service whose route was not its own")
 	}
-	if got.RouteName != "vroom-test-ruta-ajena" {
-		t.Errorf("RouteName = %q: la ruta de otro no puede desaparecer del meta", got.RouteName)
+	if got.RouteName != "vroom-test-foreign-route" {
+		t.Errorf("RouteName = %q: another's route cannot disappear from the meta", got.RouteName)
 	}
 }
 
@@ -206,7 +206,7 @@ func TestStopProcessEscribeLosAvisosEnElLogDeStderrDelServicio(t *testing.T) {
 
 	mgr := &mockManager{stopFunc: func(spec process.StopSpec) error {
 		if spec.Warn != nil {
-			spec.Warn("descendiente %d sobrevivió a SIGKILL", 999)
+			spec.Warn("descendant %d survived SIGKILL", 999)
 		}
 		return nil
 	}}
@@ -217,19 +217,19 @@ func TestStopProcessEscribeLosAvisosEnElLogDeStderrDelServicio(t *testing.T) {
 
 	data, err := os.ReadFile(store.StderrLog(path))
 	if err != nil {
-		t.Fatalf("no se pudo leer el log de stderr: %v", err)
+		t.Fatalf("could not read the stderr log: %v", err)
 	}
 	got := string(data)
 	if !strings.Contains(got, "stop:") {
-		t.Errorf("el aviso no lleva el prefijo de stop: %q", got)
+		t.Errorf("the warning does not carry the stop prefix: %q", got)
 	}
-	if !strings.Contains(got, "sobrevivió a SIGKILL") {
-		t.Errorf("el aviso del manager no llegó al log: %q", got)
+	if !strings.Contains(got, "survived SIGKILL") {
+		t.Errorf("the manager's warning did not reach the log: %q", got)
 	}
 	// vroom warnings must not mix into the service stdout, which is what the user copies elsewhere.
 	if _, err := os.Stat(store.StdoutLog(path)); err == nil {
 		if data, err := os.ReadFile(store.StdoutLog(path)); err == nil && len(data) > 0 {
-			t.Errorf("stop escribió en el log de stdout del servicio: %q", data)
+			t.Errorf("stop wrote into the service stdout log: %q", data)
 		}
 	}
 }
@@ -243,7 +243,7 @@ func TestStopProcessSinAvisosNoCreaElLogDeStderr(t *testing.T) {
 	engine.stopProcess(path, &state.Meta{Pid: 4242, Pgid: 4242})
 
 	if _, err := os.Stat(store.StderrLog(path)); err == nil {
-		t.Error("parar sin avisos creó un log de stderr vacío")
+		t.Error("stopping without warnings created an empty stderr log")
 	}
 }
 
@@ -255,7 +255,7 @@ func TestAppendLineAnexaYSobreviveAUnLogQueNoExiste(t *testing.T) {
 
 	err := appendLine(path, "primera")
 	if err == nil {
-		t.Fatal("appendLine a un directorio inexistente tiene que dar error")
+		t.Fatal("appendLine to a nonexistent directory must produce an error")
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("err = %v, want NotExist", err)
@@ -274,7 +274,7 @@ func TestAppendLineAnexaYSobreviveAUnLogQueNoExiste(t *testing.T) {
 	}
 	want := "primera\nsegunda\n"
 	if string(data) != want {
-		t.Errorf("log = %q, want %q: tiene que anexar", data, want)
+		t.Errorf("log = %q, want %q: it must append", data, want)
 	}
 }
 
@@ -285,14 +285,14 @@ func TestProcessAliveCubreTodosLosEstados(t *testing.T) {
 		want   bool
 		why    string
 	}{
-		{process.StatusRunning, true, "running: hay proceso y puerto"},
-		{process.StatusPortPending, true, "port_pending: el discovery sigue en vuelo, no se toca"},
-		{process.StatusNoPort, true, "no_port: el servicio no declara puerto, eso es válido"},
-		{process.StatusPortUnresolved, true, "port_unresolved: el proceso vive aunque no se sepa el puerto"},
-		{process.StatusStopped, false, "stopped: hay que pararlo"},
-		{process.StatusUnknown, false, "unknown: no hay prueba de vida, hay que arrancarlo"},
-		{process.Status(""), false, "estado vacío es ausencia de prueba"},
-		{process.Status("inventado"), false, "un estado que no existe es ausencia de prueba"},
+		{process.StatusRunning, true, "running: there is a process and port"},
+		{process.StatusPortPending, true, "port_pending: discovery is still in flight, do not touch"},
+		{process.StatusNoPort, true, "no_port: the service declares no port, that is valid"},
+		{process.StatusPortUnresolved, true, "port_unresolved: the process lives even if the port is unknown"},
+		{process.StatusStopped, false, "stopped: it must be stopped"},
+		{process.StatusUnknown, false, "unknown: there is no proof of life, it must be started"},
+		{process.Status(""), false, "empty status is absence of proof"},
+		{process.Status("inventado"), false, "a status that does not exist is absence of proof"},
 	}
 	for _, tt := range tests {
 		if got := processAlive(tt.status); got != tt.want {
@@ -306,17 +306,17 @@ func TestDryRunConServicioQueNoResuelveDaError(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	engine := NewEngine(&mockManager{}, store)
 
-	stack := &Stack{Name: "plano", Stages: []Stage{{Name: "s1", Services: []string{"api"}}}}
+	stack := &Stack{Name: "flat", Stages: []Stage{{Name: "s1", Services: []string{"api"}}}}
 	projects := []scanner.Project{
 		{Path: "/dev/web", Name: "web", Configured: true, Manifest: &manifest.Manifest{Name: "web", Command: "./web"}},
 	}
 
 	result, err := engine.DryRun(stack, projects)
 	if err == nil {
-		t.Fatalf("DryRun con un servicio inexistente devolvió %+v sin error", result)
+		t.Fatalf("DryRun with a nonexistent service returned %+v without error", result)
 	}
 	if result != nil {
-		t.Errorf("result = %+v con error: un plan que no se puede ejecutar no se publica a medias", result)
+		t.Errorf("result = %+v with error: a plan that cannot be executed is not published half-done", result)
 	}
 }
 
@@ -329,21 +329,21 @@ func TestDryRunConStageSinServiciosDaError(t *testing.T) {
 		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "./api"}},
 	}
 
-	// MEDIDO: a stage with no services is not an error; the "at least one service" rule lives in ParseComposeFile, and duplicating it here would give DryRun an obligation nobody has (TestParseStageNoServices covers it).
-	stack := &Stack{Name: "plano", Stages: []Stage{{Name: "s1"}}}
+	// MEASURED: a stage with no services is not an error; the "at least one service" rule lives in ParseComposeFile, and duplicating it here would give DryRun an obligation nobody has (TestParseStageNoServices covers it).
+	stack := &Stack{Name: "flat", Stages: []Stage{{Name: "s1"}}}
 	result, err := engine.DryRun(stack, projects)
 	if err != nil {
-		t.Errorf("DryRun de una etapa sin servicios dio error: %v", err)
+		t.Errorf("DryRun of a stage without services gave error: %v", err)
 	} else if len(result.Stages) != 1 || len(result.Stages[0].Services) != 0 {
-		t.Errorf("resultado = %+v: la etapa vacía se publica tal cual", result)
+		t.Errorf("result = %+v: the empty stage is published as-is", result)
 	}
 
-	dup := &Stack{Name: "plano", Stages: []Stage{
+	dup := &Stack{Name: "flat", Stages: []Stage{
 		{Name: "s1", Services: []string{"api"}},
 		{Name: "s2", Services: []string{"api"}},
 	}}
 	if _, err := engine.DryRun(dup, projects); err != nil {
-		t.Errorf("el mismo servicio en dos etapas no es error en dry run: %v", err)
+		t.Errorf("the same service in two stages is not an error in dry run: %v", err)
 	}
 }
 
@@ -366,7 +366,7 @@ func TestStackStatusConServicioDuplicadoLoCuentaUnaSolaVez(t *testing.T) {
 		t.Fatal(err)
 	}
 	if total != 2 {
-		t.Errorf("total = %d, want 2: api sale en dos etapas pero es un servicio", total)
+		t.Errorf("total = %d, want 2: api appears in two stages but is one service", total)
 	}
 	_ = running
 }
@@ -390,7 +390,7 @@ func TestStackStatusConMetaDePidCeroNoCuentaComoRunning(t *testing.T) {
 		t.Fatalf("total = %d, want 1", total)
 	}
 	if running != 0 {
-		t.Errorf("running = %d con un meta sin PID, want 0", running)
+		t.Errorf("running = %d with a meta without PID, want 0", running)
 	}
 }
 
@@ -403,11 +403,11 @@ func TestStackStatusConMetaIlegibleNoFalla(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(path, ".."), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	projects := []scanner.Project{{Path: path, Name: "raro", Configured: true, Manifest: &manifest.Manifest{Name: "raro", Command: "./x"}}}
+	projects := []scanner.Project{{Path: path, Name: "weird", Configured: true, Manifest: &manifest.Manifest{Name: "weird", Command: "./x"}}}
 
-	running, total, err := engine.StackStatus(&Stack{Name: "s", Stages: []Stage{{Name: "e", Services: []string{"raro"}}}}, projects)
+	running, total, err := engine.StackStatus(&Stack{Name: "s", Stages: []Stage{{Name: "e", Services: []string{"weird"}}}}, projects)
 	if err != nil {
-		t.Errorf("un meta que no se puede leer no puede fallar el status: %v", err)
+		t.Errorf("an unreadable meta cannot fail the status: %v", err)
 	}
 	if total != 1 || running != 0 {
 		t.Errorf("running/total = %d/%d, want 0/1", running, total)

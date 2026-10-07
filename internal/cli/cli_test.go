@@ -36,17 +36,17 @@ func TestFindProjectUniqueName(t *testing.T) {
 func TestFindProjectDuplicateNameActionable(t *testing.T) {
 	_, err := findProject(wtProjects(), "api", "")
 	if err == nil {
-		t.Fatal("esperaba error de ambigüedad")
+		t.Fatal("expected ambiguity error")
 	}
 	msg := err.Error()
 	if !strings.Contains(msg, `ambiguous project name "api"`) {
-		t.Errorf("mensaje sin el nombre: %q", msg)
+		t.Errorf("message without the name: %q", msg)
 	}
 	if !strings.Contains(msg, "/repo-wt/a") || !strings.Contains(msg, "/repo-wt/b") {
-		t.Errorf("el mensaje debe listar los paths candidatos: %q", msg)
+		t.Errorf("message must list candidate paths: %q", msg)
 	}
 	if !strings.Contains(msg, "--path") {
-		t.Errorf("el mensaje debe sugerir --path: %q", msg)
+		t.Errorf("message must suggest --path: %q", msg)
 	}
 }
 
@@ -85,7 +85,7 @@ func TestFindProjectResolvesSymlink(t *testing.T) {
 	}
 	link := filepath.Join(root, "link")
 	if err := os.Symlink(real, link); err != nil {
-		t.Skipf("no se pudo crear symlink: %v", err)
+		t.Skipf("could not create symlink: %v", err)
 	}
 
 	projects := []scanner.Project{
@@ -138,7 +138,7 @@ func TestExtractPathFlagEdgeCases(t *testing.T) {
 	}
 	for _, args := range cases {
 		if _, _, err := extractPathFlag(args); err == nil {
-			t.Errorf("extractPathFlag(%v) debe devolver error", args)
+			t.Errorf("extractPathFlag(%v) must return error", args)
 		}
 	}
 }
@@ -153,13 +153,13 @@ func TestListExposesRelationFlat(t *testing.T) {
 	}
 	info := buildProjectInfo(manager, store, map[string]bool{}, p)
 	if !info.IsWorktree || info.RepoRoot != "/repo" || info.BareContainer {
-		t.Errorf("campos de relación inesperados: %+v", info)
+		t.Errorf("unexpected relation fields: %+v", info)
 	}
 
 	bare := scanner.Project{Path: "/bare", Name: "bare", IsBareContainer: true}
 	binfo := buildProjectInfo(manager, store, map[string]bool{}, bare)
 	if !binfo.BareContainer || binfo.Configured {
-		t.Errorf("contenedor bare inesperado: %+v", binfo)
+		t.Errorf("unexpected bare container: %+v", binfo)
 	}
 
 	// The array stays flat and relation fields are additive, so existing agent consumers keep parsing it.
@@ -178,10 +178,10 @@ func TestListExposesRelationFlat(t *testing.T) {
 	}
 	entry := decoded.Projects[0]
 	if entry["repo_root"] != "/repo" || entry["is_worktree"] != true {
-		t.Errorf("JSON sin campos de relación: %v", entry)
+		t.Errorf("JSON without relation fields: %v", entry)
 	}
 	if _, ok := entry["bare_container"]; ok {
-		t.Errorf("bare_container no debe aparecer cuando es false: %v", entry)
+		t.Errorf("bare_container must not appear when false: %v", entry)
 	}
 }
 
@@ -196,14 +196,14 @@ func TestListExposesWorktreeError(t *testing.T) {
 	}
 	info := buildProjectInfo(manager, store, map[string]bool{}, p)
 	if info.WorktreeErr != "git binary not available" {
-		t.Errorf("WorktreeErr no propagado: %+v", info)
+		t.Errorf("WorktreeErr not propagated: %+v", info)
 	}
 	data, err := json.Marshal(info)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(data), `"worktree_error":"git binary not available"`) {
-		t.Errorf("JSON sin worktree_error: %s", data)
+		t.Errorf("JSON without worktree_error: %s", data)
 	}
 
 	clean := buildProjectInfo(manager, store, map[string]bool{}, scanner.Project{
@@ -214,6 +214,6 @@ func TestListExposesWorktreeError(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(cleanData), "worktree_error") {
-		t.Errorf("worktree_error no debe aparecer sin error: %s", cleanData)
+		t.Errorf("worktree_error must not appear without error: %s", cleanData)
 	}
 }

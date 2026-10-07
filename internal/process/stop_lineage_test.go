@@ -18,7 +18,7 @@ import (
 func requireProc(t *testing.T) {
 	t.Helper()
 	if _, err := os.Stat("/proc/self/task"); err != nil {
-		t.Skip("no /proc en este entorno")
+		t.Skip("no /proc in this environment")
 	}
 }
 
@@ -71,19 +71,19 @@ func waitFor(t *testing.T, timeout time.Duration, desc string, cond func() bool)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("timeout esperando: %s", desc)
+	t.Fatalf("timeout waiting for: %s", desc)
 }
 
 func waitPortOpen(t *testing.T, port int, timeout time.Duration) {
 	t.Helper()
-	waitFor(t, timeout, "puerto abierto", func() bool { return PortOpen(port) })
+	waitFor(t, timeout, "port open", func() bool { return PortOpen(port) })
 }
 
 // Not a test: this binary is re-launched as a re-sid descendant, selected by VROOM_TEST_HELPER (listener, two-ports or churn) and VROOM_TEST_PORT.
 func TestHelperListener(t *testing.T) {
 	mode := os.Getenv("VROOM_TEST_HELPER")
 	if mode != "listener" && mode != "two-ports" && mode != "churn" {
-		t.Skip("proceso helper, no un test")
+		t.Skip("helper process, not a test")
 	}
 	port := os.Getenv("VROOM_TEST_PORT")
 	if mode == "two-ports" {
@@ -163,7 +163,7 @@ func acceptLoop(ln net.Listener) {
 
 func TestStopKillsResidDescendantAndFreesPort(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	requireProc(t)
 
@@ -188,25 +188,25 @@ func TestStopKillsResidDescendantAndFreesPort(t *testing.T) {
 	waitPortOpen(t, port, 5*time.Second)
 	backendPID := PortOwnerPID(port)
 	if backendPID <= 0 {
-		t.Fatal("no se pudo determinar el PID del backend re-sid")
+		t.Fatal("could not determine the PID of the re-sid backend")
 	}
 	backend, alive := pidProcInfo(t, int(backendPID))
 	if !alive {
-		t.Fatalf("el backend %d no está en /proc", backendPID)
+		t.Fatalf("backend %d is not in /proc", backendPID)
 	}
 	if backend.pgid == res.Pgid {
-		t.Fatalf("precondición del test: el backend debe estar en otro pgid (tiene %d)", backend.pgid)
+		t.Fatalf("test precondition: the backend must be in another pgid (has %d)", backend.pgid)
 	}
 	if backend.ppid != res.Pid {
-		t.Fatalf("precondición del test: el backend debe ser descendiente directo (ppid=%d, root=%d)", backend.ppid, res.Pid)
+		t.Fatalf("test precondition: the backend must be a direct descendant (ppid=%d, root=%d)", backend.ppid, res.Pid)
 	}
 
 	lineageBefore := append([]int{res.Pid}, descendantsAt(procRoot, res.Pid)...)
 	if len(lineageBefore) < 2 {
-		t.Fatalf("precondición: se esperaba al menos un descendiente, linaje=%v", lineageBefore)
+		t.Fatalf("precondition: at least one descendant was expected, lineage=%v", lineageBefore)
 	}
 	if !containsPid(lineageBefore, int(backendPID)) {
-		t.Fatalf("precondición: el backend %d debe estar en el linaje %v", backendPID, lineageBefore)
+		t.Fatalf("precondition: backend %d must be in the lineage %v", backendPID, lineageBefore)
 	}
 
 	var warns []string
@@ -217,25 +217,25 @@ func TestStopKillsResidDescendantAndFreesPort(t *testing.T) {
 	}
 
 	if _, alive := pidProcInfo(t, res.Pid); alive {
-		t.Errorf("el proceso principal %d sigue vivo tras Stop", res.Pid)
+		t.Errorf("main process %d is still alive after Stop", res.Pid)
 	}
 	if _, alive := pidProcInfo(t, int(backendPID)); alive {
-		t.Errorf("el backend re-sid %d sigue vivo tras Stop: kill(-pgid) no alcanza al linaje", backendPID)
+		t.Errorf("re-sid backend %d is still alive after Stop: kill(-pgid) does not reach the lineage", backendPID)
 	}
 	for _, pid := range lineageBefore {
 		if _, alive := pidProcInfo(t, pid); alive {
-			t.Errorf("el pid %d del linaje sobrevive al stop", pid)
+			t.Errorf("pid %d in the lineage survives the stop", pid)
 		}
 	}
-	waitFor(t, 3*time.Second, "puerto liberado", func() bool { return !PortOpen(port) })
+	waitFor(t, 3*time.Second, "port freed", func() bool { return !PortOpen(port) })
 	if len(warns) != 0 {
-		t.Errorf("stop limpio no debe emitir avisos: %v", warns)
+		t.Errorf("clean stop must not emit warnings: %v", warns)
 	}
 }
 
 func TestStopSingleProcessGroupNoRegression(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	requireProc(t)
 
@@ -260,26 +260,26 @@ func TestStopSingleProcessGroupNoRegression(t *testing.T) {
 	waitPortOpen(t, port, 5*time.Second)
 	listenerPID := PortOwnerPID(port)
 	if listenerPID <= 0 {
-		t.Fatal("no se pudo determinar el PID del listener")
+		t.Fatal("could not determine the PID of the listener")
 	}
 	info, alive := pidProcInfo(t, int(listenerPID))
 	if !alive || info.pgid != res.Pgid {
-		t.Fatalf("precondición: el listener debe compartir el pgid %d (info=%+v alive=%v)", res.Pgid, info, alive)
+		t.Fatalf("precondition: the listener must share pgid %d (info=%+v alive=%v)", res.Pgid, info, alive)
 	}
 
 	if err := m.Stop(StopSpec{Pgid: res.Pgid, Timeout: 3 * time.Second}); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 	if err := syscall.Kill(-res.Pgid, syscall.Signal(0)); err != syscall.ESRCH {
-		t.Errorf("el process group %d sigue vivo tras Stop: %v", res.Pgid, err)
+		t.Errorf("process group %d is still alive after Stop: %v", res.Pgid, err)
 	}
-	waitFor(t, 3*time.Second, "puerto liberado", func() bool { return !PortOpen(port) })
+	waitFor(t, 3*time.Second, "port freed", func() bool { return !PortOpen(port) })
 }
 
 // An already-stopped service (PGID 0) whose recorded port is held by a twin in another worktree: Stop must not run fuser -k.
 func TestStopDoesNotKillForeignPortHolder(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: proceso real en el puerto")
+		t.Skip("integration: real process on the port")
 	}
 	port, release := listenPortAndHold(t)
 	defer release()
@@ -290,20 +290,20 @@ func TestStopDoesNotKillForeignPortHolder(t *testing.T) {
 
 	m := newTestManager(t)
 	if err := m.Stop(meta); err != nil {
-		t.Fatalf("Stop de servicio ya parado no debe fallar: %v", err)
+		t.Fatalf("Stop of an already stopped service must not fail: %v", err)
 	}
 
 	if !PortOpen(port) {
-		t.Error("vroom cerró el puerto de un proceso ajeno")
+		t.Error("vroom closed the port of a foreign process")
 	}
 	if _, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(port), 500*time.Millisecond); err != nil {
-		t.Errorf("el puerto ajeno debe seguir aceptando conexiones: %v", err)
+		t.Errorf("the foreign port must still accept connections: %v", err)
 	}
 	if len(warns) == 0 {
-		t.Error("Stop debe avisar de que no pudo liberar el puerto")
+		t.Error("Stop must warn that it could not free the port")
 	}
 	if !strings.Contains(warns[0], strconv.Itoa(port)) {
-		t.Errorf("el aviso debe nombrar el puerto: %q", warns[0])
+		t.Errorf("the warning must name the port: %q", warns[0])
 	}
 }
 
@@ -318,13 +318,13 @@ func TestStopUnknownPortOwnerFailsClosed(t *testing.T) {
 	killPortHolderWith(port, os.Getpid(), nil, func(int) []int32 { return nil }, warn)
 
 	if !PortOpen(port) {
-		t.Error("con propietario desconocido no se debe tocar el puerto")
+		t.Error("with an unknown owner the port must not be touched")
 	}
 	if len(warns) != 1 {
-		t.Fatalf("se esperaba exactamente 1 aviso, got %d: %v", len(warns), warns)
+		t.Fatalf("exactly 1 warning was expected, got %d: %v", len(warns), warns)
 	}
 	if !strings.Contains(warns[0], strconv.Itoa(port)) {
-		t.Errorf("el aviso debe nombrar el puerto: %q", warns[0])
+		t.Errorf("the warning must name the port: %q", warns[0])
 	}
 }
 
@@ -339,17 +339,17 @@ func TestStopAmbiguousPortOwnersFailsClosed(t *testing.T) {
 	killPortHolderWith(port, os.Getpid(), nil, owners, warn)
 
 	if !PortOpen(port) {
-		t.Error("con propietarios ambiguos no se debe tocar el puerto")
+		t.Error("with ambiguous owners the port must not be touched")
 	}
 	if len(warns) != 1 {
-		t.Fatalf("se esperaba 1 aviso, got %d: %v", len(warns), warns)
+		t.Fatalf("1 warning was expected, got %d: %v", len(warns), warns)
 	}
 }
 
 // The owner is a real child listener: killing the test process would be worse than the bug under test.
 func TestStopKillsOwnedPortHolder(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	requireProc(t)
 
@@ -373,11 +373,11 @@ func TestStopKillsOwnedPortHolder(t *testing.T) {
 	waitPortOpen(t, port, 5*time.Second)
 	owner := PortOwnerPID(port)
 	if owner <= 0 {
-		t.Fatal("no se pudo determinar el PID del listener")
+		t.Fatal("could not determine the PID of the listener")
 	}
 	lineage := append([]int{res.Pid}, descendantsAt(procRoot, res.Pid)...)
 	if !containsPid(lineage, int(owner)) {
-		t.Fatalf("precondición: el owner %d debe estar en el linaje %v", owner, lineage)
+		t.Fatalf("precondition: owner %d must be in the lineage %v", owner, lineage)
 	}
 
 	var warns []string
@@ -385,16 +385,16 @@ func TestStopKillsOwnedPortHolder(t *testing.T) {
 		func(f string, a ...any) { warns = append(warns, fmt.Sprintf(f, a...)) })
 
 	if len(warns) != 0 {
-		t.Errorf("dueño probado como propio no debe emitir avisos: %v", warns)
+		t.Errorf("owner proven as own must not emit warnings: %v", warns)
 	}
 	if PortOpen(port) {
-		t.Errorf("el puerto %d debía liberarse: el dueño estaba en el linaje", port)
+		t.Errorf("port %d should have been freed: the owner was in the lineage", port)
 	}
 }
 
 func TestStopIsIdempotent(t *testing.T) {
 	if testing.Short() {
-		t.Skip("integración: spawn real")
+		t.Skip("integration: real spawn")
 	}
 	requireProc(t)
 
@@ -408,17 +408,17 @@ func TestStopIsIdempotent(t *testing.T) {
 	})
 
 	if err := m.Stop(StopSpec{Pgid: res.Pgid, Timeout: 2 * time.Second}); err != nil {
-		t.Fatalf("primer Stop: %v", err)
+		t.Fatalf("first Stop: %v", err)
 	}
 	// Second stop: the PGID is already gone and there is no port to free.
 	var warns []string
 	if err := m.Stop(StopSpec{Pgid: res.Pgid, Timeout: time.Second, Warn: func(f string, a ...any) {
 		warns = append(warns, fmt.Sprintf(f, a...))
 	}}); err != nil {
-		t.Fatalf("Stop debe ser idempotente, no fallar: %v", err)
+		t.Fatalf("Stop must be idempotent, not fail: %v", err)
 	}
 	if len(warns) != 0 {
-		t.Errorf("stop idempotente no debe emitir avisos: %v", warns)
+		t.Errorf("idempotent stop must not emit warnings: %v", warns)
 	}
 }
 
@@ -468,7 +468,7 @@ func TestDescendantsAtFollowsResidChild(t *testing.T) {
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Fatalf("descendants = %v, want %v (orden ascendente)", got, want)
+			t.Fatalf("descendants = %v, want %v (ascending order)", got, want)
 		}
 	}
 }
@@ -483,10 +483,10 @@ func TestProcSnapshotDetectsResidPgid(t *testing.T) {
 		t.Fatal(err)
 	}
 	if snap[100].pgid != 100 || snap[102].pgid != 102 {
-		t.Errorf("pgid mal leído: %+v", snap)
+		t.Errorf("pgid read incorrectly: %+v", snap)
 	}
 	if snap[102].ppid != 100 {
-		t.Errorf("ppid mal leído: %+v", snap[102])
+		t.Errorf("ppid read incorrectly: %+v", snap[102])
 	}
 }
 
@@ -511,7 +511,7 @@ func TestProcStatAtCommWithParens(t *testing.T) {
 
 func TestProcSnapshotAtMissingRoot(t *testing.T) {
 	if _, err := procSnapshotAt(filepath.Join(t.TempDir(), "nope")); err == nil {
-		t.Error("una raíz /proc inexistente debe devolver error")
+		t.Error("a nonexistent /proc root must return an error")
 	}
 }
 

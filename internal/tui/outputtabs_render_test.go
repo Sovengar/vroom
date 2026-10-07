@@ -13,16 +13,16 @@ import (
 	"vroom/internal/tail"
 )
 
-func comoPanel(t *testing.T, m Model, f func(Model, int) []string) string {
+func asPanel(t *testing.T, m Model, f func(Model, int) []string) string {
 	t.Helper()
 	return tail.StripANSI(strings.Join(f(m, m.rightW), "\n"))
 }
 
-func TestPanelesDeMuestreoDicenPorQueNoTraenDatos(t *testing.T) {
-	paneles := []struct {
-		nombre string
+func TestSamplingPanelsSayWhyTheyHaveNoData(t *testing.T) {
+	panels := []struct {
+		name   string
 		render func(Model, int) []string
-		quiere string
+		wants  string
 	}{
 		{"metrics", Model.metricsLines, "select a service"},
 		{"git", Model.gitLines, "select a project"},
@@ -30,62 +30,62 @@ func TestPanelesDeMuestreoDicenPorQueNoTraenDatos(t *testing.T) {
 		{"timeline", Model.timelineLines, "select a service"},
 		{"health", Model.healthLines, "select a service"},
 	}
-	for _, p := range paneles {
-		t.Run(p.nombre+"/sin selección", func(t *testing.T) {
-			m := sinSeleccion(t)
-			got := comoPanel(t, m, p.render)
-			if !strings.Contains(got, p.quiere) {
-				t.Errorf("%s sin selección = %q, want una invitación a elegir", p.nombre, got)
+	for _, p := range panels {
+		t.Run(p.name+"/no selection", func(t *testing.T) {
+			m := noSelection(t)
+			got := asPanel(t, m, p.render)
+			if !strings.Contains(got, p.wants) {
+				t.Errorf("%s with no selection = %q, want an invitation to choose", p.name, got)
 			}
 		})
 	}
 
 	for _, p := range []struct {
-		nombre string
+		name   string
 		render func(Model, int) []string
-		quiere string
+		wants  string
 	}{
 		{"metrics", Model.metricsLines, "no manifest"},
 		{"env", Model.envLines, "no manifest"},
 		{"health", Model.healthLines, "no manifest"},
 	} {
-		t.Run(p.nombre+"/sin manifiesto", func(t *testing.T) {
-			m := sinManifiesto(t)
-			got := comoPanel(t, m, p.render)
-			if !strings.Contains(got, p.quiere) {
-				t.Errorf("%s sin manifiesto = %q", p.nombre, got)
+		t.Run(p.name+"/no manifest", func(t *testing.T) {
+			m := noManifest(t)
+			got := asPanel(t, m, p.render)
+			if !strings.Contains(got, p.wants) {
+				t.Errorf("%s with no manifest = %q", p.name, got)
 			}
 			if strings.Contains(got, "select a service") {
-				t.Errorf("%s = %q: el proyecto está seleccionado, el motivo es otro", p.nombre, got)
+				t.Errorf("%s = %q: the project is selected, the reason is different", p.name, got)
 			}
 		})
 	}
 }
 
-func TestPanelesDeMuestreoDicenQueElServicioNoCorre(t *testing.T) {
+func TestSamplingPanelsSayServiceNotRunning(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
 	m.services[path].Status = statusStopped
 
 	for _, p := range []struct {
-		nombre string
+		name   string
 		render func(Model, int) []string
-		quiere string
+		wants  string
 	}{
 		{"metrics", Model.metricsLines, "not running"},
 		{"env", Model.envLines, "start it"},
 		{"health", Model.healthLines, "not running"},
 	} {
-		t.Run(p.nombre, func(t *testing.T) {
-			if got := comoPanel(t, m, p.render); !strings.Contains(got, p.quiere) {
-				t.Errorf("%s con el servicio parado = %q, want %q", p.nombre, got, p.quiere)
+		t.Run(p.name, func(t *testing.T) {
+			if got := asPanel(t, m, p.render); !strings.Contains(got, p.wants) {
+				t.Errorf("%s with the service stopped = %q, want %q", p.name, got, p.wants)
 			}
 		})
 	}
 }
 
-func TestPanelesDeMuestreoDicenQueEstanLeyendo(t *testing.T) {
+func TestSamplingPanelsSayTheyAreReading(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
@@ -93,82 +93,82 @@ func TestPanelesDeMuestreoDicenQueEstanLeyendo(t *testing.T) {
 	setManifestPort(&m, "tienda-api", 4321)
 
 	for _, p := range []struct {
-		nombre string
+		name   string
 		render func(Model, int) []string
-		quiere string
+		wants  string
 	}{
 		{"metrics", Model.metricsLines, "sampling"},
 		{"env", Model.envLines, "reading"},
 		{"health", Model.healthLines, "probing"},
 		{"timeline", Model.timelineLines, "no events"},
 	} {
-		t.Run(p.nombre, func(t *testing.T) {
-			if got := comoPanel(t, m, p.render); !strings.Contains(got, p.quiere) {
-				t.Errorf("%s = %q, want %q", p.nombre, got, p.quiere)
+		t.Run(p.name, func(t *testing.T) {
+			if got := asPanel(t, m, p.render); !strings.Contains(got, p.wants) {
+				t.Errorf("%s = %q, want %q", p.name, got, p.wants)
 			}
 		})
 	}
 
 	// git reads per project, not per live process, so it stays in the reading state whatever the run status.
 	t.Run("git", func(t *testing.T) {
-		if got := comoPanel(t, m, Model.gitLines); !strings.Contains(got, "reading") {
-			t.Errorf("git = %q, want que diga que está leyendo", got)
+		if got := asPanel(t, m, Model.gitLines); !strings.Contains(got, "reading") {
+			t.Errorf("git = %q, want it to say it is reading", got)
 		}
 	})
 }
 
-func TestGitLinesDistingueRepoDeNoRepoYLimpioDeSucio(t *testing.T) {
+func TestGitLinesDistinguishesRepoFromNonRepoAndCleanFromDirty(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
 
-	t.Run("repo limpio", func(t *testing.T) {
-		m.gitStatus[path] = gitinfo.Status{Branch: "main", Commits: []string{"abc1234 primero"}}
-		got := comoPanel(t, m, Model.gitLines)
+	t.Run("clean repo", func(t *testing.T) {
+		m.gitStatus[path] = gitinfo.Status{Branch: "main", Commits: []string{"abc1234 first"}}
+		got := asPanel(t, m, Model.gitLines)
 		for _, want := range []string{"branch:", "main", "status:", "clean", "commits:", "abc1234"} {
 			if !strings.Contains(got, want) {
-				t.Errorf("un repo limpio no trae %q:\n%s", want, got)
+				t.Errorf("a clean repo does not bring %q:\n%s", want, got)
 			}
 		}
 		if strings.Contains(got, "changes:") {
-			t.Errorf("un repo limpio no puede traer sección de cambios:\n%s", got)
+			t.Errorf("a clean repo cannot bring a changes section:\n%s", got)
 		}
 	})
 
-	t.Run("repo sucio", func(t *testing.T) {
+	t.Run("dirty repo", func(t *testing.T) {
 		m.gitStatus[path] = gitinfo.Status{
 			Branch:  "feature/login",
-			Changed: []string{" M app.go", "?? nuevo.go"},
+			Changed: []string{" M app.go", "?? new.go"},
 		}
-		got := comoPanel(t, m, Model.gitLines)
+		got := asPanel(t, m, Model.gitLines)
 		if !strings.Contains(got, "2 changed") {
-			t.Errorf("el recuento de cambios tiene que ser el número, no un \"dirty\":\n%s", got)
+			t.Errorf("the change count must be the number, not a \"dirty\":\n%s", got)
 		}
-		if !strings.Contains(got, "changes:") || !strings.Contains(got, "nuevo.go") {
-			t.Errorf("el panel tiene que listar los ficheros:\n%s", got)
+		if !strings.Contains(got, "changes:") || !strings.Contains(got, "new.go") {
+			t.Errorf("the panel must list the files:\n%s", got)
 		}
 	})
 
-	t.Run("sin repo", func(t *testing.T) {
+	t.Run("no repo", func(t *testing.T) {
 		m.gitStatus[path] = gitinfo.Status{}
-		if got := comoPanel(t, m, Model.gitLines); !strings.Contains(got, "no git repo") {
-			t.Errorf("un proyecto fuera de git = %q, want la etiqueta de proyecto fuera de git, porque no es un error", got)
+		if got := asPanel(t, m, Model.gitLines); !strings.Contains(got, "no git repo") {
+			t.Errorf("a project outside git = %q, want the label of project outside git, because it is not an error", got)
 		}
 	})
 
-	t.Run("git falla", func(t *testing.T) {
+	t.Run("git fails", func(t *testing.T) {
 		m.gitStatus[path] = gitinfo.Status{Err: "no such repository"}
-		got := comoPanel(t, m, Model.gitLines)
+		got := asPanel(t, m, Model.gitLines)
 		if !strings.Contains(got, "no such repository") {
-			t.Errorf("un fallo de git tiene que aparecer: %q", got)
+			t.Errorf("a git failure must appear: %q", got)
 		}
 		if strings.Contains(got, "clean") {
-			t.Errorf("un fallo de git no puede salir como clean, porque sería mentir sobre el estado:\n%s", got)
+			t.Errorf("a git failure cannot show as clean, because it would be lying about the state:\n%s", got)
 		}
 	})
 }
 
-func TestHealthLinesMuestraElCuerpoCuandoElProbeTraeUno(t *testing.T) {
+func TestHealthLinesShowsBodyWhenProbeReturnsOne(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
@@ -181,20 +181,20 @@ func TestHealthLinesMuestraElCuerpoCuandoElProbeTraeUno(t *testing.T) {
 		Snippet:     `{"error":"boom"}`,
 	}
 
-	got := comoPanel(t, m, Model.healthLines)
+	got := asPanel(t, m, Model.healthLines)
 	for _, want := range []string{"status:", "HTTP 500", "latency:", "type:", "application/json", `{"error":"boom"}`} {
 		if !strings.Contains(got, want) {
-			t.Errorf("el panel de salud no trae %q:\n%s", want, got)
+			t.Errorf("the health panel does not bring %q:\n%s", want, got)
 		}
 	}
 
 	m.healthRes[path].Snippet = ""
-	if got := comoPanel(t, m, Model.healthLines); strings.Contains(got, "snippet") {
-		t.Errorf("sin snippet no hay nada que enseñar:\n%s", got)
+	if got := asPanel(t, m, Model.healthLines); strings.Contains(got, "snippet") {
+		t.Errorf("without snippet there is nothing to show:\n%s", got)
 	}
 }
 
-func TestHealthLinesDistingueUn200DeUn404PorElCodigo(t *testing.T) {
+func TestHealthLinesDistinguishes200From404ByCode(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
@@ -203,14 +203,14 @@ func TestHealthLinesDistingueUn200DeUn404PorElCodigo(t *testing.T) {
 
 	for _, code := range []int{200, 204, 301, 302, 400, 404, 500, 503} {
 		m.healthRes[path] = &healthResult{StatusCode: code, ContentType: "text/plain"}
-		got := comoPanel(t, m, Model.healthLines)
+		got := asPanel(t, m, Model.healthLines)
 		if !strings.Contains(got, "HTTP "+strconv.Itoa(code)) {
-			t.Errorf("código %d no aparece: %q", code, got)
+			t.Errorf("code %d does not appear: %q", code, got)
 		}
 	}
 }
 
-func TestHealthLinesNoSondeaConElManifestoSinPuertoYLoDice(t *testing.T) {
+func TestHealthLinesDoesNotProbeWithPortlessManifestAndSaysSo(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
@@ -219,87 +219,87 @@ func TestHealthLinesNoSondeaConElManifestoSinPuertoYLoDice(t *testing.T) {
 		p.Manifest.Port = 0
 	}
 
-	got := comoPanel(t, m, Model.healthLines)
+	got := asPanel(t, m, Model.healthLines)
 	if !strings.Contains(got, "port = N") {
-		t.Errorf("= %q, want que diga QUÉ escribir en el manifiesto", got)
+		t.Errorf("= %q, want it to say WHAT to write in the manifest", got)
 	}
 }
 
-func TestEnvLinesCuentaLasVariablesYLasLista(t *testing.T) {
+func TestEnvLinesCountsAndListsVariables(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
 	markRunning(&m, path, livePID(t))
 	m.envVars[path] = []string{"A=1", "B=2", "C=3"}
 
-	got := comoPanel(t, m, Model.envLines)
+	got := asPanel(t, m, Model.envLines)
 	if !strings.Contains(got, "3 variables") {
-		t.Errorf("= %q, want el recuento", got)
+		t.Errorf("= %q, want the count", got)
 	}
 	for _, want := range []string{"A=1", "B=2", "C=3"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("no lista %q:\n%s", want, got)
+			t.Errorf("does not list %q:\n%s", want, got)
 		}
 	}
 }
 
 // Inverted from log order on purpose: the cursor already sits at the end, so "what just happened" must come first.
-func TestTimelineLinesLosOrdenaDelMasRecienteAlMasAntiguo(t *testing.T) {
+func TestTimelineLinesOrdersFromNewestToOldest(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
 
 	base := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
 	m.events[path] = []timelineEvent{
-		{At: base, Kind: "start", Detail: "arrancado", Elapsed: 0, OK: true},
-		{At: base.Add(time.Minute), Kind: "build", Detail: "falló", Elapsed: 2 * time.Second, OK: false},
+		{At: base, Kind: "start", Detail: "started", Elapsed: 0, OK: true},
+		{At: base.Add(time.Minute), Kind: "build", Detail: "failed", Elapsed: 2 * time.Second, OK: false},
 		{At: base.Add(2 * time.Minute), Kind: "stop", Detail: "", Elapsed: time.Millisecond, OK: true},
 	}
 
-	got := comoPanel(t, m, Model.timelineLines)
+	got := asPanel(t, m, Model.timelineLines)
 	iStop := strings.Index(got, "stop")
 	iBuild := strings.Index(got, "build")
 	iStart := strings.Index(got, "start")
 
 	if iStop < 0 || iBuild < 0 || iStart < 0 {
-		t.Fatalf("faltan eventos:\n%s", got)
+		t.Fatalf("missing events:\n%s", got)
 	}
 	if iStop >= iBuild || iBuild >= iStart {
-		t.Errorf("el orden es cronológico, want el más reciente primero:\n%s", got)
+		t.Errorf("the order is chronological, want the most recent first:\n%s", got)
 	}
 	if !strings.Contains(got, "✓") || !strings.Contains(got, "✗") {
-		t.Errorf("cada evento tiene que traer su marca de resultado:\n%s", got)
+		t.Errorf("each event must bring its result mark:\n%s", got)
 	}
 	if !strings.Contains(got, "(2s)") {
-		t.Errorf("un evento con duración la enseña:\n%s", got)
+		t.Errorf("an event with duration shows it:\n%s", got)
 	}
 	if strings.Contains(got, "(0s)") {
-		t.Errorf("un evento instantáneo no enseña duración:\n%s", got)
+		t.Errorf("an instant event does not show duration:\n%s", got)
 	}
 }
 
-func TestMetricsLinesMuestreaYAnotaElMomento(t *testing.T) {
+func TestMetricsLinesSamplesAndNotesTime(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
 	markRunning(&m, path, livePID(t))
 
-	ahora := time.Date(2026, 10, 3, 15, 4, 5, 0, time.Local)
-	m.metrics[path] = &metricsView{CPU: 12.5, RSSKB: 1536, FDs: 42, Threads: 8, At: ahora}
+	now := time.Date(2026, 10, 3, 15, 4, 5, 0, time.Local)
+	m.metrics[path] = &metricsView{CPU: 12.5, RSSKB: 1536, FDs: 42, Threads: 8, At: now}
 
-	got := comoPanel(t, m, Model.metricsLines)
+	got := asPanel(t, m, Model.metricsLines)
 	for _, want := range []string{"CPU%", "RSS", "FDs", "Threads", "12.5%", "1.5 MB", "42", "8", "sampled at"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("la tabla no trae %q:\n%s", want, got)
+			t.Errorf("the table does not bring %q:\n%s", want, got)
 		}
 	}
-	if !strings.Contains(got, ahora.Format("15:04:05")) {
-		t.Errorf("falta la hora del muestreo: %q", got)
+	if !strings.Contains(got, now.Format("15:04:05")) {
+		t.Errorf("missing the sampling time: %q", got)
 	}
 }
 
 // A real httptest server, not a stub: an invented Content-Type and a snippet not taken from the response are the probe's two failure modes.
-func TestProbeHealthTraeElCuerpoYElContentTypeDeVerdad(t *testing.T) {
+func TestProbeHealthReturnsRealBodyAndContentType(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
@@ -317,23 +317,23 @@ func TestProbeHealthTraeElCuerpoYElContentTypeDeVerdad(t *testing.T) {
 	p := m.projectByPath(path)
 	res := probeHealth(healthURL(p, m.services[path]))
 	if res.Err != "" {
-		t.Fatalf("la sonda contra un servidor real falló: %v", res.Err)
+		t.Fatalf("the probe against a real server failed: %v", res.Err)
 	}
 	if res.StatusCode != 200 {
 		t.Errorf("status = %d, want 200", res.StatusCode)
 	}
 	if !strings.Contains(res.ContentType, "json") {
-		t.Errorf("content-type = %q, want el que devuelve el servidor", res.ContentType)
+		t.Errorf("content-type = %q, want the one the server returns", res.ContentType)
 	}
 	if !strings.Contains(res.Snippet, `"ok":true`) {
-		t.Errorf("snippet = %q, want el cuerpo real", res.Snippet)
+		t.Errorf("snippet = %q, want the real body", res.Snippet)
 	}
 
 	m.healthRes[path] = res
-	got := comoPanel(t, m, Model.healthLines)
+	got := asPanel(t, m, Model.healthLines)
 	for _, want := range []string{"HTTP 200", "json", `/api/health`, `"ok":true`} {
 		if !strings.Contains(got, want) {
-			t.Errorf("el panel no trae %q:\n%s", want, got)
+			t.Errorf("the panel does not bring %q:\n%s", want, got)
 		}
 	}
 }

@@ -1,74 +1,74 @@
-# ADR-0011 — Límite del descubrimiento de topología de worktrees
+# ADR-0011 — Worktree topology discovery boundary
 
-- Estado: aceptada
-- Fecha: 2026-09-23
+- Status: accepted
+- Date: 2026-09-23
 - Feature: `0011-feature-worktree-nesting`
 
-## Contexto
+## Context
 
-Hasta ahora `internal/gitinfo` leía la rama de un proyecto **solo de disco**
-(parseando `HEAD`), sin spawnar el binario git. Ese principio daba lecturas
-instantáneas y testeables, y cubría repos normales y worktrees.
+Until now `internal/gitinfo` read a project's branch **from disk only**
+(parsing `HEAD`), without spawning the git binary. That principle gave
+instantaneous, testable reads, and covered normal repos and worktrees.
 
-Para mostrar worktrees anidados y bare repos hace falta saber **qué
-worktrees registra un repo** y **cuál es su main checkout**. Esa información
-no está en el disco del proyecto: solo la conoce `git worktree list`. Además,
-un bare repo no tiene `.vroom.toml`, por lo que el escaneo por manifiestos
-nunca lo encontraría.
+To display nested worktrees and bare repos it is necessary to know **which
+worktrees a repo registers** and **which is its main checkout**. That
+information is not on the project's disk: only `git worktree list` knows it.
+Furthermore, a bare repo has no `.vroom.toml`, so scanning by manifests
+would never find it.
 
-Esto rompe el principio de `gitinfo` e introduce una dependencia de entorno
-(el binario git) y un coste de proceso en el camino de scan.
+This breaks the `gitinfo` principle and introduces an environment dependency
+(the git binary) and a process cost in the scan path.
 
-## Decisión
+## Decision
 
-1. **Capa dedicada `internal/worktree`.** Es el único punto del proyecto
-   autorizado a spawnar git. Expone datos planos: `List(dir)` (parser puro de
-   `git worktree list --porcelain`) e `IsBareRepo(dir)` (heurística). `gitinfo`
-   **no se modifica** y sigue siendo disk-only.
+1. **Dedicated `internal/worktree` layer.** It is the only point in the
+   project authorized to spawn git. It exposes plain data: `List(dir)` (pure
+   parser of `git worktree list --porcelain`) and `IsBareRepo(dir)`
+   (heuristic). `gitinfo` **is not modified** and remains disk-only.
 
-2. **Contrato del scanner plano y anotado.** El scanner no construye ninguna
-   estructura anidada: anota el `[]scanner.Project` existente con campos
-   aditivos (`RepoRoot`, `IsWorktree`, `IsBareContainer`, `WorktreeErr`). Los
-   consumidores (`group`, `tui`, `cli`, `orchestrate`) siguen recibiendo un
-   slice plano. El anidado visual es una preocupación de presentación en
-   `tui.buildTree`.
+2. **Flat, annotated scanner contract.** The scanner builds no nested
+   structure: it annotates the existing `[]scanner.Project` with additive
+   fields (`RepoRoot`, `IsWorktree`, `IsBareContainer`, `WorktreeErr`).
+   Consumers (`group`, `tui`, `cli`, `orchestrate`) continue to receive a
+   flat slice. Visual nesting is a presentation concern in `tui.buildTree`.
 
-3. **Degradación por repo, no todo-o-nada.** `List` devuelve un sentinel
-   (`ErrGitUnavailable`) si git falta, y error si git falla o la salida es
-   inválida. La invocación se acota con timeout (`exec.CommandContext`) y está
-   gated por la presencia de un repo git real. El scanner registra el motivo en
-   `Project.WorktreeErr` y continúa: ningún proyecto se oculta ni la TUI cae.
+3. **Per-repo degradation, not all-or-nothing.** `List` returns a sentinel
+   (`ErrGitUnavailable`) if git is missing, and an error if git fails or the
+   output is invalid. The invocation is bounded with a timeout
+   (`exec.CommandContext`) and is gated by the presence of a real git repo.
+   The scanner records the reason in `Project.WorktreeErr` and continues: no
+   project is hidden and the TUI does not crash.
 
-4. **Heurística de bare repo reforzada.** Se exige la conjunción
-   `HEAD` + `objects/` + `refs/`, la ausencia de `.git` y el marcador
-   autoritativo `core.bare = true` que escriben `git init --bare` /
-   `git clone --bare`.
+4. **Reinforced bare repo heuristic.** The conjunction of `HEAD` + `objects/`
+   + `refs/`, the absence of `.git`, and the authoritative `core.bare = true`
+   marker written by `git init --bare` / `git clone --bare` is required.
 
-5. **Bare-container y worktrees fuera del root.** El scanner sintetiza filas
-   contenedoras sin manifiesto para bare repos y para worktrees in-root sin
-   `.vroom.toml`. Un worktree cuyo main checkout está fuera del scan root se
-   anota igual (`RepoRoot` fuera); la TUI sintetiza la fila contenedora al
-   construir el árbol.
+5. **Bare-container and worktrees outside the root.** The scanner synthesizes
+   container rows without a manifest for bare repos and for in-root
+   worktrees without `.vroom.toml`. A worktree whose main checkout is outside
+   the scan root is still annotated (`RepoRoot` outside); the TUI synthesizes
+   the container row when building the tree.
 
-## Consecuencias
+## Consequences
 
-- Positivas: una sola frontera para la dependencia de git, testeable en
-  aislamiento (parser y heurística puros); contrato plano preservado para todos
-  los consumidores; degradación controlada.
-- Negativas / tradeoffs: el scan ahora spawna git por repo (coste y dependencia
-  de entorno). Mitigado por timeout, gating y degradación.
-- Limitaciones documentadas: un worktree prunable/ausente o agregado durante la
-  sesión no se refresca hasta el próximo scan. La topología se descubre desde
-  repos in-root; un worktree sin manifiesto cuyo repo no tiene ningún proyecto
-  in-root no se detecta.
+- Positives: a single boundary for the git dependency, testable in
+  isolation (pure parser and heuristic); flat contract preserved for all
+  consumers; controlled degradation.
+- Negatives / tradeoffs: the scan now spawns git per repo (cost and
+  environment dependency). Mitigated by timeout, gating, and degradation.
+- Documented limitations: a prunable/absent worktree or one added during the
+  session is not refreshed until the next scan. Topology is discovered from
+  in-root repos; a worktree without a manifest whose repo has no in-root
+  project is not detected.
 
-## Alternativas consideradas
+## Alternatives considered
 
-- **Leer `.git` a mano para derivar el main checkout.** El `.git` file de un
-  worktree apunta al gitdir, no al main checkout; reconstruir la relación
-  requeriría parsear `commondir` y duplicaría lógica frágil de git.
-- **Tipo anidado en el scanner (`Repo{Worktrees []Project}`).** Rompería a todos
-  los consumidores y los mapas por path; se descartó por coste y acoplamiento.
-- **Anidar dentro de `group.Arrange`.** La relación repo→worktree es ortogonal a
-  `primary_group`/`secondary_group`; mezclarlas habría fusionado dos conceptos
-  y roto la agrupación existente (option B).
+- **Reading `.git` by hand to derive the main checkout.** A worktree's `.git`
+  file points to the gitdir, not the main checkout; reconstructing the
+  relationship would require parsing `commondir` and would duplicate fragile
+  git logic.
+- **Nested type in the scanner (`Repo{Worktrees []Project}`).** It would break
+  all consumers and the path maps; discarded due to cost and coupling.
+- **Nesting inside `group.Arrange`.** The repo→worktree relationship is
+  orthogonal to `primary_group`/`secondary_group`; mixing them would have
+  merged two concepts and broken existing grouping (option B).

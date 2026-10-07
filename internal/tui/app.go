@@ -458,7 +458,7 @@ func refreshCmd(store *state.Store, manager process.Manager, projects []scanner.
 				r.status = process.StatusStopped
 			case err != nil:
 				r.status = process.StatusStopped
-				r.warn = fmt.Sprintf("%s: meta.json ilegible, marcado stopped (%v)", p.Name, err)
+				r.warn = fmt.Sprintf("%s: unreadable meta.json, marked stopped (%v)", p.Name, err)
 			default:
 				r.meta = meta
 				r.status = manager.Evaluate(process.EvalSpec{

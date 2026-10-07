@@ -108,18 +108,18 @@ func TestRepoCollapsedSingleRow(t *testing.T) {
 		}
 	}
 	if nProjects != 1 {
-		t.Fatalf("esperaba 1 fila de proyecto top-level, got %d", nProjects)
+		t.Fatalf("expected 1 top-level project row, got %d", nProjects)
 	}
 	if findCursor(m, "repo-wt-a") >= 0 || findCursor(m, "repo-wt-b") >= 0 {
-		t.Error("los worktrees no deben ser filas top-level")
+		t.Error("worktrees must not be top-level rows")
 	}
 	tree, _ := m.treeLines()
 	joined := strings.Join(tree, "\n")
 	if !strings.Contains(joined, "▸") || !strings.Contains(joined, "repo") {
-		t.Errorf("la fila de repo debe estar colapsada (▸): %q", joined)
+		t.Errorf("repo row must be collapsed (▸): %q", joined)
 	}
 	if m.repoExpanded(repo) {
-		t.Error("el repo debe estar colapsado por defecto")
+		t.Error("repo must be collapsed by default")
 	}
 }
 
@@ -130,11 +130,11 @@ func TestRepoWithoutWorktreesNotExpandable(t *testing.T) {
 	m := newRepoModel(t, projects, nil)
 	it := m.tree[findCursor(m, "solo")]
 	if it.hasKids {
-		t.Error("un proyecto sin worktrees no debe marcar hijos")
+		t.Error("a project without worktrees must not mark children")
 	}
 	tree, _ := m.treeLines()
 	if strings.Contains(strings.Join(tree, "\n"), "▸") {
-		t.Errorf("sin worktrees no debe haber glifo de expansión: %q", strings.Join(tree, "\n"))
+		t.Errorf("without worktrees there must be no expansion glyph: %q", strings.Join(tree, "\n"))
 	}
 }
 
@@ -148,16 +148,16 @@ func TestRepoRowIsOperableMainCheckout(t *testing.T) {
 	}
 	m2, cmd := press(m, "s")
 	if cmd == nil {
-		t.Fatal("start sobre la fila del repo debe emitir un comando")
+		t.Fatal("start on the repo row must emit a command")
 	}
 	msg := cmd()
 	sm, ok := msg.(startedMsg)
 	if !ok || sm.path != repo {
-		t.Fatalf("start debe operar sobre el main checkout %s, got %+v", repo, msg)
+		t.Fatalf("start must operate on the main checkout %s, got %+v", repo, msg)
 	}
-	m3, _ := press(m2, "enter") // el main checkout con hijos pliega/expande su repo
+	m3, _ := press(m2, "enter") // main checkout with children folds/expands its repo
 	if !m3.repoExpanded(repo) {
-		t.Error("enter sobre la fila de repo debe expandirla")
+		t.Error("enter on the repo row must expand it")
 	}
 }
 
@@ -169,20 +169,20 @@ func TestExpandRepoRevealsIndentedWorktrees(t *testing.T) {
 	tree, _ := m2.treeLines()
 	joined := strings.Join(tree, "\n")
 	if !strings.Contains(joined, "▾") {
-		t.Errorf("el repo debe quedar expandido (▾): %q", joined)
+		t.Errorf("repo must be expanded (▾): %q", joined)
 	}
 	for _, name := range []string{"repo-wt-a", "repo-wt-b"} {
 		if !strings.Contains(joined, name) {
-			t.Errorf("%s debe verse al expandir: %q", name, joined)
+			t.Errorf("%s must be visible when expanded: %q", name, joined)
 		}
 	}
 	idxRepo, idxA, idxB := findCursor(m2, "repo"), findCursor(m2, "repo-wt-a"), findCursor(m2, "repo-wt-b")
 	if idxA < idxRepo || idxB < idxA {
-		t.Fatalf("orden inesperado: repo=%d a=%d b=%d", idxRepo, idxA, idxB)
+		t.Fatalf("unexpected order: repo=%d a=%d b=%d", idxRepo, idxA, idxB)
 	}
 	lineA := tree[idxA]
 	if !strings.HasPrefix(lineA, "  ") {
-		t.Errorf("el worktree debe ir indentado: %q", lineA)
+		t.Errorf("worktree must be indented: %q", lineA)
 	}
 }
 
@@ -202,21 +202,21 @@ func TestNestedWorktreeOperable(t *testing.T) {
 
 	_, cmd := press(atWorktree(), "s")
 	if cmd == nil {
-		t.Fatal("start sobre un worktree debe emitir un comando")
+		t.Fatal("start on a worktree must emit a command")
 	}
 	if sm, ok := cmd().(startedMsg); !ok || sm.path != wtA {
-		t.Fatalf("el servicio debe arrancar con workdir %s", wtA)
+		t.Fatalf("service must start with workdir %s", wtA)
 	}
 	if _, bcmd := press(atWorktree(), "b"); bcmd == nil {
-		t.Fatal("build sobre un worktree debe emitir un comando")
+		t.Fatal("build on a worktree must emit a command")
 	}
 	if _, icmd := press(atWorktree(), "i"); icmd == nil {
-		t.Fatal("install sobre un worktree debe emitir un comando")
+		t.Fatal("install on a worktree must emit a command")
 	}
 	m := atWorktree()
 	m.services[wtA].Status = statusRunning
 	if _, scmd := press(m, "s"); scmd == nil {
-		t.Fatal("stop sobre un worktree debe emitir un comando")
+		t.Fatal("stop on a worktree must emit a command")
 	}
 }
 
@@ -224,28 +224,28 @@ func TestRepoCollapsePersistedAndNamespaced(t *testing.T) {
 	projects, repo, _, _ := repoFixture(t)
 	m := newRepoModel(t, projects, map[string]bool{repoKey(repo): true})
 	if !m.repoExpanded(repo) {
-		t.Fatal("el repo debe restaurarse expandido")
+		t.Fatal("repo must be restored expanded")
 	}
 	tree, _ := m.treeLines()
 	if !strings.Contains(strings.Join(tree, "\n"), "repo-wt-a") {
-		t.Errorf("con el repo expandido deben verse los worktrees: %q", strings.Join(tree, "\n"))
+		t.Errorf("with repo expanded, worktrees must be visible: %q", strings.Join(tree, "\n"))
 	}
 	m = moveCursorTo(t, m, "repo")
 	m2, _ := press(m, "enter")
 	if m2.repoExpanded(repo) {
-		t.Error("enter debe colapsar el repo")
+		t.Error("enter must collapse the repo")
 	}
 	if m2.collapsed["X"] {
-		t.Error("el colapso del repo no debe tocar la clave del grupo X")
+		t.Error("repo collapse must not touch the group X key")
 	}
 	m3 := m2
 	m3.cursor = findPrimary(m3, "X")
 	m4, _ := press(m3, "enter")
 	if !m4.collapsed["X"] {
-		t.Error("enter sobre el grupo debe plegarlo")
+		t.Error("enter on the group must fold it")
 	}
 	if m4.repoExpanded(repo) {
-		t.Error("plegar el grupo no debe expandir el repo")
+		t.Error("folding the group must not expand the repo")
 	}
 }
 
@@ -261,7 +261,7 @@ func TestRepoKeyDoesNotCollideWithGroupKey(t *testing.T) {
 	build := func() Model {
 		m := newRepoModel(t, projects, nil)
 		if findPrimary(m, groupKey) < 0 {
-			t.Fatalf("falta el header del grupo %q: %+v", groupKey, m.tree)
+			t.Fatalf("missing group header %q: %+v", groupKey, m.tree)
 		}
 		return m
 	}
@@ -270,10 +270,10 @@ func TestRepoKeyDoesNotCollideWithGroupKey(t *testing.T) {
 	g.cursor = findPrimary(g, groupKey)
 	g2, _ := press(g, "enter")
 	if !g2.collapsed[groupKey] {
-		t.Fatal("enter sobre el grupo debe plegarlo")
+		t.Fatal("enter on the group must fold it")
 	}
 	if g2.repoExpanded(repo) {
-		t.Error("plegar el grupo no debe expandir el repo (colisión de claves)")
+		t.Error("folding the group must not expand the repo (key collision)")
 	}
 
 	// Fresh model: the collapsed map is shared by reference across model copies, so reusing one would leak the earlier toggle.
@@ -281,10 +281,10 @@ func TestRepoKeyDoesNotCollideWithGroupKey(t *testing.T) {
 	r = moveCursorTo(t, r, "repo")
 	r2, _ := press(r, "enter")
 	if !r2.repoExpanded(repo) {
-		t.Error("enter sobre la fila del repo debe expandirlo")
+		t.Error("enter on the repo row must expand it")
 	}
 	if r2.collapsed[groupKey] {
-		t.Error("expandir el repo no debe plegar el grupo (colisión de claves)")
+		t.Error("expanding the repo must not fold the group (key collision)")
 	}
 }
 
@@ -296,7 +296,7 @@ func TestRepoCollapseKeyPersists(t *testing.T) {
 	}
 	loaded := store.LoadCollapsed()
 	if !loaded[key] {
-		t.Errorf("la clave de repo debe persistir y restaurarse: %#v", loaded)
+		t.Errorf("repo key must persist and be restored: %#v", loaded)
 	}
 }
 
@@ -312,24 +312,24 @@ func TestBareContainerNotOperable(t *testing.T) {
 	m := newRepoModel(t, projects, nil)
 	bi := findRepo(t, m, "bare")
 	if bi < 0 {
-		t.Fatalf("el bare repo debe renderizarse como contenedor: %+v", m.tree)
+		t.Fatalf("bare repo must render as container: %+v", m.tree)
 	}
 	m.cursor = bi
 	if p := m.selected(); p != nil {
-		t.Error("el contenedor bare no debe seleccionarse como proyecto")
+		t.Error("bare container must not be selected as a project")
 	}
 	m2, cmd := press(m, "s")
 	if cmd != nil {
-		t.Error("el contenedor bare no debe ser operable")
+		t.Error("bare container must not be operable")
 	}
 	m3, _ := press(m2, "enter")
 	tree, _ := m3.treeLines()
 	joined := strings.Join(tree, "\n")
 	if !strings.Contains(joined, "bare-wt-a") {
-		t.Errorf("al expandir el bare deben verse sus worktrees: %q", joined)
+		t.Errorf("when expanding the bare, its worktrees must be visible: %q", joined)
 	}
 	if !strings.Contains(joined, "▾") {
-		t.Errorf("el contenedor con hijos debe mostrar glifo de expansión: %q", joined)
+		t.Errorf("container with children must show expansion glyph: %q", joined)
 	}
 }
 
@@ -340,14 +340,14 @@ func TestBareContainerWithoutWorktreesHasNoGlyph(t *testing.T) {
 	m := newRepoModel(t, projects, nil)
 	it := m.tree[findRepo(t, m, "bare")]
 	if it.hasKids {
-		t.Fatal("sin worktrees no debe marcar hijos")
+		t.Fatal("without worktrees must not mark children")
 	}
 	joined := strings.Join(mustTree(t, m), "\n")
 	if strings.Contains(joined, "▸") || strings.Contains(joined, "▾") {
-		t.Errorf("un contenedor sin hijos no debe mostrar glifo: %q", joined)
+		t.Errorf("container without children must not show glyph: %q", joined)
 	}
 	if !strings.Contains(joined, "(bare)") {
-		t.Errorf("el contenedor debe seguir mostrando (bare): %q", joined)
+		t.Errorf("container must still show (bare): %q", joined)
 	}
 }
 
@@ -377,10 +377,10 @@ func TestDetachedWorktreeShowsSha(t *testing.T) {
 	tree, _ := m.treeLines()
 	joined := strings.Join(tree, "\n")
 	if !strings.Contains(joined, "repo-wt-det") {
-		t.Fatalf("falta la fila del worktree detached: %q", joined)
+		t.Fatalf("missing detached worktree row: %q", joined)
 	}
 	if !strings.Contains(joined, "abcdef1 (detached)") {
-		t.Errorf("la rama detached debe mostrarse como sha (detached): %q", joined)
+		t.Errorf("detached branch must show as sha (detached): %q", joined)
 	}
 }
 
@@ -395,15 +395,15 @@ func TestUnconfiguredWorktreeRow(t *testing.T) {
 	m := newRepoModel(t, projects, map[string]bool{repoKey(repo): true})
 	tree, _ := m.treeLines()
 	if !strings.Contains(strings.Join(tree, "\n"), "⚠") {
-		t.Errorf("un worktree sin manifiesto debe llevar ⚠: %q", strings.Join(tree, "\n"))
+		t.Errorf("worktree without manifest must have ⚠: %q", strings.Join(tree, "\n"))
 	}
 	m = moveCursorTo(t, m, "repo-wt-sin-mf")
 	m2, cmd := press(m, "s")
 	if cmd != nil {
-		t.Error("un worktree sin manifiesto no debe ser operable")
+		t.Error("worktree without manifest must not be operable")
 	}
 	if m2.message == "" {
-		t.Error("debe notificar por qué no es operable")
+		t.Error("must notify why it is not operable")
 	}
 }
 
@@ -416,15 +416,15 @@ func TestOutOfRootWorktreeNestsUnderSyntheticContainer(t *testing.T) {
 	}
 	m := newRepoModel(t, projects, map[string]bool{repoKey(outside): true})
 	if findCursor(m, "repo-wt-a") < 0 {
-		t.Fatalf("el worktree debe anidarse bajo el contenedor sintetizado: %+v", m.tree)
+		t.Fatalf("worktree must nest under the synthesized container: %+v", m.tree)
 	}
 	bi := findRepo(t, m, "repo")
 	if bi < 0 {
-		t.Fatalf("falta la fila contenedora sintetizada de %s: %+v", outside, m.tree)
+		t.Fatalf("missing synthesized container row for %s: %+v", outside, m.tree)
 	}
 	tree, _ := m.treeLines()
 	if !strings.Contains(strings.Join(tree, "\n"), "repo-wt-a") {
-		t.Errorf("el worktree debe verse bajo el contenedor: %q", strings.Join(tree, "\n"))
+		t.Errorf("worktree must be visible under the container: %q", strings.Join(tree, "\n"))
 	}
 }
 
@@ -432,17 +432,17 @@ func TestRepoKeepsGroup(t *testing.T) {
 	projects, _, _, _ := repoFixture(t)
 	m := newRepoModel(t, projects, nil)
 	if findPrimary(m, "X") < 0 {
-		t.Fatalf("el bloque del grupo X debe existir: %+v", m.tree)
+		t.Fatalf("group X block must exist: %+v", m.tree)
 	}
 	if findCursor(m, "repo") < 0 {
-		t.Fatal("la fila del repo debe estar en el árbol")
+		t.Fatal("repo row must be in the tree")
 	}
 	it := m.tree[findCursor(m, "repo")]
 	if !it.hasKids {
-		t.Error("el toggle de worktrees vive en la fila del repo")
+		t.Error("worktree toggle lives on the repo row")
 	}
 	if it.primary != "X" {
-		t.Errorf("el repo debe conservar su grupo X, got %q", it.primary)
+		t.Errorf("repo must keep its group X, got %q", it.primary)
 	}
 }
 
@@ -458,18 +458,18 @@ func TestWorktreeGroupIsInert(t *testing.T) {
 	}
 	m := newRepoModel(t, projects, map[string]bool{repoKey(repo): true})
 	if findPrimary(m, "Y") >= 0 {
-		t.Errorf("no debe emitirse el bloque Y (solo tiene un worktree): %+v", m.tree)
+		t.Errorf("Y block must not be emitted (only has one worktree): %+v", m.tree)
 	}
 	tree, _ := m.treeLines()
 	if !strings.Contains(strings.Join(tree, "\n"), "repo-wt-a") {
-		t.Errorf("el worktree debe anidarse bajo /repo, no en Y: %q", strings.Join(tree, "\n"))
+		t.Errorf("worktree must nest under /repo, not in Y: %q", strings.Join(tree, "\n"))
 	}
 }
 
 func requireGit(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git no disponible")
+		t.Skip("git not available")
 	}
 }
 
@@ -515,19 +515,19 @@ func TestNewNestsRealGitWorktrees(t *testing.T) {
 	m.updateLayout()
 
 	if findCursor(m, "repo-wt-a") >= 0 {
-		t.Fatal("el worktree no debe ser fila top-level por defecto")
+		t.Fatal("worktree must not be a top-level row by default")
 	}
 	if findCursor(m, "repo") < 0 {
-		t.Fatal("falta la fila del main checkout")
+		t.Fatal("missing main checkout row")
 	}
 	it := m.tree[findCursor(m, "repo")]
 	if !it.hasKids {
-		t.Fatalf("el main checkout debe marcar worktrees: %+v", it)
+		t.Fatalf("main checkout must mark worktrees: %+v", it)
 	}
 	m = moveCursorTo(t, m, "repo")
 	m2, _ := press(m, "enter")
 	if findCursor(m2, "repo-wt-a") < 0 {
-		t.Fatalf("al expandir deben aparecer los worktrees: %+v", m2.tree)
+		t.Fatalf("when expanding, worktrees must appear: %+v", m2.tree)
 	}
 }
 
@@ -556,10 +556,10 @@ func TestNewNotifiesTopologyDegradation(t *testing.T) {
 
 	m := New(state.NewStoreAt(t.TempDir()), &stubManager{}, root)
 	if !strings.Contains(m.message, "worktree topology unavailable") {
-		t.Errorf("debe notificar la degradación de topología: %q", m.message)
+		t.Errorf("must notify topology degradation: %q", m.message)
 	}
 	if findCursor(m, "repo") < 0 {
-		t.Error("el proyecto debe seguir visible pese a la degradación")
+		t.Error("project must remain visible despite degradation")
 	}
 }
 
@@ -576,13 +576,13 @@ func TestStackStatsConflictMatchesEngine(t *testing.T) {
 	}
 	_, _, err := m.stackStats(stack)
 	if err == nil {
-		t.Fatal("stackStats debe reportar el conflicto de nombre duplicado")
+		t.Fatal("stackStats must report the duplicate name conflict")
 	}
 	if _, cerr := orchestrate.LookupService("api", projects); cerr == nil {
-		t.Fatal("el engine debe reportar el mismo conflicto")
+		t.Fatal("engine must report the same conflict")
 	}
 	if !strings.Contains(m.stackRow(stack), "conflict") {
-		t.Errorf("la fila del stack debe marcar el conflicto: %q", m.stackRow(stack))
+		t.Errorf("stack row must mark the conflict: %q", m.stackRow(stack))
 	}
 
 	unique := []scanner.Project{{Path: "/dev/api", Name: "api", Configured: true, Manifest: manifestNamed("api", "")}}
@@ -590,7 +590,7 @@ func TestStackStatsConflictMatchesEngine(t *testing.T) {
 	mu.services["/dev/api"].Status = statusRunning
 	r, n, uerr := mu.stackStats(stack)
 	if uerr != nil || r != 1 || n != 1 {
-		t.Fatalf("stackStats único = (%d,%d,%v), want (1,1,nil)", r, n, uerr)
+		t.Fatalf("unique stackStats = (%d,%d,%v), want (1,1,nil)", r, n, uerr)
 	}
 }
 
@@ -605,14 +605,14 @@ func TestRepoRowShowsTopologyErrorWithoutChildren(t *testing.T) {
 	m := newRepoModel(t, projects, nil)
 	it := m.tree[findCursor(m, "repo")]
 	if it.hasKids {
-		t.Fatal("sin worktrees no debe marcar hijos")
+		t.Fatal("without worktrees must not mark children")
 	}
 	joined := strings.Join(mustTree(t, m), "\n")
 	if !strings.Contains(joined, "⚠") {
-		t.Errorf("el error de topología debe marcarse con ⚠ en la fila: %q", joined)
+		t.Errorf("topology error must be marked with ⚠ on the row: %q", joined)
 	}
 	if strings.Contains(joined, "▸") {
-		t.Errorf("sin hijos no debe haber glifo de expansión: %q", joined)
+		t.Errorf("without children there must be no expansion glyph: %q", joined)
 	}
 }
 
@@ -637,25 +637,25 @@ func TestGroupAggregationExcludesNestedWorktrees(t *testing.T) {
 	m := newRepoModel(t, projects, map[string]bool{repoKey(repo): true})
 
 	if _, n := m.nodeStats("X", ""); n != 2 {
-		t.Fatalf("X debe contar 2 miembros (sin el worktree), got %d", n)
+		t.Fatalf("X must count 2 members (without the worktree), got %d", n)
 	}
 	m.collapsed["X"] = true
 	if row := m.primaryRow("X"); !strings.Contains(row, "(0/2)") {
-		t.Errorf("header X debe mostrar (0/2): %q", row)
+		t.Errorf("header X must show (0/2): %q", row)
 	}
 	m.collapsed["X"] = false
 
 	next, _ := m.toggleNode("X", "")
 	m2 := next.(Model)
 	if sv := m2.services[wt]; sv != nil && sv.Status != statusStopped {
-		t.Errorf("toggleNode(X) no debe arrancar el worktree anidado: %v", sv.Status)
+		t.Errorf("toggleNode(X) must not start the nested worktree: %v", sv.Status)
 	}
 	idx := findCursor(m2, "repo-wt")
 	if idx < 0 {
-		t.Fatal("el worktree debe seguir visible bajo su repo")
+		t.Fatal("worktree must remain visible under its repo")
 	}
 	if m2.tree[idx].indent != 1 {
-		t.Errorf("el worktree debe ir indentado, indent=%d", m2.tree[idx].indent)
+		t.Errorf("worktree must be indented, indent=%d", m2.tree[idx].indent)
 	}
 }
 
@@ -663,11 +663,11 @@ func rowLine(t *testing.T, m Model, name string) string {
 	t.Helper()
 	idx := findCursor(m, name)
 	if idx < 0 {
-		t.Fatalf("no se encontró la fila %q", name)
+		t.Fatalf("row %q not found", name)
 	}
 	tree, _ := m.treeLines()
 	if idx >= len(tree) {
-		t.Fatalf("índice %d fuera de las líneas (%d)", idx, len(tree))
+		t.Fatalf("index %d out of lines (%d)", idx, len(tree))
 	}
 	return tree[idx]
 }
@@ -677,27 +677,27 @@ func TestRepoRowBadgeCountsRunningWorktrees(t *testing.T) {
 
 	m := newRepoModel(t, projects, nil)
 	if row := rowLine(t, m, "repo"); strings.Contains(row, "+") {
-		t.Errorf("sin worktrees corriendo no debe haber badge: %q", row)
+		t.Errorf("without running worktrees there must be no badge: %q", row)
 	}
 
 	m.services[wtA].Status = statusRunning
 	if row := rowLine(t, m, "repo"); !strings.Contains(row, "+1") {
-		t.Errorf("un worktree corriendo debe marcar +1: %q", row)
+		t.Errorf("one running worktree must mark +1: %q", row)
 	}
 
 	m2 := newRepoModel(t, projects, nil)
 	m2.services[repo].Status = statusRunning
 	if row := rowLine(t, m2, "repo"); strings.Contains(row, "+") {
-		t.Errorf("solo el main corriendo no debe marcar badge: %q", row)
+		t.Errorf("only main running must not mark badge: %q", row)
 	}
 
 	m2.services[wtA].Status = statusRunning
 	row := rowLine(t, m2, "repo")
 	if !strings.Contains(row, "+1") {
-		t.Errorf("main + worktree corriendo debe marcar +1: %q", row)
+		t.Errorf("main + worktree running must mark +1: %q", row)
 	}
 	if !strings.Contains(row, "●") {
-		t.Errorf("la bolita del main debe seguir visible junto al badge: %q", row)
+		t.Errorf("main dot must remain visible next to the badge: %q", row)
 	}
 }
 
@@ -712,11 +712,11 @@ func TestContainerRowBadgeCountsRunningWorktrees(t *testing.T) {
 	m.services[wtA].Status = statusRunning
 	idx := findRepo(t, m, "repo")
 	if idx < 0 {
-		t.Fatal("falta la fila contenedora sintetizada")
+		t.Fatal("missing synthesized container row")
 	}
 	tree, _ := m.treeLines()
 	if !strings.Contains(tree[idx], "+1") {
-		t.Errorf("la fila contenedora debe marcar +1: %q", tree[idx])
+		t.Errorf("container row must mark +1: %q", tree[idx])
 	}
 }
 
@@ -739,10 +739,10 @@ func TestRepoRowBadgeKeepsColumnWidth(t *testing.T) {
 		m.services[wt].Status = statusRunning
 		line := rowLine(t, m, long)
 		if w := lipglossWidth(line); w > treeWidth {
-			t.Errorf("expanded=%v: la línea mide %d, excede treeWidth=%d: %q", expanded, w, treeWidth, line)
+			t.Errorf("expanded=%v: line measures %d, exceeds treeWidth=%d: %q", expanded, w, treeWidth, line)
 		}
 		if !strings.Contains(line, "+1") {
-			t.Errorf("expanded=%v: falta el badge: %q", expanded, line)
+			t.Errorf("expanded=%v: missing badge: %q", expanded, line)
 		}
 	}
 
@@ -754,11 +754,11 @@ func TestRepoRowBadgeKeepsColumnWidth(t *testing.T) {
 	mc.services[wt].Status = statusRunning
 	idx := findRepo(t, mc, filepath.Base(outside))
 	if idx < 0 {
-		t.Fatal("falta la contenedora sintetizada")
+		t.Fatal("missing synthesized container")
 	}
 	tree, _ := mc.treeLines()
 	if w := lipglossWidth(tree[idx]); w > treeWidth {
-		t.Errorf("contenedora: la línea mide %d, excede treeWidth=%d: %q", w, treeWidth, tree[idx])
+		t.Errorf("container: line measures %d, exceeds treeWidth=%d: %q", w, treeWidth, tree[idx])
 	}
 
 	mw := newRepoModel(t, []scanner.Project{{
@@ -766,7 +766,7 @@ func TestRepoRowBadgeKeepsColumnWidth(t *testing.T) {
 		WorktreeErr: "git binary not available",
 	}}, nil)
 	if line := rowLine(t, mw, long); lipglossWidth(line) > treeWidth {
-		t.Errorf("repo con WorktreeErr: la línea mide %d: %q", lipglossWidth(line), line)
+		t.Errorf("repo with WorktreeErr: line measures %d: %q", lipglossWidth(line), line)
 	}
 
 	me := newRepoModel(t, []scanner.Project{
@@ -776,7 +776,7 @@ func TestRepoRowBadgeKeepsColumnWidth(t *testing.T) {
 	}, nil)
 	me.services[wt].Status = statusRunning
 	if line := rowLine(t, me, long); lipglossWidth(line) > treeWidth {
-		t.Errorf("repo con ⚠ y badge: la línea mide %d: %q", lipglossWidth(line), line)
+		t.Errorf("repo with ⚠ and badge: line measures %d: %q", lipglossWidth(line), line)
 	}
 
 	bare := filepath.Join(root, long+"-bare")
@@ -788,10 +788,10 @@ func TestRepoRowBadgeKeepsColumnWidth(t *testing.T) {
 	}, nil)
 	bi := findRepo(t, mb, filepath.Base(bare))
 	if bi < 0 {
-		t.Fatal("falta la contenedora bare")
+		t.Fatal("missing bare container")
 	}
 	btree, _ := mb.treeLines()
 	if w := lipglossWidth(btree[bi]); w > treeWidth {
-		t.Errorf("contenedora bare con ⚠: la línea mide %d, excede treeWidth=%d: %q", w, treeWidth, btree[bi])
+		t.Errorf("bare container with ⚠: line measures %d, exceeds treeWidth=%d: %q", w, treeWidth, btree[bi])
 	}
 }

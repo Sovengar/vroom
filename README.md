@@ -2,53 +2,53 @@
 
 [![CI](https://github.com/Sovengar/vroom/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Sovengar/vroom/actions/workflows/ci.yml)
 
-TUI en Go + Bubbletea para gestionar servicios de múltiples proyectos desde un solo punto.
-Usa [fd](https://github.com/sharkdp/fd) para buscar rápidamente `.vroom.toml` en el
-árbol de directorios (profundidad configurable). Permite iniciar/detener servicios
-daemonizados que **sobreviven al cierre de la terminal**, con consola en tiempo real
-y detección de estado (PID + puerto + patrón de proceso).
+TUI in Go + Bubbletea for managing services across multiple projects from a single point.
+Uses [fd](https://github.com/sharkdp/fd) to quickly find `.vroom.toml` in the
+directory tree (configurable depth). Allows starting/stopping daemonized services that
+**survive terminal close**, with real-time console
+and status detection (PID + port + process pattern).
 
 ## Dashboard
 
-Un único dashboard estilo panel "Services" de IntelliJ, compuesto por cuatro
-secciones con borde redondeado y título en el borde: `Projects` (izquierda,
-alto completo), `Details` (arriba-derecha), `Output` (abajo-derecha) y
-`Keybinds` (abajo, ancho completo; el mensaje de estado aparece como leyenda
-en su borde inferior derecho).
+A single dashboard in the style of IntelliJ's "Services" panel, composed of four
+sections with rounded border and title on the border: `Projects` (left,
+full height), `Details` (top-right), `Output` (bottom-right) and
+`Keybinds` (bottom, full width; the status message appears as a legend
+on its bottom-right border).
 
-- **Árbol de proyectos** (caja `Projects`, izquierda, ancho fijo, scroll automático):
-  grupos seleccionables y colapsables con `enter` (colapsado muestra
-  `grupo (running/total)`), filas compactas de glifo + nombre (⚠ = sin
-  manifiesto); `s` sobre un grupo arranca/para todos sus miembros.
-- **Panel de detalles** (caja `Details`, derecha, fijo, dos columnas): a la izquierda
-  ruta, lenguaje, rama git, grupo, puerto, patrón, PID y logs; a la
-  derecha los comandos del manifiesto (`start`/`stop`/`install`/`build`,
-  con `—` los no configurados).
-- **Panel `Output` con pestañas**:
-  - `Console` — stdout + stderr mergeados en tiempo real (tail incremental
-    cada 400ms, auto-follow, pausa al hacer scroll-up). `c` alterna merged/
+- **Project tree** (`Projects` box, left, fixed width, auto-scroll):
+  selectable and collapsible groups with `enter` (collapsed shows
+  `group (running/total)`), compact glyph + name rows (⚠ = no
+  manifest); `s` on a group starts/stops all its members.
+- **Details panel** (`Details` box, right, fixed, two columns): on the left
+  path, language, git branch, group, port, pattern, PID and logs; on the
+  right the manifest commands (`start`/`stop`/`install`/`build`,
+  with `—` for unconfigured ones).
+- **`Output` panel with tabs**:
+  - `Console` — stdout + stderr merged in real time (incremental
+    tail every 400ms, auto-follow, pauses on scroll-up). `c` toggles merged/
     stdout/stderr.
-  - `Threads` — hilos del proceso a nivel OS (`/proc/<pid>/task`): nombre,
-    TID, estado y CPU% ordenados por consumo. Funciona para cualquier
-    lenguaje sin debugger (Java expone nombres de hilo, Go goroutines).
-  - `Metrics` — recursos del proceso muestreados cada tick: CPU% (delta de
-    ticks), RSS, descriptores abiertos y nº de hilos.
-  - `Git` — rama, estado (limpio/nº de cambios) y últimos commits del repo
-    del proyecto.
-  - `Env` — entorno del proceso (`/proc/<pid>/environ`), ordenado.
-  - `Timeline` — eventos operativos de la sesión (start/stop/restart/build/
-    install/task/stack) con hora y duración, más reciente arriba.
-  - `Health` — GET HTTP al **puerto real** del servicio (`health_path`,
-    default `/`) con timeout corto: código, latencia, content-type y
-    primeras líneas.
+  - `Threads` — OS-level process threads (`/proc/<pid>/task`): name,
+    TID, status and CPU% sorted by consumption. Works for any
+    language without a debugger (Java exposes thread names, Go goroutines).
+  - `Metrics` — process resources sampled each tick: CPU% (tick
+    delta), RSS, open file descriptors and thread count.
+  - `Git` — branch, status (clean/number of changes) and recent commits of the
+    project's repo.
+  - `Env` — process environment (`/proc/<pid>/environ`), sorted.
+  - `Timeline` — operational session events (start/stop/restart/build/
+    install/task/stack) with time and duration, most recent on top.
+  - `Health` — HTTP GET to the service's **real port** (`health_path`,
+    default `/`) with short timeout: code, latency, content-type and
+    first lines.
 
-## Instalación
+## Installation
 
 ```bash
 go build -o ~/.local/bin/vroom ./cmd/vroom
 ```
 
-**Dependencia en runtime:** [fd](https://github.com/sharkdp/fd) (>= v8.0)
+**Runtime dependency:** [fd](https://github.com/sharkdp/fd) (>= v8.0)
 
 ```bash
 # Arch Linux
@@ -64,313 +64,303 @@ sudo apt install fd-find
 sudo dnf install fd-find
 ```
 
-fd se usa para buscar `.vroom.toml` de forma rápida y eficiente. Sin fd, vroom no funcionará.
+fd is used to find `.vroom.toml` quickly and efficiently. Without fd, vroom will not work.
 
-Otros requisitos: Linux (v1), shell POSIX.
+Other requirements: Linux (v1), POSIX shell.
 
-### Dependencia opcional: portless
+### Optional dependency: portless
 
-Sólo hace falta si usas `route_mode = "auto"` o `"named"` (ver [`route_mode`](#route_mode-una-url-estable-para-el-puerto-que-cambia)).
-Con `route_mode = "off"` —el default— vroom **ni siquiera busca el binario**.
+Only needed if you use `route_mode = "auto"` or `"named"` (see [`route_mode`](#route_mode-a-stable-url-for-the-changing-port)).
+With `route_mode = "off"` —the default— vroom **does not even look for the binary**.
 
-portless es un CLI de Node y **requiere Node >= 24**. Se resuelve en este orden:
-`$PORTLESS_BIN` → `exec.LookPath` → directorios de shim de mise conocidos (vroom corre
-bajo un gestor de servicios cuyo entorno no es tu shell de login, así que un `portless`
-"nudo" en el PATH no está garantizado).
+portless is a Node CLI and **requires Node >= 24**. It is resolved in this order:
+`$PORTLESS_BIN` → `exec.LookPath` → known mise shim directories (vroom runs
+under a service manager whose environment is not your login shell, so a `portless`
+"node" in PATH is not guaranteed).
 
-Sin portless, sin proxy en marcha, o con el Node demasiado viejo: vroom avisa **una vez**
-y el servicio **arranca igual**. La salud de un servicio nunca depende de que exista su ruta.
+Without portless, without a running proxy, or with too old Node: vroom warns **once**
+and the service **starts anyway**. The health of a service never depends on its route existing.
 
-## Uso rápido — playground
+## Quick start — playground
 
-El repo incluye `playground/` con 8 proyectos ficticios listos para probar todo el ciclo:
+The repo includes `playground/` with 8 dummy projects ready to test the full cycle:
 
 ```bash
 cd playground
 vroom
 ```
 
-| Proyecto | Lenguaje | Grupo | Puerto | Comando |
+| Project | Language | Group | Port | Command |
 |---|---|---|---|---|
-| products-api-java | Java | tienda | 8081 | `java src/main/java/com/example/Main.java` |
-| orders-api-springboot | Java (Spring Boot) | tienda | 8084 | `mvn spring-boot:run` |
+| products-api-java | Java | store | 8081 | `java src/main/java/com/example/Main.java` |
+| orders-api-springboot | Java (Spring Boot) | store | 8084 | `mvn spring-boot:run` |
 | billing-api-go | Go | — | 8082 | `go run main.go` |
 | inventory-api-python | Python | — | 8083 | `python3 app.py` |
-| web-frontend | JavaScript | tienda | 5173 | `node server.js` |
+| web-frontend | JavaScript | store | 5173 | `node server.js` |
 | search-api-python | Python | — | 8090 | `python3 -m http.server 8090` |
 | auth-api-go | Go | — | 8091 | `go run main.go` |
-| nginx-proxy | otro | — | 8080 | `docker run --rm -p 8080:80 nginx:alpine` |
+| nginx-proxy | other | — | 8080 | `docker run --rm -p 8080:80 nginx:alpine` |
 
-Notas:
-- `orders-api-springboot` requiere **JDK 17+ y Maven**; la primera ejecución descarga
-  dependencias (verás todo el log de arranque de Spring en la vista de logs).
-- `nginx-proxy` requiere Docker.
-- `web-frontend` incluye `command_install`/`command_build` en su manifiesto y un `mise.toml` con
-  tasks (y uno oculto) para probar `b`, `i` y el picker de `t` sin configurar nada.
-- Cada proyecto define su servicio en un `.vroom.toml` — así se configura el tuyo:
+Notes:
+- `orders-api-springboot` requires **JDK 17+ and Maven**; the first run downloads
+  dependencies (you'll see the full Spring startup log in the logs view).
+- `nginx-proxy` requires Docker.
+- `web-frontend` includes `command_install`/`command_build` in its manifest and a `mise.toml` with
+  tasks (and one hidden) to test `b`, `i` and the `t` picker without configuring anything.
+- Each project defines its service in a `.vroom.toml` — this is how you configure yours:
 
 ```toml
-name = "mi-servicio"
-primary_group = "tienda"         # nivel superior de agrupación (opcional)
-secondary_group = "backend"      # nivel interno, solo con primary_group (opcional)
+name = "my-service"
+primary_group = "store"           # top-level grouping (optional)
+secondary_group = "backend"       # inner level, only with primary_group (optional)
 command_start = "go run main.go"
-port = 8080                      # puerto por defecto de la app (0 = deshabilitado)
-port_mode = "fixed"              # "fixed" | "dynamic" | "none" (default "fixed")
-process_pattern = ""             # patrón pgrep (opcional)
-command_install = "npm install"  # one-shot con la tecla i (opcional)
-command_build = "mise run build" # one-shot con la tecla b (opcional)
-command_stop = "docker stop x"   # parada graciosa con la tecla s (opcional)
-health_path = "/healthz"         # ruta del probe de la tab Health (default "/")
-route_mode = "off"               # "off" | "auto" | "named" (default "off")
-route_name = ""                  # nombre estable de la ruta (sólo con "named")
+port = 8080                       # default app port (0 = disabled)
+port_mode = "fixed"               # "fixed" | "dynamic" | "none" (default "fixed")
+process_pattern = ""              # pgrep pattern (optional)
+command_install = "npm install"    # one-shot with the i key (optional)
+command_build = "mise run build"  # one-shot with the b key (optional)
+command_stop = "docker stop x"    # graceful stop with the s key (optional)
+health_path = "/healthz"          # Health tab probe path (default "/")
+route_mode = "off"                # "off" | "auto" | "named" (default "off")
+route_name = ""                   # stable route name (only with "named")
 ```
 
-La agrupación es jerárquica: con `primary_group` + `secondary_group` la TUI
-muestra dos niveles de headers plegables (p. ej. `tienda` → `backend`/
-`frontend`); `secondary_group` sin `primary_group` se ignora, y con solo
-`primary_group` los proyectos van directos bajo su header (enter alterna el
-plegado del header o, sobre un proyecto, de su contenedor más interno).
+Grouping is hierarchical: with `primary_group` + `secondary_group` the TUI
+shows two levels of collapsible headers (e.g. `store` → `backend`/
+`frontend`); `secondary_group` without `primary_group` is ignored, and with only
+`primary_group` projects go directly under their header (enter toggles
+header collapse or, on a project, its innermost container).
 
-`command_stop` es para servicios donde matar el process group no basta (el
-proceso hijo sobrevive al kill, ej. un contenedor Docker): al pulsar `s`, vroom
-ejecuta ese comando primero (con banner, visible en la consola) y después aplica
-el shutdown de limpieza habitual (SIGTERM → 5s → SIGKILL al process group **y
-a sus descendientes**, incluidos los que hicieron `setsid`).
+`command_stop` is for services where killing the process group is not enough (the
+child process survives the kill, e.g. a Docker container): when pressing `s`, vroom
+runs that command first (with banner, visible in the console) and then applies
+the usual cleanup shutdown (SIGTERM → 5s → SIGKILL to the process group **and
+its descendants**, including those that did `setsid`).
 
-### `port_mode`: el mismo manifiesto para varios worktrees
+### `port_mode`: the same manifest for multiple worktrees
 
-`port` no es el mecanismo de detección: es el puerto **por defecto de tu app**,
-el mismo valor de `PORT=${PORT:-8080}`. `port_mode` decide qué hace vroom con él.
-Sin `port_mode` (o con `port = 0`) el comportamiento es exactamente el de
-siempre.
+`port` is not the detection mechanism: it is the **default port of your app**,
+the same value as `PORT=${PORT:-8080}`. `port_mode` decides what vroom does with it.
+Without `port_mode` (or with `port = 0`) the behavior is exactly as
+always.
 
-| Modo | Qué hace vroom |
+| Mode | What vroom does |
 |---|---|
-| `fixed` (default) | Arranca el servicio en `port`. Es el comportamiento histórico. |
-| `none` | El servicio no tiene puerto por diseño. Ninguna espera de puerto. |
-| `dynamic` | vroom reserva un puerto libre en `4000–4999`, lo inyecta como `PORT` (y `HOST=127.0.0.1`), arranca el servicio y **descubre y verifica** el puerto real antes de devolver el control. |
+| `fixed` (default) | Starts the service on `port`. This is the historical behavior. |
+| `none` | The service has no port by design. No port waiting. |
+| `dynamic` | vroom reserves a free port in `4000–4999`, injects it as `PORT` (and `HOST=127.0.0.1`), starts the service and **discovers and verifies** the real port before returning control. |
 
-Con `dynamic`, el mismo `.vroom.toml` sirve para N worktrees a la vez: cada uno
-arranca en su propio puerto y la UI, el JSON y la sonda de salud muestran
-**ese mismo número**. El contrato con tu app es una línea:
+With `dynamic`, the same `.vroom.toml` works for N worktrees at once: each one
+starts on its own port and the UI, the JSON and the health probe show
+**that same number**. The contract with your app is one line:
 
 ```bash
 PORT=${PORT:-8080} node server.js
 ```
 
-Si la app **ignora** `PORT` y hace bind a su propio puerto fijo, el arranque
-**no falla**: vroom descubre el puerto real, lo persiste y emite un aviso
-visible. Si la app no abre ningún puerto TCP (sólo UDP, un worker…), queda
-registrado como "sin puerto" y el servicio sigue siendo operable.
+If the app **ignores** `PORT` and binds to its own fixed port, startup
+**does not fail**: vroom discovers the real port, persists it and emits a
+visible warning. If the app opens no TCP port (only UDP, a worker…), it is
+registered as "no port" and the service remains operable.
 
-El descubrimiento se acota por deadline y por la liveness del proceso: un
-servicio que muere al arrancar se reporta en ~1 s, no tras agotar el timeout.
-Un servicio que tarda 3,5 s en hacer bind conserva su puerto y no se reporta
-como "sin puerto".
+Discovery is bounded by deadline and process liveness: a service
+that dies on startup is reported in ~1s, not after exhausting the timeout.
+A service that takes 3.5s to bind keeps its port and is not reported
+as "no port".
 
-Si la app abre **varios** listeners, vroom sólo tiene que adivinar: gana el
-puerto reservado si la app lo tomó; si no, gana el que mejor responde en
-`health_path` (200 > 2xx/3xx > 5xx > 404).
+If the app opens **multiple** listeners, vroom only has to guess: the
+reserved port wins if the app took it; otherwise the one that best responds on
+`health_path` (200 > 2xx/3xx > 5xx > 404) wins.
 
-**No es una garantía:** una app que además de no ser HTTP ignora `PORT` deja a
-vroom sin forma de saber cuál de sus listeners es el principal. En ese caso se
-elige el de menor número (determinista) y el servicio se marca como **"puerto
-no verificado"** (`port_verified: false` en el JSON, con aviso visible). Ver `docs/adr/adr-0012-port-ownership-contract-and-dynamic-ports.md`
-para el contrato completo de propiedad del puerto.
+**Not a guarantee:** an app that besides not being HTTP ignores `PORT` leaves
+vroom with no way to know which of its listeners is the main one. In that case the
+lowest-numbered one is chosen (deterministic) and the service is marked as **"port
+not verified"** (`port_verified: false` in the JSON, with visible warning). See `docs/adr/adr-0012-port-ownership-contract-and-dynamic-ports.md`
+for the complete port ownership contract.
 
-### `route_mode`: una URL estable para el puerto que cambia
+### `route_mode`: a stable URL for the changing port
 
-Con puertos dinámicos, cualquier referencia externa —un callback OAuth, una regla
-CORS, un README, un bookmark— queda atada a un número que cambia en cada
-arranque. `route_mode` le da a cada servicio un **nombre estable** en portless.
+With dynamic ports, any external reference —an OAuth callback, a CORS
+rule, a README, a bookmark— is tied to a number that changes on every
+startup. `route_mode` gives each service a **stable name** in portless.
 
 ```toml
 route_mode = "auto"                # "off" (default) | "auto" | "named"
-route_name = "mi-api"              # sólo con route_mode = "named"
+route_name = "my-api"              # only with route_mode = "named"
 ```
 
-| Modo | Qué hace vroom |
+| Mode | What vroom does |
 |---|---|
-| `off` (default) | No registra ninguna ruta. **Ni siquiera busca el binario.** |
-| `auto` | Nombre derivado de la **rama**: `<rama>.<proyecto>`, sin escribir nada. |
-| `named` | El nombre estable de `route_name`. Es lo que exigen OAuth y CORS. |
+| `off` (default) | Registers no route. **Does not even look for the binary.** |
+| `auto` | Name derived from the **branch**: `<branch>.<project>`, without writing anything. |
+| `named` | The stable name from `route_name`. This is what OAuth and CORS require. |
 
-`auto` separa **ramas** distintas del mismo repo, que es lo que evita que dos
-ramas en marcha compartan una dirección. Ojo al alcance: el nombre viene de la
-rama, no de la carpeta del worktree, así que **dos worktrees en la misma rama
-derivan el mismo nombre** (por ejemplo, dos clones ambos en `main`, o un
-`git worktree --force` sobre una rama ya usada). Cuando eso pasa, el segundo
-servicio no recibe una segunda dirección sino un **aviso de conflicto**: la ruta
-del primero se queda intacta y este servicio sigue funcionando en su puerto.
+`auto` separates distinct **branches** of the same repo, which is what prevents two
+running branches from sharing an address. Watch the scope: the name comes from the
+branch, not from the worktree folder, so **two worktrees on the same branch
+derive the same name** (for example, two clones both on `main`, or a
+`git worktree --force` on an already-used branch). When that happens, the second
+service does not get a second address but a **conflict warning**: the first
+one's route stays intact and this service keeps working on its port.
 
-Usa `named` cuando quieras una dirección propia o estable — y es
-obligatorio cuando la URL **no puede depender de una rama**, porque la vas a
-meter en un `redirect_uri` o en una lista de orígenes.
+Use `named` when you want your own stable address — and it is
+mandatory when the URL **cannot depend on a branch**, because you are going to
+put it in a `redirect_uri` or in an origin list.
 
-**vroom sólo registra la ruta. No arranca, no gestiona, no supervisa ni muestra el
-proxy.** portless es una dependencia *opcional* (ver
-[Instalación](#dependencia-opcional-portless)): si no hay `portless`, o no está en el
-`PATH` del servicio, o su proxy no
-está en marcha, o su Node es demasiado antiguo: vroom avisa **una vez** y el
-servicio **arranca igual, queda sano, y vive en su puerto**. La salud de un
-servicio nunca depende de que exista su ruta — una ruta es una dirección, no una
-dependencia.
+**vroom only registers the route. It does not start, manage, supervise or show the
+proxy.** portless is an *optional* dependency (see
+[Installation](#optional-dependency-portless)): if there is no `portless`, or it is not in the
+service's `PATH`, or its proxy is not
+running, or its Node is too old: vroom warns **once** and the
+service **starts anyway, stays healthy, and lives on its port**. The health of a
+service never depends on its route existing — a route is an address, not a
+dependency.
 
-Al parar el servicio, su ruta desaparece. Y las rutas que dejó un vroom que
-murió sin pararlo las limpia **la reconciliación del arranque siguiente**, porque
-`portless prune` **no** toca las rutas de alias. Si renembras una rama en modo
-`auto`, la ruta vieja se retira y se registra la nueva.
+When stopping the service, its route disappears. And routes left by a vroom that
+died without stopping it are cleaned by **the next startup's reconciliation**, because
+`portless prune` does **not** touch alias routes. If you rename a branch in `auto`
+mode, the old route is removed and the new one is registered.
 
-En el JSON, `route_mode` es la **intención** (lo que pide el manifiesto) y `route`
-es el **resultado**:
+In the JSON, `route_mode` is the **intention** (what the manifest asks for) and `route`
+is the **result**:
 
 ```json
 "route_mode": "named",
-"route": { "name": "mi-api", "status": "registered", "url": "https://mi-api.localhost", "port": 4321 }
+"route": { "name": "my-api", "status": "registered", "url": "https://my-api.localhost", "port": 4321 }
 ```
 
-Una ruta degradada **nunca** publica `url`, y siempre dice por qué:
+A degraded route **never** publishes `url`, and always says why:
 
 ```json
-"route": { "name": "mi-api", "status": "degraded", "reason": "proxy_not_running" }
+"route": { "name": "my-api", "status": "degraded", "reason": "proxy_not_running" }
 ```
 
-vroom no publica una URL que no haya visto funcionar. `portless alias` escribe la
-ruta aunque el proxy esté apagado y sale con éxito igual, así que **escribir la
-ruta no prueba que la URL resuelva**: por eso, tras registrarla, vroom la lee de
-vuelta para confirmar que es suya y la comprueba contra el proxy vivo. Un `502`
-cuenta como "el proxy enruta la ruta y tu servicio no responde"; sólo una
-conexión rechazada o un timeout significan que no hay proxy. Un manifiesto sin
-`route_mode` no publica nada de esto.
+vroom does not publish a URL it has not seen working. `portless alias` writes the
+route even if the proxy is off and exits successfully anyway, so **writing the
+route does not prove the URL resolves**: that is why, after registering it, vroom reads it back
+to confirm it belongs to that service and checks it against the live proxy. A `502`
+counts as "the proxy routes the route and your service does not respond"; only a
+refused connection or a timeout mean there is no proxy. A manifest without
+`route_mode` publishes none of this.
 
-Ver `docs/adr/adr-0013-vroom-registers-portless-routes.md`.
+See `docs/adr/adr-0013-vroom-registers-portless-routes.md`.
 
 ## Keybindings
 
-| Tecla | Acción |
+| Key | Action |
 |---|---|
-| `j`/`k` o flechas | Navegar el árbol (cíclico, scroll automático) |
-| `/` | **Filter**: barra de filtrado en vivo del árbol (matchea nombre y grupos `primary_group`/`secondary_group`, case-insensitive); `enter` aplica y cierra, `esc` limpia y cierra |
-| `enter` | Colapsar/expandir el grupo seleccionado |
-| `s` | **Start/stop** (toggle contextual; sobre un grupo, a todos sus miembros) |
-| `R` | Restart (stop → start con timeout) |
-| `b` | **Build**: comando one-shot del manifiesto (`command_build = "..."`) |
-| `i` | **Install**: comando one-shot del manifiesto (`command_install = "..."`) |
-| `t` | **Tasks**: picker de tasks del `mise.toml` (ver [mise](#integración-con-mise-opcional)) |
-| `a` | **Ask AI**: pregunta a un agente (opencode/pi/hermes/jcode) con tu prompt → chat nuevo; el input se prellena con contexto de la app ([config global](#configuración-global-ask-ai)); el despacho es configurable |
-| `C` | **Clear**: limpia la consola en memoria (los ficheros conservan el histórico) |
-| `1` … `7` | Pestañas del panel Output: Console / Threads / Metrics / Git / Env / Timeline / Health (`tab` cicla, `shift+tab` atrás) |
-| `c` | Modo de consola: merged → stdout → stderr |
-| `pgup`/`pgdn`, `g`/`G` | Scroll de consola con teclado (pausa el follow; `G` lo reactiva) |
-| rueda del mouse | Scroll de consola (3 líneas por click; hasta el final reactiva el follow) |
+| `j`/`k` or arrows | Navigate the tree (cyclic, auto-scroll) |
+| `/` | **Filter**: live filter bar for the tree (matches name and `primary_group`/`secondary_group` groups, case-insensitive); `enter` applies and closes, `esc` clears and closes |
+| `enter` | Collapse/expand the selected group |
+| `s` | **Start/stop** (contextual toggle; on a group, all its members) |
+| `R` | Restart (stop → start with timeout) |
+| `b` | **Build**: one-shot manifest command (`command_build = "..."`) |
+| `i` | **Install**: one-shot manifest command (`command_install = "..."`) |
+| `t` | **Tasks**: `mise.toml` task picker (see [mise](#mise-integration-optional)) |
+| `a` | **Ask AI**: ask an agent (opencode/pi/hermes/jcode) with your prompt → new chat; the input is prefilled with app context ([global config](#global-config-ask-ai)); dispatch is configurable |
+| `C` | **Clear**: clears the in-memory console (files keep history) |
+| `1` … `7` | Output panel tabs: Console / Threads / Metrics / Git / Env / Timeline / Health (`tab` cycles, `shift+tab` back) |
+| `c` | Console mode: merged → stdout → stderr |
+| `pgup`/`pgdn`, `g`/`G` | Console scroll with keyboard (pauses follow; `G` reactivates it) |
+| mouse wheel | Console scroll (3 lines per click; reaching the end reactivates follow) |
 
-Las líneas de log más largas que el panel se envuelven (soft wrap): el contenido
-completo es visible y el color se conserva en las líneas de continuación.
-| `l` | Abrir ambos logs en el editor (`$VISUAL`/`$EDITOR`, default nvim, split vertical) — `o` alias |
-| `r` | Refresh forzado |
-| `q`/`Esc` | Salir (`Esc` cierra primero el prompt/picker; con filtro aplicado, limpia el filtro antes de salir) |
+Log lines longer than the panel wrap (soft wrap): the full
+content is visible and color is preserved on continuation lines.
+| `l` | Open both logs in the editor (`$VISUAL`/`$EDITOR`, default nvim, vertical split) — `o` alias |
+| `r` | Forced refresh |
+| `q`/`Esc` | Quit (`Esc` closes the prompt/picker first; with filter applied, clears the filter before quitting) |
 
-El panel de detalles es fijo: se muestra siempre que hay espacio y no tiene toggle.
+The details panel is fixed: shown whenever there is space and has no toggle.
 
-Las teclas de las acciones son configurables vía `[keybindings]` (ver
-[configuración global](#configuración-global-ask-ai)); las de navegación y
-especiales (`q`, `Esc`, `enter`, `tab`/`shift+tab`, `j`/`k`, flechas, `pgup`/`pgdn`,
-`1`…`7`, `/`, `!`) son universales y no se remapean.
+Action keys are configurable via `[keybindings]` (see
+[global config](#global-config-ask-ai)); navigation and
+special keys (`q`, `Esc`, `enter`, `tab`/`shift+tab`, `j`/`k`, arrows, `pgup`/`pgdn`,
+`1`…`7`, `/`, `!`) are universal and cannot be remapped.
 
-## Configuración global (ask AI)
+## Global config (ask AI)
 
-`~/.config/vroom/config.toml` (respeta `$XDG_CONFIG_HOME`; override con
-`$VROOM_CONFIG`). Sin fichero, todo funciona con defaults.
+`~/.config/vroom/config.toml` (respects `$XDG_CONFIG_HOME`; override with
+`$VROOM_CONFIG`). Without a file, everything works with defaults.
 
 ```toml
 [ask]
 launcher = "auto"     # auto | herdr | inline | custom
-direction = "right"   # split de herdr: right | down
+direction = "right"   # herdr split: right | down
 target = "pane"       # pane | tab
-focus = false         # false = --no-focus (vroom conserva el foco)
-# launcher_cmd = "tmux new-window -c {dir} -n vroom-{agent} -- {cmd}"  # solo custom
-# prompt = "Given the app {name} with logs in {logs}, "  # prefill del input; "" desactiva
-
-# Opcional: reemplaza los agentes built-in
-[ask.agents.opencode]
-cmd = "opencode --prompt {prompt}"
-[ask.agents.pi]
-cmd = "pi {prompt}"
-[ask.agents.hermes]
-cmd = "hermes chat -q {prompt}"
-[ask.agents.jcode]
-cmd = "jcode run {prompt}"
+focus = false         # false = --no-focus (vroom keeps focus)
+# launcher_cmd = "tmux new-window -c {dir} -n vroom-{agent} -- {cmd}"  # custom only
+# prompt = "Given the app {name} with logs in {logs}, "  # input prefill; "" disables
 
 # ── Keybindings ───────────────────────────────────────
-# Mapea nombre de acción → tecla; cualquier acción ausente conserva su
-# default. Remapear sobre una tecla universal, duplicar una tecla entre
-# acciones o usar una acción desconocida invalida la config (defaults
-# + aviso al arrancar). La barra de ayuda refleja lo configurado.
+# Maps action name → key; any missing action keeps its
+# default. Remapping onto a universal key, duplicating a key across
+# actions or using an unknown action invalidates the config (defaults
+# + warning on startup). The help bar reflects what is configured.
 [keybindings]
-start_stop = "s"  # toggle start/stop (también sobre grupos)
+start_stop = "s"  # toggle start/stop (also on groups)
 restart    = "R"  # restart (stop → start)
 build      = "b"  # one-shot build
 install    = "i"  # one-shot install
-tasks      = "t"  # picker de tasks de mise
+tasks      = "t"  # mise task picker
 ask        = "a"  # ask AI
-clear      = "C"  # limpiar consola en memoria
-stream     = "c"  # modo merged → stdout → stderr
-top        = "g"  # scroll al inicio (pausa el follow)
-bottom     = "G"  # scroll al final (reactiva el follow)
-logs       = "l"  # logs en el editor (alias fijo: o)
-refresh    = "r"  # refresh forzado
+clear      = "C"  # clear in-memory console
+stream     = "c"  # mode merged → stdout → stderr
+top        = "g"  # scroll to top (pauses follow)
+bottom     = "G"  # scroll to bottom (reactivates follow)
+logs       = "l"  # logs in editor (fixed alias: o)
+refresh    = "r"  # forced refresh
 ```
 
-**Cómo abre vroom el agente** (patrón de worktrunk: el binario del agente con el
-prompt como argumento, en el directorio del proyecto):
+**How vroom opens the agent** (worktree pattern: the agent binary with the
+prompt as argument, in the project directory):
 
-- `herdr` — abre un **pane/tab nuevo** (`pane split --cwd <proyecto>` + `pane run`)
-  y ejecuta el agente ahí; vroom sigue vivo. Requiere correr vroom dentro de herdr
+- `herdr` — opens a **new pane/tab** (`pane split --cwd <project>` + `pane run`)
+  and runs the agent there; vroom stays alive. Requires running vroom inside herdr
   (`HERDR_ENV=1`).
-- `inline` — suspende vroom y corre el agente en primer plano; al salir, vuelves
-  al dashboard.
-- `custom` — tu plantilla de shell con placeholders: `{dir}` (proyecto),
-  `{agent}` (nombre) y `{cmd}` (comando completo, quoteado). Ejemplo con tmux:
+- `inline` — suspends vroom and runs the agent in the foreground; on exit, you return
+  to the dashboard.
+- `custom` — your shell template with placeholders: `{dir}` (project),
+  `{agent}` (name) and `{cmd}` (full command, quoted). Example with tmux:
   `tmux new-window -c {dir} -n vroom-{agent} -- {cmd}`.
-- `auto` (default) — herdr si está disponible; si no, inline.
+- `auto` (default) — herdr if available; if not, inline.
 
-Agentes built-in (solo se muestran los instalados en PATH; con uno solo se salta
-el picker):
+Built-in agents (only those installed in PATH are shown; with only one the picker is
+skipped):
 
-| Agente | Invocación |
+| Agent | Invocation |
 |---|---|
 | opencode | `opencode --prompt "<prompt>"` |
 | pi | `pi "<prompt>"` |
-| hermes | `hermes chat -q "<prompt>"` (en TTY la sesión queda interactiva) |
-| jcode | `jcode run "<prompt>"` (one-shot: responde y termina; su TUI no acepta prompt inicial) |
+| hermes | `hermes chat -q "<prompt>"` (in TTY the session becomes interactive) |
+| jcode | `jcode run "<prompt>"` (one-shot: responds and exits; its TUI does not accept an initial prompt) |
 
-**Prefill del prompt**: al abrir el input de ask, vroom asume que la petición va
-sobre la app seleccionada y prellena el template `[ask] prompt` con los
-placeholders `{name}` (proyecto), `{dir}` (ruta) y `{logs}` (directorio del
-servicio con `stdout.log`/`stderr.log`); el cursor queda al final para que
-escribas tu petición. El input es multi-línea: arranca grande, crece con el
-contenido hasta un cap y luego hace scroll interno. Con `prompt = ""` el input
-queda vacío.
+**Prompt prefill**: when opening the ask input, vroom assumes the request is
+about the selected app and prefills the `[ask] prompt` template with the
+placeholders `{name}` (project), `{dir}` (path) and `{logs}` (service
+directory with `stdout.log`/`stderr.log`); the cursor is placed at the end so you
+can type your request. The input is multi-line: starts large, grows with
+content up to a cap and then scrolls internally. With `prompt = ""` the input
+stays empty.
 
-Un config malformado no rompe nada: vroom aplica defaults y notifica el error al arrancar.
+A malformed config breaks nothing: vroom applies defaults and notifies the error on startup.
 
-## Integración con mise (opcional)
+## Integration with mise (optional)
 
-**vroom no requiere mise.** Todo lo esencial (start/stop, logs, threads) funciona
-solo con `.vroom.toml`. La integración existe en dos puntos, y ambos son opt-in:
+**vroom does not require mise.** Everything essential (start/stop, logs, threads) works
+with just `.vroom.toml`. The integration exists at two points, and both are opt-in:
 
-1. **`b` (build) e `i` (install)** ejecutan el comando que tú pongas en el
-   manifiesto, con `sh -c` en el directorio del proyecto. Si prefieres mise,
-   escribes `command_build = "mise run build"`; si prefieres pnpm,
+1. **`b` (build) and `i` (install)** execute the command you put in the
+   manifest, with `sh -c` in the project directory. If you prefer mise,
+   you write `command_build = "mise run build"`; if you prefer pnpm,
    `command_build = "pnpm build"`.
-   vroom nunca añade `mise run` por su cuenta.
-2. **`t` (tasks)** lista los tasks de la sección `[tasks.*]` del `mise.toml` del
-   proyecto (parseo directo del fichero; listar **no** necesita el binario). Al
-   elegir uno se ejecuta `mise run <task>` — ahí sí hace falta tener mise
-   instalado en el PATH. Si el proyecto no tiene `mise.toml`, la tecla solo
-   notifica `no mise.toml`.
+   vroom never adds `mise run` on its own.
+2. **`t` (tasks)** lists the tasks from the `[tasks.*]` section of the project's
+   `mise.toml` (direct file parsing; listing does **not** need the binary). When
+   selecting one, `mise run <task>` is executed — there you do need mise
+   installed in PATH. If the project has no `mise.toml`, the key only
+   notifies `no mise.toml`.
 
-Ejemplo de un frontend con mise:
+Example of a frontend with mise:
 
 ```toml
 # mise.toml
@@ -378,7 +368,7 @@ Ejemplo de un frontend con mise:
 run = "pnpm install"
 
 [tasks.build]
-description = "Build de producción"
+description = "Production build"
 run = "pnpm build"
 
 [tasks.serve]
@@ -388,33 +378,33 @@ run = "pnpm dev"
 ```toml
 # .vroom.toml
 name = "web-frontend"
-command_start = "pnpm dev"          # o "mise run serve"
-command_install = "mise run install" # tecla i
-command_build = "mise run build"     # tecla b
+command_start = "pnpm dev"          # or "mise run serve"
+command_install = "mise run install" # i key
+command_build = "mise run build"     # b key
 port = 5173
 ```
 
-La salida de build/install/tasks va con un banner a los logs del proyecto y se ve
-en la pestaña Console; al terminar notifica `build ok (3.2s)` o
-`build failed (exit 1)`. Solo puede correr un job por proyecto a la vez; los jobs
-sobreviven al cierre de la TUI (misma semántica que los servicios).
+Build/install/tasks output goes with a banner to the project logs and is seen
+in the Console tab; on completion it notifies `build ok (3.2s)` or
+`build failed (exit 1)`. Only one job per project can run at a time; jobs
+survive TUI close (same semantics as services).
 
-## Estado y logs
+## State and logs
 
 ```
-~/.local/state/vroom/services/{hash}/   # hash = 8 hex de SHA-256 del path del proyecto
-├── meta.json    # nombre, pid, pgid, puerto, estado...
-├── pid, pgid    # credenciales del proceso (se limpian al detener)
-├── stdout.log   # stdout del servicio
-└── stderr.log   # stderr del servicio (se conservan como histórico)
+~/.local/state/vroom/services/{hash}/   # hash = 8 hex of SHA-256 of the project path
+├── meta.json    # name, pid, pgid, port, status...
+├── pid, pgid    # process credentials (cleared on stop)
+├── stdout.log   # service stdout
+└── stderr.log   # service stderr (kept as history)
 ```
 
-Los servicios arrancan con `setsid` (nuevo session leader): cierra la TUI y siguen vivos;
-al reabrirla se re-adjunta al estado y verifica procesos con protección anti PID-reuse.
+Services start with `setsid` (new session leader): close the TUI and they stay alive;
+on reopen it re-attaches to state and verifies processes with PID-reuse protection.
 
-## Desarrollo
+## Development
 
 ```bash
-go test ./...        # unit + integración
+go test ./...        # unit + integration
 go vet ./...
 ```

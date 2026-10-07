@@ -11,16 +11,16 @@ import (
 func TestReadStatusNoRepo(t *testing.T) {
 	st := ReadStatus(t.TempDir())
 	if st.Branch != "" {
-		t.Errorf("Branch = %q, want vacío", st.Branch)
+		t.Errorf("Branch = %q, want empty", st.Branch)
 	}
 	if st.Err == "" {
-		t.Error("se esperaba error git fuera de un repo")
+		t.Error("expected git error outside a repo")
 	}
 }
 
 func TestReadStatusRepo(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git no disponible")
+		t.Skip("git not available")
 	}
 	dir := t.TempDir()
 	run := func(args ...string) {
@@ -49,16 +49,16 @@ func TestReadStatusRepo(t *testing.T) {
 		t.Errorf("Branch = %q, want main", st.Branch)
 	}
 	if st.Dirty() {
-		t.Errorf("repo recién commiteado no debe estar sucio: %v", st.Changed)
+		t.Errorf("freshly committed repo must not be dirty: %v", st.Changed)
 	}
 	if len(st.Commits) == 0 || !strings.Contains(st.Commits[0], "first") {
-		t.Errorf("Commits = %v, want el commit inicial", st.Commits)
+		t.Errorf("Commits = %v, want the initial commit", st.Commits)
 	}
 
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("changed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if st := ReadStatus(dir); !st.Dirty() {
-		t.Error("con cambios sin commitear Dirty() debe ser true")
+		t.Error("with uncommitted changes Dirty() must be true")
 	}
 }

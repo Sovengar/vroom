@@ -322,13 +322,13 @@ func TestResolveServicesDuplicate(t *testing.T) {
 
 	_, err := engine.ResolveServices([]string{"api"}, duplicateProjects())
 	if err == nil {
-		t.Fatal("esperaba error por nombre duplicado")
+		t.Fatal("expected error for duplicate name")
 	}
 	if !strings.Contains(err.Error(), "ambiguous service") {
-		t.Errorf("mensaje inesperado: %v", err)
+		t.Errorf("unexpected message: %v", err)
 	}
 	if !strings.Contains(err.Error(), "/repo-wt/a, /repo-wt/b") {
-		t.Errorf("paths no ordenados de forma estable: %v", err)
+		t.Errorf("paths not stably sorted: %v", err)
 	}
 }
 
@@ -344,7 +344,7 @@ func TestResolveServicesUnique(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(resolved) != 1 || resolved[0].Project.Path != "/dev/api" {
-		t.Fatalf("resolución inesperada: %+v", resolved)
+		t.Fatalf("unexpected resolution: %+v", resolved)
 	}
 }
 
@@ -377,7 +377,7 @@ func TestValidateServicesDeterministicOrder(t *testing.T) {
 			got[j] = r.Name
 		}
 		if strings.Join(got, ",") != strings.Join(want, ",") {
-			t.Fatalf("orden no determinista: got %v, want %v", got, want)
+			t.Fatalf("non-deterministic order: got %v, want %v", got, want)
 		}
 	}
 }
@@ -389,10 +389,10 @@ func TestStackStatusConflict(t *testing.T) {
 	stack := &Stack{Name: "s", Stages: []Stage{{Name: "s1", Services: []string{"api"}}}}
 	_, _, err := engine.StackStatus(stack, duplicateProjects())
 	if err == nil {
-		t.Fatal("StackStatus debe reportar el conflicto")
+		t.Fatal("StackStatus must report the conflict")
 	}
 	if !strings.Contains(err.Error(), "ambiguous service") {
-		t.Errorf("mensaje inesperado: %v", err)
+		t.Errorf("unexpected message: %v", err)
 	}
 }
 
@@ -402,6 +402,6 @@ func TestStopStackDuplicate(t *testing.T) {
 
 	stack := &Stack{Name: "s", Stages: []Stage{{Name: "s1", Services: []string{"api"}}}}
 	if err := engine.StopStack(stack, duplicateProjects()); err == nil {
-		t.Fatal("StopStack debe fallar ante un nombre duplicado")
+		t.Fatal("StopStack must fail on a duplicate name")
 	}
 }

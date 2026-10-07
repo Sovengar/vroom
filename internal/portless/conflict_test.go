@@ -16,18 +16,18 @@ func TestSequentialConflictDoesNotEvictForeignRoute(t *testing.T) {
 	res := c.Apply("main.proj", 5000, Ownership{})
 
 	if res.Succeeded() {
-		t.Fatal("no se puede reportar registrada una ruta cuyo nombre tiene otro puerto")
+		t.Fatal("a route whose name has another port cannot be reported registered")
 	}
 	if res.Reason != ReasonRouteConflict {
-		t.Errorf("el motivo debe ser route_conflict, got %q", res.Reason)
+		t.Errorf("the reason must be route_conflict, got %q", res.Reason)
 	}
 	if res.Url != "" {
-		t.Error("en conflicto no se publica url")
+		t.Error("in conflict no url is published")
 	}
 
 	// The foreign route must stay intact: destroying it is the harm this design exists to avoid, the same fail-closed rule that governs cleanup.
 	if got := f.routes[Hostname("main.proj")]; got != 4000 {
-		t.Errorf("la ruta ajena debe quedar intacta en su puerto 4000, got %d", got)
+		t.Errorf("the foreign route must remain intact at its port 4000, got %d", got)
 	}
 }
 
@@ -40,10 +40,10 @@ func TestReRegisteringOurOwnRouteSucceeds(t *testing.T) {
 	res := c.Apply("mine.proj", 4321, Ownership{Owned: true, Port: 4321})
 
 	if !res.Succeeded() {
-		t.Fatalf("re-registrar la ruta propia debe funcionar: %+v", res)
+		t.Fatalf("re-registering the owned route must work: %+v", res)
 	}
 	if res.Port != 4321 {
-		t.Errorf("debe apuntar al puerto real, got %d", res.Port)
+		t.Errorf("it must point to the real port, got %d", res.Port)
 	}
 }
 
@@ -55,10 +55,10 @@ func TestReregisterMovesOurRouteToTheNewPort(t *testing.T) {
 
 	res := c.Apply("app", 4321, Ownership{Owned: true, Port: 4000})
 	if !res.Succeeded() {
-		t.Fatalf("actualizar la ruta propia debe funcionar: %+v", res)
+		t.Fatalf("updating the owned route must work: %+v", res)
 	}
 	if got := f.routes[Hostname("app")]; got != 4321 {
-		t.Errorf("la ruta propia debe pasar a apuntar al puerto nuevo, got %d", got)
+		t.Errorf("the owned route must switch to pointing to the new port, got %d", got)
 	}
 }
 
@@ -80,9 +80,9 @@ func TestInterleavedConflictIsStillDetected(t *testing.T) {
 
 	res := c.Apply("taken", 4321, Ownership{})
 	if res.Reason != ReasonRouteConflict {
-		t.Errorf("el conflicto intercalado también debe detectarse, got %q", res.Reason)
+		t.Errorf("the interleaved conflict must also be detected, got %q", res.Reason)
 	}
 	if res.Succeeded() {
-		t.Error("no se puede publicar una url sobre un nombre que otro dueño acaba de tomar")
+		t.Error("a url cannot be published over a name that another owner just took")
 	}
 }
