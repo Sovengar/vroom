@@ -252,16 +252,105 @@ func TestToggleUnknownStops(t *testing.T) {
 	}
 }
 
-func TestToggleStoppedStarts(t *testing.T) {
+// A stopped project arms the port-mode selector instead of starting outright (gitdash's p pattern).
+func TestToggleStoppedArmsPortMode(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 
 	m2, cmd := press(m, "s")
-	if cmd == nil {
-		t.Fatal("toggle should emit start command")
+	if cmd != nil {
+		t.Error("arming must not emit a start command")
 	}
-	if got := m2.services[pathOfSelected(t, m2)].Status; got != statusStarting {
+	if !m2.portModeArmed {
+		t.Error("a stopped project must arm the port-mode selector")
+	}
+	if got := m2.services[pathOfSelected(t, m2)].Status; got != statusStopped {
+		t.Errorf("status = %s, want stopped (not started yet)", got)
+	}
+}
+
+// ss starts fixed: the second key chooses and the start command is emitted.
+func TestArmedSecondKeySStartsFixed(t *testing.T) {
+	m, _ := newTestModel(t)
+	m = moveCursorTo(t, m, "tienda-api")
+	path := pathOfSelected(t, m)
+
+	m, _ = press(m, "s") // arm
+	m2, cmd := press(m, "s") // choose fixed
+	if cmd == nil {
+		t.Fatal("ss must emit a start command")
+	}
+	if got := m2.services[path].Status; got != statusStarting {
 		t.Errorf("status = %s, want starting", got)
+	}
+	if m2.portModeArmed {
+		t.Error("the arm must be consumed by the choice")
+	}
+}
+
+// sd starts dynamic.
+func TestArmedSecondKeyDStartsDynamic(t *testing.T) {
+	m, _ := newTestModel(t)
+	m = moveCursorTo(t, m, "tienda-api")
+	path := pathOfSelected(t, m)
+
+	m, _ = press(m, "s") // arm
+	m2, cmd := press(m, "d") // choose dynamic
+	if cmd == nil {
+		t.Fatal("sd must emit a start command")
+	}
+	if got := m2.services[path].Status; got != statusStarting {
+		t.Errorf("status = %s, want starting", got)
+	}
+}
+
+// Any other second key cancels the arm and leaves the service stopped.
+func TestArmedSecondKeyOtherCancels(t *testing.T) {
+	m, _ := newTestModel(t)
+	m = moveCursorTo(t, m, "tienda-api")
+	path := pathOfSelected(t, m)
+
+	m, _ = press(m, "s") // arm
+	m2, cmd := press(m, "x") // cancel
+	if cmd != nil {
+		t.Error("a non-variant second key must not emit a command")
+	}
+	if m2.portModeArmed {
+		t.Error("the arm must be cleared by a cancel")
+	}
+	if got := m2.services[path].Status; got != statusStopped {
+		t.Errorf("status = %s, want stopped", got)
+	}
+}
+
+// startProjectSelected guards: no selection, an unconfigured project, and a project without state all return without a command.
+func TestStartProjectSelectedGuards(t *testing.T) {
+	// No selection (cursor out of range) → p == nil.
+	m, _ := newTestModel(t)
+	m.cursor = -1
+	if _, cmd := m.startProjectSelected(manifest.PortModeFixed); cmd != nil {
+		t.Error("no selection must not emit a command")
+	}
+
+	// A configured project with no ServiceState → sv == nil.
+	m, _ = newTestModel(t)
+	m = moveCursorTo(t, m, "tienda-api")
+	path := pathOfSelected(t, m)
+	delete(m.services, path)
+	if _, cmd := m.startProjectSelected(manifest.PortModeFixed); cmd != nil {
+		t.Error("a project without state must not emit a command")
+	}
+
+	// An unconfigured project → the notify branch. selected() returns a copy, so the tree itself is changed.
+	m, _ = newTestModel(t)
+	m = moveCursorTo(t, m, "tienda-api")
+	for i := range m.tree {
+		if m.tree[i].kind == itemProject && m.tree[i].project.Path == pathOfSelected(t, m) {
+			m.tree[i].project.Configured = false
+		}
+	}
+	if _, cmd := m.startProjectSelected(manifest.PortModeFixed); cmd != nil {
+		t.Error("an unconfigured project must not emit a command")
 	}
 }
 
@@ -997,6 +1086,30 @@ func TestBadgeLabelsPortOrigin(t *testing.T) {
 	}
 }
 
+// The label follows the effective mode (the recorded ss/sd choice), not the manifest's: ss on a dynamic manifest is a fixed start.
+func TestBadgeLabelsEffectiveModeNotManifest(t *testing.T) {
+	dyn := scanner.Project{Path: "/tmp/x", Name: "x", Configured: true,
+		Manifest: &manifest.Manifest{Name: "x", Command: "run", Port: 8080, PortMode: manifest.PortModeDynamic}}
+
+	// ss: the recorded fixed wins over the dynamic manifest.
+	svFixed := &ServiceState{Status: statusRunning, Meta: state.Meta{Port: 8080, PortMode: manifest.PortModeFixed}}
+	if badge := statusBadge(dyn, svFixed, "·", "·"); !strings.Contains(badge, ":8080 (Fixed)") {
+		t.Errorf("ss on a dynamic manifest must read (Fixed): %q", badge)
+	}
+
+	// sd: the recorded dynamic wins.
+	svDyn := &ServiceState{Status: statusRunning, Meta: state.Meta{Port: 4001, PortMode: manifest.PortModeDynamic}}
+	if badge := statusBadge(dyn, svDyn, "·", "·"); !strings.Contains(badge, ":4001 (Dynamic)") {
+		t.Errorf("sd must read (Dynamic): %q", badge)
+	}
+
+	// No recorded mode: the manifest decides.
+	svNone := &ServiceState{Status: statusRunning, Meta: state.Meta{Port: 4001}}
+	if badge := statusBadge(dyn, svNone, "·", "·"); !strings.Contains(badge, ":4001 (Dynamic)") {
+		t.Errorf("without a recorded mode the dynamic manifest must read (Dynamic): %q", badge)
+	}
+}
+
 // Port pending gets its own badge instead of the generic spinner, and stays stoppable.
 func TestBadgePortPendingIsItsOwnState(t *testing.T) {
 	p := scanner.Project{
@@ -1119,20 +1232,21 @@ func TestRemappedStartStop(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
 
+	// The remapped key arms like s does; the second key still chooses the mode.
 	m2, cmd := press(m, "x")
-	if cmd == nil {
-		t.Fatal("x should trigger start (start_stop remapped)")
+	if cmd != nil {
+		t.Error("the remapped start key must arm, not start directly")
 	}
-	if m2.services[path].Status != statusStarting {
-		t.Errorf("status = %q, want starting", m2.services[path].Status)
+	if !m2.portModeArmed {
+		t.Fatal("the remapped start key must arm the port-mode selector")
 	}
 
 	m3, cmd2 := press(m2, "s")
-	if cmd2 != nil {
-		t.Error("removed s should not trigger anything")
+	if cmd2 == nil {
+		t.Fatal("the second key must start (fixed)")
 	}
 	if m3.services[path].Status != statusStarting {
-		t.Errorf("s should not change the status, got %q", m3.services[path].Status)
+		t.Errorf("status = %q, want starting", m3.services[path].Status)
 	}
 }
 

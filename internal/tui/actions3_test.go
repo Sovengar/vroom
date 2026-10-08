@@ -66,7 +66,7 @@ func TestStartCmdPropagatesMetaPersistFailure(t *testing.T) {
 	}
 	t.Logf("meta of %s in the service directory %s", p.Path, dir)
 
-	cmd := startCmd(store, &stubManager{}, p)
+	cmd := startCmd(store, &stubManager{}, p, "")
 	if cmd == nil {
 		t.Fatal("startCmd must return a command")
 	}

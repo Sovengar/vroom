@@ -34,6 +34,8 @@ type Meta struct {
 	State          string `json:"state"`
 	// PortVerified false does not mean "no listener": the port was picked without proof (multi-port, no heuristic), so callers must treat it as unconfirmed (docs/adr/adr-0012-port-ownership-contract-and-dynamic-ports.md).
 	PortVerified bool `json:"port_verified"`
+	// PortMode is the mode the agent chose for this service (ss/sd in the TUI), recorded so every start path agrees and vroom list can show it. Empty means "never chosen": the manifest decides.
+	PortMode string `json:"port_mode,omitempty"`
 	// Route fields outlive the service because routes survive a proxy restart (M3) and prune never removes them (M5): without them stop and start-up reconciliation cannot find the route (docs/adr/adr-0013-vroom-registers-portless-routes.md).
 	RouteName   string `json:"route_name,omitempty"`
 	RoutePort   int    `json:"route_port,omitempty"`

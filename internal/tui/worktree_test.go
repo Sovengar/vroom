@@ -146,7 +146,9 @@ func TestRepoRowIsOperableMainCheckout(t *testing.T) {
 	if p == nil || p.Path != repo {
 		t.Fatalf("selected = %+v, want main checkout %s", p, repo)
 	}
-	m2, cmd := press(m, "s")
+	// s arms the port-mode selector; ss confirms fixed and starts.
+	m2, _ := press(m, "s")
+	m2, cmd := press(m2, "s")
 	if cmd == nil {
 		t.Fatal("start on the repo row must emit a command")
 	}
@@ -200,7 +202,9 @@ func TestNestedWorktreeOperable(t *testing.T) {
 		return moveCursorTo(t, m, "repo-wt-a")
 	}
 
-	_, cmd := press(atWorktree(), "s")
+	// s arms the port-mode selector; ss confirms fixed and starts.
+	mArm, _ := press(atWorktree(), "s")
+	_, cmd := press(mArm, "s")
 	if cmd == nil {
 		t.Fatal("start on a worktree must emit a command")
 	}

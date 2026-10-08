@@ -175,6 +175,9 @@ type Model struct {
 	pickerItems  []pickerItem
 	pickerCursor int
 
+	// portModeArmed is the gitdash-style "s arms, second key chooses" state: ss = fixed, sd = dynamic, anything else cancels.
+	portModeArmed bool
+
 	cfg           config.Config
 	askLauncher   *launcher.Launcher
 	askAgents     []agents.Agent
@@ -478,7 +481,7 @@ func refreshCmd(store *state.Store, manager process.Manager, projects []scanner.
 	}
 }
 
-func startCmd(store *state.Store, manager process.Manager, p scanner.Project) tea.Cmd {
+func startCmd(store *state.Store, manager process.Manager, p scanner.Project, portMode string) tea.Cmd {
 	return func() tea.Msg {
 		if _, err := store.EnsureServiceDir(p.Path); err != nil {
 			return startedMsg{path: p.Path, err: err}
@@ -492,6 +495,7 @@ func startCmd(store *state.Store, manager process.Manager, p scanner.Project) te
 			StderrPath: store.StderrLog(p.Path),
 			Routes:     portlessClient(p.Manifest),
 			Branch:     gitinfo.Branch(p.Path),
+			PortMode:   portMode,
 		})
 		if err != nil {
 			return startedMsg{path: p.Path, err: err}
@@ -828,7 +832,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.addEvent(msg.path, "restart", "", 0, true)
 			if p := m.projectByPath(msg.path); p != nil && sv != nil {
 				sv.Status = statusStarting
-				return m, startCmd(m.store, m.manager, *p)
+				return m, startCmd(m.store, m.manager, *p, "")
 			}
 		}
 		if sv != nil {
@@ -1006,6 +1010,19 @@ func (m Model) handleKey(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if m.filterOpen {
 		return m.filterKey(keyMsg)
+	}
+	// An armed start takes the keyboard: the second key chooses the port mode, anything else cancels (gitdash's p pattern).
+	if m.portModeArmed {
+		m.portModeArmed = false
+		switch key {
+		case "s":
+			return m.startProjectSelected(manifest.PortModeFixed)
+		case "d":
+			return m.startProjectSelected(manifest.PortModeDynamic)
+		default:
+			m.notify("start cancelled")
+			return m, nil
+		}
 	}
 	// Universal keys are not remappable, not even "/" and "!".
 	switch key {
@@ -1352,16 +1369,36 @@ func (m Model) toggleSelected() (tea.Model, tea.Cmd) {
 	case statusStarting, statusStopping:
 		return m, nil
 	default:
-		sv.Status = statusStarting
-		m.clearMessage()
-		// Clear the in-memory console now so the old logs are not visible while starting.
-		cs := m.consoleStateFor(p.Path)
-		cs.stdout, cs.stderr, cs.merged = "", "", ""
-		cs.off[0] = fileSizeOrZero(m.store.StdoutLog(p.Path))
-		cs.off[1] = fileSizeOrZero(m.store.StderrLog(p.Path))
-		m.setConsoleContent("")
-		return m, startCmd(m.store, m.manager, *p)
+		// A stopped project arms the port-mode selector instead of starting outright: ss = fixed, sd = dynamic.
+		m.portModeArmed = true
+		m.notify("start mode: [s] fixed  [d] dynamic — any other key cancels")
+		return m, nil
 	}
+}
+
+// startProjectSelected starts the selected project with an explicit port mode (the armed ss/sd choice).
+func (m Model) startProjectSelected(mode string) (tea.Model, tea.Cmd) {
+	p := m.selected()
+	if p == nil {
+		return m, nil
+	}
+	if !p.Configured {
+		m.notify("No manifest — create a .vroom.toml to enable")
+		return m, nil
+	}
+	sv := m.services[p.Path]
+	if sv == nil {
+		return m, nil
+	}
+	sv.Status = statusStarting
+	m.clearMessage()
+	// Clear the in-memory console now so the old logs are not visible while starting.
+	cs := m.consoleStateFor(p.Path)
+	cs.stdout, cs.stderr, cs.merged = "", "", ""
+	cs.off[0] = fileSizeOrZero(m.store.StdoutLog(p.Path))
+	cs.off[1] = fileSizeOrZero(m.store.StderrLog(p.Path))
+	m.setConsoleContent("")
+	return m, startCmd(m.store, m.manager, *p, mode)
 }
 
 func (m Model) toggleNode(primary, secondary string) (tea.Model, tea.Cmd) {
@@ -1393,7 +1430,7 @@ func (m Model) toggleNode(primary, secondary string) (tea.Model, tea.Cmd) {
 			if sel != nil && sel.Path == p.Path {
 				m.setConsoleContent("")
 			}
-			cmds = append(cmds, startCmd(m.store, m.manager, p))
+			cmds = append(cmds, startCmd(m.store, m.manager, p, ""))
 		case !anyStopped && sv.Status.alive():
 			sv.Status = statusStopping
 			cmds = append(cmds, stopCmd(m.store, m.manager, p.Path, manifestStop(p)))
@@ -1983,11 +2020,18 @@ func displayPort(p scanner.Project, sv *ServiceState) int {
 	return 0
 }
 
-// portOrigin says where the shown number came from: (Dynamic) only for a port vroom discovered, so a dynamic manifest
-// whose declared fallback is on screen still reads (Fixed) — the label describes the number, not the mode's intent.
+// portOrigin says where the shown number came from: (Dynamic) only for a port vroom reserved, so a manifest
+// whose declared fallback is on screen still reads (Fixed). The effective mode (the recorded ss/sd choice, else the
+// manifest's) is what decides, because ss on a dynamic manifest is a fixed start.
 func portOrigin(p scanner.Project, sv *ServiceState) string {
-	if p.Manifest != nil && p.Manifest.EffectivePortMode() == manifest.PortModeDynamic &&
-		sv != nil && sv.Meta.Port > 0 {
+	mode := ""
+	if sv != nil {
+		mode = sv.Meta.PortMode
+	}
+	if mode == "" && p.Manifest != nil {
+		mode = p.Manifest.EffectivePortMode()
+	}
+	if mode == manifest.PortModeDynamic && sv != nil && sv.Meta.Port > 0 {
 		return "(Dynamic)"
 	}
 	return "(Fixed)"

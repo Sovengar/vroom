@@ -25,6 +25,9 @@ type Request struct {
 	Routes RouteRegistrar
 
 	Branch string
+
+	// PortMode is an explicit per-start override (the TUI's ss/sd). Empty means "inherit": the recorded mode wins over the manifest's, so a CLI/agent start agrees with the last TUI choice.
+	PortMode string
 }
 
 // RegistrarFor normalises to the interface here because a typed-nil *portless.Client is not a nil RouteRegistrar, which would silently defeat the Routes == nil check.
@@ -51,7 +54,19 @@ type Result struct {
 }
 
 func Start(req Request) (Result, error) {
-	mode := req.Manifest.EffectivePortMode()
+	// The recorded mode outranks the manifest because the agent chose it for this service (ss/sd); an explicit
+	// req.PortMode outranks the recorded one. Loading prev first is what makes the recorded mode reachable.
+	var prev state.Meta
+	if p, err := req.Store.LoadMeta(req.Path); err == nil {
+		prev = p
+	}
+	mode := req.PortMode
+	if mode == "" {
+		mode = prev.PortMode
+	}
+	if mode == "" {
+		mode = req.Manifest.EffectivePortMode()
+	}
 
 	reserved, env := 0, []string(nil)
 	if mode == manifest.PortModeDynamic {
@@ -87,14 +102,13 @@ func Start(req Request) (Result, error) {
 		CreationTimeMs: res.CreationTimeMs,
 		StartedAt:      time.Now().Format(time.RFC3339),
 		State:          state.StateRunning,
+		PortMode:       mode,
 	}
 
 	// All three route facts are inherited or none: copying name and port but not ownership silently loses the grant on every start.
-	if prev, err := req.Store.LoadMeta(req.Path); err == nil {
-		base.RouteName = prev.RouteName
-		base.RoutePort = prev.RoutePort
-		base.RouteOwned = prev.RouteOwned
-	}
+	base.RouteName = prev.RouteName
+	base.RoutePort = prev.RoutePort
+	base.RouteOwned = prev.RouteOwned
 
 	if mode != manifest.PortModeDynamic {
 		out := Result{Meta: base, Pid: res.Pid, Port: req.Manifest.Port}

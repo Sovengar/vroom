@@ -155,6 +155,30 @@ func TestJSONResolvedDynamicEmitsRealPort(t *testing.T) {
 	}
 }
 
+// The recorded mode (the agent's ss/sd choice) outranks the manifest's, so the JSON shows how the service actually starts.
+func TestJSONRecordedPortModeOutranksManifest(t *testing.T) {
+	port := openPort(t)
+	meta := liveMetaWithState(t, state.StateRunning, port, true)
+	meta.PortMode = manifest.PortModeDynamic
+
+	row := jsonRow(t, &manifest.Manifest{Name: "svc", Command: "run", Port: 8080, PortMode: manifest.PortModeFixed}, meta, true)
+
+	if row["port_mode"] != "dynamic" {
+		t.Errorf("port_mode = %v, want the recorded dynamic", row["port_mode"])
+	}
+}
+
+// Without a recorded mode the manifest decides, as before.
+func TestJSONPortModeFallsBackToManifest(t *testing.T) {
+	port := openPort(t)
+	row := jsonRow(t, &manifest.Manifest{Name: "svc", Command: "run", Port: 8080, PortMode: manifest.PortModeFixed},
+		liveMetaWithState(t, state.StateRunning, port, true), true)
+
+	if row["port_mode"] != "fixed" {
+		t.Errorf("port_mode = %v, want the manifest's fixed", row["port_mode"])
+	}
+}
+
 func TestJSONNoPortIsNotReportedAsRunning(t *testing.T) {
 	row := jsonRow(t, dynamicManifest(),
 		liveMetaWithState(t, state.StateNoPort, 0, false), true)

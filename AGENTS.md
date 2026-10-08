@@ -20,6 +20,14 @@ Without this step, any verification the user does on the TUI uses the
 old version. Run it ALWAYS at the end of a code task, after
 verification (`make check`).
 
+## New feature → docs/FEATURES.md
+
+Any **new feature** — and any user-visible change to an existing one — must be
+documented in `docs/FEATURES.md` **in the same change**: add or update its entry with
+what it does and how it is triggered (key, flag or command). A feature that is
+not in `docs/FEATURES.md` does not exist for the next reader. Keep it a concise
+inventory, not a tutorial: the details live in `README.md` and `docs/adr/`.
+
 ## CI and `main` protection
 
 CI lives in `.github/workflows/ci.yml` and runs on **every PR** and on **every push

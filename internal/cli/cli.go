@@ -283,7 +283,6 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 	info.ProcessPattern = m.ProcessPattern
 	info.PrimaryGroup = m.PrimaryGroup
 	info.SecondaryGroup = m.SecondaryGroup
-	info.PortMode = m.EffectivePortMode()
 	if m.EffectiveRouteMode() != manifest.RouteModeOff {
 		info.RouteMode = m.EffectiveRouteMode()
 	}
@@ -298,6 +297,12 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 
 	status, meta := evaluateStatus(manager, store, p.Path)
 	info.Status = status
+	// The recorded mode (the agent's ss/sd choice) outranks the manifest's, so the JSON shows how the service actually starts.
+	if meta.PortMode != "" {
+		info.PortMode = meta.PortMode
+	} else {
+		info.PortMode = m.EffectivePortMode()
+	}
 	if meta.Pid > 0 {
 		info.Pid = meta.Pid
 		info.Pgid = meta.Pgid

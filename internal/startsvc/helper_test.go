@@ -190,6 +190,12 @@ func (f *fixture) command(t *testing.T, mode string, extraEnv ...string) {
 
 func (f *fixture) start(t *testing.T, timeout time.Duration) (Result, error) {
 	t.Helper()
+	return f.startWithMode(t, timeout, "")
+}
+
+// startWithMode is start with the explicit per-start override (the TUI's ss/sd).
+func (f *fixture) startWithMode(t *testing.T, timeout time.Duration, portMode string) (Result, error) {
+	t.Helper()
 	return Start(Request{
 		Manifest:         f.manifest,
 		Path:             f.dir,
@@ -198,6 +204,7 @@ func (f *fixture) start(t *testing.T, timeout time.Duration) (Result, error) {
 		StdoutPath:       f.store.StdoutLog(f.dir),
 		StderrPath:       f.store.StderrLog(f.dir),
 		DiscoveryTimeout: timeout,
+		PortMode:         portMode,
 	})
 }
 

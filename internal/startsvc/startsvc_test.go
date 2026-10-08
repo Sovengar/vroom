@@ -273,6 +273,76 @@ func TestNoneModeStartsWithoutPort(t *testing.T) {
 	}
 }
 
+// An explicit per-start override outranks the manifest: sd on a fixed manifest must reserve and inject.
+func TestExplicitPortModeDynamicOverridesFixedManifest(t *testing.T) {
+	f := newFixture(t)
+	f.manifest.PortMode = manifest.PortModeFixed
+	f.manifest.Port = 8081
+	f.command(t, "hold-port") // default mode: holds the injected PORT
+
+	out, err := f.startWithMode(t, 30*time.Second, manifest.PortModeDynamic)
+	if err != nil {
+		t.Fatalf("dynamic override start: %v", err)
+	}
+	f.cleanup(t, out)
+
+	if env := f.helperEnv(t); env["PORT_SEEN"] == "" {
+		t.Errorf("an explicit dynamic start must inject PORT, got %q", env["PORT_SEEN"])
+	}
+	meta, _ := f.store.LoadMeta(f.dir)
+	if meta.PortMode != manifest.PortModeDynamic {
+		t.Errorf("the recorded mode must be the chosen one (%q), got %q", manifest.PortModeDynamic, meta.PortMode)
+	}
+}
+
+// The other direction: ss on a dynamic manifest must not reserve nor inject.
+func TestExplicitPortModeFixedOverridesDynamicManifest(t *testing.T) {
+	f := newFixture(t)
+	f.manifest.PortMode = manifest.PortModeDynamic
+	f.manifest.Port = 8081
+	f.command(t, "fixed-port", "VROOM_HELPER_PORT=8081")
+
+	out, err := f.startWithMode(t, 30*time.Second, manifest.PortModeFixed)
+	if err != nil {
+		t.Fatalf("fixed override start: %v", err)
+	}
+	f.cleanup(t, out)
+
+	if env := f.helperEnv(t); env["PORT_SEEN"] != "" {
+		t.Errorf("an explicit fixed start must not inject PORT, got %q", env["PORT_SEEN"])
+	}
+	meta, _ := f.store.LoadMeta(f.dir)
+	if meta.PortMode != manifest.PortModeFixed {
+		t.Errorf("the recorded mode must be the chosen one (%q), got %q", manifest.PortModeFixed, meta.PortMode)
+	}
+}
+
+// With no explicit override the recorded mode is inherited, so a CLI/agent start agrees with the last ss/sd.
+func TestRecordedPortModeIsInheritedWhenNoOverride(t *testing.T) {
+	f := newFixture(t)
+	f.manifest.PortMode = manifest.PortModeFixed
+	f.manifest.Port = 8081
+	f.command(t, "hold-port") // default mode: holds the injected PORT
+
+	// First start chooses dynamic explicitly.
+	out, err := f.startWithMode(t, 30*time.Second, manifest.PortModeDynamic)
+	if err != nil {
+		t.Fatalf("first start: %v", err)
+	}
+	f.cleanup(t, out)
+
+	// Second start passes no override: the recorded dynamic must win over the fixed manifest.
+	out2, err := f.start(t, 30*time.Second)
+	if err != nil {
+		t.Fatalf("second start: %v", err)
+	}
+	f.cleanup(t, out2)
+
+	if env := f.helperEnv(t); env["PORT_SEEN"] == "" {
+		t.Error("the inherited recorded mode must inject PORT on a later start")
+	}
+}
+
 func TestStartWindowNeverReportsDeadProcessAsStopped(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honors-port", "VROOM_HELPER_DELAY=2s")

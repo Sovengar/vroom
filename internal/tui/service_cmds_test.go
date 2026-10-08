@@ -31,7 +31,7 @@ func TestStartCmdPropagaElErrorDelStoreAntesDeArrancar(t *testing.T) {
 	// No EnsureServiceDir on purpose: the store is unusable, which is the point.
 	p := proyectoConManifiesto(t, "/dev/api", 4321)
 
-	msg := startCmd(store, mgr, p)()
+	msg := startCmd(store, mgr, p, "")()
 	sm, ok := msg.(startedMsg)
 	if !ok {
 		t.Fatalf("startCmd returned %T, want startedMsg", msg)
@@ -62,7 +62,7 @@ func TestStartCmdTraeLosAvisosAlLogDeStderr(t *testing.T) {
 			PortMode: manifest.PortModeFixed, RouteMode: mode,
 		}
 		p := scanner.Project{Path: path, Name: "api", Configured: true, Manifest: &m}
-		startCmd(store, &contadorManager{}, p)()
+		startCmd(store, &contadorManager{}, p, "")()
 		return store.StderrLog(path)
 	}
 
