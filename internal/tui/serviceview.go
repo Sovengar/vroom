@@ -53,11 +53,14 @@ func (m Model) allDetailsLines(w int) []string {
 	return append([]string{truncANSI(header, w)}, rows...)
 }
 
+// metaLabelW is the widest label in this column ("fixed port:"): padding to anything shorter would leave that row out of line.
+const metaLabelW = 12
+
 func (m Model) metaColumn(p scanner.Project, sv *ServiceState, w int) []string {
 	var lines []string
-	valueW := max(8, w-11)
+	valueW := max(8, w-metaLabelW-1)
 	row := func(label, value string) {
-		lines = append(lines, styleLabel.Render(pad(label, 10))+truncTail(value, valueW))
+		lines = append(lines, styleLabel.Render(pad(label, metaLabelW))+truncTail(value, valueW))
 	}
 	row("path:", p.Path)
 	if b := m.branches[p.Path]; b != "" {
@@ -70,8 +73,9 @@ func (m Model) metaColumn(p scanner.Project, sv *ServiceState, w int) []string {
 		}
 		row("group:", g)
 	}
-	if n := displayPort(p, sv); n > 0 {
-		row("port:", fmt.Sprintf("%d", n))
+	// The declared port only: the live one belongs to the badge, because in dynamic mode it changes on every start.
+	if p.Manifest != nil && p.Manifest.HasPort() {
+		row("fixed port:", fmt.Sprintf("%d", p.Manifest.Port))
 	}
 	if u := displayRouteURL(p, sv); u != "" {
 		row("url:", u)

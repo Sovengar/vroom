@@ -970,6 +970,33 @@ func TestBadgeShowsPort(t *testing.T) {
 	}
 }
 
+// The badge labels where the shown number came from: a port vroom reserved is (Dynamic), the manifest's own is (Fixed).
+func TestBadgeLabelsPortOrigin(t *testing.T) {
+	proj := func(mode string) scanner.Project {
+		return scanner.Project{Path: "/tmp/x", Name: "x", Configured: true,
+			Manifest: &manifest.Manifest{Name: "x", Command: "run", Port: 8081, PortMode: mode}}
+	}
+	running := func(metaPort int) *ServiceState {
+		return &ServiceState{Status: statusRunning, Meta: state.Meta{Port: metaPort}}
+	}
+
+	if badge := statusBadge(proj(manifest.PortModeDynamic), running(41501), "·", "·"); !strings.Contains(badge, ":41501 (Dynamic)") {
+		t.Errorf("a discovered port must say it was dynamic: %q", badge)
+	}
+	if badge := statusBadge(proj(manifest.PortModeFixed), running(8081), "·", "·"); !strings.Contains(badge, ":8081 (Fixed)") {
+		t.Errorf("the manifest's own port must say it is fixed: %q", badge)
+	}
+	// Dynamic without a discovered port falls back to the declared one, and that number has not proved anything dynamic.
+	if badge := statusBadge(proj(manifest.PortModeDynamic), running(0), "·", "·"); !strings.Contains(badge, ":8081 (Fixed)") {
+		t.Errorf("the declared fallback must not be labelled dynamic: %q", badge)
+	}
+	none := scanner.Project{Path: "/tmp/y", Name: "y", Configured: true,
+		Manifest: &manifest.Manifest{Name: "y", Command: "run"}}
+	if badge := statusBadge(none, running(0), "·", "·"); strings.Contains(badge, "(Fixed)") || strings.Contains(badge, "(Dynamic)") {
+		t.Errorf("without a port there is no origin to label: %q", badge)
+	}
+}
+
 // Port pending gets its own badge instead of the generic spinner, and stays stoppable.
 func TestBadgePortPendingIsItsOwnState(t *testing.T) {
 	p := scanner.Project{

@@ -289,6 +289,30 @@ func TestDetailsLinesWithNothingSelectedSaysSo(t *testing.T) {
 	}
 }
 
+// The details column carries only the manifest's own port: the live one lives in the badge, where it also states its origin.
+func TestDetailsColumnShowsFixedPortOnly(t *testing.T) {
+	m, _ := newTestModel(t)
+	m = moveCursorTo(t, m, "tienda-api")
+	p := *m.selected()
+	sv := &ServiceState{Status: statusRunning, Meta: state.Meta{Port: 41501, Pid: 7, State: state.StateRunning}}
+	m.services[p.Path] = sv
+
+	body := tail.StripANSI(strings.Join(m.metaColumn(p, sv, m.rightW), "\n"))
+	if !strings.Contains(body, "fixed port:") || !strings.Contains(body, "8081") {
+		t.Errorf("the manifest port must have its own row:\n%s", body)
+	}
+	if strings.Contains(body, "41501") {
+		t.Errorf("the active port belongs to the badge, not the details column:\n%s", body)
+	}
+
+	// A manifest with no port has nothing to declare, and an empty row would be worse than none.
+	m = moveCursorTo(t, m, "suelto")
+	none := *m.selected()
+	if got := tail.StripANSI(strings.Join(m.metaColumn(none, &ServiceState{Status: statusStopped}, m.rightW), "\n")); strings.Contains(got, "fixed port:") {
+		t.Errorf("a manifest without a port must not declare one:\n%s", got)
+	}
+}
+
 // Rows are clipped first: clipping columns of a line that is never drawn is wasted, and in the other order an ANSI line could count escape bytes as width and split a rune.
 func TestClipLinesClipsRowsAndColumns(t *testing.T) {
 	lines := []string{"one", "two", "three", "four"}

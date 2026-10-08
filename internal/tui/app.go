@@ -22,6 +22,7 @@ import (
 	"vroom/internal/gitinfo"
 	"vroom/internal/group"
 	"vroom/internal/launcher"
+	"vroom/internal/manifest"
 	"vroom/internal/mise"
 	"vroom/internal/orchestrate"
 	"vroom/internal/process"
@@ -1982,11 +1983,21 @@ func displayPort(p scanner.Project, sv *ServiceState) int {
 	return 0
 }
 
+// portOrigin says where the shown number came from: (Dynamic) only for a port vroom discovered, so a dynamic manifest
+// whose declared fallback is on screen still reads (Fixed) — the label describes the number, not the mode's intent.
+func portOrigin(p scanner.Project, sv *ServiceState) string {
+	if p.Manifest != nil && p.Manifest.EffectivePortMode() == manifest.PortModeDynamic &&
+		sv != nil && sv.Meta.Port > 0 {
+		return "(Dynamic)"
+	}
+	return "(Fixed)"
+}
+
 func statusBadge(p scanner.Project, sv *ServiceState, spinnerView, startSpinnerView string) string {
 	if p.Configured && p.ManifestErr == "" {
 		port := ""
 		if n := displayPort(p, sv); n > 0 {
-			port = " " + styleDim.Render(fmt.Sprintf(":%d", n))
+			port = " " + styleDim.Render(fmt.Sprintf(":%d %s", n, portOrigin(p, sv)))
 		}
 		switch sv.Status {
 		case statusRunning:

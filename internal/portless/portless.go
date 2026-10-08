@@ -107,13 +107,11 @@ func (c *Client) Binary() string { return c.bin }
 
 func (c *Client) StateDir() string { return c.stateDir }
 
-// ResolveStateDir: $PORTLESS_HOME does not exist for the CLI (measured on 0.15.6), so honouring it would give vroom a state dir the binary never writes.
+// ResolveStateDir matches what the CLI writes: $PORTLESS_STATE_DIR or $HOME/.portless. XDG_STATE_HOME is ignored by
+// portless (measured 2026-10-07 on 0.15.6), so honouring it read proxy.port from a directory that never exists.
 func ResolveStateDir() string {
 	if v := os.Getenv("PORTLESS_STATE_DIR"); v != "" {
 		return v
-	}
-	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
-		return filepath.Join(v, "portless")
 	}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		return filepath.Join(home, ".portless")

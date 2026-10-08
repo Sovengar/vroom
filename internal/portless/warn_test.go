@@ -441,7 +441,39 @@ func TestClientForDevuelveNilSinContratoDeRuta(t *testing.T) {
 	}
 }
 
-// MEASURED on 0.15.6: PORTLESS_HOME is ignored, and the plan's order read proxy.port from one directory while the binary wrote routes.json in another.
+// MEASURED (2026-10-07): before this gate, internal/tui's start test came through the register gateway and exec'd the
+// real portless binary, rewriting the developer's ~/.portless/routes.json on every `go test` run.
+func TestClientForNeverResolvesTheRealBinaryInATestBinary(t *testing.T) {
+	if !IsTestBinary() {
+		t.Skip("not a test binary: the case does not apply")
+	}
+	t.Setenv("PORTLESS_BIN", "/usr/bin/portless")
+	t.Setenv("PORTLESS_STATE_DIR", t.TempDir())
+
+	c := ClientFor(&manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeAuto})
+	if c == nil {
+		t.Fatal("an active route contract must return a client, not nil")
+	}
+	if c.HasBinary() {
+		t.Error("in a test binary ClientFor must not resolve a binary: a test would exec the developer's real portless")
+	}
+	if res := c.Apply("svc", 4321, Ownership{}); res.Status != StatusDegraded || res.Reason != ReasonPortlessMissing {
+		t.Errorf("the bin-less client must degrade with %s, got %+v", ReasonPortlessMissing, res)
+	}
+
+	// The installed binary keeps resolving: argv[0] is the same switch the release-path guards use.
+	orig := os.Args[0]
+	t.Cleanup(func() { os.Args[0] = orig })
+	os.Args[0] = "/usr/local/bin/vroom"
+
+	prod := ClientFor(&manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeAuto})
+	if prod == nil || !prod.HasBinary() || prod.Binary() != "/usr/bin/portless" {
+		t.Errorf("outside a test binary ClientFor must resolve the binary, got %+v", prod)
+	}
+}
+
+// MEASURED on 0.15.6: PORTLESS_HOME and XDG_STATE_HOME are ignored; honouring XDG read proxy.port from a directory the
+// binary never writes, degrading every route to proxy_not_running.
 func TestResolveStateDirSigueElOrdenMedido(t *testing.T) {
 	t.Run("PORTLESS_STATE_DIR takes precedence", func(t *testing.T) {
 		t.Setenv("PORTLESS_STATE_DIR", "/opt/pl-state")
@@ -452,12 +484,12 @@ func TestResolveStateDirSigueElOrdenMedido(t *testing.T) {
 		}
 	})
 
-	t.Run("XDG_STATE_HOME when there is no PORTLESS_STATE_DIR", func(t *testing.T) {
+	t.Run("XDG_STATE_HOME is ignored by portless", func(t *testing.T) {
 		t.Setenv("PORTLESS_STATE_DIR", "")
 		t.Setenv("XDG_STATE_HOME", "/xdg")
 		t.Setenv("HOME", "/home/u")
-		if got := ResolveStateDir(); got != filepath.Join("/xdg", "portless") {
-			t.Errorf("ResolveStateDir = %q, want /xdg/portless", got)
+		if got := ResolveStateDir(); got != "/home/u/.portless" {
+			t.Errorf("ResolveStateDir = %q, want /home/u/.portless: honouring XDG pointed vroom at a directory the CLI never writes, so every route degraded to %s", got, ReasonProxyNotRunning)
 		}
 	})
 

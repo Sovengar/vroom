@@ -46,6 +46,13 @@ func ClientFor(m *manifest.Manifest) *Client {
 	if m == nil || !RouteModeEnabled(m.EffectiveRouteMode()) {
 		return nil
 	}
+	// A test binary must behave as if portless were not installed: this gateway is where every repo caller (TUI, CLI,
+	// stacks engine) resolves the real binary, and without the gate a TUI test exec'd `portless alias` against the
+	// developer's ~/.portless (measured 2026-10-07: the suite rewrote routes.json on every run). A bin-less client
+	// still produces the documented missing-binary degradation, so tests keep asserting the real warning.
+	if IsTestBinary() {
+		return New()
+	}
 	return Default()
 }
 

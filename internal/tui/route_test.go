@@ -40,6 +40,7 @@ func TestDisplayRouteURLToleratesNilServiceState(t *testing.T) {
 	}
 }
 
+// The active port lives in the badge (the details column carries only the fixed one), so a running fixture is what proves both are reachable.
 func TestDetailsShowVerifiedURLNextToPort(t *testing.T) {
 	m, store := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -50,7 +51,7 @@ func TestDetailsShowVerifiedURLNextToPort(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	m.services[path] = &ServiceState{Meta: state.Meta{
+	m.services[path] = &ServiceState{Status: statusRunning, Meta: state.Meta{
 		Name: "tienda-api", Port: 4321, Pid: 11, State: state.StateRunning,
 		RouteStatus: portless.StatusRegistered, RouteURL: "https://api.localhost",
 	}}
@@ -60,7 +61,7 @@ func TestDetailsShowVerifiedURLNextToPort(t *testing.T) {
 		t.Errorf("a verified route must be visible in the details panel:\n%s", joined)
 	}
 	if !strings.Contains(joined, "4321") {
-		t.Errorf("the port must still be visible:\n%s", joined)
+		t.Errorf("the active port must still be visible:\n%s", joined)
 	}
 }
 
@@ -68,7 +69,7 @@ func TestDetailsHideDegradedURL(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 	path := m.selected().Path
-	m.services[path] = &ServiceState{Meta: state.Meta{
+	m.services[path] = &ServiceState{Status: statusRunning, Meta: state.Meta{
 		Name: "tienda-api", Port: 4321, Pid: 11, State: state.StateRunning,
 		RouteStatus: portless.StatusDegraded, RouteReason: portless.ReasonProxyNotRunning,
 	}}
@@ -78,6 +79,6 @@ func TestDetailsHideDegradedURL(t *testing.T) {
 		t.Errorf("a degraded route must not show url:\n%s", joined)
 	}
 	if !strings.Contains(joined, "4321") {
-		t.Errorf("the port must still be visible even if the route degrades:\n%s", joined)
+		t.Errorf("the active port must still be visible even if the route degrades:\n%s", joined)
 	}
 }

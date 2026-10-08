@@ -92,7 +92,7 @@ func TestRouteModeEnabled(t *testing.T) {
 	}
 }
 
-// MEASURED: the CLI honours PORTLESS_STATE_DIR and ignores PORTLESS_HOME, so the plan's order read proxy.port from one directory while the binary wrote routes.json in another.
+// MEASURED: the CLI honours PORTLESS_STATE_DIR and ignores PORTLESS_HOME and XDG_STATE_HOME, so the plan's order read proxy.port from one directory while the binary wrote routes.json in another.
 func TestResolveStateDirOrder(t *testing.T) {
 	t.Run("PORTLESS_STATE_DIR wins", func(t *testing.T) {
 		t.Setenv("PORTLESS_STATE_DIR", "/iso/state")
@@ -110,11 +110,12 @@ func TestResolveStateDirOrder(t *testing.T) {
 		}
 	})
 
-	t.Run("XDG_STATE_HOME if there is no PORTLESS_STATE_DIR", func(t *testing.T) {
+	t.Run("XDG_STATE_HOME does NOT decide", func(t *testing.T) {
 		t.Setenv("PORTLESS_STATE_DIR", "")
 		t.Setenv("XDG_STATE_HOME", "/xdg")
-		if got := ResolveStateDir(); got != filepath.Join("/xdg", "portless") {
-			t.Errorf("XDG_STATE_HOME must be second, got %q", got)
+		t.Setenv("HOME", "/home/alguien")
+		if got := ResolveStateDir(); got != filepath.Join("/home/alguien", ".portless") {
+			t.Errorf("XDG_STATE_HOME must not decide: portless ignores it, got %q", got)
 		}
 	})
 

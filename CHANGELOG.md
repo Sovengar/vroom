@@ -81,6 +81,9 @@ and this project follows [Semantic Versioning](https://semver.org/).
   workflow status badge.
 
 ### Fixed
+- The portless state directory now matches what the CLI writes: `XDG_STATE_HOME` is
+  ignored (measured on 0.15.6), so vroom no longer reads `proxy.port` from a directory
+  that never exists and reports every route as `proxy_not_running`.
 - Stopping a service no longer leaves orphan processes: children that change
   SID on startup (`nohup`, `setsid`, `pm2`, `docker run -d`) are stopped
   following the lineage, and the port is only released when ownership is
