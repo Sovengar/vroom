@@ -117,6 +117,8 @@ func Start(req Request) (Result, error) {
 		out := Result{Meta: base, Pid: res.Pid, Port: req.Manifest.Port}
 		if mode == manifest.PortModeFixed {
 			applyRoute(req, &base, req.Manifest.Port, &out)
+			// Hand the route result back to the caller: out.Meta was copied BEFORE applyRoute, and the TUI renders that copy (startedMsg.meta) while the store already holds the new one — so without this line a fixed-port start shows the PREVIOUS start's route, empty on a cold one. The dynamic path below does the same with `out.Meta = final`.
+			out.Meta = base
 		}
 		if err := persistOrKill(req, base, res); err != nil {
 			return Result{}, err

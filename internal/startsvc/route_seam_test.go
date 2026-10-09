@@ -113,13 +113,79 @@ func TestConRouteModeAutoSeIntentaLaRuta(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	if strings.Contains(out.Meta.RouteName, "") && out.Meta.RouteName != "" {
-		t.Logf("RouteName=%q RouteReason=%q", out.Meta.RouteName, out.Meta.RouteReason)
+	// The route result must reach the CALLER, not only the store: out.Meta used to be
+	// copied before applyRoute, so a fixed-port start returned the previous start's
+	// route (empty on a cold one) and the assertion that was here could never fail.
+	if out.Meta.RouteName == "" || out.Meta.RouteStatus == "" {
+		t.Errorf("the returned Meta must carry THIS start's route result, got RouteName=%q RouteStatus=%q",
+			out.Meta.RouteName, out.Meta.RouteStatus)
 	}
 	for _, w := range out.Warnings {
 		if strings.Contains(w, `unknown route_mode "off"`) {
 			t.Errorf("the bug warning appeared with route_mode = auto: %q", w)
 		}
+	}
+}
+
+// A fixed-port start must hand the caller the route it just resolved. out.Meta was copied before
+// applyRoute, so the TUI painted the PREVIOUS start's route (empty on a cold one) while the store
+// already held the new one; the dynamic path always re-assigns out.Meta after applyRoute, which is
+// why only this branch drifted.
+func TestFixedPortStartHandsTheRouteResultToTheCaller(t *testing.T) {
+	store := state.NewStoreAt(t.TempDir())
+	path := t.TempDir()
+	if _, err := store.EnsureServiceDir(path); err != nil {
+		t.Fatal(err)
+	}
+
+	m := manifest.Manifest{
+		Name:      "api",
+		Command:   "sleep 30",
+		Port:      freePort(t),
+		PortMode:  manifest.PortModeFixed,
+		RouteMode: manifest.RouteModeAuto,
+	}
+	routes := &resultSpy{result: registeredRoute()}
+
+	out, err := Start(Request{
+		Manifest:   &m,
+		Path:       path,
+		Store:      store,
+		Manager:    &pararAntesDeSalir{},
+		StdoutPath: store.StdoutLog(path),
+		StderrPath: store.StderrLog(path),
+		Routes:     routes,
+		Branch:     "main",
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// auto on branch main derives main.api, and that name is what the caller must see.
+	if out.Meta.RouteName != "main.api" {
+		t.Errorf("RouteName = %q, want %q", out.Meta.RouteName, "main.api")
+	}
+	if out.Meta.RouteStatus != portless.StatusRegistered {
+		t.Errorf("RouteStatus = %q, want %q", out.Meta.RouteStatus, portless.StatusRegistered)
+	}
+	if !out.Meta.RouteOwned {
+		t.Error("a registered route is ours: the caller must receive the grant, not only the store")
+	}
+	if out.Meta.RouteURL == "" {
+		t.Error("the verified URL must reach the caller, not only the store")
+	}
+
+	// Stop revokes from the store and the TUI paints from the result: two views of one start must not disagree.
+	persisted, err := store.LoadMeta(path)
+	if err != nil {
+		t.Fatalf("LoadMeta: %v", err)
+	}
+	if persisted.RouteName != out.Meta.RouteName ||
+		persisted.RouteStatus != out.Meta.RouteStatus ||
+		persisted.RouteOwned != out.Meta.RouteOwned ||
+		persisted.RouteURL != out.Meta.RouteURL {
+		t.Errorf("the persisted route and the returned one must agree:\n persisted %+v\n returned %+v",
+			persisted, out.Meta)
 	}
 }
 
