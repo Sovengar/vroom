@@ -162,7 +162,7 @@ var _ process.Manager = (*aliveManager)(nil)
 func listeningService(t *testing.T, root, dir string, extraTOML string) int {
 	t.Helper()
 	port := openPort(t)
-	body := "command_start = \"sleep 300\"\nport = " + itoa(port) + "\n" + extraTOML
+	body := "commands.start.run = \"sleep 300\"\nport = " + itoa(port) + "\n" + extraTOML
 	writeFile(t, filepath.Join(root, dir, ".vroom.toml"), body)
 	return port
 }

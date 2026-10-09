@@ -22,7 +22,7 @@ func cliEnv(t *testing.T) string {
 	return cliTree(t)
 }
 
-// web declares no command_build/command_install so tests get the "no command defined" error, which is distinct from "not configured".
+// web declares no commands.build.run/commands.install.run so tests get the "no command defined" error, which is distinct from "not configured".
 func cliTree(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -39,19 +39,19 @@ func cliTree(t *testing.T) string {
 
 	write("api/go.mod", "module api\n")
 	write("api/.vroom.toml", `name = "api"
-command_start = "sleep 30"
+commands.start.run = "sleep 30"
 port = 8081
-command_build = "echo built"
-command_install = "echo installed"
+commands.build.run = "echo built"
+commands.install.run = "echo installed"
 `)
 	write("web/package.json", "{}\n")
 	write("web/.vroom.toml", `name = "web"
-command_start = "sleep 30"
+commands.start.run = "sleep 30"
 port = 5173
 `)
 	// A broken manifest is the only way to produce an unconfigured row: the scan only reports directories that hold a .vroom.toml, so a manifest-less directory never shows up.
 	write("roto/go.mod", "module roto\n")
-	write("roto/.vroom.toml", "name = \"roto\"\ncommand_start = [\n") // Intentionally broken TOML
+	write("roto/.vroom.toml", "name = \"roto\"\ncommands.start.run = [\n") // Intentionally broken TOML
 	return root
 }
 
@@ -291,8 +291,16 @@ func TestCmdListPublishesEachScanRow(t *testing.T) {
 	if api["configured"] != true {
 		t.Error("api must appear configured")
 	}
-	if api["command"] != "sleep 30" {
-		t.Errorf("command = %v, want the manifest's command_start", api["command"])
+	apiCommands, ok := api["commands"].(map[string]any)
+	if !ok {
+		t.Fatalf("api publishes no commands object: %v", api["commands"])
+	}
+	apiStart, ok := apiCommands["start"].(map[string]any)
+	if !ok {
+		t.Fatalf("api publishes no commands.start: %v", apiCommands)
+	}
+	if apiStart["run"] != "sleep 30" {
+		t.Errorf("commands.start.run = %v, want the manifest's commands.start.run", apiStart["run"])
 	}
 	if api["declared_port"] != float64(8081) {
 		t.Errorf("declared_port = %v, want 8081", api["declared_port"])
@@ -305,9 +313,23 @@ func TestCmdListPublishesEachScanRow(t *testing.T) {
 	if web == nil {
 		t.Fatal("web is not in the list")
 	}
-	for _, absent := range []string{"command_build", "command_install", "route", "route_mode"} {
+	for _, absent := range []string{"route", "route_mode"} {
 		if _, ok := web[absent]; ok {
 			t.Errorf("web does not define %s yet publishes it: omitempty must omit it", absent)
+		}
+	}
+	// The section itself is always published (same shape for every manifest) but its entries stay empty: an agent reads commands.build.run instead of a missing key.
+	webCommands, ok := web["commands"].(map[string]any)
+	if !ok {
+		t.Fatalf("web publishes no commands object: %v", web["commands"])
+	}
+	for _, entry := range []string{"build", "install", "stop"} {
+		run, ok := webCommands[entry].(map[string]any)
+		if !ok {
+			t.Fatalf("web publishes no commands.%s: %v", entry, webCommands)
+		}
+		if run["run"] != "" {
+			t.Errorf("commands.%s.run = %v, want empty: web does not define it", entry, run["run"])
 		}
 	}
 
@@ -334,7 +356,7 @@ func TestCmdListRespectsConfigRoot(t *testing.T) {
 	rootTree := func(t *testing.T, dir, name string) {
 		t.Helper()
 		writeFile(t, filepath.Join(dir, ".vroom.toml"),
-			"name = \""+name+"\"\ncommand_start = \"sleep 30\"\n")
+			"name = \""+name+"\"\ncommands.start.run = \"sleep 30\"\n")
 	}
 
 	t.Run("an absolute root bounds the scan", func(t *testing.T) {
@@ -564,7 +586,7 @@ func TestCmdStartByPathDisambiguates(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(dir, ".vroom.toml"),
-			[]byte("name = \"dup\"\ncommand_start = \"sleep 30\"\nport = 9001\n"), 0o644); err != nil {
+			[]byte("name = \"dup\"\ncommands.start.run = \"sleep 30\"\nport = 9001\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -687,9 +709,9 @@ func TestCmdStopExecutesCommandStopInProjectDirectory(t *testing.T) {
 	store := chdirTree(t, root)
 
 	writeFile(t, filepath.Join(root, "api", ".vroom.toml"), `name = "api"
-command_start = "sleep 30"
+commands.start.run = "sleep 30"
 port = 8081
-command_stop = "echo graceful-stop > stop.txt; exit 7"
+commands.stop.run = "echo graceful-stop > stop.txt; exit 7"
 `)
 
 	started_v, started_e := cmdStart("api", "")
@@ -697,14 +719,14 @@ command_stop = "echo graceful-stop > stop.txt; exit 7"
 
 	payload, err := cmdStop("api", "")
 	if err != nil {
-		t.Fatalf("command_stop failed with exit 7 and stop aborted: cleanup must continue: %v", err)
+		t.Fatalf("commands.stop.run failed with exit 7 and stop aborted: cleanup must continue: %v", err)
 	}
 	if mustAction(t, payload, err).Action != "stopped" {
 		t.Fatal("did not stop")
 	}
 
 	if got := strings.TrimSpace(readFileString(t, filepath.Join(root, "api", "stop.txt"))); got != "graceful-stop" {
-		t.Errorf("command_stop did not write to the project directory: %q", got)
+		t.Errorf("commands.stop.run did not write to the project directory: %q", got)
 	}
 
 	waitGone(t, started.Pid)
@@ -713,7 +735,7 @@ command_stop = "echo graceful-stop > stop.txt; exit 7"
 		t.Fatal(err)
 	}
 	if meta.Pid != 0 {
-		t.Errorf("meta.Pid = %d: a failed command_stop left the service alive", meta.Pid)
+		t.Errorf("meta.Pid = %d: a failed commands.stop.run left the service alive", meta.Pid)
 	}
 }
 
@@ -742,9 +764,9 @@ func TestCmdOneShotExecutesAndReportsExitCode(t *testing.T) {
 
 	manPath := filepath.Join(root, "api", ".vroom.toml")
 	if err := os.WriteFile(manPath, []byte(`name = "api"
-command_start = "sleep 30"
-command_build = "echo build-output; echo build-error >&2; exit 3"
-command_install = "echo installing"
+commands.start.run = "sleep 30"
+commands.build.run = "echo build-output; echo build-error >&2; exit 3"
+commands.install.run = "echo installing"
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -769,11 +791,11 @@ command_install = "echo installing"
 
 	out := readFileString(t, store.StdoutLog(filepath.Join(root, "api")))
 	if !strings.Contains(out, "build-output") {
-		t.Errorf("command_build stdout did not reach the service log:\n%s", out)
+		t.Errorf("commands.build.run stdout did not reach the service log:\n%s", out)
 	}
 	errLog := readFileString(t, store.StderrLog(filepath.Join(root, "api")))
 	if !strings.Contains(errLog, "build-error") {
-		t.Errorf("command_build stderr did not reach the service log:\n%s", errLog)
+		t.Errorf("commands.build.run stderr did not reach the service log:\n%s", errLog)
 	}
 	if !strings.Contains(out, "vroom ▶ build") {
 		t.Errorf("command banner missing from the log:\n%s", out)
@@ -1155,7 +1177,7 @@ func TestCmdLaunchNameConflictIsErrorAndLeavesNoProcesses(t *testing.T) {
 
 	for _, sub := range []string{"a", "b"} {
 		writeFile(t, filepath.Join(root, sub, ".vroom.toml"),
-			"name = \"dup\"\ncommand_start = \"sleep 30\"\nport = 9001\n")
+			"name = \"dup\"\ncommands.start.run = \"sleep 30\"\nport = 9001\n")
 	}
 	composeStack(t, root, "front", [2]string{"front", `"dup"`})
 

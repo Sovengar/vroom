@@ -8,8 +8,8 @@ Concise reference of vroom's features. Detailed contracts live in `../README.md`
 
 | Feature | What it does | Where |
 |---|---|---|
-| [Service lifecycle](#service-lifecycle) | Start/stop/restart daemonized services that survive the terminal | `s`, `R`; `vroom start/stop`; `command_pre_start` |
-| [One-shot jobs](#one-shot-jobs) | `command_build`, `command_install`, `mise` tasks | `b`, `i`, `t`; `vroom build/install` |
+| [Service lifecycle](#service-lifecycle) | Start/stop/restart daemonized services that survive the terminal | `s`, `R`; `vroom start/stop`; `[commands]`, `start.hooks.pre_run` |
+| [One-shot jobs](#one-shot-jobs) | `commands.build.run`, `commands.install.run`, `mise` tasks | `b`, `i`, `t`; `vroom build/install` |
 | [Logs & console](#logs--console) | Live tail of stdout/stderr, open both logs in `$EDITOR` | `l`/`o`, `c`, `C`, `g`/`G`; `vroom logs` |
 | [Output tabs](#output-tabs) | Console, Threads, Metrics, Git, Env, Timeline, Health | `1`–`7`, `tab` |
 | [Ask AI](#ask-ai) | Send a prompt to an agent with app context prefilled | `a` |
@@ -27,10 +27,18 @@ Concise reference of vroom's features. Detailed contracts live in `../README.md`
 
 ## Service lifecycle
 
-A service is the `command_start` of a `.vroom.toml`, run under `sh -c` as its own
+A service is the `commands.start.run` of a `.vroom.toml`, run under `sh -c` as its own
 session leader (`setsid`) with stdout/stderr redirected to files. Closing the TUI
 — or the terminal — does **not** kill it: vroom re-attaches to the state on the
 next run.
+
+- **Everything vroom runs lives under `[commands]`**: `start`, `build`, `install`
+  and `stop`, each with a `run`, plus `start.hooks`. The pre-`[commands]` keys
+  (`command_start`, `command_build`, `command_install`, `command_stop`,
+  `command_pre_start`) are a **hard rename with no alias** — the parse error
+  names the new key — and a top-level key written after a `[commands.*]` header
+  is rejected **by name** instead of silently landing inside the table (where
+  `port` would drop the port contract while the manifest kept parsing).
 
 - **`s`** (start/stop) is contextual: on a project it toggles that service; on a
   **group** it starts every stopped member (or stops them all if none is stopped);
@@ -38,7 +46,7 @@ next run.
   refuses and asks you to expand it first.
 - **`R`** (restart) = stop → start, and only from `running` (anything else gets
   *"only a running service can be restarted"*).
-- **Stopping is a ladder, not a single signal:** `command_stop` first (for
+- **Stopping is a ladder, not a single signal:** `commands.stop.run` first (for
   services where the kill cannot reach, e.g. `docker stop`), then `SIGTERM` to
   the process group **and** the whole lineage read from `/proc` before signaling
   (so descendants that called `setsid` are reached too), then `SIGKILL` after 5 s.
@@ -48,8 +56,8 @@ next run.
   the portless route is revoked (only if vroom owns it).
 - Starting is idempotent on the CLI side: a service already running answers
   `{"action":"already_running"}` instead of spawning a twin.
-- **`command_pre_start`** is an optional **fail-fast hook** run in the project
-  directory right before `command_start` spawns — environment prep the app
+- **`commands.start.hooks.pre_run`** is an optional **fail-fast hook** run in the project
+  directory right before `commands.start.run` spawns — environment prep the app
   command itself must not carry (e.g. `fuser -k 5005/tcp || true` to free a stale
   debug port). Its banner, output and footer land at the top of that run's log;
   a non-zero exit **aborts the start** (no process, no state) and the error names
@@ -64,7 +72,7 @@ case it says so out loud.
 
 ## One-shot jobs
 
-- **`b`** runs `command_build`, **`i`** runs `command_install` — both with
+- **`b`** runs `commands.build.run`, **`i`** runs `commands.install.run` — both with
   `sh -c` in the project directory, **synchronous** in the CLI (`exit_code` +
   `elapsed` in the JSON).
 - **`t`** opens a picker with the `[tasks.*]` of the project's `mise.toml`
@@ -259,8 +267,8 @@ have to parse prose.
 vroom list                      # alias: vroom status — full state of every project
 vroom start <name|path> [--path <path>]
 vroom stop  <name|path> [--path <path>]
-vroom build <name|path>         # command_build, synchronous (exit_code, elapsed)
-vroom install <name|path>       # command_install, synchronous
+vroom build <name|path>         # commands.build.run, synchronous (exit_code, elapsed)
+vroom install <name|path>       # commands.install.run, synchronous
 vroom logs  <name|path> [--tail N --stream merged|stdout|stderr]
 vroom launch --list | <stack> [--dry]
 vroom help                      # the command list, as JSON
@@ -271,6 +279,11 @@ vroom help                      # the command list, as JSON
   `ambiguous project name … use --path`.
 - `route_mode` / `route` and `port_mode` / `port` / `declared_port` /
   `port_verified` ride on the `list` rows (see the sections above).
+- Every configured row carries a `commands` object mirroring the manifest verbatim
+  (`commands.start.run`, `commands.start.hooks.pre_run`, `commands.build.run`,
+  `commands.install.run`, `commands.stop.run`), so the TOML, the Go fields and
+  the JSON speak one vocabulary. The old `command` / `command_stop` /
+  `command_build` / `command_install` keys are gone: no alias.
 - `vroom` with no arguments — or an unknown one — launches the TUI.
 
 **Why it matters:** the same state the TUI paints is queryable, so a script or

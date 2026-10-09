@@ -17,9 +17,9 @@ func TestRegistrarForDevuelveNilDeVerdadYNoUnPunteriorDentroDeUnaInterfaz(t *tes
 		quiereNil  bool
 	}{
 		{"no manifest", nil, true},
-		{"route_mode absent (the default)", &manifest.Manifest{Name: "api", Command: "./api"}, true},
-		{"explicit route_mode off", &manifest.Manifest{Name: "api", Command: "./api", RouteMode: manifest.RouteModeOff}, true},
-		{"invalid route_mode", &manifest.Manifest{Name: "api", Command: "./api", RouteMode: "invented"}, true},
+		{"route_mode absent (the default)", &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./api"}}}, true},
+		{"explicit route_mode off", &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./api"}}, RouteMode: manifest.RouteModeOff}, true},
+		{"invalid route_mode", &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./api"}}, RouteMode: "invented"}, true},
 	}
 	for _, tt := range casos {
 		t.Run(tt.nombre, func(t *testing.T) {
@@ -36,7 +36,7 @@ func TestRegistrarForDevuelveNilDeVerdadYNoUnPunteriorDentroDeUnaInterfaz(t *tes
 	}
 
 	t.Run("active route_mode returns a real client", func(t *testing.T) {
-		reg := RegistrarFor(&manifest.Manifest{Name: "api", Command: "./api", RouteMode: manifest.RouteModeAuto})
+		reg := RegistrarFor(&manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./api"}}, RouteMode: manifest.RouteModeAuto})
 		if reg == nil {
 			t.Error("with route_mode = auto there must be a seam: otherwise, the service starts without a route without warning")
 		}
@@ -55,7 +55,7 @@ func TestArrancarSinRouteModeNoEscribeElAvisoDeRutaEnElLog(t *testing.T) {
 
 	m := manifest.Manifest{
 		Name:     "api",
-		Command:  "sleep 30",
+		Commands: manifest.Commands{Start: manifest.StartCommand{Run: "sleep 30"}},
 		Port:     freePort(t),
 		PortMode: manifest.PortModeFixed,
 	}
@@ -92,7 +92,7 @@ func TestConRouteModeAutoSeIntentaLaRuta(t *testing.T) {
 
 	m := manifest.Manifest{
 		Name:      "api",
-		Command:   "sleep 30",
+		Commands:  manifest.Commands{Start: manifest.StartCommand{Run: "sleep 30"}},
 		Port:      freePort(t),
 		PortMode:  manifest.PortModeFixed,
 		RouteMode: manifest.RouteModeAuto,
@@ -140,7 +140,7 @@ func TestFixedPortStartHandsTheRouteResultToTheCaller(t *testing.T) {
 
 	m := manifest.Manifest{
 		Name:      "api",
-		Command:   "sleep 30",
+		Commands:  manifest.Commands{Start: manifest.StartCommand{Run: "sleep 30"}},
 		Port:      freePort(t),
 		PortMode:  manifest.PortModeFixed,
 		RouteMode: manifest.RouteModeAuto,

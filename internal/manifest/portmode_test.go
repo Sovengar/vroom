@@ -42,7 +42,7 @@ func TestHasPort(t *testing.T) {
 }
 
 func TestValidateRejectsUnknownPortMode(t *testing.T) {
-	m := Manifest{Name: "x", Command: "run", Port: 8080, PortMode: "random"}
+	m := Manifest{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080, PortMode: "random"}
 	if err := m.Validate(); err == nil {
 		t.Fatal("invalid port_mode must be rejected")
 	}
@@ -51,16 +51,16 @@ func TestValidateRejectsUnknownPortMode(t *testing.T) {
 // Riesgo 15: the cross-field rule the doc declared and the code never applied, now enforced as a genuine cross-field check.
 func TestValidateHealthPathCrossField(t *testing.T) {
 	rejected := []Manifest{
-		{Name: "x", Command: "run", HealthPath: "/healthz"},                   // without port in any mode
-		{Name: "x", Command: "run", PortMode: PortModeNone, HealthPath: "/h"}, // none + health_path
-		{Name: "x", Command: "run", PortMode: PortModeDynamic},                // dynamic without default
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, HealthPath: "/healthz"},                   // without port in any mode
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, PortMode: PortModeNone, HealthPath: "/h"}, // none + health_path
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, PortMode: PortModeDynamic},                // dynamic without default
 	}
 	for i, m := range rejected {
 		if err := m.Validate(); err == nil {
 			t.Errorf("manifest %d should have been rejected: %+v", i, m)
 		}
 	}
-	accept := Manifest{Name: "x", Command: "run", Port: 8080, HealthPath: "/healthz"}
+	accept := Manifest{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080, HealthPath: "/healthz"}
 	if err := accept.Validate(); err != nil {
 		t.Errorf("health_path with port must be accepted: %v", err)
 	}
@@ -68,9 +68,9 @@ func TestValidateHealthPathCrossField(t *testing.T) {
 
 func TestValidateBackwardsCompatible(t *testing.T) {
 	legacy := []Manifest{
-		{Name: "x", Command: "run"},
-		{Name: "x", Command: "run", Port: 8080},
-		{Name: "x", Command: "run", Port: 65535, ProcessPattern: "npm"},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 65535, ProcessPattern: "npm"},
 	}
 	for i, m := range legacy {
 		if err := m.Validate(); err != nil {

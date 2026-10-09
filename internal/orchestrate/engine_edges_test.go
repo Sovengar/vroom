@@ -24,7 +24,7 @@ func TestLaunchAsyncEntregaElResultadoYCierraElCanal(t *testing.T) {
 	}}
 	projects := []scanner.Project{
 		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{
-			Name: "api", Command: "./api", PortMode: manifest.PortModeNone,
+			Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./api"}}, PortMode: manifest.PortModeNone,
 		}},
 	}
 
@@ -114,7 +114,7 @@ func TestStopServiceConMetaAusenteNoFalla(t *testing.T) {
 		Path:       t.TempDir(),
 		Name:       "never-started",
 		Configured: true,
-		Manifest:   &manifest.Manifest{Name: "never-started", Command: "./x", PortMode: manifest.PortModeNone},
+		Manifest:   &manifest.Manifest{Name: "never-started", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./x"}}, PortMode: manifest.PortModeNone},
 	}
 	engine.stopService(p)
 
@@ -145,7 +145,7 @@ func TestStopServiceRetiraLaRutaYElPuertoDeUnServicioYaMuerto(t *testing.T) {
 	engine.stopService(scanner.Project{
 		Path:     path,
 		Name:     "dead",
-		Manifest: &manifest.Manifest{Name: "dead", Command: "./x", PortMode: manifest.PortModeNone},
+		Manifest: &manifest.Manifest{Name: "dead", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./x"}}, PortMode: manifest.PortModeNone},
 	})
 
 	got, err := store.LoadMeta(path)
@@ -180,7 +180,7 @@ func TestStopServiceNoRetiraUnaRutaQueNoEraSuya(t *testing.T) {
 	engine.stopService(scanner.Project{
 		Path:     path,
 		Name:     "foreign",
-		Manifest: &manifest.Manifest{Name: "foreign", Command: "./x", PortMode: manifest.PortModeNone},
+		Manifest: &manifest.Manifest{Name: "foreign", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./x"}}, PortMode: manifest.PortModeNone},
 	})
 
 	got, err := store.LoadMeta(path)
@@ -308,7 +308,7 @@ func TestDryRunConServicioQueNoResuelveDaError(t *testing.T) {
 
 	stack := &Stack{Name: "flat", Stages: []Stage{{Name: "s1", Services: []string{"api"}}}}
 	projects := []scanner.Project{
-		{Path: "/dev/web", Name: "web", Configured: true, Manifest: &manifest.Manifest{Name: "web", Command: "./web"}},
+		{Path: "/dev/web", Name: "web", Configured: true, Manifest: &manifest.Manifest{Name: "web", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./web"}}}},
 	}
 
 	result, err := engine.DryRun(stack, projects)
@@ -326,7 +326,7 @@ func TestDryRunConStageSinServiciosDaError(t *testing.T) {
 	engine := NewEngine(&mockManager{}, store)
 
 	projects := []scanner.Project{
-		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "./api"}},
+		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./api"}}}},
 	}
 
 	// MEASURED: a stage with no services is not an error; the "at least one service" rule lives in ParseComposeFile, and duplicating it here would give DryRun an obligation nobody has (TestParseStageNoServices covers it).
@@ -357,8 +357,8 @@ func TestStackStatusConServicioDuplicadoLoCuentaUnaSolaVez(t *testing.T) {
 		{Name: "s2", Services: []string{"api"}},
 	}}
 	projects := []scanner.Project{
-		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "./api"}},
-		{Path: "/dev/web", Name: "web", Configured: true, Manifest: &manifest.Manifest{Name: "web", Command: "./web"}},
+		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./api"}}}},
+		{Path: "/dev/web", Name: "web", Configured: true, Manifest: &manifest.Manifest{Name: "web", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./web"}}}},
 	}
 
 	running, total, err := engine.StackStatus(stack, projects)
@@ -380,7 +380,7 @@ func TestStackStatusConMetaDePidCeroNoCuentaComoRunning(t *testing.T) {
 	if err := store.SaveMeta(path, state.Meta{State: state.StateStopped}); err != nil {
 		t.Fatal(err)
 	}
-	projects := []scanner.Project{{Path: path, Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "./api"}}}
+	projects := []scanner.Project{{Path: path, Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./api"}}}}}
 
 	running, total, err := engine.StackStatus(&Stack{Name: "s", Stages: []Stage{{Name: "e", Services: []string{"api"}}}}, projects)
 	if err != nil {
@@ -403,7 +403,7 @@ func TestStackStatusConMetaIlegibleNoFalla(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(path, ".."), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	projects := []scanner.Project{{Path: path, Name: "weird", Configured: true, Manifest: &manifest.Manifest{Name: "weird", Command: "./x"}}}
+	projects := []scanner.Project{{Path: path, Name: "weird", Configured: true, Manifest: &manifest.Manifest{Name: "weird", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./x"}}}}}
 
 	running, total, err := engine.StackStatus(&Stack{Name: "s", Stages: []Stage{{Name: "e", Services: []string{"weird"}}}}, projects)
 	if err != nil {

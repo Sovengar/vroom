@@ -12,11 +12,11 @@ import (
 
 func TestFilterMatchMatchesByNameAndByGroup(t *testing.T) {
 	tests := []struct {
-		name     string
-		p        scanner.Project
-		q        string
-		want     bool
-		because  string
+		name    string
+		p       scanner.Project
+		q       string
+		want    bool
+		because string
 	}{
 		{
 			"exact by name", scanner.Project{Name: "tienda-api"}, "tienda-api", true, "",
@@ -119,8 +119,8 @@ func TestExampleManifestIsValidAndDoesNotCollideWithAnything(t *testing.T) {
 		if !strings.Contains(txt, `name = "`) {
 			t.Errorf("exampleManifest(%q) does not quote the name: %q", name, txt)
 		}
-		if !strings.Contains(txt, "command_start") {
-			t.Errorf("exampleManifest(%q) does not carry command_start, which is the required field: %q", name, txt)
+		if !strings.Contains(txt, "commands.start.run") {
+			t.Errorf("exampleManifest(%q) does not carry commands.start.run, which is the required field: %q", name, txt)
 		}
 	}
 }
@@ -128,13 +128,13 @@ func TestExampleManifestIsValidAndDoesNotCollideWithAnything(t *testing.T) {
 func TestTreeDotCoversStatesAndUnknown(t *testing.T) {
 	configured := scanner.Project{Path: "/p", Name: "p", Configured: true, Manifest: manifestWithPort(4321)}
 	noManifest := scanner.Project{Path: "/p", Name: "p", Configured: false}
-	brokenManifest := scanner.Project{Path: "/p", Name: "p", Configured: true, ManifestErr: "missing command_start"}
+	brokenManifest := scanner.Project{Path: "/p", Name: "p", Configured: true, ManifestErr: "missing commands.start.run"}
 
 	tests := []struct {
-		name   string
-		p      scanner.Project
-		sv     *ServiceState
-		wants  string
+		name  string
+		p     scanner.Project
+		sv    *ServiceState
+		wants string
 	}{
 		{"running", configured, &ServiceState{Status: statusRunning}, "●"},
 		{"starting", configured, &ServiceState{Status: statusStarting}, "◌"},
@@ -243,7 +243,7 @@ func TestGroupPrimaryAndSecondaryOfProjectWithoutManifestDoNotPanic(t *testing.T
 func manifestGroup(primary, secondary string) *manifest.Manifest {
 	return &manifest.Manifest{
 		Name:           "p",
-		Command:        "./p",
+		Commands:       manifest.Commands{Start: manifest.StartCommand{Run: "./p"}},
 		PrimaryGroup:   primary,
 		SecondaryGroup: secondary,
 	}

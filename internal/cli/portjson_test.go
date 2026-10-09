@@ -106,7 +106,7 @@ func closedPort(t *testing.T) int {
 
 func dynamicManifest() *manifest.Manifest {
 	return &manifest.Manifest{
-		Name: "svc", Command: "run", Port: 8080, PortMode: manifest.PortModeDynamic,
+		Name: "svc", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080, PortMode: manifest.PortModeDynamic,
 	}
 }
 
@@ -161,7 +161,7 @@ func TestJSONRecordedPortModeOutranksManifest(t *testing.T) {
 	meta := liveMetaWithState(t, state.StateRunning, port, true)
 	meta.PortMode = manifest.PortModeDynamic
 
-	row := jsonRow(t, &manifest.Manifest{Name: "svc", Command: "run", Port: 8080, PortMode: manifest.PortModeFixed}, meta, true)
+	row := jsonRow(t, &manifest.Manifest{Name: "svc", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080, PortMode: manifest.PortModeFixed}, meta, true)
 
 	if row["port_mode"] != "dynamic" {
 		t.Errorf("port_mode = %v, want the recorded dynamic", row["port_mode"])
@@ -171,7 +171,7 @@ func TestJSONRecordedPortModeOutranksManifest(t *testing.T) {
 // Without a recorded mode the manifest decides, as before.
 func TestJSONPortModeFallsBackToManifest(t *testing.T) {
 	port := openPort(t)
-	row := jsonRow(t, &manifest.Manifest{Name: "svc", Command: "run", Port: 8080, PortMode: manifest.PortModeFixed},
+	row := jsonRow(t, &manifest.Manifest{Name: "svc", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080, PortMode: manifest.PortModeFixed},
 		liveMetaWithState(t, state.StateRunning, port, true), true)
 
 	if row["port_mode"] != "fixed" {
@@ -218,7 +218,7 @@ func TestJSONPortPendingIsDistinctFromUnresolved(t *testing.T) {
 
 // Regression gate: a legacy manifest with no port_mode and port = 0 must behave exactly as before.
 func TestJSONLegacyFixedZeroPortIsUnchanged(t *testing.T) {
-	m := &manifest.Manifest{Name: "svc", Command: "run"}
+	m := &manifest.Manifest{Name: "svc", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}}
 	if mode := m.EffectivePortMode(); mode != manifest.PortModeNone {
 		t.Fatalf("EffectivePortMode = %q, want none", mode)
 	}
@@ -247,7 +247,7 @@ func TestJSONLegacyFixedZeroPortIsUnchanged(t *testing.T) {
 }
 
 func TestJSONStoppedFixedKeepsDeclaredPort(t *testing.T) {
-	m := &manifest.Manifest{Name: "svc", Command: "run", Port: 8080}
+	m := &manifest.Manifest{Name: "svc", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080}
 	row := jsonRow(t, m, state.Meta{}, false)
 
 	if row["port"] != float64(8080) {

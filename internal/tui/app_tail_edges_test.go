@@ -57,7 +57,7 @@ func TestElAliasOCierraLosMismosLogsQueLaTecla(t *testing.T) {
 		t.Skip("precondition: `o` must not be mapped to another action")
 	}
 
-	// tienda-web has no command_build, so the observable effect of binding "o" is the "no command" warning rather than a launch.
+	// tienda-web has no commands.build.run, so the observable effect of binding "o" is the "no command" warning rather than a launch.
 	conConfig, _ := newTestModelWithConfig(t, "[keybindings]\nbuild = \"o\"\n")
 	conConfig = moveCursorTo(t, conConfig, "tienda-web")
 	if conConfig.cfg.KeyFor("build") != "o" {
@@ -67,7 +67,7 @@ func TestElAliasOCierraLosMismosLogsQueLaTecla(t *testing.T) {
 	next, _ := conConfig.handleKey(keyMsg("o"))
 	got := next.(Model)
 	if got.message == "" {
-		t.Fatal("with o mapped to build the key must do something: here the warning that there is no command_build")
+		t.Fatal("with o mapped to build the key must do something: here the warning that there is no commands.build.run")
 	}
 	if strings.Contains(got.message, "editor") {
 		t.Errorf("message = %q: with o mapped to build the editor cannot open", got.message)

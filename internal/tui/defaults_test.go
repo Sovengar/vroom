@@ -150,7 +150,7 @@ func TestDetailsPanelOfProjectWithoutManifestShowsExample(t *testing.T) {
 	if !strings.Contains(body, "No manifest") {
 		t.Errorf("the panel must explain what is missing:\\n%s", body)
 	}
-	for _, want := range []string{"name =", "command_start"} {
+	for _, want := range []string{"name =", "commands.start.run"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the example does not include %q, and without it the user does not know what to write:\\n%s", want, body)
 		}

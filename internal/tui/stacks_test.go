@@ -85,7 +85,7 @@ func TestStackStatsConNombreAmbiguoEsError(t *testing.T) {
 	root := writeTestTree(t, false)
 	for _, sub := range []string{"dup-a", "dup-b"} {
 		writeStr(t, filepath.Join(root, sub, ".vroom.toml"),
-			"name = \"dup\"\ncommand_start = \"sleep 60\"\nport = 9001\n")
+			"name = \"dup\"\ncommands.start.run = \"sleep 60\"\nport = 9001\n")
 	}
 	writeStr(t, filepath.Join(root, orchestrate.ComposeFileName), `primary_group = "tienda"
 
@@ -164,7 +164,7 @@ func TestToggleStackConConflictoLoDiceYNoLanzaNada(t *testing.T) {
 	root := writeTestTree(t, false)
 	for _, sub := range []string{"dup-a", "dup-b"} {
 		writeStr(t, filepath.Join(root, sub, ".vroom.toml"),
-			"name = \"dup\"\ncommand_start = \"sleep 60\"\nport = 9001\n")
+			"name = \"dup\"\ncommands.start.run = \"sleep 60\"\nport = 9001\n")
 	}
 	writeStr(t, filepath.Join(root, orchestrate.ComposeFileName), `primary_group = "tienda"
 

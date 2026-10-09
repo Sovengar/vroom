@@ -58,7 +58,7 @@ func TestStartCmdTraeLosAvisosAlLogDeStderr(t *testing.T) {
 			t.Fatal(err)
 		}
 		m := manifest.Manifest{
-			Name: "api", Command: "sleep 30", Port: port,
+			Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "sleep 30"}}, Port: port,
 			PortMode: manifest.PortModeFixed, RouteMode: mode,
 		}
 		p := scanner.Project{Path: path, Name: "api", Configured: true, Manifest: &m}
@@ -106,7 +106,7 @@ func TestStopCmdEjecutaElCommandStopAntesDeLaLimpieza(t *testing.T) {
 	}
 
 	mgr := &contadorManager{}
-	// The command_stop leaves its mark in the stdout log, which is what the Console tab reads.
+	// The commands.stop.run leaves its mark in the stdout log, which is what the Console tab reads.
 	stopCmd(store, mgr, path, "echo PARADA_GRACIOSA")()
 
 	out, err := os.ReadFile(store.StdoutLog(path))
@@ -114,14 +114,14 @@ func TestStopCmdEjecutaElCommandStopAntesDeLaLimpieza(t *testing.T) {
 		t.Fatalf("could not read the log: %v", err)
 	}
 	if !strings.Contains(string(out), "PARADA_GRACIOSA") {
-		t.Errorf("the command_stop did not reach the service log:\n%s", out)
+		t.Errorf("the commands.stop.run did not reach the service log:\n%s", out)
 	}
 	if mgr.stops != 1 {
-		t.Errorf("Stop was called %d times, want 1: the command_stop does not replace the cleanup", mgr.stops)
+		t.Errorf("Stop was called %d times, want 1: the commands.stop.run does not replace the cleanup", mgr.stops)
 	}
 }
 
-// A failing command_stop does not cancel the cleanup, because `docker stop` fails when the container is already stopped while vroom's own process is still up and must be killed anyway.
+// A failing commands.stop.run does not cancel the cleanup, because `docker stop` fails when the container is already stopped while vroom's own process is still up and must be killed anyway.
 func TestStopCmdNotificaElCommandStopFallidoPeroSigueLimpiando(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	path := t.TempDir()
@@ -136,7 +136,7 @@ func TestStopCmdNotificaElCommandStopFallidoPeroSigueLimpiando(t *testing.T) {
 	msg := stopCmd(store, mgr, path, "exit 7")()
 
 	if mgr.stops != 1 {
-		t.Errorf("a failed command_stop canceled the cleanup: Stop was called %d times. "+
+		t.Errorf("a failed commands.stop.run canceled the cleanup: Stop was called %d times. "+
 			"The process is still running and the user would see stopped with a live service", mgr.stops)
 	}
 	sm, ok := msg.(stoppedMsg)
@@ -144,7 +144,7 @@ func TestStopCmdNotificaElCommandStopFallidoPeroSigueLimpiando(t *testing.T) {
 		t.Fatalf("stopCmd returned %T, want stoppedMsg", msg)
 	}
 	if sm.err == nil {
-		t.Error("the command_stop failure must reach the user: otherwise, a broken `docker stop` goes unnoticed")
+		t.Error("the commands.stop.run failure must reach the user: otherwise, a broken `docker stop` goes unnoticed")
 	}
 	// The meta is stopped despite the failed command, because the process is gone.
 	meta, err := store.LoadMeta(path)
@@ -433,7 +433,7 @@ func proyectoConManifiesto(t *testing.T, path string, port int) scanner.Project 
 }
 
 func manifestConPuerto(port int) *manifest.Manifest {
-	return &manifest.Manifest{Name: "api", Command: "sleep 30", Port: port, PortMode: manifest.PortModeFixed}
+	return &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "sleep 30"}}, Port: port, PortMode: manifest.PortModeFixed}
 }
 
 func membersDelStack(t *testing.T, s *orchestrate.Stack, m Model) []string {
@@ -460,7 +460,7 @@ func stackModeloBarato(t *testing.T) Model {
 		if p.Manifest == nil {
 			continue
 		}
-		p.Manifest.Command = "true"
+		p.Manifest.Commands.Start.Run = "true"
 		p.Manifest.Port = 0
 		p.Manifest.PortMode = manifest.PortModeNone
 		p.Manifest.RouteMode = manifest.RouteModeOff

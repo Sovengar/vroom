@@ -1,8 +1,8 @@
 name = "web-frontend"
 primary_group = "tienda"
 secondary_group = "frontend"
-command_start = "node server.js"
+commands.start.run = "node server.js"
 port = 5173
 process_pattern = ""
-command_install = "echo installing web-frontend"
-command_build = "mise run build"
+commands.install.run = "echo installing web-frontend"
+commands.build.run = "mise run build"

@@ -516,7 +516,7 @@ func TestStopReleasesTheReservation(t *testing.T) {
 
 // dynamic needs a default port because the app contract is PORT=${PORT:-N}.
 func TestDynamicRequiresDefaultPort(t *testing.T) {
-	m := &manifest.Manifest{Name: "x", Command: "true", PortMode: manifest.PortModeDynamic}
+	m := &manifest.Manifest{Name: "x", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "true"}}, PortMode: manifest.PortModeDynamic}
 	if err := m.Validate(); err == nil {
 		t.Error("dynamic without a default port must be rejected in validation")
 	}

@@ -83,14 +83,14 @@ func Start(req Request) (Result, error) {
 		env = []string{fmt.Sprintf("PORT=%d", reserved), "HOST=127.0.0.1"}
 	}
 
-	// command_pre_start runs INSIDE Manager.Start (through PreSpawn) rather than here: the manager truncates the logs on every start, so anything written before it would leave no trace of a hook that succeeded.
+	// The pre_run hook runs INSIDE Manager.Start (through PreSpawn) rather than here: the manager truncates the logs on every start, so anything written before it would leave no trace of a hook that succeeded.
 	var pre func() error
-	if req.Manifest.PreStart != "" {
-		pre = preStartHook(req.Manifest.PreStart, req.Path, req.StdoutPath, req.StderrPath)
+	if req.Manifest.Commands.Start.Hooks.PreRun != "" {
+		pre = preRunHook(req.Manifest.Commands.Start.Hooks.PreRun, req.Path, req.StdoutPath, req.StderrPath)
 	}
 
 	res, err := req.Manager.Start(process.StartSpec{
-		Command:    req.Manifest.Command,
+		Command:    req.Manifest.Commands.Start.Run,
 		WorkDir:    req.Path,
 		StdoutPath: req.StdoutPath,
 		StderrPath: req.StderrPath,
@@ -107,7 +107,7 @@ func Start(req Request) (Result, error) {
 		ProjectPath:    req.Path,
 		Port:           req.Manifest.Port,
 		ProcessPattern: req.Manifest.ProcessPattern,
-		Command:        req.Manifest.Command,
+		Command:        req.Manifest.Commands.Start.Run,
 		Pid:            res.Pid,
 		Pgid:           res.Pgid,
 		CreationTimeMs: res.CreationTimeMs,
@@ -284,11 +284,11 @@ func stopAfterPersistFailure(req Request, res process.StartResult) {
 	})
 }
 
-// preStartHook runs the manifest's command_pre_start exactly like any other job (banner, output and footer in the service log) and fails the whole start when it fails: an unmet prerequisite must not be papered over by a service that starts anyway.
-func preStartHook(command, workDir, stdoutPath, stderrPath string) func() error {
+// preRunHook runs commands.start.hooks.pre_run exactly like any other job (banner, output and footer in the service log) and fails the whole start when it fails: an unmet prerequisite must not be papered over by a service that starts anyway.
+func preRunHook(command, workDir, stdoutPath, stderrPath string) func() error {
 	return func() error {
-		if _, _, err := logrun.Run("pre_start", command, workDir, stdoutPath, stderrPath); err != nil {
-			return fmt.Errorf("command_pre_start %q failed: %w (its output is in the service log)", command, err)
+		if _, _, err := logrun.Run("pre_run", command, workDir, stdoutPath, stderrPath); err != nil {
+			return fmt.Errorf("commands.start.hooks.pre_run %q failed: %w (its output is in the service log)", command, err)
 		}
 		return nil
 	}

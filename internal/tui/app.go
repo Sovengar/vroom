@@ -513,7 +513,7 @@ func startCmd(store *state.Store, manager process.Manager, p scanner.Project, po
 	}
 }
 
-// command_stop runs first for services where killing the PGID is not enough (e.g. docker stop); the cleanup SIGTERM/SIGKILL always follows.
+// commands.stop.run runs first for services where killing the PGID is not enough (e.g. docker stop); the cleanup SIGTERM/SIGKILL always follows.
 func stopCmd(store *state.Store, manager process.Manager, path, stopCommand string) tea.Cmd {
 	return func() tea.Msg {
 		var cmdErr error
@@ -588,7 +588,7 @@ func appendLine(path, line string) error {
 	return err
 }
 
-// runLogged keeps the name this package's tests speak; the job itself is shared with the CLI and with the pre_start hook (internal/logrun), because a banner, an exit code and a footer mean the same thing in all three.
+// runLogged keeps the name this package's tests speak; the job itself is shared with the CLI and with the pre_run hook (internal/logrun), because a banner, an exit code and a footer mean the same thing in all three.
 func runLogged(kind, command, workDir, stdoutPath, stderrPath string) (time.Duration, int, error) {
 	return logrun.Run(kind, command, workDir, stdoutPath, stderrPath)
 }
@@ -1325,7 +1325,7 @@ func (m Model) toggleSelected() (tea.Model, tea.Cmd) {
 	case statusRunning, statusUnknown, statusPortPending, statusNoPort:
 		sv.Status = statusStopping
 		m.clearMessage()
-		return m, stopCmd(m.store, m.manager, p.Path, p.Manifest.Stop)
+		return m, stopCmd(m.store, m.manager, p.Path, p.Manifest.Commands.Stop.Run)
 	case statusStarting, statusStopping:
 		return m, nil
 	default:
@@ -1534,14 +1534,14 @@ func (m Model) restartSelected() (tea.Model, tea.Cmd) {
 	}
 	m.pendingRestart[p.Path] = true
 	sv.Status = statusStopping
-	return m, stopCmd(m.store, m.manager, p.Path, p.Manifest.Stop)
+	return m, stopCmd(m.store, m.manager, p.Path, p.Manifest.Commands.Stop.Run)
 }
 
 func manifestStop(p scanner.Project) string {
 	if p.Manifest == nil {
 		return ""
 	}
-	return p.Manifest.Stop
+	return p.Manifest.Commands.Stop.Run
 }
 
 func (m Model) openLogEditor() (tea.Model, tea.Cmd) {
@@ -1576,11 +1576,11 @@ func (m Model) runInstall() (tea.Model, tea.Cmd) {
 		m.notify("No manifest — create a .vroom.toml to enable")
 		return m, nil
 	}
-	if p.Manifest.Install == "" {
-		m.notify(`no install command — set command_install = "..." in .vroom.toml`)
+	if p.Manifest.Commands.Install.Run == "" {
+		m.notify(`no install command — set commands.install.run = "..." in .vroom.toml`)
 		return m, nil
 	}
-	return m.launchJob("install", p.Manifest.Install)
+	return m.launchJob("install", p.Manifest.Commands.Install.Run)
 }
 
 func (m Model) runBuild() (tea.Model, tea.Cmd) {
@@ -1595,11 +1595,11 @@ func (m Model) runBuild() (tea.Model, tea.Cmd) {
 		m.notify("No manifest — create a .vroom.toml to enable")
 		return m, nil
 	}
-	if p.Manifest.Build == "" {
-		m.notify(`no build command — set command_build = "..." in .vroom.toml`)
+	if p.Manifest.Commands.Build.Run == "" {
+		m.notify(`no build command — set commands.build.run = "..." in .vroom.toml`)
 		return m, nil
 	}
-	return m.launchJob("build", p.Manifest.Build)
+	return m.launchJob("build", p.Manifest.Commands.Build.Run)
 }
 
 func (m Model) launchJob(kind, command string) (tea.Model, tea.Cmd) {

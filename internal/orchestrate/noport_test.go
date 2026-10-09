@@ -57,7 +57,7 @@ func noportFixture(t *testing.T) (scanner.Project, string) {
 		Path: dir, Name: "worker", Configured: true,
 		Manifest: &manifest.Manifest{
 			Name:     "worker",
-			Command:  shellQuote(os.Args[0]) + " -test.run=^TestHelperNoPort$",
+			Commands: manifest.Commands{Start: manifest.StartCommand{Run: shellQuote(os.Args[0]) + " -test.run=^TestHelperNoPort$"}},
 			Port:     8080,
 			PortMode: manifest.PortModeDynamic,
 		},
@@ -86,7 +86,7 @@ func TestLaunchNoPortServiceDoesNotAbortStack(t *testing.T) {
 	sibling := scanner.Project{
 		Path: t.TempDir(), Name: "api", Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "api", Command: "sleep 120", Port: 0, PortMode: manifest.PortModeNone,
+			Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "sleep 120"}}, Port: 0, PortMode: manifest.PortModeNone,
 		},
 	}
 	projects := []scanner.Project{sibling, worker}
@@ -174,7 +174,7 @@ func TestLaunchAlreadyRunningNoPortServiceDoesNotAbort(t *testing.T) {
 	sibling := scanner.Project{
 		Path: t.TempDir(), Name: "api", Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "api", Command: "sleep 120", Port: 0, PortMode: manifest.PortModeNone,
+			Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "sleep 120"}}, Port: 0, PortMode: manifest.PortModeNone,
 		},
 	}
 	projects := []scanner.Project{sibling, worker}
@@ -225,7 +225,7 @@ func TestLaunchPortPendingServiceStillFails(t *testing.T) {
 	p := scanner.Project{
 		Path: t.TempDir(), Name: "api", Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "api", Command: "sleep 120",
+			Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "sleep 120"}},
 			Port: 8080, PortMode: manifest.PortModeDynamic,
 		},
 	}
@@ -284,7 +284,7 @@ func TestLaunchPortUnresolvedDoesNotAbortStack(t *testing.T) {
 	slow := scanner.Project{
 		Path: dir, Name: "slow", Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "slow", Command: "sleep 120",
+			Name: "slow", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "sleep 120"}},
 			Port: 8080, PortMode: manifest.PortModeDynamic,
 		},
 	}
@@ -293,7 +293,7 @@ func TestLaunchPortUnresolvedDoesNotAbortStack(t *testing.T) {
 	sibling := scanner.Project{
 		Path: t.TempDir(), Name: "api", Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "api", Command: "sleep 120", Port: 0, PortMode: manifest.PortModeNone,
+			Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "sleep 120"}}, Port: 0, PortMode: manifest.PortModeNone,
 		},
 	}
 	projects := []scanner.Project{sibling, slow}

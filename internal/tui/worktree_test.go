@@ -84,7 +84,7 @@ func repoFixture(t *testing.T) ([]scanner.Project, string, string, string) {
 }
 
 func manifestNamed(name, primary string) *manifest.Manifest {
-	return &manifest.Manifest{Name: name, Command: "echo", PrimaryGroup: primary}
+	return &manifest.Manifest{Name: name, Commands: manifest.Commands{Start: manifest.StartCommand{Run: "echo"}}, PrimaryGroup: primary}
 }
 
 func findRepo(t *testing.T, m Model, name string) int {
@@ -192,8 +192,8 @@ func TestNestedWorktreeOperable(t *testing.T) {
 	projects, repo, wtA, _ := repoFixture(t)
 	for i := range projects {
 		if projects[i].Path == wtA {
-			projects[i].Manifest.Build = "echo build"
-			projects[i].Manifest.Install = "echo install"
+			projects[i].Manifest.Commands.Build.Run = "echo build"
+			projects[i].Manifest.Commands.Install.Run = "echo install"
 		}
 	}
 	collapsed := map[string]bool{repoKey(repo): true}
@@ -506,13 +506,13 @@ func TestNewNestsRealGitWorktrees(t *testing.T) {
 		}
 	}
 	runGit(t, root, "init", "-q", "-b", "main", repo)
-	write(filepath.Join(repo, ".vroom.toml"), "name = \"repo\"\ncommand_start = \"echo\"\n")
+	write(filepath.Join(repo, ".vroom.toml"), "name = \"repo\"\ncommands.start.run = \"echo\"\n")
 	runGit(t, repo, "add", "-A")
 	runGit(t, repo, "commit", "-q", "-m", "init")
 
 	wtA := filepath.Join(root, "repo-wt-a")
 	runGit(t, repo, "worktree", "add", "-q", wtA, "-b", "feature")
-	write(filepath.Join(wtA, ".vroom.toml"), "name = \"api\"\ncommand_start = \"echo\"\n")
+	write(filepath.Join(wtA, ".vroom.toml"), "name = \"api\"\ncommands.start.run = \"echo\"\n")
 
 	m := New(state.NewStoreAt(t.TempDir()), &stubManager{}, root)
 	m.width, m.height = 100, 30
@@ -548,7 +548,7 @@ func TestNewNotifiesTopologyDegradation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write(filepath.Join(repo, ".vroom.toml"), "name = \"repo\"\ncommand_start = \"echo\"\n")
+	write(filepath.Join(repo, ".vroom.toml"), "name = \"repo\"\ncommands.start.run = \"echo\"\n")
 	write(filepath.Join(repo, ".git", "config"), "[core]\n\tbare = false\n")
 
 	// A git shim that always exits 1 goes first in PATH, so the topology lookup degrades per repo.

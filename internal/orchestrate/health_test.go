@@ -70,7 +70,7 @@ func TestAwaitPortFixedZeroMatchesLegacy(t *testing.T) {
 }
 
 func TestAwaitPortFixedWithoutPortModeDeclaration(t *testing.T) {
-	m := &manifest.Manifest{Name: "x", Command: "run", Port: 0}
+	m := &manifest.Manifest{Name: "x", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 0}
 	mode := m.EffectivePortMode()
 
 	start := time.Now()

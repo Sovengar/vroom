@@ -50,7 +50,7 @@ func TestStartDevuelveElPuertoReservadoSiElHijoNuncaLlego(t *testing.T) {
 
 	m := failingManager{err: errors.New("no such file or directory")}
 	_, err := Start(Request{
-		Manifest:   &manifest.Manifest{Name: "svc", Command: "./no-existe", PortMode: manifest.PortModeDynamic},
+		Manifest:   &manifest.Manifest{Name: "svc", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./no-existe"}}, PortMode: manifest.PortModeDynamic},
 		Path:       root,
 		Store:      store,
 		Manager:    m,
@@ -76,7 +76,7 @@ func TestStartSinPuertoReservadoNoFiltraNadaSinReserva(t *testing.T) {
 
 	m := failingManager{err: errors.New("boom")}
 	_, err := Start(Request{
-		Manifest:   &manifest.Manifest{Name: "svc", Command: "./no-existe", Port: 8081},
+		Manifest:   &manifest.Manifest{Name: "svc", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./no-existe"}}, Port: 8081},
 		Path:       root,
 		Store:      store,
 		Manager:    m,
@@ -106,7 +106,7 @@ func TestStartPropagaElFalloDeGuardarElIntentoConPuertoReservado(t *testing.T) {
 	}
 
 	_, err := Start(Request{
-		Manifest:   &manifest.Manifest{Name: "svc", Command: "sleep 30", PortMode: manifest.PortModeDynamic},
+		Manifest:   &manifest.Manifest{Name: "svc", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "sleep 30"}}, PortMode: manifest.PortModeDynamic},
 		Path:       root,
 		Store:      store,
 		Manager:    process.NewManager(),
@@ -304,7 +304,7 @@ func TestDiscoveryTimeoutPorDefectoCuandoNoSeDaUno(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 
 	res, err := Start(Request{
-		Manifest: &manifest.Manifest{Name: "svc", Command: "sleep 30", PortMode: manifest.PortModeDynamic},
+		Manifest: &manifest.Manifest{Name: "svc", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "sleep 30"}}, PortMode: manifest.PortModeDynamic},
 		Path:     root,
 		Store:    store,
 		Manager:  process.NewManager(),

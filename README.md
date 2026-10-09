@@ -105,7 +105,7 @@ Notes:
 - `orders-api-springboot` requires **JDK 17+ and Maven**; the first run downloads
   dependencies (you'll see the full Spring startup log in the logs view).
 - `nginx-proxy` requires Docker.
-- `web-frontend` includes `command_install`/`command_build` in its manifest and a `mise.toml` with
+- `web-frontend` includes `commands.install`/`commands.build` in its manifest and a `mise.toml` with
   tasks (and one hidden) to test `b`, `i` and the `t` picker without configuring anything.
 - Each project defines its service in a `.vroom.toml` — this is how you configure yours:
 
@@ -113,18 +113,39 @@ Notes:
 name = "my-service"
 primary_group = "store"           # top-level grouping (optional)
 secondary_group = "backend"       # inner level, only with primary_group (optional)
-command_start = "go run main.go"
+commands.start.run = "go run main.go"
+commands.start.hooks.pre_run = "fuser -k 5005/tcp || true"  # fail-fast hook, before start (optional)
 port = 8080                       # default app port (0 = disabled)
 port_mode = "fixed"               # "fixed" | "dynamic" | "none" (default "fixed")
 process_pattern = ""              # pgrep pattern (optional)
-command_install = "npm install"    # one-shot with the i key (optional)
-command_build = "mise run build"  # one-shot with the b key (optional)
-command_pre_start = "fuser -k 5005/tcp || true"  # fail-fast hook before command_start (optional)
-command_stop = "docker stop x"    # graceful stop with the s key (optional)
+commands.install.run = "npm install"    # one-shot with the i key (optional)
+commands.build.run = "mise run build"  # one-shot with the b key (optional)
+commands.stop.run = "docker stop x"    # graceful stop with the s key (optional)
 health_path = "/healthz"          # Health tab probe path (default "/")
 route_mode = "off"                # "off" | "auto" | "named_with_auto_fallback" (default "off")
 route_name = ""                   # stable route name (only with "named_with_auto_fallback")
 ```
+
+**Everything vroom runs lives under `[commands]`** — `start`, `build`, `install`
+and `stop`, each with a `run`, plus `start.hooks` for the hooks that belong to
+the start. The dotted keys above and the table form decode to exactly the same
+manifest:
+
+```toml
+[commands.start]
+run = "mise run start"
+
+  [commands.start.hooks]
+  pre_run = "fuser -k 5005/tcp || true"
+```
+
+Two rules for the table form: TOML table headers end the top-level table, so a
+`[commands.*]` header goes **after** the top-level keys (or keep using the
+dotted form anywhere); and `run` is required for `start`. vroom enforces both
+loudly — a swallowed top-level key (`port` written after the header) is a parse
+error naming it, and the pre-`[commands]` keys (`command_start`,
+`command_build`, `command_install`, `command_stop`, `command_pre_start`) no
+longer parse: the error names their new location, there is no alias.
 
 Grouping is hierarchical: with `primary_group` + `secondary_group` the TUI
 shows two levels of collapsible headers (e.g. `store` → `backend`/
@@ -132,19 +153,19 @@ shows two levels of collapsible headers (e.g. `store` → `backend`/
 `primary_group` projects go directly under their header (enter toggles
 header collapse or, on a project, its innermost container).
 
-`command_stop` is for services where killing the process group is not enough (the
+`commands.stop.run` is for services where killing the process group is not enough (the
 child process survives the kill, e.g. a Docker container): when pressing `s`, vroom
 runs that command first (with banner, visible in the console) and then applies
 the usual cleanup shutdown (SIGTERM → 5s → SIGKILL to the process group **and
 its descendants**, including those that did `setsid`).
 
-`command_pre_start` is the mirror image on the way up: an optional hook run with
-`sh -c` in the project directory just before `command_start` spawns, for
+`commands.start.hooks.pre_run` is the mirror image on the way up: an optional hook run with
+`sh -c` in the project directory just before `commands.start.run` spawns, for
 preparation the app command itself must not carry (freeing a stale debug port,
 bringing a dependency up). It is **fail-fast**: a non-zero exit aborts the start
 before any process exists — nothing spawned, nothing persisted — and the error
 names the hook and its exit status while its output stays in the service log
-(banner `── vroom ▶ pre_start: … ──`, first entry of that run). It runs on every
+(banner `── vroom ▶ pre_run: … ──`, first entry of that run). It runs on every
 start path (`vroom start`, `s`, `R`, `vroom launch`) and never on
 `already_running`. Since the hook is plain `sh -c`, a best-effort step ends with
 `|| true` (`fuser` exits non-zero when nobody holds the port).
@@ -275,8 +296,8 @@ See `docs/adr/adr-0013-vroom-registers-portless-routes.md`.
 | `enter` | Collapse/expand the selected group |
 | `s` | **Start/stop** (contextual toggle; on a group, all its members) |
 | `R` | Restart (stop → start with timeout) |
-| `b` | **Build**: one-shot manifest command (`command_build = "..."`) |
-| `i` | **Install**: one-shot manifest command (`command_install = "..."`) |
+| `b` | **Build**: one-shot manifest command (`commands.build.run = "..."`) |
+| `i` | **Install**: one-shot manifest command (`commands.install.run = "..."`) |
 | `t` | **Tasks**: `mise.toml` task picker (see [mise](#mise-integration-optional)) |
 | `a` | **Ask AI**: ask an agent (opencode/pi/hermes/jcode) with your prompt → new chat; the input is prefilled with app context ([global config](#global-config-ask-ai)); dispatch is configurable |
 | `C` | **Clear**: clears the in-memory console (files keep history) |
@@ -372,8 +393,8 @@ with just `.vroom.toml`. The integration exists at two points, and both are opt-
 
 1. **`b` (build) and `i` (install)** execute the command you put in the
    manifest, with `sh -c` in the project directory. If you prefer mise,
-   you write `command_build = "mise run build"`; if you prefer pnpm,
-   `command_build = "pnpm build"`.
+   you write `commands.build.run = "mise run build"`; if you prefer pnpm,
+   `commands.build.run = "pnpm build"`.
    vroom never adds `mise run` on its own.
 2. **`t` (tasks)** lists the tasks from the `[tasks.*]` section of the project's
    `mise.toml` (direct file parsing; listing does **not** need the binary). When
@@ -399,9 +420,9 @@ run = "pnpm dev"
 ```toml
 # .vroom.toml
 name = "web-frontend"
-command_start = "pnpm dev"          # or "mise run serve"
-command_install = "mise run install" # i key
-command_build = "mise run build"     # b key
+commands.start.run = "pnpm dev"          # or "mise run serve"
+commands.install.run = "mise run install" # i key
+commands.build.run = "mise run build"     # b key
 port = 5173
 ```
 

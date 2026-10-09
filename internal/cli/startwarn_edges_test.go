@@ -17,7 +17,7 @@ func TestStartEscribeLosAvisosEnElLogDelServicio(t *testing.T) {
 	// `port` is declared on purpose because Validate demands it in dynamic mode: it is the app fallback (PORT=${PORT:-N}), not the port vroom injects.
 	worker := filepath.Join(root, "worker")
 	writeFile(t, filepath.Join(worker, ".vroom.toml"), `name = "worker"
-command_start = "sleep 30"
+commands.start.run = "sleep 30"
 port_mode = "dynamic"
 port = 8080
 `)

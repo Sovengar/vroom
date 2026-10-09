@@ -18,7 +18,7 @@ func proj(name, primary, secondary string) scanner.Project {
 		return p // no manifest
 	}
 	p.Configured = true
-	p.Manifest = &manifest.Manifest{Name: name, PrimaryGroup: primary, SecondaryGroup: secondary, Command: "run " + name}
+	p.Manifest = &manifest.Manifest{Name: name, PrimaryGroup: primary, SecondaryGroup: secondary, Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run " + name}}}
 	return p
 }
 

@@ -145,7 +145,7 @@ func TestNewUsesConfigRootAndExpandsTilde(t *testing.T) {
 
 	t.Run("relative config root: under the CWD", func(t *testing.T) {
 		root := writeTestTree(t, false)
-		writeStr(t, filepath.Join(root, "sub", ".vroom.toml"), "name = \"sub-api\"\ncommand_start = \"./x\"\n")
+		writeStr(t, filepath.Join(root, "sub", ".vroom.toml"), "name = \"sub-api\"\ncommands.start.run = \"./x\"\n")
 
 		cfgPath := filepath.Join(t.TempDir(), "config.toml")
 		writeStr(t, cfgPath, "[scanner]\nroot = \"sub\"\n")
@@ -165,7 +165,7 @@ func TestNewUsesConfigRootAndExpandsTilde(t *testing.T) {
 	t.Run("config root with tilde", func(t *testing.T) {
 		home := t.TempDir()
 		real := filepath.Join(home, "workspace")
-		writeStr(t, filepath.Join(real, "api", ".vroom.toml"), "name = \"api-from-home\"\ncommand_start = \"./x\"\n")
+		writeStr(t, filepath.Join(real, "api", ".vroom.toml"), "name = \"api-from-home\"\ncommands.start.run = \"./x\"\n")
 
 		// The tilde resolves through the process HOME, which t.Setenv does change for os.UserHomeDir unlike /proc/self/environ.
 		t.Setenv("HOME", home)
@@ -415,9 +415,9 @@ func TestUpdateWithProcessExitClosesModalAndNotifies(t *testing.T) {
 
 func TestUpdateWithStackResultSaysWhatHappened(t *testing.T) {
 	tests := []struct {
-		name       string
-		msg        tea.Msg
-		wants      string
+		name         string
+		msg          tea.Msg
+		wants        string
 		hasStackName bool
 	}{
 		{

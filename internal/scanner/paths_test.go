@@ -59,15 +59,15 @@ func TestScanDaErrorCuandoElRootNoEsUnDirectorio(t *testing.T) {
 func TestScanSinFdDaLaMismaRespuestaQueConFd(t *testing.T) {
 	files := map[string]string{
 		"api/go.mod":              "module api\n",
-		"api/.vroom.toml":         "name = \"api\"\ncommand_start = \"go run .\"\n",
+		"api/.vroom.toml":         "name = \"api\"\ncommands.start.run = \"go run .\"\n",
 		"api/.git/HEAD":           "ref: refs/heads/main\n",
 		"api/.git/config":         "[core]\n",
 		"web/package.json":        "{}\n",
-		"web/.vroom.toml":         "name = \"web\"\ncommand_start = \"node .\"\n",
-		"group/admin/.vroom.toml": "name = \"admin\"\ncommand_start = \"./admin\"\n",
+		"web/.vroom.toml":         "name = \"web\"\ncommands.start.run = \"node .\"\n",
+		"group/admin/.vroom.toml": "name = \"admin\"\ncommands.start.run = \"./admin\"\n",
 		"group/admin/.git/config": "[core]\n",
 		"no-manifest/go.mod":      "module x\n",
-		"hidden/.vroom.toml":      "name = \"hidden\"\ncommand_start = \"./x\"\n",
+		"hidden/.vroom.toml":      "name = \"hidden\"\ncommands.start.run = \"./x\"\n",
 	}
 	root := writeTree(t, files)
 
@@ -95,8 +95,8 @@ func TestScanSinFdDaLaMismaRespuestaQueConFd(t *testing.T) {
 
 func TestScanRespetaLaProfundidad(t *testing.T) {
 	files := map[string]string{
-		"level1/.vroom.toml":           "name = \"level1\"\ncommand_start = \"./a\"\n",
-		"level1/level2/.vroom.toml":    "name = \"level2\"\ncommand_start = \"./b\"\n",
+		"level1/.vroom.toml":           "name = \"level1\"\ncommands.start.run = \"./a\"\n",
+		"level1/level2/.vroom.toml":    "name = \"level2\"\ncommands.start.run = \"./b\"\n",
 		"level1/level2/level3/.v.toml": "",
 	}
 	root := writeTree(t, files)
@@ -134,11 +134,11 @@ func TestScanRespetaLaProfundidad(t *testing.T) {
 // The cut needs SkipDir, not continue, or the traversal keeps descending into the hundreds of thousands of files under node_modules.
 func TestScanSaltaDirectoriosOcultosYDeDependencias(t *testing.T) {
 	files := map[string]string{
-		"api/.vroom.toml":                  "name = \"api\"\ncommand_start = \"./a\"\n",
-		"api/node_modules/dep/.vroom.toml": "name = \"dep\"\ncommand_start = \"./d\"\n",
-		"api/.cache/thing/.vroom.toml":     "name = \"cache\"\ncommand_start = \"./c\"\n",
-		"api/.git/modules/x/.vroom.toml":   "name = \"module\"\ncommand_start = \"./m\"\n",
-		"api/target/classes/.vroom.toml":   "name = \"target\"\ncommand_start = \"./t\"\n",
+		"api/.vroom.toml":                  "name = \"api\"\ncommands.start.run = \"./a\"\n",
+		"api/node_modules/dep/.vroom.toml": "name = \"dep\"\ncommands.start.run = \"./d\"\n",
+		"api/.cache/thing/.vroom.toml":     "name = \"cache\"\ncommands.start.run = \"./c\"\n",
+		"api/.git/modules/x/.vroom.toml":   "name = \"module\"\ncommands.start.run = \"./m\"\n",
+		"api/target/classes/.vroom.toml":   "name = \"target\"\ncommands.start.run = \"./t\"\n",
 	}
 	root := writeTree(t, files)
 
@@ -476,7 +476,7 @@ func TestScanPorWalkConBareRepoYProfundidad(t *testing.T) {
 		t.Fatal(err)
 	}
 	runGit(t, repo, "init", "-q", "-b", "main")
-	writeStr(t, filepath.Join(repo, ".vroom.toml"), "name = \"repo\"\ncommand_start = \"./x\"\n")
+	writeStr(t, filepath.Join(repo, ".vroom.toml"), "name = \"repo\"\ncommands.start.run = \"./x\"\n")
 	writeStr(t, filepath.Join(repo, "go.mod"), "module repo\n")
 	runGit(t, repo, "add", "-A")
 	runGit(t, repo, "commit", "-q", "-m", "init")
@@ -564,7 +564,7 @@ func TestRepoKeyRechazaUnGitAMedioConstruir(t *testing.T) {
 func TestRepoKeyRechazaUnGitFicheroQueNoEsUnPuntero(t *testing.T) {
 	dir := writeTree(t, map[string]string{
 		"repo/.git":        "this is not a pointer\n",
-		"repo/.vroom.toml": "name = \"repo\"\ncommand_start = \"./x\"\n",
+		"repo/.vroom.toml": "name = \"repo\"\ncommands.start.run = \"./x\"\n",
 	})
 	if got := repoKey(filepath.Join(dir, "repo")); got != "" {
 		t.Errorf("repoKey = %q with a .git that is not a pointer, want \"\"", got)
@@ -607,8 +607,8 @@ func TestFinalizeDedupsProyectosRepetidos(t *testing.T) {
 func TestScanCortaElRecorridoCuandoSePasaDeProfundidad(t *testing.T) {
 	root := writeTree(t, map[string]string{
 		// The manifest sits 4 levels down and depth is 2, so it cannot show up.
-		"a/b/c/d/.vroom.toml": "name = \"deep\"\ncommand_start = \"./x\"\n",
-		"a/.vroom.toml":       "name = \"a\"\ncommand_start = \"./x\"\n",
+		"a/b/c/d/.vroom.toml": "name = \"deep\"\ncommands.start.run = \"./x\"\n",
+		"a/.vroom.toml":       "name = \"a\"\ncommands.start.run = \"./x\"\n",
 	})
 
 	res, err := scanWith(root, 2, "")

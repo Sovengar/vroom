@@ -1,4 +1,4 @@
-// Package logrun runs one synchronous shell job and records it in the service logs — banner, output and footer — so a build, a stop and a pre_start hook are the same kind of entry in the Console and in `vroom logs`.
+// Package logrun runs one synchronous shell job and records it in the service logs — banner, output and footer — so a build, a stop and a pre_run hook are the same kind of entry in the Console and in `vroom logs`.
 package logrun
 
 import (
