@@ -66,7 +66,7 @@ func TestReleaseIntegrationRemovesForReal(t *testing.T) {
 		t.Log("there is a proxy running: the route was registered and will be verified")
 	}
 	if _, found, err := c.Lookup("vroom.release"); err != nil || !found {
-		t.Skipf("portless does not respond as expected: %v", err)
+		skipOrFail(t, "portless does not respond as expected: %v", err)
 	}
 
 	portless.Release(c, "vroom.release")

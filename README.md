@@ -414,6 +414,17 @@ on reopen it re-attaches to state and verifies processes with PID-reuse protecti
 ## Development
 
 ```bash
-go test ./...        # unit + integration
+make check           # build + lint + test: the same trio CI requires
+
+go test ./...        # unit + integration (the real-portless tests skip)
 go vet ./...
+
+# The tests that need a REAL portless and its proxy isolate PORTLESS_STATE_DIR in a
+# temp dir (they never touch ~/.portless) and skip when the binary is missing:
+VROOM_PORTLESS_INTEGRATION=1 go test ./internal/portless/
+
+# CI runs exactly that in its `Integration` job — which installs Node 24 and
+# portless@0.15.6 (pinned) — plus VROOM_PORTLESS_INTEGRATION_STRICT=1, turning an
+# environment skip (no binary, proxy that never opens its port) into a failure, so
+# a green job can never mean "every integration test was skipped".
 ```

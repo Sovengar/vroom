@@ -35,7 +35,7 @@ func TestIntegrationRealPortless(t *testing.T) {
 	}
 	port, found, err := c.Lookup("vroom.integration")
 	if err != nil {
-		t.Skipf("portless does not respond as expected (%s): %v", bin, err)
+		skipOrFail(t, "portless does not respond as expected (%s): %v", bin, err)
 	}
 	if !found || port != 4321 {
 		t.Fatalf("the route must remain registered for when the proxy returns: port=%d found=%v", port, found)
@@ -119,6 +119,15 @@ func closedPort(t *testing.T) int {
 	return port
 }
 
+// skipOrFail is the difference between a developer machine and CI: without the binary or a usable proxy there is nothing to verify, which is a legitimate skip when a human runs one test by hand — but under VROOM_PORTLESS_INTEGRATION_STRICT=1 the same missing environment is a FAILURE, because a green job that silently skipped every integration test tests nothing at all.
+func skipOrFail(t *testing.T, format string, args ...any) {
+	t.Helper()
+	if os.Getenv("VROOM_PORTLESS_INTEGRATION_STRICT") == "1" {
+		t.Fatalf(format, args...)
+	}
+	t.Skipf(format, args...)
+}
+
 // Never touches ~/.portless: the developer's proxy is running and that state is not ours.
 func integrationStateDir(t *testing.T) string {
 	t.Helper()
@@ -139,7 +148,7 @@ func integrationBin(t *testing.T) string {
 	if bin := portless.ResolveBinary(); bin != "" {
 		return bin
 	}
-	t.Skip("no portless installed")
+	skipOrFail(t, "no portless installed")
 	return ""
 }
 
@@ -157,7 +166,7 @@ func TestRouteSurvivesAProxyRestart(t *testing.T) {
 	bin := integrationBin(t)
 	proxyPort := startIsolatedProxy(t, iso, bin)
 
-	backend := startEchoBackend(t, 0)
+	backend := startEchoBackend(t, 0, "")
 
 	c := portless.New(
 		portless.WithBinary(bin),
@@ -165,7 +174,7 @@ func TestRouteSurvivesAProxyRestart(t *testing.T) {
 		portless.WithTimeout(15*time.Second),
 	)
 	if res := c.Apply("vroom.restart", backend, portless.Ownership{}); !res.Succeeded() {
-		t.Skipf("without its own proxy there is nothing to verify: %+v", res)
+		skipOrFail(t, "without its own proxy there is nothing to verify: %+v", res)
 	}
 
 	pid := readProxyPID(t, iso)
@@ -198,12 +207,12 @@ func TestIntegrationDoesNotEvictLivePortlessRoutes(t *testing.T) {
 
 	liveName := "vroom-live-app"
 	if err := runPortlessApp(t, bin, liveName); err != nil {
-		t.Skipf("could not start the portless live app: %v", err)
+		skipOrFail(t, "could not start the portless live app: %v", err)
 	}
 
 	liveHost := liveName + ".localhost"
 	if !waitServes(t, liveHost, proxyPort) {
-		t.Skip("the live app never got served; the environment is not suitable for this test")
+		skipOrFail(t, "the live app never got served; the environment is not suitable for this test")
 	}
 
 	c := portless.New(
@@ -255,10 +264,25 @@ func startIsolatedProxy(t *testing.T, iso, bin string) int {
 	cmd := exec.Command(bin, "proxy", "start", "-p", strconv.Itoa(proxyPort))
 	cmd.Env = append(os.Environ(), "PORTLESS_STATE_DIR="+iso)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Skipf("could not start an isolated proxy: %v: %s", err, out)
+		skipOrFail(t, "could not start an isolated proxy: %v: %s", err, out)
 	}
+	// Registered before the wait so a proxy that started and never opened the port is still reaped: without it every run leaves a live node process behind (measured: the previous run's proxy was still listening).
+	t.Cleanup(func() { stopIsolatedProxy(iso) })
 	waitPortOpen(t, proxyPort)
 	return proxyPort
+}
+
+// stopIsolatedProxy kills by PID, never with `portless proxy stop`, and reads the pid best-effort: a proxy the test already killed has no process to reap.
+func stopIsolatedProxy(iso string) {
+	raw, err := os.ReadFile(filepath.Join(iso, "proxy.pid"))
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil || pid <= 0 {
+		return
+	}
+	_ = syscall.Kill(pid, syscall.SIGTERM)
 }
 
 func readProxyPID(t *testing.T, iso string) int {
@@ -274,7 +298,8 @@ func readProxyPID(t *testing.T, iso string) int {
 	return pid
 }
 
-func startEchoBackend(t *testing.T, port int) int {
+// startEchoBackend answers 200 with body: a ladder test runs two backends behind one proxy, and only the body says WHICH of them the proxy routed to — the status alone is 200 either way.
+func startEchoBackend(t *testing.T, port int, body string) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
 	if err != nil {
@@ -283,6 +308,7 @@ func startEchoBackend(t *testing.T, port int) int {
 	t.Cleanup(func() { _ = ln.Close() })
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(body))
 	})}
 	go func() { _ = srv.Serve(ln) }()
 	return ln.Addr().(*net.TCPAddr).Port
@@ -342,7 +368,7 @@ func waitPortOpen(t *testing.T, port int) {
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	t.Skipf("the isolated proxy did not open port %d", port)
+	skipOrFail(t, "the isolated proxy did not open port %d", port)
 }
 
 func waitPortClosed(t *testing.T, port int) {
@@ -355,7 +381,7 @@ func waitPortClosed(t *testing.T, port int) {
 		_ = c.Close()
 		time.Sleep(150 * time.Millisecond)
 	}
-	t.Skipf("port %d remained open after stopping the proxy", port)
+	skipOrFail(t, "port %d remained open after stopping the proxy", port)
 }
 
 // MEASURED: 4 bytes with no trailing newline, and the only source of the proxy port; a stopped proxy has no file.

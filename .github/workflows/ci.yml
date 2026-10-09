@@ -173,3 +173,53 @@ jobs:
               for (k in tot) printf "| %s | %.1f%% |\n", k, (tot[k] > 0 ? 100 * cov[k] / tot[k] : 0);
             }' coverage.out | sort
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # Real portless, real proxy: the four gated tests in internal/portless are SKIPPED
+  # by the Test job, because a runner ships neither the binary nor Node 24 nor a
+  # proxy. This job provides all three and runs them with
+  # VROOM_PORTLESS_INTEGRATION_STRICT=1, which turns the environment skips ("no
+  # portless installed", "the proxy did not open its port") into failures: a green
+  # job that silently skipped every integration test would be worse than a red one.
+  #
+  # portless is an npm package pinned to the version the ADR's MEASURED facts were
+  # taken against (0.15.6); `engines: node >=24` is why the runner's own Node is not
+  # enough and setup-node is required. Nothing here reaches ~/.portless: every test
+  # isolates PORTLESS_STATE_DIR in a temp dir and starts its own proxy on a free port.
+  Integration:
+    name: Integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Install portless (pinned)
+        run: |
+          set -euo pipefail
+          PORTLESS_VERSION="0.15.6"
+          npm install -g "portless@${PORTLESS_VERSION}"
+          PORTLESS_BIN="$(command -v portless)"
+          got="$("$PORTLESS_BIN" --version)"
+          # A silent upgrade would turn a MEASURED fact into an unmeasured one: fail
+          # loudly instead of testing against a portless nobody chose.
+          if [ "$got" != "$PORTLESS_VERSION" ]; then
+            echo "ERROR: expected portless ${PORTLESS_VERSION}, got ${got}" >&2
+            exit 1
+          fi
+          echo "PORTLESS_BIN=$PORTLESS_BIN" >> "$GITHUB_ENV"
+          echo "portless ${got} at ${PORTLESS_BIN}"
+      # Only this package holds gated tests; the rest of the suite already ran in Test.
+      - name: Integration tests against the real portless
+        env:
+          VROOM_PORTLESS_INTEGRATION: "1"
+          VROOM_PORTLESS_INTEGRATION_STRICT: "1"
+        run: go test -race -count=1 ./internal/portless/

@@ -247,6 +247,29 @@ design.
     > ones that most deserved a test—; what was wrong was the document, which
     > described a ceiling that no longer exists.
 
+    > **CORRECTION (CI integration job).** Two claims above stopped being true.
+    > *"The CI runner does not have portless, nor Node 24, nor a proxy"* now
+    > describes only the **Test** job: a dedicated **Integration** job installs
+    > Node 24 and `portless@0.15.6` — pinned, the exact version every MEASURED
+    > fact in this ADR was taken against — and runs the gated tests against a real
+    > proxy in an isolated `PORTLESS_STATE_DIR`. And the count is **five**, not
+    > three: the removal one (`TestReleaseIntegrationRemovesForReal`) and, since
+    > the claim ladder, `TestLadderAgainstARealPortlessProxy`, which is the only
+    > place the ladder meets the tool that has to execute it: the conflict comes
+    > out of the real `routes.json` (proving `portless alias` would have silently
+    > overwritten the first worktree's route), the fallback publishes its own
+    > verified URL while the stable one keeps answering, and `Retire` deletes the
+    > abandoned name for real.
+    >
+    > Hermeticity did not change: without `VROOM_PORTLESS_INTEGRATION=1` every one
+    > of them skips, and no test ever touches `~/.portless`. What is new is
+    > `VROOM_PORTLESS_INTEGRATION_STRICT=1`, set only by that job, which turns an
+    > environment skip (no binary, a proxy that never opened its port, a live app
+    > that never got served) into a **failure** — a green job that silently skipped
+    > every integration test tests nothing. The job also reaps the proxy it
+    > started by PID, because an isolated proxy outliving its test is a leaked
+    > process, not a fixture.
+
 12. **The JSON contract has three states, and the absent one is also one.**
     `route_mode` is the **intention**. `route` (`*RouteInfo`) is the
     **result**: `name` (hostname *intended*, whether or not it succeeds), `status`

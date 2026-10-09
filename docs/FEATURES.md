@@ -532,6 +532,9 @@ instead of the other answers a different question.
 - `route_mode != "off"` requires `port > 0` in some port mode.
 - `route_name` only with `named_with_auto_fallback`; hostname-safe characters only
   (lowercase letters, digits, hyphens, dots).
+- The whole route contract — including the claim ladder against a **real**
+  portless behind a live proxy — is re-run on every PR by the `Integration` CI job
+  (Node 24 + `portless@0.15.6`, pinned).
 
 See `adr/adr-0013-vroom-registers-portless-routes.md`.
 

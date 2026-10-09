@@ -76,14 +76,29 @@ and this project follows [Semantic Versioning](https://semver.org/).
 - Resolve orchestration stacks deterministically: on a
   duplicate `Manifest.Name` it fails explicitly listing the candidate paths,
   instead of arbitrarily choosing the last one.
-- CI on GitHub Actions with three gates that run on every PR and on every push to
+- CI on GitHub Actions with four gates that run on every PR and on every push to
   `main`: `Build` (`go build ./...` + `go vet ./...`), `Lint` (`make lint`,
-  golangci-lint v2.13.2) and `Test` (`go test -race` on the whole suite, with `fd`
-  installed on the runner for the scanner tests). The merge to `main` is
+  golangci-lint v2.13.2), `Test` (`go test -race` on the whole suite, with `fd`
+  installed on the runner for the scanner tests) and `Integration` (a real
+  portless, see below). The merge to `main` is
   governed by the `protect-main` ruleset: PR mandatory, green
   checks required and force-push/deletion blocked, with admin bypass (deliberate).
   Dependabot updates GitHub Actions weekly and the README shows the
   workflow status badge.
+- Integration tests against a **real portless**, now running in CI. A dedicated
+  `Integration` job installs Node 24 and `portless@0.15.6` (pinned — the version
+  every measured fact in the ADR was taken against) and runs the gated tests in
+  `internal/portless` against a live proxy in an isolated state dir, never
+  `~/.portless`. New among them: an end-to-end test of the claim ladder against
+  that real proxy — the conflict comes out of the real `routes.json` (proving
+  `portless alias` would have silently overwritten the first worktree's route), the
+  second worktree publishes its own fallback URL while the stable one keeps
+  answering on the first worktree's port, and the upgrade retires the abandoned
+  name for real. `VROOM_PORTLESS_INTEGRATION_STRICT=1`, set only by that job,
+  turns an environment skip (no binary, a proxy that never opens its port) into a
+  failure, so a green job can no longer mean "every integration test was skipped".
+  Each run now also reaps the proxy it started by PID: it used to leak a live
+  process per run.
 
 ### Fixed
 - The portless state directory now matches what the CLI writes: `XDG_STATE_HOME` is
