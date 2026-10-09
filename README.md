@@ -414,7 +414,7 @@ on reopen it re-attaches to state and verifies processes with PID-reuse protecti
 ## Development
 
 ```bash
-make check           # build + lint + test: the same trio CI requires
+make check           # build + lint + test: the local Lint/Test gate (Mutation: make mutate-diff)
 
 go test ./...        # unit + integration (the real-portless tests skip)
 go vet ./...

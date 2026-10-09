@@ -1,0 +1,14 @@
+# .mutation-allowlist - surviving (LIVED) mutants accepted as already known.
+#
+# Format:  <MUTATOR> <file>:<line>
+#
+# Add an entry ONLY when the mutant is provably equivalent (no test can ever kill it,
+# because the mutation does not change observable behaviour) or the gap is a conscious,
+# accepted risk. Adding a real test gap here hides a real risk, and mutation testing
+# exists precisely to surface those.
+#
+# The comparison is BY LINE: an entry naming the file at another line does not cover the
+# mutant that appeared there after a refactor.
+#
+# INTENTIONALLY EMPTY: 0 entries so far. Seed it with `make mutate` (whole module) and
+# commit only the survivors that run proves are already known.

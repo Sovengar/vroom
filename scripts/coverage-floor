@@ -1,0 +1,12 @@
+# Coverage floor for the whole project; read by scripts/diff-coverage.sh.
+#
+# It can only GO UP: if the total drops below this number the gate fails, and if it is above, the script warns so it can be raised here in the same commit. It is a minimum, not the goal: the goal is 100% of the DIFF, which is what forces testing what you touch; this floor only keeps the whole from degrading between PRs that touch no code.
+# It is a number and not a list of excluded files: 100.00% is MEASURED, not assumed, so there is nothing to carve out of it.
+#
+# MEASURED at 3173/3173 statements (100.0000%) with `go test -count=1 -covermode=atomic
+# -coverprofile=coverage.out ./...`, deduplicated by range keeping the MAX count exactly as
+# scripts/diff-coverage.sh does. Every package of the module reads 100.0% on its own.
+#
+# The subprocess counters of main() are NOT missing: cmd/vroom/main_process_test.go forwards
+# the whole environment, so GOCOVERDIR reaches the child and its counters land in this profile.
+100.00

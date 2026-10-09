@@ -1,0 +1,19 @@
+# Recorded hangs: mutants that expire on the per-mutant timeout and were never tested.
+#
+# A TIMED OUT mutant is invisible to every other half of this gate: it is not a kill, it is not a
+# survivor, and report.json does not count it in the total. So it cannot become green by silence.
+# It is red -- unless the hang is RECORDED HERE, with a ceiling, the same way a survivor is recorded
+# in .mutation-allowlist. This file is the difference between "measured, and these are the known
+# unmeasurable ones" and "we stopped measuring and called it a day".
+#
+# Format: one <file> <ceiling> pair per line. The ceiling is the number of expired mutants that
+# file may produce in ONE run; anything above it, and any file absent here, is a red verdict.
+# A CEILING PER FILE and not an exact set of lines, because expiry is partly contention: the same
+# suite can report 9 hangs one run and 7 the next, so pinning lines would fail at random.
+#
+# To clear an entry honestly: add a test that fails FAST and kills the mutant (assert the loop
+# terminates, with a deadline far below gremlins' own), then drop the ceiling here. Raising the
+# ceiling without such a test only moves the number.
+#
+# INTENTIONALLY EMPTY: no mutant has expired yet. Seed it with `make mutate` and commit the
+# ceilings that run measures.

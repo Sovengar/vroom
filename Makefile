@@ -1,10 +1,15 @@
-.PHONY: build install test lint check run clean mutate mutate-diff
+.PHONY: build install test lint check run clean mutate mutate-diff coverage coverage-check
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -ldflags "-X main.Version=$(VERSION)"
 INSTALL_DIR := $(HOME)/.local/bin
 GOLANGCI_LINT_VERSION := v2.13.2
 MUTATE_BASE ?= main
+
+# Mutation gate scope, read by scripts/mutate.sh (a second hardcoded copy is one more
+# thing that can drift from what `make mutate` actually runs). The alternation MUST stay
+# quoted where it expands: unquoted, sh reads each '|' as a pipe.
+MUTATE_EXCLUDE ?= (\.worktrees/|internal/testutil/)
 
 # El sello de procedencia se exige, no se supone. Medido en este repo:
 #   - compilando desde el checkout principal, Go estampa vcs.revision con el
@@ -48,17 +53,24 @@ lint:
 
 check: build lint test
 
-mutate:
-	go tool gremlins unleash --workers 4 --timeout-coefficient 3 --output report.json
+# Mutation. scripts/mutate.sh owns the warm-up, the coefficient, the supervisor and the
+# verdict: local and CI measure through the same path. The per-mutant deadline derives
+# from ceil(cap / coverage pass); an expired mutant is absent from the totals and its
+# ceiling is judged against .mutation-timeouts inside the script.
+mutate: ## Whole-module mutation run, with the verdict (same wiring as CI)
+	@scripts/mutate.sh --run
 
-# gremlins silently falls back to the whole module when the diff is empty (base == HEAD),
-# so fail fast instead of running a full-module run that looks diff-scoped.
-mutate-diff:
-	@if git diff --name-only $(MUTATE_BASE)...HEAD | grep -q '\.go$$'; then \
-		go tool gremlins unleash --diff $(MUTATE_BASE) --workers 4 --timeout-coefficient 3 --output report.json; \
-	else \
-		echo "no .go changes vs $(MUTATE_BASE) - nothing to mutate"; \
-	fi
+mutate-diff: ## Mutation run over the diff vs MUTATE_BASE, with the verdict
+	@scripts/mutate.sh --diff
+
+COVER_PROFILE ?= coverage.out
+
+coverage: ## Coverage profile of the whole suite
+	@go test -count=1 -covermode=atomic -coverprofile=$(COVER_PROFILE) ./... > /dev/null
+	@echo "profile: $(COVER_PROFILE)"
+
+coverage-check: coverage ## Gate: this change's DIFF at 100%, and the total against scripts/coverage-floor
+	@scripts/diff-coverage.sh "$(COVER_PROFILE)" "$(MUTATE_BASE)"
 
 clean:
 	rm -rf .local/bin/

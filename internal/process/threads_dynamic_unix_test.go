@@ -517,14 +517,14 @@ func statusListener(t *testing.T, status int) (int, func()) {
 	return ln.Addr().(*net.TCPAddr).Port, func() { _ = srv.Close() }
 }
 
-// Uses the test binary's own base name, unique inside the temporary go test build, so no other process can match it.
+// MEASURED: the BASE name is not unique — a concurrent run of this same package (a gremlins mutation run does exactly that) has a binary also called process.test, and PatternMatch then answered true for "only our own process". The full path is unique per go test invocation: each one builds into its own /tmp/go-build<random>/, so only our own process can carry it.
 func uniqueProcessMarker(t *testing.T) string {
 	t.Helper()
 	self, err := os.Executable()
 	if err != nil {
 		t.Skipf("cannot resolve own binary: %v", err)
 	}
-	return filepath.Base(self)
+	return self
 }
 
 // Some processes trap SIGTERM by design, so without the SIGKILL escalation stop would leave the service alive and still report it stopped.

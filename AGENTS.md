@@ -30,23 +30,76 @@ inventory, not a tutorial: the details live in `README.md` and `docs/adr/`.
 
 ## CI and `main` protection
 
-CI lives in `.github/workflows/ci.yml` and runs on **every PR** and on **every push
-to `main`** (no `paths` filters: a skipped workflow leaves the required checks
-in pending forever and blocks all PRs). Three jobs:
+Two workflows, three required checks: `Lint`, `Test` and `Mutation`. Neither
+workflow uses `paths` filters (a skipped workflow leaves its required checks
+stuck pending and blocks every PR that skips it).
 
-- **`Build`**: `go build ./...` and `go vet ./...`.
-- **`Lint`**: `make lint` → golangci-lint **v2.13.2** (version pinned in the
-  `Makefile`; there is no `.golangci.yml`, the default set runs).
-- **`Test`**: `go test -race -covermode=atomic -coverprofile=… ./...` (full
-  suite, without `-short`), with **fd** installed on the runner beforehand: the
-  scanner prefers `fd --hidden` and the scanner tests assume it exists
-  (local `make test` also takes it for granted).
+### `CI` (`.github/workflows/ci.yml`) — every PR, and pushes to `main`
+
+The gate. `Mutation` is a job of this file: `Lint` ∥ `Test`, the `Integration`
+job for the real-portless E2E tests, plus the mutation job on PRs.
+
+- **`Lint`**: `make lint` → golangci-lint **v2.13.2** (pinned in the `Makefile`;
+  no `.golangci.yml`, so the default set runs).
+- **`Test`**:
+  1. **fd** first: the scanner prefers `fd --hidden` and the scanner tests
+     assume it exists (local `make test` takes it for granted). The runner has
+     none (Debian ships `fdfind`), so a pinned static musl build is cached with
+     `actions/cache` and verified against a self-pinned sha256 — never an apt
+     install, never a silent WalkDir fallback.
+  2. `go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...`
+     (the whole suite, no `-short`).
+  3. **`Coverage gate`** → `scripts/diff-coverage.sh`: the PR's **diff at 100%**
+     and the **total against `scripts/coverage-floor`** (100.00, can only go
+     up). The base is the explicit merge-base, hence `fetch-depth: 0`.
+
+### `CI fast` (`.github/workflows/ci-fast.yml`) — every commit on a branch
+
+Build + unit tests (fd included), no lint, no mutation. **Not required**: a red
+never blocks a merge and a green never authorises one. Its 10m ceiling is for a
+cold runner, not for the ~1m15s the suite takes warm.
+
+### `Mutation` — a job of `ci.yml`, non-draft PRs only
+
+Runs on non-draft PRs. The job always reports — no `needs:`, no
+`continue-on-error`, the only `if:` is the event gate — which is what makes it a
+required check.
+
+- **Where the decision lives**: `scripts/mutate.sh` measures AND decides in one
+  step (`scripts/mutate.sh --diff --ci --summary …`); the workflow only brings
+  paths, refs and budget. *"Could not measure"* is a red, never a green, and a
+  red says how to fix it in the step summary.
+- **Budget** (mandatory under `--ci`, asserted at startup):
+  `2*CAP < STALL < CEILING`, `CEILING + SETUP_RESERVE < JOB_CEILING` →
+  `180s · 4 workers · 8m · 13m · +600s · 25m`.
+- **Local loop**: `make mutate` (whole module) and `make mutate-diff` (the diff
+  against `MUTATE_BASE`), same wiring as CI. `make coverage-check` is the local
+  equivalent of the coverage gate.
+- **Scope and the one vroom-specific flag**: `MUTATE_EXCLUDE` lives in the
+  `Makefile` (`\.worktrees/` and `internal/testutil/`) and `scripts/mutate.sh`
+  reads it from there, so local and CI gate the same set. `mutate.sh` ALSO exports
+  `GOFLAGS=-exec=setsid`, because `internal/process` stops services with
+  `kill(-pgid, …)` and the `CONDITIONALS_BOUNDARY` mutant of `pgid > 0` turns the
+  suite's own `Stop(StopSpec{Pgid: 0})` into `kill(-0)`: SIGTERM to the whole
+  process group, which under gremlins IS gremlins — it traps the first signal,
+  closes its channel and panics on the second (`exit 2`, "no measurement"). Each
+  test binary in its own session keeps that blast radius inside the session.
+  **Do not drop the flag**: 3/3 whole-module runs died without it; the whole suite
+  measured with it gives the same results (3173/3173, same exit codes, no cost).
+- **Files that make the gate possible** (all committed):
+  `.mutation-allowlist` (survivors accepted **by line**; missing = red with the
+  command to seed it), `.mutation-timeouts` (`<file> <ceiling>` for mutants that
+  expired and were never tested), `scripts/coverage-floor` (the total, ratchet),
+  `scripts/watchdog.sh` + `scripts/watchdog_test.sh` (vendored frozen copy) and
+  `scripts/mutate_test.sh` (the gate's red paths, ~1s, run as the `Shell suites`
+  CI step).
 
 Rules for the `main` branch (ruleset **`protect-main`**, reproducible with
 `scripts/setup-repo-protection.sh`):
 
-- Merge **only via PR**, with the three checks green; force-push and deletion of
-  `main` blocked.
+- Merge **only via PR**, with `Lint`, `Test` and `Mutation` green; force-push and
+  deletion of `main` blocked. `Build` is not a check anymore: it moved to the
+  advisory `CI fast`, so a required `Build` context would deadlock every PR.
 - **Admin bypass** exists and is **deliberate** (approved by the user): an
   admin *could* push directly, but the working intention is always the
   PR path. No non-admin actor can do it.
