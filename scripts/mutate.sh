@@ -308,9 +308,13 @@ _verdict_survivors() { # <report> <allowlist> <expected_total> <budget>
 
 	# The filter matches the literal "LIVED"; this count comes from the report and a rename cannot fudge it.
 	# Disagreement is red: a drifted literal hides survivors and "new: 0" reads as a green.
+	# Counted on the RECORDS, never on the deduplicated file above: two mutants of the same type on
+	# one line are ONE allowlist entry but TWO survivors, so comparing against the file's line count
+	# made every such run a false red (measured: 223 survivors, 193 distinct entries).
 	reported=$(jq -r '.mutants_lived' "$report")
-	if [[ ! $reported =~ ^[0-9]+$ || $reported -ne $total ]]; then
-		_out "- **no measurement**: the report counts $reported survivor(s) but $total mutation(s) carry the LIVED status."
+	measured=$(jq '[.files[].mutations[] | select(.status=="LIVED")] | length' "$report")
+	if [[ ! $reported =~ ^[0-9]+$ || ! $measured =~ ^[0-9]+$ || $reported -ne $measured ]]; then
+		_out "- **no measurement**: the report counts $reported survivor(s) but $measured record(s) carry the LIVED status."
 		_out "- A status literal that drifted turns every real survivor into an invisible one, and an invisible survivor reads as 'new: 0' and a green."
 		rm -rf "$tmp"
 		return 1

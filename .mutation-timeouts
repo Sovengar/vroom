@@ -11,9 +11,17 @@
 # A CEILING PER FILE and not an exact set of lines, because expiry is partly contention: the same
 # suite can report 9 hangs one run and 7 the next, so pinning lines would fail at random.
 #
+# MEASURED by a full-module run on 2026-10-09 (51m41s, 6 workers, machine otherwise idle): the
+# five files below expired 7 mutants, and the same count is what a CI diff run should stay under.
+# Five of the seven are INCREMENT_DECREMENT on a loop index (`i++` -> `i--`: the index walks away
+# from the bound and the loop never ends); the other two negate the loop's own condition. No test
+# can finish a loop that never ends, so the harness's deadline is the only thing that stops them.
+#
 # To clear an entry honestly: add a test that fails FAST and kills the mutant (assert the loop
 # terminates, with a deadline far below gremlins' own), then drop the ceiling here. Raising the
 # ceiling without such a test only moves the number.
-#
-# INTENTIONALLY EMPTY: no mutant has expired yet. Seed it with `make mutate` and commit the
-# ceilings that run measures.
+internal/agents/agents.go 1
+internal/cli/cli.go 3
+internal/tui/bordered/bordered.go 1
+internal/tui/dashboard.go 1
+internal/tui/term.go 1

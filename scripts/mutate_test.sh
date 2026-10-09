@@ -975,6 +975,21 @@ out=$("$MUTATE" --verdict-only "$d/report.json" "$d/run.log" "$d/allowlist" \
 	--expected-total 46 --engine-rc 0 2>&1)
 check "no survivors: green" 0 $?
 
+# Two mutants of the SAME type on ONE line: one allowlist entry, two survivors. The coherence
+# check runs against the records and not against the deduplicated list, so this has to be green —
+# otherwise two comparisons on a single line turn every clean run into a false red.
+d=$(new_case two-mutants-one-line)
+make_report "$d/report.json" 46 \
+	'CONDITIONALS_BOUNDARY internal/tui/table.go:292' \
+	'CONDITIONALS_BOUNDARY internal/tui/table.go:292'
+printf 'CONDITIONALS_BOUNDARY internal/tui/table.go:292\n' >"$d/allowlist"
+make_log "$d/run.log" 45 0
+out=$("$MUTATE" --verdict-only "$d/report.json" "$d/run.log" "$d/allowlist" \
+	--expected-total 46 --engine-rc 0 2>&1)
+check "two mutants on one line: green" 0 $?
+contains "two mutants on one line: one entry covers both" "measured and clean" "$out"
+contains "two mutants on one line: counts the distinct entries" "surviving in the measured scope: 1" "$out"
+
 echo
 echo "=== 17. a cut reason survives the trip from the supervisor to the summary ==="
 # ============================================================================
