@@ -8,14 +8,19 @@ and this project follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- Stable URL for the changing port with `route_mode = "off" | "auto" | "named"`
+- Stable URL for the changing port with `route_mode = "off" | "auto" | "named_with_auto_fallback"`
   and `route_name` in `.vroom.toml`. vroom registers an alias route in portless per
   service and removes it on stop; `off` is the default, does not look for the binary, and
   no existing manifest changes behavior. `auto` derives the name from
   the branch (`<branch>.<project>`), so two branches of the same repo do not share
   an address; two worktrees on the same branch receive a conflict warning instead of
-  overwriting each other. `named` is the stable name from `route_name`, and is what a
-  `redirect_uri` or a CORS origin list requires.
+  overwriting each other. `named_with_auto_fallback` is a claim ladder:
+  `route_name` (what a `redirect_uri` or a CORS origin list requires) is claimed first,
+  and only when another worktree already holds it does the service fall back to
+  `<branch>.<project>` — with a warning naming the port that holds the stable name —
+  so whoever starts first owns the stable URL and every other worktree still gets an
+  address instead of no URL at all. A service that later claims the stable name retires
+  its old branch-derived route in the same start.
 - **vroom only registers the route: it does not start, manage, supervise or show the
   proxy.** If there is no `portless`, it is not in `PATH`, its proxy is not running or its Node
   is too old, vroom warns once and the service starts anyway, healthy and on

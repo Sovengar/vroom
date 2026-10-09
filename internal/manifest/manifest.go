@@ -33,13 +33,14 @@ type Manifest struct {
 const (
 	RouteModeOff = "off"
 	// RouteModeAuto derives the name from the branch, so two worktrees on the same branch collide.
-	RouteModeAuto  = "auto"
-	RouteModeNamed = "named"
+	RouteModeAuto = "auto"
+	// RouteModeNamedWithAutoFallback claims route_name first and, when another worktree already holds it, falls back to <branch>.<project> instead of publishing no URL at all: the first worktree to start keeps the stable name and every other one still gets an address.
+	RouteModeNamedWithAutoFallback = "named_with_auto_fallback"
 )
 
 func (m *Manifest) EffectiveRouteMode() string {
 	switch m.RouteMode {
-	case RouteModeAuto, RouteModeNamed, RouteModeOff:
+	case RouteModeAuto, RouteModeNamedWithAutoFallback, RouteModeOff:
 		return m.RouteMode
 	default:
 		return RouteModeOff // invalid: Validate rejects it upstream, never silently defaulted
@@ -123,15 +124,15 @@ func (m *Manifest) Validate() error {
 		return fmt.Errorf("secondary_group %q is reserved for orchestration stacks", ReservedSecondaryGroup)
 	}
 	switch m.RouteMode {
-	case "", RouteModeOff, RouteModeAuto, RouteModeNamed:
+	case "", RouteModeOff, RouteModeAuto, RouteModeNamedWithAutoFallback:
 	default:
 		return fmt.Errorf("route_mode must be %q, %q or %q, got %q",
-			RouteModeOff, RouteModeAuto, RouteModeNamed, m.RouteMode)
+			RouteModeOff, RouteModeAuto, RouteModeNamedWithAutoFallback, m.RouteMode)
 	}
-	if m.RouteName != "" && m.RouteMode != RouteModeNamed {
+	if m.RouteName != "" && m.RouteMode != RouteModeNamedWithAutoFallback {
 		// rejected because otherwise it is either ignored or applied by accident.
 		return fmt.Errorf("route_name requires route_mode = %q, got %q",
-			RouteModeNamed, m.RouteMode)
+			RouteModeNamedWithAutoFallback, m.RouteMode)
 	}
 	if m.EffectiveRouteMode() != RouteModeOff && !m.HasPort() {
 		// a route points at a port, so without one vroom could not honour the promise.

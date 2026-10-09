@@ -315,7 +315,7 @@ publishing it.
 
 **Why:** it provides stable URL, HTTPS with a local CA, and subdomain-based
 name resolution — which is what breaks CORS/OAuth/HMR if the user accesses
-via `localhost:<port>`. With `route_mode = "named"` the URL is truly
+via `localhost:<port>`. With `route_mode = "named_with_auto_fallback"` the URL is truly
 stable, which is what an OAuth callback or a CORS rule demands.
 
 **What the measurement changed about this text:**

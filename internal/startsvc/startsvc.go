@@ -3,6 +3,7 @@ package startsvc
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"vroom/internal/manifest"
@@ -42,8 +43,10 @@ func RegistrarFor(m *manifest.Manifest) RouteRegistrar {
 type RouteRegistrar interface {
 	// Apply registers the service route and reports only what it could prove; it never errors because an absent portless is a degradation, not a start failure.
 	Apply(name string, port int, prev portless.Ownership) portless.Result
-	// Reconcile returns warnings, never errors; held is an Ownership handle rather than a port, because a live handle does not mean the name is still ours and a raw port would be authority to delete someone else's route.
-	Reconcile(prev string, held portless.Ownership, current string) []string
+	// Reconcile returns warnings, never errors; held is an Ownership handle rather than a port, because a live handle does not mean the name is still ours and a raw port would be authority to delete someone else's route. current is every candidate this start may claim: a persisted name still among them is not a rename, and deleting it would remove the route this very start is about to reuse.
+	Reconcile(prev string, held portless.Ownership, current ...string) []string
+	// Retire drops the previous name after the ladder claimed a different one, and returns warnings, never errors; it is a no-op without an unrevoked ownership lease, so a name taken by another worktree is never deleted.
+	Retire(name string, held portless.Ownership) []string
 }
 
 type Result struct {
@@ -192,17 +195,38 @@ func applyRoute(req Request, meta *state.Meta, port int, out *Result) {
 		return
 	}
 
-	name, err := routeName(req)
+	cands, err := routeCandidates(req)
 	if err != nil {
 		out.Warnings = append(out.Warnings, err.Error())
 		return
 	}
 
-	// Reconcile first: prune never touches alias routes (M5), so a renamed branch would leave the old route pointing at a dead port forever.
-	out.Warnings = append(out.Warnings, req.Routes.Reconcile(meta.RouteName, portless.Ownership{Owned: meta.RouteOwned, Port: meta.RoutePort}, name)...)
+	prevName, prev := meta.RouteName, portless.Ownership{Owned: meta.RouteOwned, Port: meta.RoutePort}
 
-	res := req.Routes.Apply(name, port, portless.Ownership{Owned: meta.RouteOwned, Port: meta.RoutePort})
-	meta.RouteName = res.Name
+	// Reconcile first: prune never touches alias routes (M5), so a renamed branch would leave the old route pointing at a dead port forever.
+	out.Warnings = append(out.Warnings, req.Routes.Reconcile(prevName, prev, cands...)...)
+
+	// The ladder: only a pre-write route_conflict advances to the next candidate. Any other degradation is systemic (no binary, no proxy) and would fail identically for every rung, while a post-write conflict has Registered=true — we hold that name already and claiming a second one would leave a route nobody revokes.
+	res := req.Routes.Apply(cands[0], port, prev)
+	for i := 1; i < len(cands) && !res.Registered && res.Reason == portless.ReasonRouteConflict; i++ {
+		out.Warnings = append(out.Warnings, fallbackWarning(res, cands[i]))
+		res = req.Routes.Apply(cands[i], port, prev)
+	}
+
+	// The ladder left a previous name behind: retire it while the lease still proves it is ours, or stop will never revoke it (the handle has moved) and it would block the next worktree falling back to it.
+	if res.Registered && prevName != "" && prevName != res.Name && prev.Owned && slices.Contains(cands, prevName) {
+		out.Warnings = append(out.Warnings, req.Routes.Retire(prevName, prev)...)
+	}
+
+	switch {
+	case res.Registered, prevName == "":
+		// The handle follows the name this start actually holds — Registered, not Succeeded, because a route written with the proxy down is still ours.
+		meta.RouteName = res.Name
+	case slices.Contains(cands, prevName):
+		// Nothing was claimed and the old name may still be ours: moving the handle to a merely attempted name would orphan a real route.
+	default:
+		meta.RouteName = res.Name
+	}
 	meta.RoutePort = port
 	meta.RouteStatus = res.Status
 	meta.RouteReason = res.Reason
@@ -217,6 +241,16 @@ func applyRoute(req Request, meta *state.Meta, port int, out *Result) {
 	if warn := portless.Warn(res); warn != "" {
 		out.Warnings = append(out.Warnings, warn)
 	}
+}
+
+// fallbackWarning names the holder's port so the user learns WHO owns the stable URL, not merely that someone does.
+func fallbackWarning(res portless.Result, next string) string {
+	if res.HeldPort > 0 {
+		return fmt.Sprintf("the portless route %q is taken by port %d; falling back to %q",
+			res.Host, res.HeldPort, portless.Hostname(next))
+	}
+	return fmt.Sprintf("the portless route %q is taken by another service; falling back to %q",
+		res.Host, portless.Hostname(next))
 }
 
 // The reserved port is deliberately not released here: Manager.Start already returned and the child was using it, so returning it to the pool would reopen the H1 race while the child still holds it.
@@ -240,11 +274,11 @@ func stopAfterPersistFailure(req Request, res process.StartResult) {
 	})
 }
 
-func routeName(req Request) (string, error) {
-	name, err := portless.DeriveName(
+func routeCandidates(req Request) ([]string, error) {
+	cands, err := portless.RouteCandidates(
 		req.Manifest.EffectiveRouteMode(), req.Manifest.RouteName, req.Branch, req.Manifest.Name)
 	if err != nil {
-		return "", fmt.Errorf("portless route: %w", err)
+		return nil, fmt.Errorf("portless route: %w", err)
 	}
-	return name, nil
+	return cands, nil
 }

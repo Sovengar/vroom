@@ -12,7 +12,7 @@ func TestEffectiveRouteModeDefaults(t *testing.T) {
 		{"without route_mode", Manifest{Name: "x", Command: "run", Port: 8080}, RouteModeOff},
 		{"explicit off", Manifest{RouteMode: RouteModeOff}, RouteModeOff},
 		{"auto", Manifest{RouteMode: RouteModeAuto}, RouteModeAuto},
-		{"named", Manifest{RouteMode: RouteModeNamed}, RouteModeNamed},
+		{"named with auto fallback", Manifest{RouteMode: RouteModeNamedWithAutoFallback}, RouteModeNamedWithAutoFallback},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -49,7 +49,7 @@ func TestValidateRouteModeRequiresAPort(t *testing.T) {
 	}
 }
 
-// A route_name without named is a name nobody would use, so it is rejected instead of silently ignored.
+// A route_name without the ladder mode is a name nobody would use, so it is rejected instead of silently ignored.
 func TestValidateRouteNameRequiresNamedMode(t *testing.T) {
 	rejected := []Manifest{
 		{Name: "x", Command: "run", Port: 8080, RouteName: "mi-nombre"},
@@ -61,9 +61,17 @@ func TestValidateRouteNameRequiresNamedMode(t *testing.T) {
 			t.Errorf("manifest %d route_name without named should have been rejected: %+v", i, m)
 		}
 	}
-	accept := Manifest{Name: "x", Command: "run", Port: 8080, RouteMode: RouteModeNamed, RouteName: "mi-nombre"}
+	accept := Manifest{Name: "x", Command: "run", Port: 8080, RouteMode: RouteModeNamedWithAutoFallback, RouteName: "mi-nombre"}
 	if err := accept.Validate(); err != nil {
 		t.Errorf("route_name with named must be accepted: %v", err)
+	}
+}
+
+// The old value is gone on purpose: nothing on this machine uses route_mode = "named", and accepting it as an alias would keep two spellings of one mode alive forever.
+func TestValidateRejectsTheRetiredNamedValue(t *testing.T) {
+	m := Manifest{Name: "x", Command: "run", Port: 8080, RouteMode: "named", RouteName: "mi-nombre"}
+	if err := m.Validate(); err == nil {
+		t.Error(`route_mode = "named" was renamed to "named_with_auto_fallback" and must not be accepted silently`)
 	}
 }
 

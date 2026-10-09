@@ -108,9 +108,11 @@ func (o *ownershipSpy) Apply(name string, port int, prev portless.Ownership) por
 	}
 }
 
-func (o *ownershipSpy) Reconcile(_ string, _ portless.Ownership, _ string) []string {
+func (o *ownershipSpy) Reconcile(_ string, _ portless.Ownership, _ ...string) []string {
 	return nil
 }
+
+func (o *ownershipSpy) Retire(string, portless.Ownership) []string { return nil }
 
 // stopFixtureService exercises the stop path that removes the route without touching the process, because what matters here is what ends up persisted.
 func stopFixtureService(t *testing.T, store *state.Store, dir string) {

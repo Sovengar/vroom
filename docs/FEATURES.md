@@ -361,7 +361,7 @@ it always did:
 | Field | Values | Default | Decides |
 |---|---|---|---|
 | `port_mode` | `fixed` \| `dynamic` \| `none` | `fixed` | *who* picks the port: the manifest (`fixed`), vroom (`dynamic`), or nobody — the service has no port by design (`none`) |
-| `route_mode` | `off` \| `auto` \| `named` | `off` | *whether* the service is published under a hostname, and how that name is derived |
+| `route_mode` | `off` \| `auto` \| `named_with_auto_fallback` | `off` | *whether* the service is published under a hostname, and how that name is derived |
 
 `port` is not part of `port_mode`: it is always the app's own default
 (`PORT=${PORT:-8080}`), in every mode — `port_mode` only decides who overrides it.
@@ -434,7 +434,8 @@ How the two sides actually talk, concretely:
   `~/.portless/routes.json` (one `{hostname, port}` entry per alias). The proxy reads
   that file to know where to forward; vroom never writes it directly.
 - **Who knows the hostname:** vroom does — it *derives the name itself* (`auto` →
-  `<branch>.<project>`, `named` → your `route_name`) and hands it to the CLI.
+  `<branch>.<project>`, `named_with_auto_fallback` → your `route_name` first, then
+  `<branch>.<project>`) and hands it to the CLI.
   portless does not invent or return a name for aliases; it only echoes what it was
   given. So the URL `http://<name>.localhost` is knowable before, during and after
   registration.
@@ -445,16 +446,24 @@ How the two sides actually talk, concretely:
 |---|---|---|
 | `off` (default) | none | vroom does not even look for the portless binary |
 | `auto` | `<branch>.<project>` | per **branch**: changes on `git branch -m`, collides between two worktrees on the same branch |
-| `named` | fixed `route_name` | **global and stable**: independent of branch and port |
+| `named_with_auto_fallback` | `route_name`, else `<branch>.<project>` | **claim ladder**: `route_name` is global and stable (start a worktree first to give it the stable URL); the branch rung is per branch and is only tried when the stable name is already held |
 
 #### Semantics
 
 - **Claim on start only:** the name is registered when the service starts (after port
   discovery + verification) and released on `stop`. No queue, no handoff.
+- **Claim ladder (`named_with_auto_fallback`):** `route_name` is tried first; only a
+  `route_conflict` on it advances to `<branch>.<project>`, and the warning names the
+  **port** holding the stable name — that port is how you tell which worktree won it.
+  The rung that succeeds is the `route.name` in the JSON. A fallback that later finds
+  `route_name` free claims it and **retires its old branch-derived route in the same
+  start** (stop only revokes the name the service holds, so a name the ladder walked
+  away from would otherwise be orphaned forever).
 - **Mutual exclusion, fail-closed:** a second service claiming the same name while it
   is held gets `route_conflict` — no URL published, first route stays intact, the
   second keeps serving on its raw port with a warning. vroom never overwrites a
-  foreign route.
+  foreign route. With the ladder this only happens when **both** rungs are held (e.g.
+  a third worktree on the same branch as two already-running ones).
 - **Health never depends on the route:** no portless binary, proxy down, old Node →
   one warning, the service starts and stays healthy anyway.
 - **Verified URLs only:** `portless alias` exits 0 even with the proxy down, so vroom
@@ -474,7 +483,7 @@ How the two sides actually talk, concretely:
 `route_mode` = intention (manifest), `route` = result:
 
 ```json
-"route_mode": "named",
+"route_mode": "named_with_auto_fallback",
 "route": { "name": "api-dev", "status": "registered", "url": "http://api-dev.localhost", "port": 4321 }
 ```
 
@@ -510,19 +519,19 @@ instead of the other answers a different question.
 
 | Case | Recommended setting |
 |---|---|
-| Frontend (any worktree) pointing at a backend with dynamic ports | `named` + fixed `route_name`; frontend hardcodes the host once |
-| OAuth callback / CORS origin list / README link | `named` — the URL must not depend on a branch |
-| Two worktrees, only one backend running at a time (shared name) | `named` + same `route_name`: whoever starts claims it; the frontend is unaware of which worktree serves |
-| Two backends running **simultaneously** on different branches | `auto` — each branch gets its own host (`feat-x.api.localhost`) |
-| Two backends simultaneously on the **same** branch | two distinct `route_name`s (edit the `.vroom.toml` per working copy); `auto` would conflict |
+| Frontend (any worktree) pointing at a backend with dynamic ports | `named_with_auto_fallback` + fixed `route_name`; frontend hardcodes the host once |
+| OAuth callback / CORS origin list / README link | `named_with_auto_fallback` — the URL must not depend on a branch; start the worktree that must own it first |
+| Two worktrees, only one backend running at a time (shared name) | `named_with_auto_fallback` + same `route_name`: whoever starts claims it; the frontend is unaware of which worktree serves |
+| Two backends running **simultaneously** on different branches | `auto` — each branch gets its own host (`feat-x.api.localhost`), or the ladder: the second worktree falls back to exactly that host |
+| Two backends simultaneously on the **same** branch | `named_with_auto_fallback`: the first claims `route_name`, the second falls back to `<branch>.<project>`; a **third** on that branch would need a distinct `route_name` (edit the `.vroom.toml` per working copy) |
 | No proxy / no portless installed | any value works: degrades to a warning, service unaffected |
 
 #### Requirements
 
 - portless installed and its **proxy running** (vroom never starts or manages it).
 - `route_mode != "off"` requires `port > 0` in some port mode.
-- `route_name` only with `named`; hostname-safe characters only (lowercase letters,
-  digits, hyphens, dots).
+- `route_name` only with `named_with_auto_fallback`; hostname-safe characters only
+  (lowercase letters, digits, hyphens, dots).
 
 See `adr/adr-0013-vroom-registers-portless-routes.md`.
 
@@ -642,7 +651,7 @@ vroom stop wt-b && vroom start wt-b    # with the proxy back, the route register
 ```toml
 port = 4321                # the app's own default, for manual runs
 port_mode = "dynamic"      # vroom reserves + injects PORT and discovers the real one
-route_mode = "auto"        # stable URL <branch>.<name>.localhost; use "named" + route_name for OAuth/CORS
+route_mode = "auto"        # stable URL <branch>.<name>.localhost; use "named_with_auto_fallback" + route_name for OAuth/CORS
 ```
 
 App side: read `PORT` with a fallback — `PORT=${PORT:-4321}` — that is the only change

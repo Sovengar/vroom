@@ -70,7 +70,7 @@ Other requirements: Linux (v1), POSIX shell.
 
 ### Optional dependency: portless
 
-Only needed if you use `route_mode = "auto"` or `"named"` (see [`route_mode`](#route_mode-a-stable-url-for-the-changing-port)).
+Only needed if you use `route_mode = "auto"` or `"named_with_auto_fallback"` (see [`route_mode`](#route_mode-a-stable-url-for-the-changing-port)).
 With `route_mode = "off"` —the default— vroom **does not even look for the binary**.
 
 portless is a Node CLI and **requires Node >= 24**. It is resolved in this order:
@@ -121,8 +121,8 @@ command_install = "npm install"    # one-shot with the i key (optional)
 command_build = "mise run build"  # one-shot with the b key (optional)
 command_stop = "docker stop x"    # graceful stop with the s key (optional)
 health_path = "/healthz"          # Health tab probe path (default "/")
-route_mode = "off"                # "off" | "auto" | "named" (default "off")
-route_name = ""                   # stable route name (only with "named")
+route_mode = "off"                # "off" | "auto" | "named_with_auto_fallback" (default "off")
+route_name = ""                   # stable route name (only with "named_with_auto_fallback")
 ```
 
 Grouping is hierarchical: with `primary_group` + `secondary_group` the TUI
@@ -185,15 +185,15 @@ rule, a README, a bookmark— is tied to a number that changes on every
 startup. `route_mode` gives each service a **stable name** in portless.
 
 ```toml
-route_mode = "auto"                # "off" (default) | "auto" | "named"
-route_name = "my-api"              # only with route_mode = "named"
+route_mode = "auto"                # "off" (default) | "auto" | "named_with_auto_fallback"
+route_name = "my-api"              # only with route_mode = "named_with_auto_fallback"
 ```
 
 | Mode | What vroom does |
 |---|---|
 | `off` (default) | Registers no route. **Does not even look for the binary.** |
 | `auto` | Name derived from the **branch**: `<branch>.<project>`, without writing anything. |
-| `named` | The stable name from `route_name`. This is what OAuth and CORS require. |
+| `named_with_auto_fallback` | **Claim ladder**: tries `route_name` first and, only if another worktree already holds it, `<branch>.<project>`. |
 
 `auto` separates distinct **branches** of the same repo, which is what prevents two
 running branches from sharing an address. Watch the scope: the name comes from the
@@ -203,9 +203,16 @@ derive the same name** (for example, two clones both on `main`, or a
 service does not get a second address but a **conflict warning**: the first
 one's route stays intact and this service keeps working on its port.
 
-Use `named` when you want your own stable address — and it is
-mandatory when the URL **cannot depend on a branch**, because you are going to
-put it in a `redirect_uri` or in an origin list.
+`named_with_auto_fallback` is the mode for URLs that **cannot depend on a branch**
+(`redirect_uri`, origin list): the first worktree to start claims `route_name`, so
+starting a worktree first is how you choose which one owns the stable URL. The
+worktrees that start later no longer degrade to nothing — they fall back to
+`<branch>.<project>`, with a warning naming the **port that holds the stable
+name** (that port tells you which worktree won it). The fallback is re-tried on
+every start, so a worktree that later finds `route_name` free claims it and its
+old branch-derived route is retired in the same start. Only when **both** names
+are taken does it degrade like before: no URL published, the other routes intact,
+the service healthy on its port.
 
 **vroom only registers the route. It does not start, manage, supervise or show the
 proxy.** portless is an *optional* dependency (see
@@ -219,13 +226,15 @@ dependency.
 When stopping the service, its route disappears. And routes left by a vroom that
 died without stopping it are cleaned by **the next startup's reconciliation**, because
 `portless prune` does **not** touch alias routes. If you rename a branch in `auto`
-mode, the old route is removed and the new one is registered.
+mode, the old route is removed and the new one is registered; in
+`named_with_auto_fallback` the same retirement happens when the ladder switches
+names, because stop only ever revokes the name the service actually holds.
 
 In the JSON, `route_mode` is the **intention** (what the manifest asks for) and `route`
 is the **result**:
 
 ```json
-"route_mode": "named",
+"route_mode": "named_with_auto_fallback",
 "route": { "name": "my-api", "status": "registered", "url": "https://my-api.localhost", "port": 4321 }
 ```
 

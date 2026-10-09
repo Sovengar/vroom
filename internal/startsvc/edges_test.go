@@ -37,10 +37,12 @@ func (r *degradingRegistrar) Apply(name string, port int, own portless.Ownership
 	}
 }
 
-func (r *degradingRegistrar) Reconcile(prev string, own portless.Ownership, now string) []string {
-	r.reconciled = append(r.reconciled, prev+"->"+now)
+func (r *degradingRegistrar) Reconcile(prev string, own portless.Ownership, now ...string) []string {
+	r.reconciled = append(r.reconciled, prev+"->"+strings.Join(now, ","))
 	return nil
 }
+
+func (r *degradingRegistrar) Retire(string, portless.Ownership) []string { return nil }
 
 func TestStartDevuelveElPuertoReservadoSiElHijoNuncaLlego(t *testing.T) {
 	root := t.TempDir()
@@ -130,7 +132,7 @@ func TestStartPropagaElFalloDeGuardarElIntentoConPuertoReservado(t *testing.T) {
 func TestApplyRouteConNombreNoUtilizableAvisaYNoPropagaElError(t *testing.T) {
 	req := Request{
 		Manifest: &manifest.Manifest{
-			Name: "svc", RouteMode: manifest.RouteModeNamed,
+			Name: "svc", RouteMode: manifest.RouteModeNamedWithAutoFallback,
 			RouteName: "!!!", // not a usable hostname
 		},
 		Branch: "main",
@@ -177,7 +179,7 @@ func TestApplyRouteEscribeLaUrlSoloSiLaVerifico(t *testing.T) {
 	t.Run("registered without verification", func(t *testing.T) {
 		reg := &degradingRegistrar{}
 		req := Request{
-			Manifest: &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeNamed, RouteName: "svc"},
+			Manifest: &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeNamedWithAutoFallback, RouteName: "svc"},
 			Branch:   "main",
 			Routes:   reg,
 		}
@@ -211,7 +213,7 @@ func TestApplyRouteEscribeLaUrlSoloSiLaVerifico(t *testing.T) {
 
 	t.Run("registered and verified", func(t *testing.T) {
 		req := Request{
-			Manifest: &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeNamed, RouteName: "svc"},
+			Manifest: &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeNamedWithAutoFallback, RouteName: "svc"},
 			Branch:   "main",
 			Routes:   verifiedRegistrar{},
 		}
@@ -245,9 +247,11 @@ func (verifiedRegistrar) Apply(name string, port int, own portless.Ownership) po
 	}
 }
 
-func (verifiedRegistrar) Reconcile(string, portless.Ownership, string) []string { return nil }
+func (verifiedRegistrar) Reconcile(string, portless.Ownership, ...string) []string { return nil }
 
-// auto keys on the branch because that is what separates two worktrees of one repo; named keys on the manifest name because two services cannot depend on their branch.
+func (verifiedRegistrar) Retire(string, portless.Ownership) []string { return nil }
+
+// auto keys on the branch because that is what separates two worktrees of one repo; the ladder mode keys its FIRST rung on route_name because two services cannot depend on their branch.
 func TestRouteNameDerivaDeLaRamaEnAutoYDelNombreEnNamed(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -268,25 +272,25 @@ func TestRouteNameDerivaDeLaRamaEnAutoYDelNombreEnNamed(t *testing.T) {
 			want:     "api",
 		},
 		{
-			name:     "named ignores the branch",
-			manifest: &manifest.Manifest{Name: "api", RouteMode: manifest.RouteModeNamed, RouteName: "tienda"},
+			name:     "named ladder ignores the branch on its first rung",
+			manifest: &manifest.Manifest{Name: "api", RouteMode: manifest.RouteModeNamedWithAutoFallback, RouteName: "tienda"},
 			branch:   "cualquier-rama",
 			want:     "tienda",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := routeName(Request{Manifest: tt.manifest, Branch: tt.branch})
+			got, err := routeCandidates(Request{Manifest: tt.manifest, Branch: tt.branch})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got != tt.want {
-				t.Errorf("routeName = %q, want %q", got, tt.want)
+			if len(got) == 0 || got[0] != tt.want {
+				t.Errorf("routeCandidates = %v, want the first rung %q", got, tt.want)
 			}
 		})
 	}
 
-	if _, err := routeName(Request{
+	if _, err := routeCandidates(Request{
 		Manifest: &manifest.Manifest{Name: "api", RouteMode: "inventado"},
 		Branch:   "main",
 	}); err == nil {

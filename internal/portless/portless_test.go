@@ -32,6 +32,8 @@ type fakePortless struct {
 	serve404 map[string]bool
 	// removedNames records removals, which reconciliation must observe because with the proxy stopped no probe reaches the fake.
 	removedNames []string
+	// removeErr fails `alias --remove` alone: binErr would also break the list, and the retirement-failure branch needs a read that succeeds.
+	removeErr error
 }
 
 func newFake() *fakePortless {
@@ -56,6 +58,9 @@ func (f *fakePortless) exec(ctx context.Context, bin string, args ...string) (st
 	switch args[0] {
 	case "alias":
 		if len(args) >= 2 && args[1] == "--remove" {
+			if f.removeErr != nil {
+				return "", 1, f.removeErr
+			}
 			name := Hostname(args[2])
 			if _, ok := f.routes[name]; !ok {
 				// MEASURED (M10): exit 1 and BENIGN but not a failure: the route is gone, and Remove must tell it from a real one.

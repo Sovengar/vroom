@@ -67,17 +67,20 @@ design.
    owns the process — the model the user rejected, and which also breaks
    slice 1's Stop-by-lineage.
 
-2. **`route_mode = "off" | "auto" | "named"`, default `off`, plus `route_name`.**
-   Pure addition, with the same form and treatment as `port_mode` + `port`: the first
+2. **`route_mode = "off" | "auto" | "named_with_auto_fallback"`, default `off`,
+   plus `route_name`.** Pure addition, with the same form and treatment as
+   `port_mode` + `port`: the first
    field has a single meaning, the second retains its own, and a manifest
    that declares nothing behaves exactly as today — with `off`, vroom does not even
    look for the binary. `route_mode != "off"` requires a port in some mode;
-   `route_name` without `named` is rejected.
+   `route_name` without `named_with_auto_fallback` is rejected.
 
 3. **The name is derivable and configurable.** `auto` gives a URL derived from the
-   **branch** without writing anything; `named` gives the **stable** URL that an
-   OAuth callback or a CORS rule demands. Both are needed because portless's native
-   convention (M13) derives from the branch and changes with a `git branch -m`.
+   **branch** without writing anything; `named_with_auto_fallback` claims the
+   **stable** URL that an OAuth callback or a CORS rule demands and, only when another
+   worktree already holds it, falls back to the branch-derived one. Both are needed
+   because portless's native convention (M13) derives from the branch and changes with
+   a `git branch -m`.
 
    > **REAL SCOPE OF `auto`.** This text said "own URL for each worktree",
    > and that is false: `DeriveName` receives the branch and the project, **not**
@@ -85,9 +88,25 @@ design.
    > derive the same name —two clones on `main`, or a
    > `git worktree --force` over an already-used branch— and the second does NOT get a
    > second address but a **clean conflict**, with the first one's route intact
-   > (§5, decision 5). `named` is the answer, and not an aesthetic option:
-   > it is unique by construction. The ADR was already honest in citing M13; the
+   > (§5, decision 5). The ladder mode is the answer, and not an aesthetic option:
+   > its first rung is unique by construction. The ADR was already honest in citing M13; the
    > overassertion was in the code comment and the README.
+
+   > **CORRECTION (claim ladder).** The mode was originally specified as `named`, and
+   > its second claimant got a clean `route_conflict` and published **no** URL at all:
+   > fail-closed, and precisely backwards for the case the mode exists to serve — two
+   > worktrees running at once, of which only one can hold the stable name. The mode is
+   > now `named_with_auto_fallback` and a conflict **advances** to a second candidate,
+   > `<branch>.<project>`; only when both candidates are held does the old fail-closed
+   > degradation remain. Start order decides who owns the stable name (starting a
+   > worktree first is how you choose), and the fallback warning names the **port**
+   > holding it, so the swap is visible rather than silent. Two consequences that are
+   > part of this correction, not follow-ups: §8's rename test becomes *membership in
+   > the candidate set* (a persisted fallback name is not a rename, and deleting it
+   > would destroy the route this very start is about to reuse), and a service that
+   > switches rungs **retires the name it walked away from** — stop only revokes the
+   > name actually held, so without that retirement the old route would outlive the
+   > handle and block the next worktree falling back to it.
 
 4. **Registration happens after discovery and before persisting the final `Meta`.** Per
    **M9**, registering earlier only buys a `502` window; registering later
@@ -100,8 +119,9 @@ design.
    is a **tautology**: the table would compare the newly written port against itself
    and could not distinguish our own route from another's. That is why
    the name is **queried before writing** and, if it is held by a port that is
-   neither ours nor the persisted one, **nothing is written**: it degrades with
-   `route_conflict` and the foreign route remains intact. It is the same fail-closed
+   neither ours nor the persisted one, **nothing is written for that candidate**: it
+   yields a `route_conflict` (which the ladder of §3 may take to its next rung) and
+   the foreign route remains intact. It is the same fail-closed
    that governs cleanup, applied to registration.
 
    After registration it is read back as well, to cover the window between the
@@ -179,6 +199,13 @@ design.
    - responds with a different port → conflict, a warning is issued, **nothing is
      registered on top**;
    - responds and is ours → it is left alone (idempotence).
+
+   > **CORRECTION (claim ladder, §3).** "The one derived now" is the whole candidate
+   > set: a persisted name that is still a candidate is a rung this start may reuse,
+   > not a rename, so membership — not inequality — is the removal test. And retiring
+   > the candidate the ladder walked away from is a separate step (§3), because it may
+   > have to remove a **live** route, which the fail-closed rules of this section
+   > deliberately never do.
 
    **A route that responds and is not ours is not removed: a warning is issued.** The
    fail-closed that governs all port changing also applies to cleanup: deleting

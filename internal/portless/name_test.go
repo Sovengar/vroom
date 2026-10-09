@@ -57,7 +57,7 @@ func TestDeriveName(t *testing.T) {
 	})
 
 	t.Run("named uses route_name and sanitizes", func(t *testing.T) {
-		got, err := DeriveName(RouteModeNamed, "My_OAuth_Callback", "feat/x", "api")
+		got, err := DeriveName(RouteModeNamedWithAutoFallback, "My_OAuth_Callback", "feat/x", "api")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -67,7 +67,7 @@ func TestDeriveName(t *testing.T) {
 	})
 
 	t.Run("named with unusable name is error", func(t *testing.T) {
-		if _, err := DeriveName(RouteModeNamed, "///", "", "api"); err == nil {
+		if _, err := DeriveName(RouteModeNamedWithAutoFallback, "///", "", "api"); err == nil {
 			t.Error("an unusable route_name must be rejected, not degenerate into an empty name")
 		}
 	})
@@ -85,7 +85,7 @@ func TestRouteModeEnabled(t *testing.T) {
 			t.Errorf("mode %q must not look for portless", m)
 		}
 	}
-	for _, m := range []string{RouteModeAuto, RouteModeNamed} {
+	for _, m := range []string{RouteModeAuto, RouteModeNamedWithAutoFallback} {
 		if !RouteModeEnabled(m) {
 			t.Errorf("mode %q must work with portless", m)
 		}

@@ -424,7 +424,7 @@ func TestClientForDevuelveNilSinContratoDeRuta(t *testing.T) {
 		{"without route_mode (default off)", &manifest.Manifest{Name: "svc"}, false},
 		{"route_mode off", &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeOff}, false},
 		{"invalid route_mode", &manifest.Manifest{Name: "svc", RouteMode: "invented"}, false},
-		{"route_mode named", &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeNamed, RouteName: "svc"}, true},
+		{"route_mode named", &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeNamedWithAutoFallback, RouteName: "svc"}, true},
 		{"route_mode auto", &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeAuto}, true},
 	}
 

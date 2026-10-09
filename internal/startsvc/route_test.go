@@ -18,6 +18,11 @@ type fakeRoutes struct {
 	prevPorts []int
 	warns     []string
 	result    portless.Result
+	// seq feeds Apply one Result per call so the claim ladder (conflict, then the fallback rung) can be driven; when it runs out, result takes over.
+	seq []portless.Result
+	// reconciledCands records the candidate set each Reconcile received, because a set where the test expected a single name is the whole point of the ladder.
+	reconciledCands []string
+	retired         []string
 }
 
 // Apply always echoes the requested name, as the real client does: the intended name is input, never something the result decides.
@@ -25,6 +30,10 @@ func (f *fakeRoutes) Apply(name string, port int, prev portless.Ownership) portl
 	f.applied = append(f.applied, name+":"+itoaTest(port))
 	f.prevPorts = append(f.prevPorts, prev.Port)
 	r := f.result
+	if len(f.seq) > 0 {
+		r = f.seq[0]
+		f.seq = f.seq[1:]
+	}
 	r.Name = name
 	r.Host = portless.Hostname(name)
 	if r.Status == "" {
@@ -36,8 +45,14 @@ func (f *fakeRoutes) Apply(name string, port int, prev portless.Ownership) portl
 	return r
 }
 
-func (f *fakeRoutes) Reconcile(_ string, _ portless.Ownership, _ string) []string {
+func (f *fakeRoutes) Reconcile(_ string, _ portless.Ownership, current ...string) []string {
+	f.reconciledCands = append(f.reconciledCands, strings.Join(current, "|"))
 	return f.warns
+}
+
+func (f *fakeRoutes) Retire(name string, _ portless.Ownership) []string {
+	f.retired = append(f.retired, name)
+	return nil
 }
 
 func itoaTest(n int) string {
@@ -301,7 +316,7 @@ func TestRouteNameDerivedFromBranchInAutoMode(t *testing.T) {
 func TestRouteNameUsesRouteNameInNamedMode(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
-	f.manifest.RouteMode = manifest.RouteModeNamed
+	f.manifest.RouteMode = manifest.RouteModeNamedWithAutoFallback
 	f.manifest.RouteName = "My_OAuth_Callback"
 	routes := &fakeRoutes{result: registeredAt(0)}
 

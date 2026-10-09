@@ -146,9 +146,11 @@ func (r *resultSpy) Apply(name string, port int, prev portless.Ownership) portle
 	return res
 }
 
-func (r *resultSpy) Reconcile(_ string, _ portless.Ownership, _ string) []string {
+func (r *resultSpy) Reconcile(_ string, _ portless.Ownership, _ ...string) []string {
 	return nil
 }
+
+func (r *resultSpy) Retire(string, portless.Ownership) []string { return nil }
 
 type reconcileSpy struct {
 	reconciledWithOwnership portless.Ownership
@@ -164,10 +166,12 @@ func (r *reconcileSpy) Apply(name string, port int, prev portless.Ownership) por
 	}
 }
 
-func (r *reconcileSpy) Reconcile(_ string, prev OwnershipPort, _ string) []string {
+func (r *reconcileSpy) Reconcile(_ string, prev OwnershipPort, _ ...string) []string {
 	r.reconciledWithOwnership = prev
 	return nil
 }
+
+func (r *reconcileSpy) Retire(string, portless.Ownership) []string { return nil }
 
 // OwnershipPort pins Reconcile's prev argument so the test fails to compile if the seam reverts to a raw port, which no refactor can silently drop.
 type OwnershipPort = portless.Ownership

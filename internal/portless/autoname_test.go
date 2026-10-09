@@ -55,14 +55,14 @@ func TestSameBranchCollisionDegradesWithoutEvicting(t *testing.T) {
 
 // named is the documented answer to the collision: a name that does not depend on the branch.
 func TestNamedIsTheEscapeFromBranchScopedNames(t *testing.T) {
-	got, err := DeriveName(RouteModeNamed, "mi-api", "main", "miapp")
+	got, err := DeriveName(RouteModeNamedWithAutoFallback, "mi-api", "main", "miapp")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != "mi-api" {
 		t.Errorf("named ignores the branch on purpose, got %q", got)
 	}
-	again, _ := DeriveName(RouteModeNamed, "mi-api", "otra-rama", "otro-proyecto")
+	again, _ := DeriveName(RouteModeNamedWithAutoFallback, "mi-api", "otra-rama", "otro-proyecto")
 	if again != got {
 		t.Errorf("named must be stable across branches, %q != %q", got, again)
 	}

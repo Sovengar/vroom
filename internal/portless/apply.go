@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -18,8 +19,9 @@ import (
 const (
 	RouteModeOff = "off"
 	// RouteModeAuto derives the name from the branch, so worktrees sharing a branch collide into a clean conflict instead of a second address.
-	RouteModeAuto  = "auto"
-	RouteModeNamed = "named"
+	RouteModeAuto = "auto"
+	// RouteModeNamedWithAutoFallback is the claim ladder: route_name first, <branch>.<project> when the stable name is already held by another worktree.
+	RouteModeNamedWithAutoFallback = "named_with_auto_fallback"
 )
 
 func RouteModeEnabled(mode string) bool { return mode != "" && mode != RouteModeOff }
@@ -78,6 +80,8 @@ type Result struct {
 	Port   int
 	// Written is not the same as verified: an unverified route is still ours and must keep its handle.
 	Registered bool
+	// HeldPort is the port a conflicting route points at, so a fallback warning can say WHO holds the stable name; 0 when there was no conflict to read.
+	HeldPort int
 }
 
 func (r Result) Succeeded() bool { return r.Status == StatusRegistered }
@@ -114,7 +118,7 @@ func (c *Client) Apply(name string, port int, prev Ownership) Result {
 		return Degraded(name, classify(err))
 	case found && existing != port && !prev.Authorises(existing):
 		// Someone else's port with no proof it is still ours: it could be another app or another running vroom, so it stays untouched.
-		return Degraded(name, ReasonRouteConflict)
+		return Result{Name: name, Host: Hostname(name), Status: StatusDegraded, Reason: ReasonRouteConflict, HeldPort: existing}
 	}
 
 	if err := c.Register(name, port); err != nil {
@@ -277,10 +281,10 @@ const (
 	routeAlive
 )
 
-// Reconcile is mandatory on every startup because portless prune never touches alias routes (pid: 0, counted as active, M5), so vroom is the only thing that can clean them; cleanup is fail-closed, removing only a provably own route and merely warning about one answering on another port, because nobody can prove it is someone else's; and held is an Ownership rather than a bare port, since revocation deliberately keeps the handle for reconciliation, so a live handle does not mean we still own the name.
+// Reconcile is mandatory on every startup because portless prune never touches alias routes (pid: 0, counted as active, M5), so vroom is the only thing that can clean them; cleanup is fail-closed, removing only a provably own route and merely warning about one answering on another port, because nobody can prove it is someone else's; held is an Ownership rather than a bare port, since revocation deliberately keeps the handle for reconciliation, so a live handle does not mean we still own the name; and current is the whole candidate ladder, because a persisted name that is still a candidate this start may claim is not a rename — reading it as one would delete the route the start is about to reuse.
 
-func (c *Client) Reconcile(prev string, held Ownership, current string) []string {
-	if !c.HasBinary() || prev == "" || prev == current {
+func (c *Client) Reconcile(prev string, held Ownership, current ...string) []string {
+	if !c.HasBinary() || prev == "" || slices.Contains(current, prev) {
 		return nil
 	}
 

@@ -35,7 +35,7 @@ func TestJSONSeparatesIntentFromOutcome(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
 	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080,
-		PortMode: manifest.PortModeDynamic, RouteMode: manifest.RouteModeNamed, RouteName: "mi-url"}
+		PortMode: manifest.PortModeDynamic, RouteMode: manifest.RouteModeNamedWithAutoFallback, RouteName: "mi-url"}
 	if err := store.SaveMeta(dir, state.Meta{
 		Name: "p", Pid: 42, Port: 8080, State: state.StateRunning,
 		RouteName: "mi-url", RoutePort: 8080,
@@ -47,7 +47,7 @@ func TestJSONSeparatesIntentFromOutcome(t *testing.T) {
 	info := buildProjectInfo(&stubManager{}, store, nil, projectWith(dir, m))
 	out := marshalInfo(t, info)
 
-	if out["route_mode"] != manifest.RouteModeNamed {
+	if out["route_mode"] != manifest.RouteModeNamedWithAutoFallback {
 		t.Errorf("route_mode must publish the INTENT, got %v", out["route_mode"])
 	}
 	route, ok := out["route"].(map[string]any)

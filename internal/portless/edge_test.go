@@ -238,7 +238,7 @@ func TestAcceptsConnectionsConUnPuertoRealYCerrado(t *testing.T) {
 
 func TestDeriveNamedRechazaUnNombreNoUtilizable(t *testing.T) {
 	for _, name := range []string{"", "   ", "!!!", ".localhost", "-"} {
-		got, err := DeriveName(manifest.RouteModeNamed, name, "", "proyecto")
+		got, err := DeriveName(manifest.RouteModeNamedWithAutoFallback, name, "", "proyecto")
 		if err == nil {
 			t.Errorf("DeriveName(named, %q) = %q, want error", name, got)
 		}
@@ -247,7 +247,7 @@ func TestDeriveNamedRechazaUnNombreNoUtilizable(t *testing.T) {
 
 // named must ignore the branch: OAuth and CORS callbacks are configured ahead of time, so a `git branch -m` would move the URL.
 func TestDeriveNamedIgnoraLaRama(t *testing.T) {
-	got, err := DeriveName(manifest.RouteModeNamed, "tienda", "cualquier-rama", "proyecto")
+	got, err := DeriveName(manifest.RouteModeNamedWithAutoFallback, "tienda", "cualquier-rama", "proyecto")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestRouteModeEnabledPuertaDeCompatibilidad(t *testing.T) {
 		{"", false},
 		{manifest.RouteModeOff, false},
 		{manifest.RouteModeAuto, true},
-		{manifest.RouteModeNamed, true},
+		{manifest.RouteModeNamedWithAutoFallback, true},
 	}
 
 	for _, tt := range tests {
@@ -292,7 +292,7 @@ func TestEffectiveRouteModeCaeAOff(t *testing.T) {
 			t.Errorf("EffectiveRouteMode(%q) = %q, want %q", mode, got, manifest.RouteModeOff)
 		}
 	}
-	for _, mode := range []string{manifest.RouteModeAuto, manifest.RouteModeNamed, manifest.RouteModeOff} {
+	for _, mode := range []string{manifest.RouteModeAuto, manifest.RouteModeNamedWithAutoFallback, manifest.RouteModeOff} {
 		m := &manifest.Manifest{Name: "svc", RouteMode: mode}
 		if got := m.EffectiveRouteMode(); got != mode {
 			t.Errorf("EffectiveRouteMode(%q) = %q, want %q (debe preservarse)", mode, got, mode)
