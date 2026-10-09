@@ -43,6 +43,12 @@ func (u *unixManager) Start(spec StartSpec) (StartResult, error) {
 	}
 	defer func() { _ = stderr.Close() }()
 
+	if spec.PreSpawn != nil {
+		if err := spec.PreSpawn(); err != nil {
+			return StartResult{}, err
+		}
+	}
+
 	cmd := exec.Command("sh", "-c", spec.Command)
 	cmd.Dir = spec.WorkDir
 	// Stdin stays nil on purpose: that already hands the child the null device, which must never be the user's TUI terminal.

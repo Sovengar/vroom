@@ -119,6 +119,7 @@ port_mode = "fixed"               # "fixed" | "dynamic" | "none" (default "fixed
 process_pattern = ""              # pgrep pattern (optional)
 command_install = "npm install"    # one-shot with the i key (optional)
 command_build = "mise run build"  # one-shot with the b key (optional)
+command_pre_start = "fuser -k 5005/tcp || true"  # fail-fast hook before command_start (optional)
 command_stop = "docker stop x"    # graceful stop with the s key (optional)
 health_path = "/healthz"          # Health tab probe path (default "/")
 route_mode = "off"                # "off" | "auto" | "named_with_auto_fallback" (default "off")
@@ -136,6 +137,17 @@ child process survives the kill, e.g. a Docker container): when pressing `s`, vr
 runs that command first (with banner, visible in the console) and then applies
 the usual cleanup shutdown (SIGTERM → 5s → SIGKILL to the process group **and
 its descendants**, including those that did `setsid`).
+
+`command_pre_start` is the mirror image on the way up: an optional hook run with
+`sh -c` in the project directory just before `command_start` spawns, for
+preparation the app command itself must not carry (freeing a stale debug port,
+bringing a dependency up). It is **fail-fast**: a non-zero exit aborts the start
+before any process exists — nothing spawned, nothing persisted — and the error
+names the hook and its exit status while its output stays in the service log
+(banner `── vroom ▶ pre_start: … ──`, first entry of that run). It runs on every
+start path (`vroom start`, `s`, `R`, `vroom launch`) and never on
+`already_running`. Since the hook is plain `sh -c`, a best-effort step ends with
+`|| true` (`fuser` exits non-zero when nobody holds the port).
 
 ### `port_mode`: the same manifest for multiple worktrees
 

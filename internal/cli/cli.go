@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,6 +14,7 @@ import (
 
 	"vroom/internal/config"
 	"vroom/internal/gitinfo"
+	"vroom/internal/logrun"
 	"vroom/internal/manifest"
 	"vroom/internal/orchestrate"
 	"vroom/internal/portless"
@@ -44,24 +44,25 @@ type ProjectInfo struct {
 	// Intent, not outcome, and omitted when the manifest has no route contract so a legacy manifest still emits byte-identical JSON.
 	RouteMode string `json:"route_mode,omitempty"`
 	// Pointer because absence is itself a state: a manifest with no route contract neither claims nor denies one.
-	Route          *RouteInfo `json:"route,omitempty"`
-	Command        string     `json:"command,omitempty"`
-	CommandStop    string     `json:"command_stop,omitempty"`
-	CommandBuild   string     `json:"command_build,omitempty"`
-	CommandInstall string     `json:"command_install,omitempty"`
-	ProcessPattern string     `json:"process_pattern,omitempty"`
-	GitBranch      string     `json:"git_branch,omitempty"`
-	PrimaryGroup   string     `json:"primary_group,omitempty"`
-	SecondaryGroup string     `json:"secondary_group,omitempty"`
-	RepoRoot       string     `json:"repo_root,omitempty"`
-	IsWorktree     bool       `json:"is_worktree,omitempty"`
-	BareContainer  bool       `json:"bare_container,omitempty"`
-	WorktreeErr    string     `json:"worktree_error,omitempty"`
-	Collapsed      bool       `json:"collapsed"`
-	Pid            int        `json:"pid,omitempty"`
-	Pgid           int        `json:"pgid,omitempty"`
-	StartedAt      string     `json:"started_at,omitempty"`
-	ManifestError  string     `json:"manifest_error,omitempty"`
+	Route           *RouteInfo `json:"route,omitempty"`
+	Command         string     `json:"command,omitempty"`
+	CommandPreStart string     `json:"command_pre_start,omitempty"`
+	CommandStop     string     `json:"command_stop,omitempty"`
+	CommandBuild    string     `json:"command_build,omitempty"`
+	CommandInstall  string     `json:"command_install,omitempty"`
+	ProcessPattern  string     `json:"process_pattern,omitempty"`
+	GitBranch       string     `json:"git_branch,omitempty"`
+	PrimaryGroup    string     `json:"primary_group,omitempty"`
+	SecondaryGroup  string     `json:"secondary_group,omitempty"`
+	RepoRoot        string     `json:"repo_root,omitempty"`
+	IsWorktree      bool       `json:"is_worktree,omitempty"`
+	BareContainer   bool       `json:"bare_container,omitempty"`
+	WorktreeErr     string     `json:"worktree_error,omitempty"`
+	Collapsed       bool       `json:"collapsed"`
+	Pid             int        `json:"pid,omitempty"`
+	Pgid            int        `json:"pgid,omitempty"`
+	StartedAt       string     `json:"started_at,omitempty"`
+	ManifestError   string     `json:"manifest_error,omitempty"`
 }
 
 type RouteInfo struct {
@@ -277,6 +278,7 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 
 	m := p.Manifest
 	info.Command = m.Command
+	info.CommandPreStart = m.PreStart
 	info.CommandStop = m.Stop
 	info.CommandBuild = m.Build
 	info.CommandInstall = m.Install
@@ -839,46 +841,7 @@ func cmdLaunch(args []string) (any, error) {
 	return result, nil
 }
 
+// runLogged keeps the name this package's tests speak; the job itself is shared with the TUI and with the pre_start hook (internal/logrun), because a banner, an exit code and a footer mean the same thing in all three.
 func runLogged(kind, command, workDir, stdoutPath, stderrPath string) (time.Duration, int, error) {
-	if dir := filepath.Dir(stdoutPath); dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return 0, 0, err
-		}
-	}
-
-	banner := fmt.Sprintf("── vroom ▶ %s: %s ──", kind, command)
-
-	// One descriptor serves both the banner and the command: two OpenFile calls made the second error unreachable, hiding a full disk (/dev/full) behind a check that could never fail.
-	out, err := os.OpenFile(stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer func() { _ = out.Close() }()
-	if _, err := fmt.Fprintf(out, "%s\n", banner); err != nil {
-		return 0, 0, err
-	}
-
-	start := time.Now()
-	cmd := exec.Command("sh", "-c", command)
-	cmd.Dir = workDir
-	errF, err := os.OpenFile(stderrPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer func() { _ = errF.Close() }()
-	cmd.Stdout = out
-	cmd.Stderr = errF
-	runErr := cmd.Run()
-	elapsed := time.Since(start).Round(10 * time.Millisecond)
-	if runErr != nil {
-		exitCode := 0
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) {
-			exitCode = exitErr.ExitCode()
-		}
-		_, _ = fmt.Fprintf(out, "── vroom ✗ %s failed (exit %d, %s) ──\n", kind, exitCode, elapsed)
-		return elapsed, exitCode, runErr
-	}
-	_, _ = fmt.Fprintf(out, "── vroom ✓ %s ok (%s) ──\n", kind, elapsed)
-	return elapsed, 0, nil
+	return logrun.Run(kind, command, workDir, stdoutPath, stderrPath)
 }

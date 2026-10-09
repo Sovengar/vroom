@@ -8,7 +8,7 @@ Concise reference of vroom's features. Detailed contracts live in `../README.md`
 
 | Feature | What it does | Where |
 |---|---|---|
-| [Service lifecycle](#service-lifecycle) | Start/stop/restart daemonized services that survive the terminal | `s`, `R`; `vroom start/stop` |
+| [Service lifecycle](#service-lifecycle) | Start/stop/restart daemonized services that survive the terminal | `s`, `R`; `vroom start/stop`; `command_pre_start` |
 | [One-shot jobs](#one-shot-jobs) | `command_build`, `command_install`, `mise` tasks | `b`, `i`, `t`; `vroom build/install` |
 | [Logs & console](#logs--console) | Live tail of stdout/stderr, open both logs in `$EDITOR` | `l`/`o`, `c`, `C`, `g`/`G`; `vroom logs` |
 | [Output tabs](#output-tabs) | Console, Threads, Metrics, Git, Env, Timeline, Health | `1`–`7`, `tab` |
@@ -48,6 +48,13 @@ next run.
   the portless route is revoked (only if vroom owns it).
 - Starting is idempotent on the CLI side: a service already running answers
   `{"action":"already_running"}` instead of spawning a twin.
+- **`command_pre_start`** is an optional **fail-fast hook** run in the project
+  directory right before `command_start` spawns — environment prep the app
+  command itself must not carry (e.g. `fuser -k 5005/tcp || true` to free a stale
+  debug port). Its banner, output and footer land at the top of that run's log;
+  a non-zero exit **aborts the start** (no process, no state) and the error names
+  the hook, the command and the exit status. It never runs on `already_running`,
+  nor on stop/build/install.
 
 **Why it matters:** the same `s` works for one service, a whole group or a stack,
 and "stop" provably means *nothing of this service is left listening* — worst

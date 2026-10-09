@@ -3,6 +3,7 @@
 package process
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -449,6 +450,75 @@ func TestStartTruncatesTheLogsOfEachStartup(t *testing.T) {
 	}
 	if !strings.Contains(body, "new-service") {
 		t.Errorf("the output of the new service did not reach the log:\n%s", body)
+	}
+}
+
+// PreSpawn must be the FIRST entry of the new run: the logs are truncated before it and the child appends after it, so a hook that ran successfully leaves its trace instead of being wiped by the spawn.
+func TestStartRunsPreSpawnAfterTruncatingTheLogs(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "stdout.log")
+	errLog := filepath.Join(dir, "stderr.log")
+	writeFileStr(t, out, "output of the PREVIOUS service\n")
+
+	m := NewManager()
+	res := startSleep(t, m, StartSpec{
+		Command: "echo hijo", WorkDir: dir,
+		StdoutPath: out, StderrPath: errLog,
+		PreSpawn: func() error {
+			f, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = f.Close() }()
+			_, err = f.WriteString("pre-spawn\n")
+			return err
+		},
+	})
+	t.Cleanup(func() { _ = m.Stop(StopSpec{Pgid: res.Pgid, Timeout: 3 * time.Second}) })
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(readFileStr(t, out), "hijo") {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	body := readFileStr(t, out)
+	if strings.Contains(body, "PREVIOUS") {
+		t.Errorf("the log from the previous startup survived truncation:\n%s", body)
+	}
+	pre, hijo := strings.Index(body, "pre-spawn"), strings.Index(body, "hijo")
+	if pre < 0 {
+		t.Errorf("PreSpawn's output did not reach the log:\n%s", body)
+	}
+	if hijo < 0 {
+		t.Errorf("the child's output did not reach the log:\n%s", body)
+	}
+	if pre >= 0 && hijo >= 0 && pre > hijo {
+		t.Errorf("PreSpawn wrote after the child (%d > %d):\n%s", pre, hijo, body)
+	}
+}
+
+// A failing PreSpawn leaves nothing behind: Start returns a zero result, which is what tells the caller there is no process to stop.
+func TestStartAbortsWhenPreSpawnFails(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "stdout.log")
+	errLog := filepath.Join(dir, "stderr.log")
+
+	res, err := NewManager().Start(StartSpec{
+		Command: "sleep 30", WorkDir: dir,
+		StdoutPath: out, StderrPath: errLog,
+		PreSpawn: func() error { return errors.New("the hook refuses") },
+	})
+	if err == nil {
+		t.Fatal("a failing PreSpawn must abort the start")
+	}
+	if !strings.Contains(err.Error(), "the hook refuses") {
+		t.Errorf("err = %q, want the hook's own failure", err)
+	}
+	if res.Pid != 0 || res.Pgid != 0 {
+		t.Errorf("result = %+v, want the zero value: no child was spawned", res)
+	}
+	if got := readFileStr(t, out); strings.Contains(got, "sleep") {
+		t.Errorf("the child ran despite the hook failing:\n%s", got)
 	}
 }
 

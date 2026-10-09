@@ -165,6 +165,30 @@ command_stop = "docker stop web-frontend"
 	}
 }
 
+// command_pre_start is an optional fail-fast hook: its absence must keep behaving exactly as before the field existed.
+func TestParsePreStart(t *testing.T) {
+	path := writeManifest(t, `
+name = "actuacions-api"
+command_start = "mise run start"
+command_pre_start = "fuser -k 5005/tcp || true"
+`)
+	m, err := Parse(path)
+	if err != nil {
+		t.Fatalf("unexpected parse: %v", err)
+	}
+	if m.PreStart != "fuser -k 5005/tcp || true" {
+		t.Errorf("pre_start misparsed: %+v", m)
+	}
+
+	minimal, err := Parse(writeManifest(t, "name = \"x\"\ncommand_start = \"y\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if minimal.PreStart != "" {
+		t.Errorf("pre_start must default to empty: %+v", minimal)
+	}
+}
+
 func TestParseUnknownFieldsIgnored(t *testing.T) {
 	path := writeManifest(t, `
 name = "x"

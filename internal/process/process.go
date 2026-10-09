@@ -28,6 +28,9 @@ type StartSpec struct {
 
 	// Injected KEY=VALUE vars, merged with the parent environment and never replacing it; nil means the child inherits as before.
 	Env []string
+
+	// PreSpawn runs after the logs are truncated and opened and before the child exists, so what it writes is the FIRST entry of this run's log and a failure leaves no process to clean up. It is the seam for the manifest's command_pre_start: run before Start instead, its output would be wiped by the truncation above and a successful hook would leave no trace.
+	PreSpawn func() error
 }
 
 type StartResult struct {

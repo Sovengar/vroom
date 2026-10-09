@@ -22,6 +22,7 @@ import (
 	"vroom/internal/gitinfo"
 	"vroom/internal/group"
 	"vroom/internal/launcher"
+	"vroom/internal/logrun"
 	"vroom/internal/manifest"
 	"vroom/internal/mise"
 	"vroom/internal/orchestrate"
@@ -587,50 +588,9 @@ func appendLine(path, line string) error {
 	return err
 }
 
-func jobBanner(kind, text string) string {
-	return fmt.Sprintf("── vroom ▶ %s: %s ──", kind, text)
-}
-
+// runLogged keeps the name this package's tests speak; the job itself is shared with the CLI and with the pre_start hook (internal/logrun), because a banner, an exit code and a footer mean the same thing in all three.
 func runLogged(kind, command, workDir, stdoutPath, stderrPath string) (time.Duration, int, error) {
-	if dir := filepath.Dir(stdoutPath); dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return 0, 0, err
-		}
-	}
-	// stdout is opened once and carries banner and footer: two opens made the second OpenFile error unreachable, hiding the unopenable-log failure.
-	out, err := os.OpenFile(stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer func() { _ = out.Close() }()
-	// Banner before stderr opens on purpose: if stderr fails, the log still says which command never ran.
-	if _, err := out.WriteString(jobBanner(kind, command) + "\n"); err != nil {
-		return 0, 0, err
-	}
-	start := time.Now()
-	cmd := exec.Command("sh", "-c", command)
-	cmd.Dir = workDir
-	errF, err := os.OpenFile(stderrPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer func() { _ = errF.Close() }()
-	cmd.Stdout = out
-	cmd.Stderr = errF
-	runErr := cmd.Run()
-	elapsed := time.Since(start).Round(10 * time.Millisecond)
-	if runErr != nil {
-		exitCode := 0
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) {
-			exitCode = exitErr.ExitCode()
-		}
-		// Footer reuses the open descriptor and drops its error: the command already ran, so reporting a write failure would lie about whether the build ran.
-		_, _ = fmt.Fprintf(out, "── vroom ✗ %s failed (exit %d, %s) ──\n", kind, exitCode, elapsed)
-		return elapsed, exitCode, runErr
-	}
-	_, _ = fmt.Fprintf(out, "── vroom ✓ %s ok (%s) ──\n", kind, elapsed)
-	return elapsed, 0, nil
+	return logrun.Run(kind, command, workDir, stdoutPath, stderrPath)
 }
 
 func jobCmd(path, kind, command, workDir, stdoutPath, stderrPath string) tea.Cmd {

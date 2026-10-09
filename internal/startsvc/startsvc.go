@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"vroom/internal/logrun"
 	"vroom/internal/manifest"
 	"vroom/internal/portless"
 	"vroom/internal/process"
@@ -82,12 +83,19 @@ func Start(req Request) (Result, error) {
 		env = []string{fmt.Sprintf("PORT=%d", reserved), "HOST=127.0.0.1"}
 	}
 
+	// command_pre_start runs INSIDE Manager.Start (through PreSpawn) rather than here: the manager truncates the logs on every start, so anything written before it would leave no trace of a hook that succeeded.
+	var pre func() error
+	if req.Manifest.PreStart != "" {
+		pre = preStartHook(req.Manifest.PreStart, req.Path, req.StdoutPath, req.StderrPath)
+	}
+
 	res, err := req.Manager.Start(process.StartSpec{
 		Command:    req.Manifest.Command,
 		WorkDir:    req.Path,
 		StdoutPath: req.StdoutPath,
 		StderrPath: req.StderrPath,
 		Env:        env,
+		PreSpawn:   pre,
 	})
 	if err != nil {
 		process.ReleasePort(reserved) // the child never came into existence
@@ -274,6 +282,16 @@ func stopAfterPersistFailure(req Request, res process.StartResult) {
 		Pgid:    res.Pgid,
 		Timeout: process.DefaultStopTimeout,
 	})
+}
+
+// preStartHook runs the manifest's command_pre_start exactly like any other job (banner, output and footer in the service log) and fails the whole start when it fails: an unmet prerequisite must not be papered over by a service that starts anyway.
+func preStartHook(command, workDir, stdoutPath, stderrPath string) func() error {
+	return func() error {
+		if _, _, err := logrun.Run("pre_start", command, workDir, stdoutPath, stderrPath); err != nil {
+			return fmt.Errorf("command_pre_start %q failed: %w (its output is in the service log)", command, err)
+		}
+		return nil
+	}
 }
 
 func routeCandidates(req Request) ([]string, error) {

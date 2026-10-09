@@ -295,15 +295,6 @@ func TestAppendLineFallaDondeNoPuedeEscribir(t *testing.T) {
 	}
 }
 
-// Without the banner an echo from a build and the same echo from the service are indistinguishable in one log file.
-func TestJobBannerIdentificaElJob(t *testing.T) {
-	got := jobBanner("build", "make build")
-	want := "── vroom ▶ build: make build ──"
-	if got != want {
-		t.Errorf("jobBanner = %q, want %q", got, want)
-	}
-}
-
 // An error must not advance the offset, or the next tick skips exactly the bytes it could not read.
 func TestReadNewStripped(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "consola.log")

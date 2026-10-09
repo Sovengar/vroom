@@ -19,7 +19,8 @@ type Manifest struct {
 	PrimaryGroup   string `toml:"primary_group"`
 	SecondaryGroup string `toml:"secondary_group"`
 	Command        string `toml:"command_start"`
-	Port           int    `toml:"port"` // the app's default port, never the one vroom assigns in dynamic mode
+	PreStart       string `toml:"command_pre_start"` // fail-fast hook run before command_start spawns, for environment prep the app command itself must not carry (e.g. free a stale debug port)
+	Port           int    `toml:"port"`              // the app's default port, never the one vroom assigns in dynamic mode
 	PortMode       string `toml:"port_mode"`
 	ProcessPattern string `toml:"process_pattern"`
 	Install        string `toml:"command_install"`
