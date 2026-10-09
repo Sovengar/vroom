@@ -8,7 +8,7 @@ Concise reference of vroom's features. Detailed contracts live in `../README.md`
 
 | Feature | What it does | Where |
 |---|---|---|
-| [Service lifecycle](#service-lifecycle) | Start/stop/restart daemonized services that survive the terminal | `s`, `R`; `vroom start/stop`; `[commands]`, `start.hooks.pre_run` |
+| [Service lifecycle](#service-lifecycle) | Start/stop/restart daemonized services that survive the terminal | `s`, `R`; `vroom start/stop`; `[commands]`, `start.hooks` (pre_run / post_run) |
 | [One-shot jobs](#one-shot-jobs) | `commands.build.run`, `commands.install.run`, `mise` tasks | `b`, `i`, `t`; `vroom build/install` |
 | [Logs & console](#logs--console) | Live tail of stdout/stderr, open both logs in `$EDITOR` | `l`/`o`, `c`, `C`, `g`/`G`; `vroom logs` |
 | [Output tabs](#output-tabs) | Console, Threads, Metrics, Git, Env, Timeline, Health | `1`–`7`, `tab` |
@@ -63,6 +63,12 @@ next run.
   a non-zero exit **aborts the start** (no process, no state) and the error names
   the hook, the command and the exit status. It never runs on `already_running`,
   nor on stop/build/install.
+- **`commands.start.hooks.post_run`** is its **warn-only** counterpart: it runs at
+  the very end of the start (state persisted, port resolved, route registered) for
+  what needs the service already up — seeding, warming, notifying. A non-zero exit
+  never fails the start nor kills the service: the hook and its exit status show up
+  among the start warnings, with its output in the service log. Same schedule as
+  `pre_run`, i.e. every start path and never on `already_running`.
 
 **Why it matters:** the same `s` works for one service, a whole group or a stack,
 and "stop" provably means *nothing of this service is left listening* — worst

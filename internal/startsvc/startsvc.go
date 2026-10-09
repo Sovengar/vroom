@@ -132,9 +132,13 @@ func Start(req Request) (Result, error) {
 			return Result{}, err
 		}
 		_ = req.Store.RegisterPid(req.Path, res.Pid, res.Pgid)
-		return out, nil
+		return postRun(req, out), nil
 	}
-	return resolveDynamicPort(req, base, reserved)
+	dynamic, err := resolveDynamicPort(req, base, reserved)
+	if err != nil {
+		return Result{}, err
+	}
+	return postRun(req, dynamic), nil
 }
 
 func resolveDynamicPort(req Request, attempt state.Meta, reserved int) (Result, error) {
@@ -292,6 +296,19 @@ func preRunHook(command, workDir, stdoutPath, stderrPath string) func() error {
 		}
 		return nil
 	}
+}
+
+// postRun runs commands.start.hooks.post_run only once the start is COMMITTED: meta is persisted, the route is resolved and the child exists. That ordering is why a failure can only warn — the service is alive and killing it over a post-hook would surprise more than it protects — and the warning travels the way every other start warning does, through Result.Warnings into the service log.
+func postRun(req Request, out Result) Result {
+	hook := req.Manifest.Commands.Start.Hooks.PostRun
+	if hook == "" {
+		return out
+	}
+	if _, _, err := logrun.Run("post_run", hook, req.Path, req.StdoutPath, req.StderrPath); err != nil {
+		out.Warnings = append(out.Warnings, fmt.Sprintf(
+			"commands.start.hooks.post_run %q failed: %v (its output is in the service log)", hook, err))
+	}
+	return out
 }
 
 func routeCandidates(req Request) ([]string, error) {

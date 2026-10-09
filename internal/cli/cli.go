@@ -85,7 +85,8 @@ type StartCommandInfo struct {
 
 // HooksInfo is always present and its keys always emitted: an agent must be able to tell "no hook" from "field not supported by this vroom version".
 type HooksInfo struct {
-	PreRun string `json:"pre_run"`
+	PreRun  string `json:"pre_run"`
+	PostRun string `json:"post_run"`
 }
 
 type RunnableInfo struct {
@@ -299,7 +300,7 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 	info.Commands = &CommandsInfo{
 		Start: StartCommandInfo{
 			Run:   m.Commands.Start.Run,
-			Hooks: HooksInfo{PreRun: m.Commands.Start.Hooks.PreRun},
+			Hooks: HooksInfo{PreRun: m.Commands.Start.Hooks.PreRun, PostRun: m.Commands.Start.Hooks.PostRun},
 		},
 		Build:   RunnableInfo{Run: m.Commands.Build.Run},
 		Install: RunnableInfo{Run: m.Commands.Install.Run},

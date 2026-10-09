@@ -165,12 +165,13 @@ commands.stop.run = "docker stop web-frontend"
 	}
 }
 
-// commands.start.hooks.pre_run is an optional fail-fast hook: its absence must keep behaving exactly as before the hook existed.
-func TestParsePreRunHook(t *testing.T) {
+// commands.start.hooks are optional: their absence must keep behaving exactly as before the hooks existed.
+func TestParseStartHooks(t *testing.T) {
 	path := writeManifest(t, `
 name = "actuacions-api"
 commands.start.run = "mise run start"
 commands.start.hooks.pre_run = "fuser -k 5005/tcp || true"
+commands.start.hooks.post_run = "curl -fsS localhost:8090/actuacions/health"
 `)
 	m, err := Parse(path)
 	if err != nil {
@@ -179,13 +180,16 @@ commands.start.hooks.pre_run = "fuser -k 5005/tcp || true"
 	if m.Commands.Start.Hooks.PreRun != "fuser -k 5005/tcp || true" {
 		t.Errorf("pre_run misparsed: %+v", m)
 	}
+	if m.Commands.Start.Hooks.PostRun != "curl -fsS localhost:8090/actuacions/health" {
+		t.Errorf("post_run misparsed: %+v", m)
+	}
 
 	minimal, err := Parse(writeManifest(t, "name = \"x\"\ncommands.start.run = \"y\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if minimal.Commands.Start.Hooks.PreRun != "" {
-		t.Errorf("pre_run must default to empty: %+v", minimal)
+	if minimal.Commands.Start.Hooks.PreRun != "" || minimal.Commands.Start.Hooks.PostRun != "" {
+		t.Errorf("both hooks must default to empty: %+v", minimal)
 	}
 }
 

@@ -46,9 +46,10 @@ type StartCommand struct {
 	Hooks StartHooks `toml:"hooks"`
 }
 
-// StartHooks: pre_run is fail-fast, because a prerequisite it could not satisfy must not be papered over by a service that starts anyway.
+// StartHooks: pre_run is fail-fast, because a prerequisite it could not satisfy must not be papered over by a service that starts anyway. post_run only warns — by the time it runs the service is already alive, and killing it over a post-hook would surprise more than it protects.
 type StartHooks struct {
-	PreRun string `toml:"pre_run"`
+	PreRun  string `toml:"pre_run"`
+	PostRun string `toml:"post_run"`
 }
 
 const (

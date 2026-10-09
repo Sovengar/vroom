@@ -170,6 +170,14 @@ start path (`vroom start`, `s`, `R`, `vroom launch`) and never on
 `already_running`. Since the hook is plain `sh -c`, a best-effort step ends with
 `|| true` (`fuser` exits non-zero when nobody holds the port).
 
+`commands.start.hooks.post_run` is the counterpart that needs the service **already
+up**: it runs at the very end of the start — state persisted, port resolved,
+route registered — for seeding, warming or notifying. It is **warn-only** on
+purpose: the service is alive, so a non-zero exit never fails the start nor
+kills it; the failure names the hook and its exit status among the start
+warnings (Console + `vroom logs`) and its output stays in the service log behind
+the `post_run` banner.
+
 ### `port_mode`: the same manifest for multiple worktrees
 
 `port` is not the detection mechanism: it is the **default port of your app**,
