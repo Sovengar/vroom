@@ -1,6 +1,7 @@
 package startsvc
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -135,7 +136,7 @@ type resultSpy struct {
 	sawPrev portless.Ownership
 }
 
-func (r *resultSpy) Apply(name string, port int, prev portless.Ownership) portless.Result {
+func (r *resultSpy) ApplyContext(ctx context.Context, name string, port int, prev portless.Ownership) portless.Result {
 	r.sawPrev = prev
 	res := r.result
 	res.Name = name
@@ -162,7 +163,7 @@ type reconcileSpy struct {
 
 func (r *reconcileSpy) Lookup(string) (int, bool, error) { return 0, false, nil }
 
-func (r *reconcileSpy) Apply(name string, port int, prev portless.Ownership) portless.Result {
+func (r *reconcileSpy) ApplyContext(ctx context.Context, name string, port int, prev portless.Ownership) portless.Result {
 	r.sawPrev = prev
 	return portless.Result{
 		Name: name, Host: portless.Hostname(name),

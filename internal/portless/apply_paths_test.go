@@ -355,8 +355,14 @@ func TestVerifyStopsAtOnceWhenTheCallerContextIsCancelled(t *testing.T) {
 	if probes != 2 {
 		t.Errorf("probes = %d, want 2: the first round runs, then the cancelled wait must stop the loop", probes)
 	}
-	if r.Succeeded() {
-		t.Errorf("Status = %q: nothing was proven, so the route cannot be published", r.Status)
+	if r.Status != StatusDegraded {
+		t.Errorf("Status = %q: a cancelled verify cannot be reported registered", r.Status)
+	}
+	if r.Reason != ReasonCancelled {
+		t.Errorf("Reason = %q, want %q: an abandoned caller must not be told the route is not served", r.Reason, ReasonCancelled)
+	}
+	if !r.Registered {
+		t.Error("Registered was lost: the write happened before probing")
 	}
 	if r.Url != "" {
 		t.Errorf("Url = %q: nothing was proven, so nothing may be published", r.Url)

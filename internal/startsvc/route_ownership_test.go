@@ -1,6 +1,7 @@
 package startsvc
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -98,7 +99,7 @@ type ownershipSpy struct {
 	saw       portless.Ownership
 }
 
-func (o *ownershipSpy) Apply(name string, port int, prev portless.Ownership) portless.Result {
+func (o *ownershipSpy) ApplyContext(ctx context.Context, name string, port int, prev portless.Ownership) portless.Result {
 	o.saw = prev
 	o.prevPorts = append(o.prevPorts, prev.Port)
 	return portless.Result{

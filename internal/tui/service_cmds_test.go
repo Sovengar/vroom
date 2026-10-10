@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"net"
 	"os"
@@ -15,6 +16,18 @@ import (
 	"vroom/internal/scanner"
 	"vroom/internal/state"
 )
+
+// The TUI threads its program lifetime into starts: WithStartContext must install the caller's context and never leave the field nil, because startCmd hands it straight to a start whose route verify waits on it. Negligible here: a zero Model is enough, no store or scan needed.
+func TestWithStartContextThreadsTheProgramLifetime(t *testing.T) {
+	ctx := context.Background()
+	if got := (Model{}).WithStartContext(ctx).startCtx; got != ctx {
+		t.Errorf("startCtx = %v, want the caller context", got)
+	}
+	//nolint:staticcheck // deliberately exercises the nil-context guard.
+	if got := (Model{}).WithStartContext(nil).startCtx; got == nil {
+		t.Error("WithStartContext(nil) must install context.Background(), never leave startCtx nil")
+	}
+}
 
 // EnsureServiceDir runs before the launch: with no service directory there are no logs, and a process started without one leaves the user with nothing to look at exactly when it breaks.
 func TestStartCmdPropagaElErrorDelStoreAntesDeArrancar(t *testing.T) {
@@ -34,7 +47,7 @@ func TestStartCmdPropagaElErrorDelStoreAntesDeArrancar(t *testing.T) {
 	// No EnsureServiceDir on purpose: the store is unusable, which is the point.
 	p := proyectoConManifiesto(t, "/dev/api", 4321)
 
-	msg := startCmd(store, mgr, p, "")()
+	msg := startCmd(context.Background(), store, mgr, p, "")()
 	sm, ok := msg.(startedMsg)
 	if !ok {
 		t.Fatalf("startCmd returned %T, want startedMsg", msg)
@@ -65,7 +78,7 @@ func TestStartCmdTraeLosAvisosAlLogDeStderr(t *testing.T) {
 			URLGeneration: generation, RouteName: "api",
 		}
 		p := scanner.Project{Path: path, Name: "api", Configured: true, Manifest: &m}
-		startCmd(store, mgr, p, "")()
+		startCmd(context.Background(), store, mgr, p, "")()
 		return store.StderrLog(path)
 	}
 
