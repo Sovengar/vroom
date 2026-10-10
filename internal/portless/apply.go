@@ -165,6 +165,8 @@ func (c *Client) verify(ctx context.Context, name string, port int) Result {
 	deadline := time.Now().Add(c.verifyWait)
 	// answered records that the proxy itself replied (a 404), which is already proof it is reachable: only a request that answers nothing reaches acceptsConnections.
 	answered := false
+	// cancelled records that the caller cut the propagation window: it is a third outcome, not proof the route is unserved.
+	cancelled := false
 	for {
 		replied := false
 		for _, scheme := range []string{"https", "http"} {
@@ -197,10 +199,17 @@ func (c *Client) verify(ctx context.Context, name string, port int) Result {
 		}
 		// An abandoned caller stops here instead of sleeping: select cuts the bout as soon as ctx is done.
 		if !c.wait(ctx, verifyPollInterval) {
+			cancelled = true
 			break
 		}
 	}
 
+	if cancelled {
+		// Nothing about the route was proven because the caller walked away: publishing no url and claiming route_not_served would misreport an abandoned start as an unserved route.
+		r := Degraded(name, ReasonCancelled)
+		r.Registered = true
+		return r
+	}
 	if answered {
 		// The proxy answered for the host and still does not route it, so this is the not-served degradation, exactly as before the wait.
 		return Degraded(name, ReasonRouteNotServed)
@@ -299,6 +308,9 @@ func Warn(r Result) string {
 		return "the service port is not resolved yet, so no route was published"
 	case ReasonRouteNotServed:
 		return "the portless proxy does not serve this route, so no URL was published; " +
+			"the service is running on its own port as usual"
+	case ReasonCancelled:
+		return "the start was cancelled before the portless route could be verified, so no URL was published; " +
 			"the service is running on its own port as usual"
 	default:
 		return "no portless route published (" + r.Reason + "); " +
