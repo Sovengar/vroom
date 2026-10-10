@@ -38,6 +38,8 @@ Phase: review
 
 Review: 2026-08-24 — verdict **fix**: 0 CRITICAL, 0 HIGH, 2 MEDIUM, 8 LOW across five parallel reviews (behavior 2 LOW · code 4 LOW · security 0 · performance 1 MEDIUM + 2 LOW · docs 1 MEDIUM). Verification: passing (Lint, CI fast, Test, Integration green; Mutation skipped).
 
+Fix pass: MEDIUM-1 (verify's retry window is now cancellable — `ApplyContext` + `select` on `ctx.Done()`, commit 2bc5f2a) and MEDIUM-2 (ADR Decision 7 probe cost under the retry window, commit 428991c) resolved. Re-verified: `make check` green, diff coverage 100% (69/69), total 100%, Mutation 4 killed / 0 survived.
+
 | Scenario (behavior.feature) | Status | Commit |
 | --- | --- | --- |
 | A route the proxy picks up inside the window is published | ✅ | 7c1ab05 |
