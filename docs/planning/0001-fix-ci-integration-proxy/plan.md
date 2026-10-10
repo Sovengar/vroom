@@ -34,17 +34,17 @@ The fix is already committed (`7c1ab05`) and **is the change under test — veri
 
 ## Progress
 
-Phase: planning
+Phase: verification
 
 | Scenario (behavior.feature) | Status | Commit |
 | --- | --- | --- |
-| A route the proxy picks up inside the window is published | ⬜ | |
-| A genuinely unserved route still degrades when the window closes | ⬜ | |
-| A declared proxy port that refuses connections degrades at once | ⬜ | |
-| A routed-but-dead backend still publishes its Url | ⬜ | |
-| A served route never pays the window | ⬜ | |
-| No proxy running degrades without probing | ⬜ | |
-| The window is on by default and can be opted out | ⬜ | |
-| The ladder e2e Url answers from its own backend | ⬜ | |
-| A route survives a proxy restart | ⬜ | |
-| Live portless routes are not evicted | ⬜ | |
+| A route the proxy picks up inside the window is published | ✅ | 7c1ab05 |
+| A genuinely unserved route still degrades when the window closes | ✅ | 7c1ab05 |
+| A declared proxy port that refuses connections degrades at once | ✅ | f806c8e |
+| A routed-but-dead backend still publishes its Url | ✅ | 7c1ab05 |
+| A served route never pays the window | ✅ | f806c8e |
+| No proxy running degrades without probing | ✅ | 7c1ab05 |
+| The window is on by default and can be opted out | ✅ | f806c8e |
+| The ladder e2e Url answers from its own backend | ✅ | 7c1ab05 |
+| A route survives a proxy restart | ✅ | 7c1ab05 |
+| Live portless routes are not evicted | ✅ | 7c1ab05 |
