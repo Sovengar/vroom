@@ -131,6 +131,10 @@ func TestNewInstallsTheDefaultPropagationWindow(t *testing.T) {
 	if got := New().verifyWait; got != DefaultVerifyWait {
 		t.Errorf("verifyWait = %v, want the default %v", got, DefaultVerifyWait)
 	}
+	// Pin the literal 3.5s, not only the DefaultVerifyWait constant: a change to the constant would otherwise pass both this and the scenario contract.
+	if DefaultVerifyWait != 3500*time.Millisecond {
+		t.Errorf("DefaultVerifyWait = %v, want 3.5s", DefaultVerifyWait)
+	}
 	if got := New(WithVerifyWait(0)).verifyWait; got != 0 {
 		t.Errorf("WithVerifyWait(0) did not override the default: %v", got)
 	}

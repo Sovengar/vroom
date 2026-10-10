@@ -97,8 +97,12 @@ func (c *Client) Apply(name string, port int, prev Ownership) Result {
 	return c.ApplyContext(context.Background(), name, port, prev)
 }
 
-// ApplyContext is Apply with a caller-owned lifetime. Verification retries the probe for a bounded window (verifyWait), so an abandoned caller — a cancelled command, a TUI shutting down — must be able to stop at once instead of sleeping the rest of the window; without a context there is nothing to cut that wait. The context must not be nil.
+// ApplyContext is Apply with a caller-owned lifetime. Verification retries the probe for a bounded window (verifyWait), so an abandoned caller — a cancelled command, a TUI shutting down — must be able to stop at once instead of sleeping the rest of the window; without a context there is nothing to cut that wait. A nil context is treated as context.Background() rather than panicking inside context.WithTimeout.
 func (c *Client) ApplyContext(ctx context.Context, name string, port int, prev Ownership) Result {
+	if ctx == nil {
+		// Exported seam: a nil context from a caller must degrade to "no cancellation", not crash the start.
+		ctx = context.Background()
+	}
 	if !c.HasBinary() {
 		return Degraded(name, ReasonPortlessMissing)
 	}

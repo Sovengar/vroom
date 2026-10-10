@@ -224,6 +224,9 @@ func TestVerifyDegradesAfterThePropagationWindowCloses(t *testing.T) {
 	if r.Reason != ReasonRouteNotServed {
 		t.Errorf("Reason = %q, want %q", r.Reason, ReasonRouteNotServed)
 	}
+	if r.Url != "" {
+		t.Errorf("Url = %q: a route the proxy never serves must not publish an address", r.Url)
+	}
 	if probes < 2 {
 		t.Errorf("probes = %d: a persistent 404 must be retried before it is declared final", probes)
 	}
@@ -304,6 +307,19 @@ func TestVerifyDoesNotPayTheWindowForADeclaredPortThatRefusesConnections(t *test
 	}
 	if elapsed >= c.verifyWait {
 		t.Errorf("elapsed %v >= the window %v: a port that cannot serve must degrade at once, not after the wait", elapsed, c.verifyWait)
+	}
+}
+
+// The exported seam must survive a caller that passes nil: context.WithTimeout(nil, …) would panic on parent.Done(), so nil degrades to "no cancellation" instead of crashing a start.
+func TestApplyContextTreatsNilContextAsBackground(t *testing.T) {
+	srv := newHTTPServer(t, http.StatusOK)
+	c := newClientWithProxy(t, srvPort(t, srv), okExec(t))
+
+	//nolint:staticcheck // deliberately exercises the exported nil-context guard.
+	r := c.ApplyContext(nil, "svc", 8080, Ownership{})
+
+	if r.Status != StatusRegistered {
+		t.Fatalf("Status = %q (reason %q): a nil context must behave like context.Background()", r.Status, r.Reason)
 	}
 }
 
