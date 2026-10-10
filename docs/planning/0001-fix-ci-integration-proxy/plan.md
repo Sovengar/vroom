@@ -40,6 +40,8 @@ Review: 2026-08-24 — verdict **fix**: 0 CRITICAL, 0 HIGH, 2 MEDIUM, 8 LOW acro
 
 Fix pass: MEDIUM-1 (verify's retry window is now cancellable — `ApplyContext` + `select` on `ctx.Done()`, commit 2bc5f2a) and MEDIUM-2 (ADR Decision 7 probe cost under the retry window, commit 428991c) resolved. Re-verified: `make check` green, diff coverage 100% (69/69), total 100%, Mutation 4 killed / 0 survived.
 
+Review 2: 2026-08-24 (tip 694b6c7) — verdict **fix**: 0 CRITICAL, 0 HIGH, 2 MEDIUM, 8 LOW (behavior 1 MEDIUM + 3 LOW · code 1 MEDIUM · security 0 · performance 0 MEDIUM + 3 LOW · docs 2 LOW). Both prior MEDIUMs confirmed resolved. New MEDIUMs, both on the `ApplyContext` seam: (1) exported method panics on a nil context (doc-comment-only guard, apply.go:101); (2) no production caller — `startsvc` still routes through `Apply` → `context.Background()`, so the TUI/CLI never benefit from the cancellation they motivated the fix (apply.go:96-101, startsvc.go:292-295). Verification: passing (Lint, CI fast, Test, Integration green; Mutation skipped). Change left unopened.
+
 | Scenario (behavior.feature) | Status | Commit |
 | --- | --- | --- |
 | A route the proxy picks up inside the window is published | ✅ | 7c1ab05 |
