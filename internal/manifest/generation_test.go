@@ -83,8 +83,8 @@ func TestHasPort(t *testing.T) {
 
 func TestValidateRejectsUnknownGeneration(t *testing.T) {
 	for _, m := range []Manifest{
-		{Name: "x", Command: "run", Port: 8080, URLGeneration: "random"},
-		{Name: "x", Command: "run", Port: 8080, Worktrees: Worktrees{URLGeneration: "random"}},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080, URLGeneration: "random"},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080, Worktrees: Worktrees{URLGeneration: "random"}},
 	} {
 		if err := m.Validate(); err == nil {
 			t.Fatalf("invalid url_generation must be rejected: %+v", m)
@@ -95,12 +95,12 @@ func TestValidateRejectsUnknownGeneration(t *testing.T) {
 // A hostname generation IS its name, so route_name is mandatory there and rejected anywhere else instead of being silently ignored.
 func TestValidateRouteNameRequiresANameGeneration(t *testing.T) {
 	rejected := []Manifest{
-		{Name: "x", Command: "run", Port: 8080, RouteName: "api"}, // legacy by_port
-		{Name: "x", Command: "run", Port: 8080, URLGeneration: URLGenByWorkspaceHostname, RouteName: "api"},
-		{Name: "x", Command: "run", Port: 8080, URLGeneration: URLGenNone, RouteName: "api"},
-		{Name: "x", Command: "run", Port: 8080, URLGeneration: URLGenByHostname}, // name required, absent
-		{Name: "x", Command: "run", Port: 8080, URLGeneration: URLGenByHostnameOrWorkspace},
-		{Name: "x", Command: "run", Port: 8080, URLGeneration: URLGenByPort, Worktrees: Worktrees{URLGeneration: URLGenByHostname}}, // override needs the name too
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080, RouteName: "api"}, // legacy by_port
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080, URLGeneration: URLGenByWorkspaceHostname, RouteName: "api"},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080, URLGeneration: URLGenNone, RouteName: "api"},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080, URLGeneration: URLGenByHostname}, // name required, absent
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080, URLGeneration: URLGenByHostnameOrWorkspace},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080, URLGeneration: URLGenByPort, Worktrees: Worktrees{URLGeneration: URLGenByHostname}}, // override needs the name too
 	}
 	for i, m := range rejected {
 		if err := m.Validate(); err == nil {
@@ -108,9 +108,9 @@ func TestValidateRouteNameRequiresANameGeneration(t *testing.T) {
 		}
 	}
 	accepted := []Manifest{
-		{Name: "x", Command: "run", Port: 8080, URLGeneration: URLGenByHostname, RouteName: "api"},
-		{Name: "x", Command: "run", Port: 8080, URLGeneration: URLGenByHostnameOrWorkspace, RouteName: "api"},
-		{Name: "x", Command: "run", Port: 8080, URLGeneration: URLGenByPort, Worktrees: Worktrees{URLGeneration: URLGenByHostnameOrWorkspace}, RouteName: "api"},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080, URLGeneration: URLGenByHostname, RouteName: "api"},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080, URLGeneration: URLGenByHostnameOrWorkspace, RouteName: "api"},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080, URLGeneration: URLGenByPort, Worktrees: Worktrees{URLGeneration: URLGenByHostnameOrWorkspace}, RouteName: "api"},
 	}
 	for i, m := range accepted {
 		if err := m.Validate(); err != nil {
@@ -122,20 +122,20 @@ func TestValidateRouteNameRequiresANameGeneration(t *testing.T) {
 // Every generation but none needs a declared default port behind PORT=${PORT:-N}, and a worktree override is bound by the same rule.
 func TestValidateGenerationRequiresAPort(t *testing.T) {
 	rejected := []Manifest{
-		{Name: "x", Command: "run", URLGeneration: URLGenByPort}, // explicit by_port without port
-		{Name: "x", Command: "run", URLGeneration: URLGenByWorkspaceHostname},
-		{Name: "x", Command: "run", URLGeneration: URLGenByHostname, RouteName: "api"},
-		{Name: "x", Command: "run", URLGeneration: URLGenByPort, Worktrees: Worktrees{URLGeneration: URLGenByWorkspaceHostname}},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, URLGeneration: URLGenByPort}, // explicit by_port without port
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, URLGeneration: URLGenByWorkspaceHostname},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, URLGeneration: URLGenByHostname, RouteName: "api"},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, URLGeneration: URLGenByPort, Worktrees: Worktrees{URLGeneration: URLGenByWorkspaceHostname}},
 	}
 	for i, m := range rejected {
 		if err := m.Validate(); err == nil {
 			t.Errorf("manifest %d without a declared port should have been rejected: %+v", i, m)
 		}
 	}
-	if err := (&Manifest{Name: "x", Command: "run", URLGeneration: URLGenNone}).Validate(); err != nil {
+	if err := (&Manifest{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, URLGeneration: URLGenNone}).Validate(); err != nil {
 		t.Errorf("none needs no port: %v", err)
 	}
-	if err := (&Manifest{Name: "x", Command: "run"}).Validate(); err != nil {
+	if err := (&Manifest{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}}).Validate(); err != nil {
 		t.Errorf("a bare manifest with no port is the legacy headless door and must validate: %v", err)
 	}
 }
@@ -143,15 +143,15 @@ func TestValidateGenerationRequiresAPort(t *testing.T) {
 // Riesgo 15: the cross-field rule the doc declared and the code never applied, now enforced as a genuine cross-field check.
 func TestValidateHealthPathCrossField(t *testing.T) {
 	rejected := []Manifest{
-		{Name: "x", Command: "run", HealthPath: "/healthz"}, // without port
-		{Name: "x", Command: "run", URLGeneration: URLGenNone, HealthPath: "/h"},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, HealthPath: "/healthz"}, // without port
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, URLGeneration: URLGenNone, HealthPath: "/h"},
 	}
 	for i, m := range rejected {
 		if err := m.Validate(); err == nil {
 			t.Errorf("manifest %d should have been rejected: %+v", i, m)
 		}
 	}
-	accept := Manifest{Name: "x", Command: "run", Port: 8080, HealthPath: "/healthz"}
+	accept := Manifest{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080, HealthPath: "/healthz"}
 	if err := accept.Validate(); err != nil {
 		t.Errorf("health_path with port must be accepted: %v", err)
 	}
@@ -160,9 +160,9 @@ func TestValidateHealthPathCrossField(t *testing.T) {
 // A manifest that declares nothing behaves exactly as before the field existed: the backward-compatibility door is total.
 func TestValidateBackwardsCompatible(t *testing.T) {
 	legacy := []Manifest{
-		{Name: "x", Command: "run", Port: 8080},
-		{Name: "x", Command: "run", Port: 65535, ProcessPattern: "npm"},
-		{Name: "x", Command: "run", Port: 8080, HealthPath: "/healthz"},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 65535, ProcessPattern: "npm"},
+		{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}, Port: 8080, HealthPath: "/healthz"},
 	}
 	for i, m := range legacy {
 		if err := m.Validate(); err != nil {
@@ -172,7 +172,7 @@ func TestValidateBackwardsCompatible(t *testing.T) {
 			t.Errorf("legacy manifest %d must resolve to by_port, got %q", i, got)
 		}
 	}
-	if err := (&Manifest{Name: "x", Command: "run"}).Validate(); err != nil {
+	if err := (&Manifest{Name: "x", Commands: Commands{Start: StartCommand{Run: "run"}}}).Validate(); err != nil {
 		t.Errorf("a headless legacy manifest must still validate: %v", err)
 	}
 }

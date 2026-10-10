@@ -1,6 +1,6 @@
 name = "auth-api-go"
 primary_group = "servers"
 secondary_group = "go"
-command_start = "go run main.go"
+commands.start.run = "go run main.go"
 port = 8091
 process_pattern = ""

@@ -43,13 +43,13 @@ func TestScanRealGitWorktrees(t *testing.T) {
 		}
 	}
 	runGit(t, root, "init", "-q", "-b", "main", repo)
-	write(filepath.Join(repo, ".vroom.toml"), "name = \"repo\"\ncommand_start = \"echo\"\n")
+	write(filepath.Join(repo, ".vroom.toml"), "name = \"repo\"\ncommands.start.run = \"echo\"\n")
 	runGit(t, repo, "add", "-A")
 	runGit(t, repo, "commit", "-q", "-m", "init")
 
 	wtA := filepath.Join(root, "repo-wt-a")
 	runGit(t, repo, "worktree", "add", "-q", wtA, "-b", "feature")
-	write(filepath.Join(wtA, ".vroom.toml"), "name = \"api\"\ncommand_start = \"echo\"\n")
+	write(filepath.Join(wtA, ".vroom.toml"), "name = \"api\"\ncommands.start.run = \"echo\"\n")
 
 	wtDet := filepath.Join(root, "repo-wt-det")
 	runGit(t, repo, "worktree", "add", "-q", "--detach", wtDet)
@@ -96,7 +96,7 @@ func TestScanRealBareRepoWithWorktree(t *testing.T) {
 	runGit(t, seed, "commit", "-q", "-m", "init")
 	runGit(t, root, "clone", "-q", "--bare", seed, bare)
 	runGit(t, bare, "worktree", "add", "-q", wt, "main")
-	write(filepath.Join(wt, ".vroom.toml"), "name = \"api\"\ncommand_start = \"echo\"\n")
+	write(filepath.Join(wt, ".vroom.toml"), "name = \"api\"\ncommands.start.run = \"echo\"\n")
 
 	result, err := Scan(root, 4)
 	if err != nil {
@@ -125,13 +125,13 @@ func TestScanRealGitSubmoduleNotWorktree(t *testing.T) {
 	runGit(t, root, "init", "-q", "-b", "main", sub)
 	runGit(t, sub, "commit", "-q", "--allow-empty", "-m", "init")
 	runGit(t, root, "init", "-q", "-b", "main", repo)
-	if err := os.WriteFile(filepath.Join(repo, ".vroom.toml"), []byte("name = \"repo\"\ncommand_start = \"echo\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".vroom.toml"), []byte("name = \"repo\"\ncommands.start.run = \"echo\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	runGit(t, repo, "add", "-A")
 	runGit(t, repo, "commit", "-q", "-m", "init")
 	runGit(t, repo, "submodule", "add", "-q", sub, "sub")
-	if err := os.WriteFile(filepath.Join(repo, "sub", ".vroom.toml"), []byte("name = \"sub\"\ncommand_start = \"echo\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, "sub", ".vroom.toml"), []byte("name = \"sub\"\ncommands.start.run = \"echo\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

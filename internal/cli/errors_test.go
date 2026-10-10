@@ -87,7 +87,7 @@ func TestCmdListConEscaneoFallidoNoDevuelveFilaVacia(t *testing.T) {
 	}
 }
 
-// TestCmdStartPropagaElFalloDeArranque: MEDIDO, only an empty command_start surfaces here; a nonexistent binary is discovered by the daemonized child's sh -c after Start already returned, and vroom never waits for liveness, so asserting it would freeze a defect as a contract.
+// TestCmdStartPropagaElFalloDeArranque: MEDIDO, only an empty commands.start.run surfaces here; a nonexistent binary is discovered by the daemonized child's sh -c after Start already returned, and vroom never waits for liveness, so asserting it would freeze a defect as a contract.
 func TestCmdStartPropagaElFalloDeArranque(t *testing.T) {
 	root := cliEnv(t)
 	store := mustStore(t)
@@ -105,7 +105,7 @@ func TestCmdStartPropagaElFalloDeArranque(t *testing.T) {
 
 	payload, err := cmdStart("api", "")
 	if err == nil {
-		t.Fatalf("a manifest without command_start cannot start: returned %+v", payload)
+		t.Fatalf("a manifest without commands.start.run cannot start: returned %+v", payload)
 	}
 	if !strings.Contains(err.Error(), "start failed") {
 		t.Errorf("err = %q, want the prefix 'start failed' from the contract", err)
@@ -379,7 +379,7 @@ type fakeProject struct {
 func (f *fakeProject) project(t *testing.T) scanner.Project {
 	t.Helper()
 	dir := t.TempDir()
-	m := &manifest.Manifest{Name: f.name, Command: "sleep 30", PrimaryGroup: f.primary, SecondaryGroup: f.secondary}
+	m := &manifest.Manifest{Name: f.name, Commands: manifest.Commands{Start: manifest.StartCommand{Run: "sleep 30"}}, PrimaryGroup: f.primary, SecondaryGroup: f.secondary}
 	return scanner.Project{Path: dir, Name: f.name, Configured: true, Manifest: m}
 }
 

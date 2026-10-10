@@ -278,7 +278,7 @@ func TestToggleGroupClearsConsoleOfSelectedMember(t *testing.T) {
 // MEASURED: these heights are subtractions that can go negative and strings.Repeat panics on a negative count; updateLayout is pure, so any size can be fed without a real tiny terminal.
 func TestLayoutPreventsNegativeInnerHeight(t *testing.T) {
 	cases := []struct {
-		name       string
+		name          string
 		width, height int
 	}{
 		{"1x1 terminal", 1, 1},
@@ -443,7 +443,7 @@ func modelWithTreeOf(t *testing.T, projects int) Model {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		manifest := fmt.Sprintf("name = \"p%02d\"\ncommand_start = \"true\"\nprimary_group = \"g\"\nsecondary_group = \"s%02d\"\n", i, i)
+		manifest := fmt.Sprintf("name = \"p%02d\"\ncommands.start.run = \"true\"\nprimary_group = \"g\"\nsecondary_group = \"s%02d\"\n", i, i)
 		if err := os.WriteFile(filepath.Join(dir, ".vroom.toml"), []byte(manifest), 0o644); err != nil {
 			t.Fatal(err)
 		}

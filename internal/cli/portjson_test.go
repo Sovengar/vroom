@@ -106,7 +106,7 @@ func closedPort(t *testing.T) int {
 
 func dynamicManifest() *manifest.Manifest {
 	return &manifest.Manifest{
-		Name: "svc", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname,
+		Name: "svc", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname,
 	}
 }
 
@@ -161,7 +161,7 @@ func TestJSONRecordedGenerationOutranksManifest(t *testing.T) {
 	meta := liveMetaWithState(t, state.StateRunning, port, true)
 	meta.URLGeneration = manifest.URLGenByWorkspaceHostname
 
-	row := jsonRow(t, &manifest.Manifest{Name: "svc", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByPort}, meta, true)
+	row := jsonRow(t, &manifest.Manifest{Name: "svc", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080, URLGeneration: manifest.URLGenByPort}, meta, true)
 
 	if row["url_generation"] != manifest.URLGenByWorkspaceHostname {
 		t.Errorf("url_generation = %v, want the recorded %q", row["url_generation"], manifest.URLGenByWorkspaceHostname)
@@ -171,7 +171,7 @@ func TestJSONRecordedGenerationOutranksManifest(t *testing.T) {
 // Without a recorded generation the manifest decides, as before.
 func TestJSONGenerationFallsBackToManifest(t *testing.T) {
 	port := openPort(t)
-	row := jsonRow(t, &manifest.Manifest{Name: "svc", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByPort},
+	row := jsonRow(t, &manifest.Manifest{Name: "svc", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080, URLGeneration: manifest.URLGenByPort},
 		liveMetaWithState(t, state.StateRunning, port, true), true)
 
 	if row["url_generation"] != manifest.URLGenByPort {
@@ -218,7 +218,7 @@ func TestJSONPortPendingIsDistinctFromUnresolved(t *testing.T) {
 
 // Regression gate: a legacy manifest with no url_generation and port = 0 must behave exactly as before (the headless door resolves to none).
 func TestJSONLegacyFixedZeroPortIsUnchanged(t *testing.T) {
-	m := &manifest.Manifest{Name: "svc", Command: "run"}
+	m := &manifest.Manifest{Name: "svc", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}}
 	if gen := m.EffectiveURLGeneration(false); gen != manifest.URLGenNone {
 		t.Fatalf("EffectiveURLGeneration = %q, want none", gen)
 	}
@@ -247,7 +247,7 @@ func TestJSONLegacyFixedZeroPortIsUnchanged(t *testing.T) {
 }
 
 func TestJSONStoppedFixedKeepsDeclaredPort(t *testing.T) {
-	m := &manifest.Manifest{Name: "svc", Command: "run", Port: 8080}
+	m := &manifest.Manifest{Name: "svc", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080}
 	row := jsonRow(t, m, state.Meta{}, false)
 
 	if row["port"] != float64(8080) {

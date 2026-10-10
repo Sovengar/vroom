@@ -114,7 +114,7 @@ func startRetire(t *testing.T, prev state.Meta, factory RegistrarFunc) (Result, 
 	if err := store.SaveMeta(dir, prev); err != nil {
 		t.Fatal(err)
 	}
-	m := &manifest.Manifest{Name: "api", Command: "sleep 30", Port: freePort(t), URLGeneration: manifest.URLGenByPort}
+	m := &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "sleep 30"}}, Port: freePort(t), URLGeneration: manifest.URLGenByPort}
 	return Start(Request{
 		Manifest:         m,
 		Path:             dir,

@@ -34,7 +34,7 @@ func projectWith(dir string, m *manifest.Manifest) scanner.Project {
 func TestJSONSeparatesIntentFromOutcome(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
-	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080,
+	m := &manifest.Manifest{Name: "p", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080,
 		URLGeneration: manifest.URLGenByHostnameOrWorkspace, RouteName: "mi-url"}
 	if err := store.SaveMeta(dir, state.Meta{
 		Name: "p", Pid: 42, Port: 8080, State: state.StateRunning,
@@ -66,7 +66,7 @@ func TestJSONSeparatesIntentFromOutcome(t *testing.T) {
 func TestPublishedRouteNameIsNeverAURL(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
-	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname}
+	m := &manifest.Manifest{Name: "p", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname}
 	if err := store.SaveMeta(dir, state.Meta{
 		Name: "p", Pid: 1, Port: 8080, State: state.StateRunning,
 		RouteName: "feat.api", RouteStatus: portless.StatusRegistered, RouteURL: "https://feat.api.localhost",
@@ -91,7 +91,7 @@ func TestDegradedRoutePublishesNoURL(t *testing.T) {
 	} {
 		store := state.NewStoreAt(t.TempDir())
 		dir := t.TempDir()
-		m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname}
+		m := &manifest.Manifest{Name: "p", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname}
 		if err := store.SaveMeta(dir, state.Meta{
 			Name: "p", Pid: 1, Port: 8080, State: state.StateRunning,
 			RouteName: "p", RouteStatus: portless.StatusDegraded, RouteReason: reason,
@@ -120,7 +120,7 @@ func TestDegradedRoutePublishesNoURL(t *testing.T) {
 func TestRegisteredRoutePublishesItsURL(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
-	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname}
+	m := &manifest.Manifest{Name: "p", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname}
 	if err := store.SaveMeta(dir, state.Meta{
 		Name: "p", Pid: 1, Port: 8080, State: state.StateRunning,
 		RouteName: "p", RoutePort: 8080,
@@ -141,7 +141,7 @@ func TestRegisteredRoutePublishesItsURL(t *testing.T) {
 func TestNoRouteContractPublishesNoRouteObject(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
-	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080}
+	m := &manifest.Manifest{Name: "p", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080}
 	out := marshalInfo(t, buildProjectInfo(&stubManager{}, store, nil, projectWith(dir, m)))
 	if _, has := out["route"]; has {
 		t.Error("without a route contract the route object must be ABSENT")
@@ -155,7 +155,7 @@ func TestNoRouteContractPublishesNoRouteObject(t *testing.T) {
 func TestLegacyManifestJSONIsUnchanged(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
-	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080}
+	m := &manifest.Manifest{Name: "p", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080}
 	if err := store.SaveMeta(dir, state.Meta{Name: "p", Pid: 7, Port: 8080, State: state.StateRunning}); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestLegacyManifestJSONIsUnchanged(t *testing.T) {
 func TestJSONDoesNotAssertRouteJustBecauseItIsWritten(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
-	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname}
+	m := &manifest.Manifest{Name: "p", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname}
 	if err := store.SaveMeta(dir, state.Meta{
 		Name: "p", Pid: 1, Port: 8080, State: state.StateRunning,
 		RouteName: "p", RouteStatus: "", RouteReason: "",

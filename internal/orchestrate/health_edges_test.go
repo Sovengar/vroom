@@ -159,8 +159,8 @@ func TestStopStackConUnNombreQueNoResuelvePropagaElError(t *testing.T) {
 	}
 
 	ambos := []scanner.Project{
-		{Path: "/a/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "./a"}},
-		{Path: "/b/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "./b"}},
+		{Path: "/a/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./a"}}}},
+		{Path: "/b/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./b"}}}},
 	}
 	dup := &Stack{Name: "s", Stages: []Stage{{Name: "e", Services: []string{"api"}}}}
 	if err := engine.StopStack(dup, ambos); err == nil {
@@ -189,7 +189,7 @@ func TestStartServiceConStoreNoEscribibleReportaElError(t *testing.T) {
 		Name:       "api",
 		Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "api", Command: "./api", URLGeneration: manifest.URLGenNone,
+			Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./api"}}, URLGeneration: manifest.URLGenNone,
 		},
 	}}
 
@@ -216,7 +216,7 @@ func TestLaunchConServicioQueArrancaPeroNoAbreElPuertoFallaLaEtapaYLoDejaMuerto(
 		Name:       "api",
 		Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "api", Command: "sleep 300 # vroom-marker", Port: port, URLGeneration: manifest.URLGenByPort,
+			Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "sleep 300 # vroom-marker"}}, Port: port, URLGeneration: manifest.URLGenByPort,
 		},
 	}
 	stack := &Stack{Name: "app", Stages: []Stage{

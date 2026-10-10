@@ -131,7 +131,7 @@ func proyectoConGrupos(primary, secondary, name string) scanner.Project {
 	return scanner.Project{
 		Path: "/" + name, Name: name,
 		Manifest: &manifest.Manifest{
-			Name: name, Command: "./" + name,
+			Name: name, Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./" + name}},
 			PrimaryGroup: primary, SecondaryGroup: secondary,
 		},
 	}

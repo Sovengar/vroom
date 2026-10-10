@@ -112,7 +112,7 @@ func TestActionsWithoutManifestWarnWithManifestReason(t *testing.T) {
 
 // The message must name the manifest field to write: the user is one file away from fixing it.
 func TestActionsWithoutCommandSayWhichFieldToWrite(t *testing.T) {
-	// the base tree has neither command_install nor command_build
+	// the base tree has neither commands.install.run nor commands.build.run
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 
@@ -121,8 +121,8 @@ func TestActionsWithoutCommandSayWhichFieldToWrite(t *testing.T) {
 		acc   func(Model) (tea.Model, tea.Cmd)
 		field string
 	}{
-		{"runInstall", func(m Model) (tea.Model, tea.Cmd) { return m.runInstall() }, "command_install"},
-		{"runBuild", func(m Model) (tea.Model, tea.Cmd) { return m.runBuild() }, "command_build"},
+		{"runInstall", func(m Model) (tea.Model, tea.Cmd) { return m.runInstall() }, "commands.install.run"},
+		{"runBuild", func(m Model) (tea.Model, tea.Cmd) { return m.runBuild() }, "commands.build.run"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			next, cmd := tt.acc(m)
@@ -137,7 +137,7 @@ func TestActionsWithoutCommandSayWhichFieldToWrite(t *testing.T) {
 	}
 }
 
-// A restart is stop+start and needs something running: skipping the stop skips a command_stop that may clear a volume or queue.
+// A restart is stop+start and needs something running: skipping the stop skips a commands.stop.run that may clear a volume or queue.
 func TestRestartSelectedOnlyRestartsWhatIsRunning(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
@@ -179,8 +179,8 @@ func TestManifestStopReturnsCommandAndDoesNotPanicWithoutManifest(t *testing.T) 
 	if got := manifestStop(scanner.Project{Manifest: nil}); got != "" {
 		t.Errorf("with nil manifest = %q", got)
 	}
-	if got := manifestStop(scanner.Project{Manifest: &manifest.Manifest{Name: "p", Command: "./p", Stop: "docker compose down"}}); got != "docker compose down" {
-		t.Errorf("= %q, want the manifest's command_stop", got)
+	if got := manifestStop(scanner.Project{Manifest: &manifest.Manifest{Name: "p", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./p"}, Stop: manifest.Runnable{Run: "docker compose down"}}}}); got != "docker compose down" {
+		t.Errorf("= %q, want the manifest's commands.stop.run", got)
 	}
 }
 
@@ -265,7 +265,7 @@ func TestStatusBadgeCoversEightStatesPlusUnconfigured(t *testing.T) {
 	})
 
 	t.Run("invalid manifest", func(t *testing.T) {
-		p3 := scanner.Project{Path: "/p", Name: "p", ManifestErr: "missing command_start"}
+		p3 := scanner.Project{Path: "/p", Name: "p", ManifestErr: "missing commands.start.run"}
 		got := tail.StripANSI(statusBadge(p3, nil, "◐", "◌"))
 		if !strings.Contains(got, "invalid") || strings.Contains(got, "unconfigured") {
 			t.Errorf("= %q: a malformed manifest is not the same as an absent one", got)
@@ -984,7 +984,7 @@ func writeFileTo(path, body string) error {
 }
 
 func manifestWithPort(port int) *manifest.Manifest {
-	return &manifest.Manifest{Name: "p", Command: "./p", Port: port}
+	return &manifest.Manifest{Name: "p", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./p"}}, Port: port}
 }
 
 func askInlineConfig() config.AskConfig {

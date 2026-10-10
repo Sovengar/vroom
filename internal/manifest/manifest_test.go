@@ -23,7 +23,7 @@ func TestParseValidAppliesDefaults(t *testing.T) {
 name = "vsocial-api"
 primary_group = "vsocial"
 secondary_group = "backend"
-command_start = "go run main.go"
+commands.start.run = "go run main.go"
 port = 8080
 process_pattern = "vsocial-api"
 `)
@@ -34,7 +34,7 @@ process_pattern = "vsocial-api"
 	if m.Name != "vsocial-api" || m.PrimaryGroup != "vsocial" || m.SecondaryGroup != "backend" {
 		t.Errorf("incorrect fields: %+v", m)
 	}
-	if m.Command != "go run main.go" {
+	if m.Commands.Start.Run != "go run main.go" {
 		t.Errorf("incorrect fields: %+v", m)
 	}
 	if m.Port != 8080 || m.ProcessPattern != "vsocial-api" {
@@ -45,7 +45,7 @@ process_pattern = "vsocial-api"
 func TestParseMinimalValid(t *testing.T) {
 	path := writeManifest(t, `
 name = "mi-servicio"
-command_start = "./start.sh"
+commands.start.run = "./start.sh"
 `)
 	m, err := Parse(path)
 	if err != nil {
@@ -62,8 +62,8 @@ func TestParseMissingRequiredFields(t *testing.T) {
 		content string
 		wantErr string
 	}{
-		{"without name", `command_start = "go run main.go"`, "name"},
-		{"without command_start", `name = "x"`, "command_start"},
+		{"without name", `commands.start.run = "go run main.go"`, "name"},
+		{"without commands.start.run", `name = "x"`, "commands.start.run"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -89,7 +89,7 @@ func TestParsePortOutOfRange(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			content := fmt.Sprintf("name = \"x\"\ncommand_start = \"y\"\nport = %d\n", tt.port)
+			content := fmt.Sprintf("name = \"x\"\ncommands.start.run = \"y\"\nport = %d\n", tt.port)
 			path := writeManifest(t, content)
 			_, err := Parse(path)
 			if err == nil {
@@ -107,7 +107,7 @@ func TestParseEmptyOptionals(t *testing.T) {
 name = "x"
 primary_group = ""
 secondary_group = ""
-command_start = "y"
+commands.start.run = "y"
 port = 0
 process_pattern = ""
 `)
@@ -125,7 +125,7 @@ func TestParseGroupKeyIgnored(t *testing.T) {
 	path := writeManifest(t, `
 name = "x"
 group = "backend"
-command_start = "y"
+commands.start.run = "y"
 `)
 	m, err := Parse(path)
 	if err != nil {
@@ -136,63 +136,136 @@ command_start = "y"
 	}
 }
 
-// command_install/command_build are optional one-shot commands (mise run ... or anything), so their absence cannot invalidate the manifest; command_stop is optional too.
+// commands.install/commands.build are optional one-shot commands (mise run ... or anything), so their absence cannot invalidate the manifest; commands.stop is optional too.
 func TestParseInstallBuildStop(t *testing.T) {
 	path := writeManifest(t, `
 name = "web-frontend"
-command_start = "node server.js"
-command_install = "pnpm install"
-command_build = "mise run build"
-command_stop = "docker stop web-frontend"
+commands.start.run = "node server.js"
+commands.install.run = "pnpm install"
+commands.build.run = "mise run build"
+commands.stop.run = "docker stop web-frontend"
 `)
 	m, err := Parse(path)
 	if err != nil {
 		t.Fatalf("unexpected parse: %v", err)
 	}
-	if m.Install != "pnpm install" || m.Build != "mise run build" {
+	if m.Commands.Install.Run != "pnpm install" || m.Commands.Build.Run != "mise run build" {
 		t.Errorf("install/build misparsed: %+v", m)
 	}
-	if m.Stop != "docker stop web-frontend" {
+	if m.Commands.Stop.Run != "docker stop web-frontend" {
 		t.Errorf("stop misparsed: %+v", m)
 	}
 
-	minimal, err := Parse(writeManifest(t, "name = \"x\"\ncommand_start = \"y\"\n"))
+	minimal, err := Parse(writeManifest(t, "name = \"x\"\ncommands.start.run = \"y\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if minimal.Install != "" || minimal.Build != "" || minimal.Stop != "" {
+	if minimal.Commands.Install.Run != "" || minimal.Commands.Build.Run != "" || minimal.Commands.Stop.Run != "" {
 		t.Errorf("install/build/stop must default to empty: %+v", minimal)
 	}
 }
 
-// command_pre_start is an optional fail-fast hook: its absence must keep behaving exactly as before the field existed.
-func TestParsePreStart(t *testing.T) {
+// commands.start.hooks are optional: their absence must keep behaving exactly as before the hooks existed.
+func TestParseStartHooks(t *testing.T) {
 	path := writeManifest(t, `
 name = "actuacions-api"
-command_start = "mise run start"
-command_pre_start = "fuser -k 5005/tcp || true"
+commands.start.run = "mise run start"
+commands.start.hooks.pre_run = "fuser -k 5005/tcp || true"
+commands.start.hooks.post_run = "curl -fsS localhost:8090/actuacions/health"
 `)
 	m, err := Parse(path)
 	if err != nil {
 		t.Fatalf("unexpected parse: %v", err)
 	}
-	if m.PreStart != "fuser -k 5005/tcp || true" {
-		t.Errorf("pre_start misparsed: %+v", m)
+	if m.Commands.Start.Hooks.PreRun != "fuser -k 5005/tcp || true" {
+		t.Errorf("pre_run misparsed: %+v", m)
+	}
+	if m.Commands.Start.Hooks.PostRun != "curl -fsS localhost:8090/actuacions/health" {
+		t.Errorf("post_run misparsed: %+v", m)
 	}
 
-	minimal, err := Parse(writeManifest(t, "name = \"x\"\ncommand_start = \"y\"\n"))
+	minimal, err := Parse(writeManifest(t, "name = \"x\"\ncommands.start.run = \"y\"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if minimal.PreStart != "" {
-		t.Errorf("pre_start must default to empty: %+v", minimal)
+	if minimal.Commands.Start.Hooks.PreRun != "" || minimal.Commands.Start.Hooks.PostRun != "" {
+		t.Errorf("both hooks must default to empty: %+v", minimal)
+	}
+}
+
+// The table form the docs show must decode exactly like the dotted form, including the nested hooks table.
+func TestParseTableFormOfCommands(t *testing.T) {
+	path := writeManifest(t, `
+name = "actuacions-api"
+port = 8090
+
+[commands.start]
+run = "mise run start"
+
+  [commands.start.hooks]
+  pre_run = "fuser -k 5005/tcp || true"
+
+[commands.stop]
+run = "docker stop actuacions-api"
+`)
+	m, err := Parse(path)
+	if err != nil {
+		t.Fatalf("unexpected parse: %v", err)
+	}
+	if m.Commands.Start.Run != "mise run start" {
+		t.Errorf("start.run misparsed: %+v", m)
+	}
+	if m.Commands.Start.Hooks.PreRun != "fuser -k 5005/tcp || true" {
+		t.Errorf("hooks.pre_run misparsed: %+v", m)
+	}
+	if m.Commands.Stop.Run != "docker stop actuacions-api" {
+		t.Errorf("stop.run misparsed: %+v", m)
+	}
+	if m.Port != 8090 {
+		t.Errorf("port = %d, want 8090: a [commands.*] header must not swallow the keys before it", m.Port)
+	}
+}
+
+// A pre-[commands] key is a hard rename with no alias, so it must fail NAMING the new key: otherwise the fleet migrates by discovering which commands silently vanished.
+func TestParseLegacyCommandKeysNameTheNewKey(t *testing.T) {
+	for legacy, target := range movedKeys {
+		t.Run(legacy, func(t *testing.T) {
+			path := writeManifest(t, fmt.Sprintf("name = \"x\"\ncommands.start.run = \"y\"\n%s = \"whatever\"\n", legacy))
+			_, err := Parse(path)
+			if err == nil {
+				t.Fatal("a manifest written with the old key must not parse")
+			}
+			if !strings.Contains(err.Error(), legacy) || !strings.Contains(err.Error(), target) {
+				t.Errorf("error = %q, want it to name both %q and %q", err.Error(), legacy, target)
+			}
+		})
+	}
+}
+
+// A top-level key written after a [commands.*] header decodes INSIDE that table: port would become commands.start.port and the port contract would vanish while the manifest kept parsing. The parse has to say so instead.
+func TestParseRejectsTopLevelKeysSwallowedByACommandsHeader(t *testing.T) {
+	path := writeManifest(t, `
+name = "x"
+
+[commands.start]
+run = "y"
+port = 8090
+`)
+	_, err := Parse(path)
+	if err == nil {
+		t.Fatal("a top-level key swallowed by a [commands.*] header must not parse")
+	}
+	for _, want := range []string{"commands.start.port", "[commands]"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+		}
 	}
 }
 
 func TestParseUnknownFieldsIgnored(t *testing.T) {
 	path := writeManifest(t, `
 name = "x"
-command_start = "y"
+commands.start.run = "y"
 future_field = "algo"
 another = 42
 `)
@@ -218,7 +291,7 @@ func TestParseMissingFile(t *testing.T) {
 func TestParseReservedSecondaryGroup(t *testing.T) {
 	path := writeManifest(t, `
 name = "test"
-command_start = "echo hi"
+commands.start.run = "echo hi"
 secondary_group = "Composers"
 `)
 	_, err := Parse(path)

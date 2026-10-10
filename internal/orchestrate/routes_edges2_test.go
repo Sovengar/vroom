@@ -106,7 +106,7 @@ func proyectosConNombres(nombres ...string) []scanner.Project {
 	out := make([]scanner.Project, 0, len(nombres))
 	for i, n := range nombres {
 		p := scanner.Project{Path: "/srv/" + n, Name: n, Configured: true}
-		p.Manifest = &manifest.Manifest{Name: n, Command: "true", Port: 3000 + i}
+		p.Manifest = &manifest.Manifest{Name: n, Commands: manifest.Commands{Start: manifest.StartCommand{Run: "true"}}, Port: 3000 + i}
 		out = append(out, p)
 	}
 	return out

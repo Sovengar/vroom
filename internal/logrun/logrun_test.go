@@ -40,7 +40,7 @@ func TestRunReportsSuccessAndCreatesTheLogDirectory(t *testing.T) {
 	out := filepath.Join(dir, "nested", "out.log") // no directory yet: creating it is the runner's job
 	errLog := filepath.Join(dir, "err.log")
 
-	elapsed, code, err := Run("pre_start", "echo listo", dir, out, errLog)
+	elapsed, code, err := Run("pre_run", "echo listo", dir, out, errLog)
 	if err != nil {
 		t.Fatalf("unexpected failure: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestRunReportsSuccessAndCreatesTheLogDirectory(t *testing.T) {
 	if elapsed < 0 {
 		t.Errorf("elapsed = %v, must not be negative", elapsed)
 	}
-	if got := readFile(t, out); !strings.Contains(got, "── vroom ✓ pre_start ok (") {
+	if got := readFile(t, out); !strings.Contains(got, "── vroom ✓ pre_run ok (") {
 		t.Errorf("stdout log = %q, want the ok footer", got)
 	}
 }

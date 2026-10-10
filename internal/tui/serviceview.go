@@ -110,10 +110,10 @@ func (m Model) commandsColumn(p scanner.Project, w int) []string {
 		return styleLabel.Render(pad(label, 9)) + truncTail(value, valueW)
 	}
 	return []string{
-		row("start:", p.Manifest.Command),
-		row("stop:", p.Manifest.Stop),
-		row("install:", p.Manifest.Install),
-		row("build:", p.Manifest.Build),
+		row("start:", p.Manifest.Commands.Start.Run),
+		row("stop:", p.Manifest.Commands.Stop.Run),
+		row("install:", p.Manifest.Commands.Install.Run),
+		row("build:", p.Manifest.Commands.Build.Run),
 	}
 }
 

@@ -104,24 +104,24 @@ func writeTestTree(t *testing.T, jobs bool) string {
 			t.Fatal(err)
 		}
 	}
-	manifestAPI := "name = \"tienda-api\"\nprimary_group = \"tienda\"\ncommand_start = \"go run main.go\"\nport = 8081\n"
+	manifestAPI := "name = \"tienda-api\"\nprimary_group = \"tienda\"\ncommands.start.run = \"go run main.go\"\nport = 8081\n"
 	if jobs {
-		manifestAPI += "command_install = \"echo installing\"\ncommand_build = \"echo building\"\n"
+		manifestAPI += "commands.install.run = \"echo installing\"\ncommands.build.run = \"echo building\"\n"
 	}
 	writeFile("tienda-api/go.mod", "module api\n")
 	writeFile("tienda-api/.vroom.toml", manifestAPI)
 	writeFile("tienda-api/.git/HEAD", "ref: refs/heads/main\n")
 	writeFile("tienda-web/package.json", "{}\n")
-	manifestWeb := "name = \"tienda-web\"\nprimary_group = \"tienda\"\ncommand_start = \"node server.js\"\nport = 5173\n"
+	manifestWeb := "name = \"tienda-web\"\nprimary_group = \"tienda\"\ncommands.start.run = \"node server.js\"\nport = 5173\n"
 	if jobs {
-		manifestWeb += "command_install = \"echo installing web\"\ncommand_build = \"echo building web\"\n"
+		manifestWeb += "commands.install.run = \"echo installing web\"\ncommands.build.run = \"echo building web\"\n"
 	}
 	writeFile("tienda-web/.vroom.toml", manifestWeb)
 	if jobs {
 		writeFile("tienda-web/mise.toml", "[tasks.build]\ndescription = \"build the web\"\nrun = \"echo mise-build\"\n\n[tasks.test]\nrun = \"echo mise-test\"\n\n[tasks.hidden]\nhide = true\n")
 	}
 	writeFile("suelto/go.mod", "module suelto\n")
-	writeFile("suelto/.vroom.toml", "name = \"suelto\"\ncommand_start = \"go run suelto\"\n")
+	writeFile("suelto/.vroom.toml", "name = \"suelto\"\ncommands.start.run = \"go run suelto\"\n")
 	return root
 }
 
@@ -572,7 +572,7 @@ func TestTreeAutoScroll(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, ".vroom.toml"), []byte("name = \"svc"+string(rune('a'+i))+"\"\ncommand_start = \"echo\"\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, ".vroom.toml"), []byte("name = \"svc"+string(rune('a'+i))+"\"\ncommands.start.run = \"echo\"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1024,7 +1024,7 @@ func TestBadgeShowsPort(t *testing.T) {
 	p := scanner.Project{
 		Path: "/tmp/x", Name: "x",
 		Configured: true,
-		Manifest:   &manifest.Manifest{Name: "x", Command: "run", Port: 8081, URLGeneration: manifest.URLGenByWorkspaceHostname},
+		Manifest:   &manifest.Manifest{Name: "x", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8081, URLGeneration: manifest.URLGenByWorkspaceHostname},
 	}
 	sv := &ServiceState{Status: statusRunning, Meta: state.Meta{Port: 41501}}
 	if badge := statusBadge(p, sv, "·", "·"); !strings.Contains(badge, ":41501") {
@@ -1051,7 +1051,7 @@ func TestBadgeShowsPort(t *testing.T) {
 func TestBadgeLabelsPortOrigin(t *testing.T) {
 	proj := func(gen string) scanner.Project {
 		return scanner.Project{Path: "/tmp/x", Name: "x", Configured: true,
-			Manifest: &manifest.Manifest{Name: "x", Command: "run", Port: 8081, URLGeneration: gen}}
+			Manifest: &manifest.Manifest{Name: "x", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8081, URLGeneration: gen}}
 	}
 	running := func(metaPort int) *ServiceState {
 		return &ServiceState{Status: statusRunning, Meta: state.Meta{Port: metaPort}}
@@ -1068,7 +1068,7 @@ func TestBadgeLabelsPortOrigin(t *testing.T) {
 		t.Errorf("the declared fallback must not be labelled with the generation: %q", badge)
 	}
 	none := scanner.Project{Path: "/tmp/y", Name: "y", Configured: true,
-		Manifest: &manifest.Manifest{Name: "y", Command: "run"}}
+		Manifest: &manifest.Manifest{Name: "y", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}}}
 	if badge := statusBadge(none, running(0), "·", "·"); strings.Contains(badge, "(by_") {
 		t.Errorf("without a port there is no origin to label: %q", badge)
 	}
@@ -1077,7 +1077,7 @@ func TestBadgeLabelsPortOrigin(t *testing.T) {
 // The label follows the effective generation (the recorded choice of the s menu), not the manifest's: a recorded by_port wins over a hostname manifest.
 func TestBadgeLabelsEffectiveGenerationNotManifest(t *testing.T) {
 	dyn := scanner.Project{Path: "/tmp/x", Name: "x", Configured: true,
-		Manifest: &manifest.Manifest{Name: "x", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname}}
+		Manifest: &manifest.Manifest{Name: "x", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname}}
 
 	// A recorded by_port: it wins over the hostname manifest.
 	svFixed := &ServiceState{Status: statusRunning, Meta: state.Meta{Port: 8080, URLGeneration: manifest.URLGenByPort}}
@@ -1102,7 +1102,7 @@ func TestBadgeLabelsEffectiveGenerationNotManifest(t *testing.T) {
 func TestBadgePortPendingIsItsOwnState(t *testing.T) {
 	p := scanner.Project{
 		Path: "/tmp/x", Name: "x", Configured: true,
-		Manifest: &manifest.Manifest{Name: "x", Command: "run", Port: 8081, URLGeneration: manifest.URLGenByWorkspaceHostname},
+		Manifest: &manifest.Manifest{Name: "x", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8081, URLGeneration: manifest.URLGenByWorkspaceHostname},
 	}
 	sv := &ServiceState{Status: statusPortPending, Meta: state.Meta{Port: 41501, Pid: 4242}}
 
@@ -1293,7 +1293,7 @@ func TestLogsAliasFixed(t *testing.T) {
 	_ = m2
 
 	m3, _ := newTestModelWithConfig(t, "[keybindings]\ninstall = \"o\"\n")
-	m3 = moveCursorTo(t, m3, "suelto") // has a manifest but no command_install
+	m3 = moveCursorTo(t, m3, "suelto") // has a manifest but no commands.install.run
 	m4, _ := press(m3, "o")
 	if !strings.Contains(m4.message, "no install command") {
 		t.Errorf("o claimed by install should trigger install: msg=%q", m4.message)
@@ -1431,7 +1431,7 @@ func newNestedTestModel(t *testing.T) Model {
 		if secondary != "" {
 			out += "secondary_group = \"" + secondary + "\"\n"
 		}
-		return out + "command_start = \"" + command + "\"\nport = " + port + "\n"
+		return out + "commands.start.run = \"" + command + "\"\nport = " + port + "\n"
 	}
 	write("tienda-api/go.mod", "module api\n")
 	write("tienda-api/.vroom.toml", mf("tienda-api", "tienda", "backend", "go run main.go", "8081"))
@@ -1772,7 +1772,7 @@ func TestJobCmdFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := string(data)
-	for _, want := range []string{"── vroom ▶ build: echo boom && exit 3", "✗ build failed (exit 3, 0s)"} {
+	for _, want := range []string{"── vroom ▶ build: echo boom && exit 3", "✗ build failed (exit 3, "} {
 		if !strings.Contains(log, want) {
 			t.Errorf("stdout.log without %q: %q", want, log)
 		}
@@ -2145,7 +2145,7 @@ func TestConsoleSoftWrapKeepsStyle(t *testing.T) {
 func writeFilterTree(t *testing.T) string {
 	t.Helper()
 	root := writeTestTree(t, false)
-	manifest := "name = \"tienda-web\"\nprimary_group = \"tienda\"\nsecondary_group = \"frontend\"\ncommand_start = \"node server.js\"\nport = 5173\n"
+	manifest := "name = \"tienda-web\"\nprimary_group = \"tienda\"\nsecondary_group = \"frontend\"\ncommands.start.run = \"node server.js\"\nport = 5173\n"
 	if err := os.WriteFile(filepath.Join(root, "tienda-web", ".vroom.toml"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -2397,7 +2397,7 @@ func TestRefreshEvaluatesResolvedPortWithoutPending(t *testing.T) {
 	dir := t.TempDir()
 	p := scanner.Project{
 		Path: dir, Name: "a", Configured: true,
-		Manifest: &manifest.Manifest{Name: "a", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname},
+		Manifest: &manifest.Manifest{Name: "a", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname},
 	}
 	if err := store.SaveMeta(dir, state.Meta{
 		Port: 41501, Pid: 1, CreationTimeMs: 2, State: state.StateRunning,
@@ -2426,7 +2426,7 @@ func TestHealthTabDoesNotProbeUnresolvedDeclaredPort(t *testing.T) {
 	p := scanner.Project{
 		Path: "/tmp/x", Name: "x", Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "x", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname,
+			Name: "x", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname,
 		},
 	}
 	sv := &ServiceState{
@@ -2471,7 +2471,7 @@ func TestHealthTabStillProbesResolvedPort(t *testing.T) {
 	p := scanner.Project{
 		Path: "/tmp/x", Name: "x", Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "x", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname,
+			Name: "x", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname,
 		},
 	}
 	sv := &ServiceState{

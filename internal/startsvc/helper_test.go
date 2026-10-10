@@ -189,7 +189,7 @@ func (f *fixture) command(t *testing.T, mode string, extraEnv ...string) {
 		k, v, _ := strings.Cut(kv, "=")
 		t.Setenv(k, v)
 	}
-	f.manifest.Command = shellQuote(os.Args[0]) + " -test.run=^TestHelperService$"
+	f.manifest.Commands.Start.Run = shellQuote(os.Args[0]) + " -test.run=^TestHelperService$"
 }
 
 func (f *fixture) start(t *testing.T, timeout time.Duration) (Result, error) {

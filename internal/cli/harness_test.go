@@ -198,7 +198,7 @@ func listeningService(t *testing.T, root, dir string, extraTOML string) int {
 	t.Helper()
 	port := freePort(t)
 	t.Setenv(cliHelperEnv, "hold")
-	body := "command_start = \"" + cliHelperPortEnv + "=" + itoa(port) + " " + shellQuote(os.Args[0]) + " -test.run=^TestCLIHelperService$\"\nport = " + itoa(port) + "\nurl_generation = \"by_port\"\n" + extraTOML
+	body := "commands.start.run = \"" + cliHelperPortEnv + "=" + itoa(port) + " " + shellQuote(os.Args[0]) + " -test.run=^TestCLIHelperService$\"\nport = " + itoa(port) + "\nurl_generation = \"by_port\"\n" + extraTOML
 	writeFile(t, filepath.Join(root, dir, ".vroom.toml"), body)
 	return port
 }

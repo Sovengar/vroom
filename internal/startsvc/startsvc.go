@@ -100,14 +100,14 @@ func Start(req Request) (Result, error) {
 		env = []string{fmt.Sprintf("PORT=%d", reserved), "HOST=127.0.0.1"}
 	}
 
-	// command_pre_start runs INSIDE Manager.Start (through PreSpawn) rather than here: the manager truncates the logs on every start, so anything written before it would leave no trace of a hook that succeeded.
+	// The pre_run hook runs INSIDE Manager.Start (through PreSpawn) rather than here: the manager truncates the logs on every start, so anything written before it would leave no trace of a hook that succeeded.
 	var pre func() error
-	if req.Manifest.PreStart != "" {
-		pre = preStartHook(req.Manifest.PreStart, req.Path, req.StdoutPath, req.StderrPath)
+	if req.Manifest.Commands.Start.Hooks.PreRun != "" {
+		pre = preRunHook(req.Manifest.Commands.Start.Hooks.PreRun, req.Path, req.StdoutPath, req.StderrPath)
 	}
 
 	res, err := req.Manager.Start(process.StartSpec{
-		Command:    req.Manifest.Command,
+		Command:    req.Manifest.Commands.Start.Run,
 		WorkDir:    req.Path,
 		StdoutPath: req.StdoutPath,
 		StderrPath: req.StderrPath,
@@ -124,7 +124,7 @@ func Start(req Request) (Result, error) {
 		ProjectPath:    req.Path,
 		Port:           req.Manifest.Port,
 		ProcessPattern: req.Manifest.ProcessPattern,
-		Command:        req.Manifest.Command,
+		Command:        req.Manifest.Commands.Start.Run,
 		Pid:            res.Pid,
 		Pgid:           res.Pgid,
 		CreationTimeMs: res.CreationTimeMs,
@@ -148,9 +148,13 @@ func Start(req Request) (Result, error) {
 			return Result{}, err
 		}
 		_ = req.Store.RegisterPid(req.Path, res.Pid, res.Pgid)
-		return out, nil
+		return postRun(req, out), nil
 	}
-	return resolveDynamicPort(req, routes, base, reserved, gen)
+	dynamic, err := resolveDynamicPort(req, routes, base, reserved, gen)
+	if err != nil {
+		return Result{}, err
+	}
+	return postRun(req, dynamic), nil
 }
 
 // preflight refuses a start that could not honour its own address, BEFORE anything spawns: by_hostname on a name a foreign holder keeps (its URL must not move, so there is nothing to fall back to — the ladder generation is the one that exists for falling back), and by_port on an occupied port (the neighbour's listener is not yours, and vroom mistaking it for the service is exactly the bug that made two projects read as running).
@@ -356,14 +360,27 @@ func stopAfterPersistFailure(req Request, res process.StartResult) {
 	})
 }
 
-// preStartHook runs the manifest's command_pre_start exactly like any other job (banner, output and footer in the service log) and fails the whole start when it fails: an unmet prerequisite must not be papered over by a service that starts anyway.
-func preStartHook(command, workDir, stdoutPath, stderrPath string) func() error {
+// preRunHook runs commands.start.hooks.pre_run exactly like any other job (banner, output and footer in the service log) and fails the whole start when it fails: an unmet prerequisite must not be papered over by a service that starts anyway.
+func preRunHook(command, workDir, stdoutPath, stderrPath string) func() error {
 	return func() error {
-		if _, _, err := logrun.Run("pre_start", command, workDir, stdoutPath, stderrPath); err != nil {
-			return fmt.Errorf("command_pre_start %q failed: %w (its output is in the service log)", command, err)
+		if _, _, err := logrun.Run("pre_run", command, workDir, stdoutPath, stderrPath); err != nil {
+			return fmt.Errorf("commands.start.hooks.pre_run %q failed: %w (its output is in the service log)", command, err)
 		}
 		return nil
 	}
+}
+
+// postRun runs commands.start.hooks.post_run only once the start is COMMITTED: meta is persisted, the route is resolved and the child exists. That ordering is why a failure can only warn — the service is alive and killing it over a post-hook would surprise more than it protects — and the warning travels the way every other start warning does, through Result.Warnings into the service log.
+func postRun(req Request, out Result) Result {
+	hook := req.Manifest.Commands.Start.Hooks.PostRun
+	if hook == "" {
+		return out
+	}
+	if _, _, err := logrun.Run("post_run", hook, req.Path, req.StdoutPath, req.StderrPath); err != nil {
+		out.Warnings = append(out.Warnings, fmt.Sprintf(
+			"commands.start.hooks.post_run %q failed: %v (its output is in the service log)", hook, err))
+	}
+	return out
 }
 
 func routeCandidates(gen string, req Request) ([]string, error) {

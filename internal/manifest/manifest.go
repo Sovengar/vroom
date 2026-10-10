@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -13,19 +14,15 @@ const FileName = ".vroom.toml"
 
 const ReservedSecondaryGroup = "Composers"
 
-// Manifest is one .vroom.toml: TOML keys keep the command_* prefix while the Go fields stay short, so the two vocabularies deliberately diverge.
+// Manifest is one .vroom.toml: TOML, the Go fields and the vroom list JSON all speak commands.*, so every surface names the same thing the same way (hard rename, no alias).
 type Manifest struct {
-	Name           string `toml:"name"`
-	PrimaryGroup   string `toml:"primary_group"`
-	SecondaryGroup string `toml:"secondary_group"`
-	Command        string `toml:"command_start"`
-	PreStart       string `toml:"command_pre_start"` // fail-fast hook run before command_start spawns, for environment prep the app command itself must not carry (e.g. free a stale debug port)
-	Port           int    `toml:"port"`              // the app's default port, never the one vroom assigns when the generation gets an ephemeral one
-	ProcessPattern string `toml:"process_pattern"`
-	Install        string `toml:"command_install"`
-	Build          string `toml:"command_build"`
-	Stop           string `toml:"command_stop"` // for services the PGID kill cannot reach, e.g. docker stop
-	HealthPath     string `toml:"health_path"`
+	Name           string   `toml:"name"`
+	PrimaryGroup   string   `toml:"primary_group"`
+	SecondaryGroup string   `toml:"secondary_group"`
+	Port           int      `toml:"port"` // the app's default port, never the one vroom assigns when the generation gets an ephemeral one
+	ProcessPattern string   `toml:"process_pattern"`
+	HealthPath     string   `toml:"health_path"`
+	Commands       Commands `toml:"commands"`
 	// URLGeneration is the ONE start axis: how the started service is addressed (its port, a stable hostname, a branch hostname, a claim ladder, or nothing). It replaces the former port_mode + route_mode pair so the manifest states the same choices the TUI's s menu offers.
 	URLGeneration string `toml:"url_generation"`
 	// Worktrees overrides URLGeneration when this copy is a git worktree, so ONE committed manifest serves main (e.g. by_hostname) and every worktree (e.g. the ladder) without editing per copy.
@@ -37,6 +34,30 @@ type Manifest struct {
 // Worktrees is the per-copy policy: absent means a worktree inherits the top-level url_generation.
 type Worktrees struct {
 	URLGeneration string `toml:"url_generation"`
+}
+
+// Commands is the [commands] section: everything vroom runs for this project. Start is a StartCommand because its hooks are part of how the service starts, not commands of their own.
+type Commands struct {
+	Start   StartCommand `toml:"start"`
+	Build   Runnable     `toml:"build"`
+	Install Runnable     `toml:"install"`
+	Stop    Runnable     `toml:"stop"` // for services the PGID kill cannot reach, e.g. docker stop
+}
+
+// Runnable is one entry of the section: [commands.<kind>] run = "...".
+type Runnable struct {
+	Run string `toml:"run"`
+}
+
+type StartCommand struct {
+	Run   string     `toml:"run"`
+	Hooks StartHooks `toml:"hooks"`
+}
+
+// StartHooks: pre_run is fail-fast, because a prerequisite it could not satisfy must not be papered over by a service that starts anyway. post_run only warns — by the time it runs the service is already alive, and killing it over a post-hook would surprise more than it protects.
+type StartHooks struct {
+	PreRun  string `toml:"pre_run"`
+	PostRun string `toml:"post_run"`
 }
 
 const (
@@ -115,15 +136,42 @@ func (m *Manifest) HealthURLPath() string {
 	return m.HealthPath
 }
 
+// movedKeys are the pre-[commands] names. Rejecting them turns "the manifest silently lost its build command" into an error that names the new key — the fleet's manifests are being migrated one by one.
+var movedKeys = map[string]string{
+	"command_start":     "commands.start.run",
+	"command_pre_start": "commands.start.hooks.pre_run",
+	"command_build":     "commands.build.run",
+	"command_install":   "commands.install.run",
+	"command_stop":      "commands.stop.run",
+}
+
 func Parse(path string) (*Manifest, error) {
 	var m Manifest
-	if _, err := toml.DecodeFile(path, &m); err != nil {
+	md, err := toml.DecodeFile(path, &m)
+	if err != nil {
+		return nil, fmt.Errorf("invalid manifest %s: %w", path, err)
+	}
+	if err := checkKeys(md); err != nil {
 		return nil, fmt.Errorf("invalid manifest %s: %w", path, err)
 	}
 	if err := m.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid manifest %s: %w", path, err)
 	}
 	return &m, nil
+}
+
+// checkKeys rejects the two mistakes TOML makes SILENT: a key that moved (a pre-[commands] command_*) and a top-level key swallowed by a [commands.*] header — `port` written after that header decodes as commands.start.port, so the service would keep parsing while its port contract vanished. Unknown keys anywhere else stay ignored on purpose (manifests written before a field existed must keep working).
+func checkKeys(md toml.MetaData) error {
+	for _, key := range md.Undecoded() {
+		name := key.String()
+		if to, ok := movedKeys[name]; ok {
+			return fmt.Errorf("%s moved to %s (hard rename, no alias)", name, to)
+		}
+		if strings.HasPrefix(name, "commands.") {
+			return fmt.Errorf("unknown key %q inside [commands]: only run and hooks live there; if this is a top-level key, it was written after a [commands.*] header — put the [commands] tables last or use commands.start.run = \"...\"", name)
+		}
+	}
+	return nil
 }
 
 func Exists(dir string) bool {
@@ -135,8 +183,8 @@ func (m *Manifest) Validate() error {
 	if m.Name == "" {
 		return fmt.Errorf("missing required field: name")
 	}
-	if m.Command == "" {
-		return fmt.Errorf("missing required field: command_start")
+	if m.Commands.Start.Run == "" {
+		return fmt.Errorf("missing required field: commands.start.run")
 	}
 	if m.Port < 0 || m.Port > 65535 {
 		return fmt.Errorf("port must be 0 (disabled) or 1-65535, got %d", m.Port)

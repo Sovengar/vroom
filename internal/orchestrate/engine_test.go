@@ -44,8 +44,8 @@ func TestResolveServices(t *testing.T) {
 	engine := NewEngine(&mockManager{}, store)
 
 	projects := []scanner.Project{
-		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "go run ."}},
-		{Path: "/dev/web", Name: "web", Configured: true, Manifest: &manifest.Manifest{Name: "web", Command: "npm start"}},
+		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "go run ."}}}},
+		{Path: "/dev/web", Name: "web", Configured: true, Manifest: &manifest.Manifest{Name: "web", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "npm start"}}}},
 	}
 
 	resolved, err := engine.ResolveServices([]string{"api", "web"}, projects)
@@ -65,7 +65,7 @@ func TestResolveServicesNotFound(t *testing.T) {
 	engine := NewEngine(&mockManager{}, store)
 
 	projects := []scanner.Project{
-		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "go run ."}},
+		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "go run ."}}}},
 	}
 
 	_, err := engine.ResolveServices([]string{"api", "nonexistent"}, projects)
@@ -86,8 +86,8 @@ func TestDryRun(t *testing.T) {
 		},
 	}
 	projects := []scanner.Project{
-		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "go run ."}},
-		{Path: "/dev/web", Name: "web", Configured: true, Manifest: &manifest.Manifest{Name: "web", Command: "npm start"}},
+		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "go run ."}}}},
+		{Path: "/dev/web", Name: "web", Configured: true, Manifest: &manifest.Manifest{Name: "web", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "npm start"}}}},
 	}
 
 	result, err := engine.DryRun(stack, projects)
@@ -127,9 +127,9 @@ func TestLaunchSuccess(t *testing.T) {
 	}
 	projects := []scanner.Project{
 		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{
-			Name:    "api",
-			Command: "go run .",
-			Port:    0, // no port: fast health check
+			Name:     "api",
+			Commands: manifest.Commands{Start: manifest.StartCommand{Run: "go run ."}},
+			Port:     0, // no port: fast health check
 		}},
 	}
 
@@ -154,7 +154,7 @@ func TestLaunchAlreadyRunning(t *testing.T) {
 
 	p := scanner.Project{
 		Path: "/dev/api", Name: "api", Configured: true,
-		Manifest: &manifest.Manifest{Name: "api", Command: "go run .", Port: 0},
+		Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "go run ."}}, Port: 0},
 	}
 	_, _ = store.EnsureServiceDir(p.Path)
 	_ = store.SaveMeta(p.Path, state.Meta{
@@ -212,7 +212,7 @@ func TestLaunchStartFailure(t *testing.T) {
 	}
 	projects := []scanner.Project{
 		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{
-			Name: "api", Command: "go run .", Port: 0,
+			Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "go run ."}}, Port: 0,
 		}},
 	}
 
@@ -249,8 +249,8 @@ func TestLaunchSequentialStages(t *testing.T) {
 		},
 	}
 	projects := []scanner.Project{
-		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "go run .", Port: 0}},
-		{Path: "/dev/web", Name: "web", Configured: true, Manifest: &manifest.Manifest{Name: "web", Command: "npm start", Port: 0}},
+		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "go run ."}}, Port: 0}},
+		{Path: "/dev/web", Name: "web", Configured: true, Manifest: &manifest.Manifest{Name: "web", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "npm start"}}, Port: 0}},
 	}
 
 	result, err := engine.Launch(stack, projects)
@@ -274,7 +274,7 @@ func TestStackStatus(t *testing.T) {
 
 	p := scanner.Project{
 		Path: "/dev/api", Name: "api", Configured: true,
-		Manifest: &manifest.Manifest{Name: "api", Command: "go run .", Port: 8080},
+		Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "go run ."}}, Port: 8080},
 	}
 	_, _ = store.EnsureServiceDir(p.Path)
 	_ = store.SaveMeta(p.Path, state.Meta{
@@ -311,8 +311,8 @@ func TestStackStatus(t *testing.T) {
 
 func duplicateProjects() []scanner.Project {
 	return []scanner.Project{
-		{Path: "/repo-wt/b", Name: "b", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "echo"}},
-		{Path: "/repo-wt/a", Name: "a", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "echo"}},
+		{Path: "/repo-wt/b", Name: "b", Configured: true, Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "echo"}}}},
+		{Path: "/repo-wt/a", Name: "a", Configured: true, Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "echo"}}}},
 	}
 }
 
@@ -337,7 +337,7 @@ func TestResolveServicesUnique(t *testing.T) {
 	engine := NewEngine(&mockManager{}, store)
 
 	projects := []scanner.Project{
-		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "go run ."}},
+		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "go run ."}}}},
 	}
 	resolved, err := engine.ResolveServices([]string{"api"}, projects)
 	if err != nil {
@@ -354,10 +354,10 @@ func TestValidateServicesDeterministicOrder(t *testing.T) {
 	engine := NewEngine(&mockManager{}, store)
 
 	projects := []scanner.Project{
-		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "echo"}},
-		{Path: "/dev/web", Name: "web", Configured: true, Manifest: &manifest.Manifest{Name: "web", Command: "echo"}},
-		{Path: "/dev/db", Name: "db", Configured: true, Manifest: &manifest.Manifest{Name: "db", Command: "echo"}},
-		{Path: "/dev/cache", Name: "cache", Configured: true, Manifest: &manifest.Manifest{Name: "cache", Command: "echo"}},
+		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "echo"}}}},
+		{Path: "/dev/web", Name: "web", Configured: true, Manifest: &manifest.Manifest{Name: "web", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "echo"}}}},
+		{Path: "/dev/db", Name: "db", Configured: true, Manifest: &manifest.Manifest{Name: "db", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "echo"}}}},
+		{Path: "/dev/cache", Name: "cache", Configured: true, Manifest: &manifest.Manifest{Name: "cache", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "echo"}}}},
 	}
 	stack := &Stack{
 		Name: "s",

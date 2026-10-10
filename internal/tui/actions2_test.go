@@ -85,7 +85,7 @@ func TestStopCmdPropagaElFalloDeQuitarElPid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := stopCmd(store, &stubManager{}, p.Path, p.Manifest.Stop)
+	cmd := stopCmd(store, &stubManager{}, p.Path, p.Manifest.Commands.Stop.Run)
 	if cmd == nil {
 		t.Fatal("stopCmd must return a command")
 	}

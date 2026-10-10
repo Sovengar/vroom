@@ -17,7 +17,7 @@ func TestBuildProjectInfoEmitsResolvedPort(t *testing.T) {
 	p := scanner.Project{
 		Path: dir, Name: "a", Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "api", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname,
+			Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname,
 		},
 	}
 	if err := store.SaveMeta(dir, state.Meta{
@@ -58,7 +58,7 @@ func TestBuildProjectInfoFallsBackToDeclaredPort(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	p := scanner.Project{
 		Path: "/nope", Name: "a", Configured: true,
-		Manifest: &manifest.Manifest{Name: "api", Command: "run", Port: 8080},
+		Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "run"}}, Port: 8080},
 	}
 	info := buildProjectInfo(process.NewManager(), store, map[string]bool{}, p)
 	if info.Port != 8080 {

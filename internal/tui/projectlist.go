@@ -414,6 +414,6 @@ func (m Model) resolveStack(s *orchestrate.Stack) (services []orchestrate.Resolv
 
 func exampleManifest(name string) string {
 	return fmt.Sprintf(`name = %q
-command_start = "go run main.go"
+commands.start.run = "go run main.go"
 port = 0`, name)
 }

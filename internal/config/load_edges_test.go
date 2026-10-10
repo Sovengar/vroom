@@ -162,7 +162,7 @@ func scannerProject(m *manifest.Manifest) scanner.Project {
 
 func conGrupo(primary, secondary string) *manifest.Manifest {
 	return &manifest.Manifest{
-		Name: "p", Command: "./p", PrimaryGroup: primary, SecondaryGroup: secondary,
+		Name: "p", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "./p"}}, PrimaryGroup: primary, SecondaryGroup: secondary,
 	}
 }
 

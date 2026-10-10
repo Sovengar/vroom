@@ -61,7 +61,7 @@ func TestScanCaeAlWalkSinFdEnElPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "app", ".vroom.toml"),
-		[]byte("name = \"app\"\ncommand_start = \"true\"\n"), 0o644); err != nil {
+		[]byte("name = \"app\"\ncommands.start.run = \"true\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

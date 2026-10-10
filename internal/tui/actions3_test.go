@@ -54,7 +54,7 @@ func TestStartCmdPropagatesMetaPersistFailure(t *testing.T) {
 	p := firstConfiguredProject(t, m)
 
 	// A command that really spawns, so the failure under test is the persistence one and not an impossible spawn.
-	p.Manifest = &manifest.Manifest{Name: "tienda-api", Command: "sleep 30", Port: 8081}
+	p.Manifest = &manifest.Manifest{Name: "tienda-api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "sleep 30"}}, Port: 8081}
 
 	dir, err := store.EnsureServiceDir(p.Path)
 	if err != nil {
@@ -308,7 +308,7 @@ func modelWithTwoPrimariesAndStacks(t *testing.T) Model {
 	root := writeTestTree(t, false)
 
 	writeStr(t, filepath.Join(root, "blog", ".vroom.toml"),
-		"name = \"blog\"\ncommand_start = \"true\"\nprimary_group = \"other\"\n")
+		"name = \"blog\"\ncommands.start.run = \"true\"\nprimary_group = \"other\"\n")
 
 	writeStr(t, filepath.Join(root, orchestrate.ComposeFileName), `primary_group = "tienda"
 

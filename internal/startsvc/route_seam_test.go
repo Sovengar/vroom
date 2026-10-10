@@ -63,7 +63,7 @@ func TestArrancarEnByPortNoEscribeElAvisoDeRutaEnElLog(t *testing.T) {
 
 	m := manifest.Manifest{
 		Name:          "api",
-		Command:       "sleep 30",
+		Commands:      manifest.Commands{Start: manifest.StartCommand{Run: "sleep 30"}},
 		Port:          freePort(t),
 		URLGeneration: manifest.URLGenByPort,
 	}
@@ -103,7 +103,7 @@ func TestConGeneracionQuePublicaSeIntentaLaRuta(t *testing.T) {
 
 	m := manifest.Manifest{
 		Name:          "api",
-		Command:       shellQuote(os.Args[0]) + " -test.run=^TestHelperService$",
+		Commands:      manifest.Commands{Start: manifest.StartCommand{Run: shellQuote(os.Args[0]) + " -test.run=^TestHelperService$"}},
 		Port:          freePort(t),
 		URLGeneration: manifest.URLGenByWorkspaceHostname,
 	}
@@ -151,7 +151,7 @@ func TestFixedPortStartHandsTheRouteResultToTheCaller(t *testing.T) {
 
 	m := manifest.Manifest{
 		Name:          "api",
-		Command:       shellQuote(os.Args[0]) + " -test.run=^TestHelperService$",
+		Commands:      manifest.Commands{Start: manifest.StartCommand{Run: shellQuote(os.Args[0]) + " -test.run=^TestHelperService$"}},
 		Port:          freePort(t),
 		URLGeneration: manifest.URLGenByWorkspaceHostname,
 	}

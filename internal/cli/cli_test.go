@@ -15,10 +15,10 @@ import (
 
 func wtProjects() []scanner.Project {
 	return []scanner.Project{
-		{Path: "/repo", Name: "repo", Configured: true, Manifest: &manifest.Manifest{Name: "repo", Command: "echo"}},
-		{Path: "/repo-wt/a", Name: "a", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "echo"},
+		{Path: "/repo", Name: "repo", Configured: true, Manifest: &manifest.Manifest{Name: "repo", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "echo"}}}},
+		{Path: "/repo-wt/a", Name: "a", Configured: true, Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "echo"}}},
 			IsWorktree: true, RepoRoot: "/repo"},
-		{Path: "/repo-wt/b", Name: "b", Configured: true, Manifest: &manifest.Manifest{Name: "api", Command: "echo"},
+		{Path: "/repo-wt/b", Name: "b", Configured: true, Manifest: &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "echo"}}},
 			IsWorktree: true, RepoRoot: "/repo"},
 	}
 }
@@ -148,7 +148,7 @@ func TestListExposesRelationFlat(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	p := scanner.Project{
 		Path: "/repo-wt/a", Name: "a", Configured: true,
-		Manifest:   &manifest.Manifest{Name: "api", Command: "echo"},
+		Manifest:   &manifest.Manifest{Name: "api", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "echo"}}},
 		IsWorktree: true, RepoRoot: "/repo",
 	}
 	info := buildProjectInfo(manager, store, map[string]bool{}, p)
@@ -191,7 +191,7 @@ func TestListExposesWorktreeError(t *testing.T) {
 
 	p := scanner.Project{
 		Path: "/repo", Name: "repo", Configured: true,
-		Manifest:    &manifest.Manifest{Name: "repo", Command: "echo"},
+		Manifest:    &manifest.Manifest{Name: "repo", Commands: manifest.Commands{Start: manifest.StartCommand{Run: "echo"}}},
 		WorktreeErr: "git binary not available",
 	}
 	info := buildProjectInfo(manager, store, map[string]bool{}, p)

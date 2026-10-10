@@ -62,14 +62,14 @@ func TestRunMainPropagaElCodigoDeSalidaDeUnSubcomandoQueFalla(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), "state"))
 
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "nada.toml"), []byte("name = \"nada\"\ncommand_start = \"true\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "nada.toml"), []byte("name = \"nada\"\ncommands.start.run = \"true\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(root, "nada"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "nada", ".vroom.toml"),
-		[]byte("name = \"nada\"\ncommand_start = \"true\"\n"), 0o644); err != nil {
+		[]byte("name = \"nada\"\ncommands.start.run = \"true\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(root)

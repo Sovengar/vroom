@@ -43,25 +43,22 @@ type ProjectInfo struct {
 	// *bool on purpose: absent = no port contract at all, false = contract exists but nothing was confirmed, which bool+omitempty cannot emit.
 	PortVerified *bool `json:"port_verified,omitempty"`
 	// Pointer because absence is itself a state: a manifest with no route contract neither claims nor denies one.
-	Route           *RouteInfo `json:"route,omitempty"`
-	Command         string     `json:"command,omitempty"`
-	CommandPreStart string     `json:"command_pre_start,omitempty"`
-	CommandStop     string     `json:"command_stop,omitempty"`
-	CommandBuild    string     `json:"command_build,omitempty"`
-	CommandInstall  string     `json:"command_install,omitempty"`
-	ProcessPattern  string     `json:"process_pattern,omitempty"`
-	GitBranch       string     `json:"git_branch,omitempty"`
-	PrimaryGroup    string     `json:"primary_group,omitempty"`
-	SecondaryGroup  string     `json:"secondary_group,omitempty"`
-	RepoRoot        string     `json:"repo_root,omitempty"`
-	IsWorktree      bool       `json:"is_worktree,omitempty"`
-	BareContainer   bool       `json:"bare_container,omitempty"`
-	WorktreeErr     string     `json:"worktree_error,omitempty"`
-	Collapsed       bool       `json:"collapsed"`
-	Pid             int        `json:"pid,omitempty"`
-	Pgid            int        `json:"pgid,omitempty"`
-	StartedAt       string     `json:"started_at,omitempty"`
-	ManifestError   string     `json:"manifest_error,omitempty"`
+	Route *RouteInfo `json:"route,omitempty"`
+	// Pointer because an unconfigured project has no commands at all: emitting an empty section would claim it does.
+	Commands       *CommandsInfo `json:"commands,omitempty"`
+	ProcessPattern string        `json:"process_pattern,omitempty"`
+	GitBranch      string        `json:"git_branch,omitempty"`
+	PrimaryGroup   string        `json:"primary_group,omitempty"`
+	SecondaryGroup string        `json:"secondary_group,omitempty"`
+	RepoRoot       string        `json:"repo_root,omitempty"`
+	IsWorktree     bool          `json:"is_worktree,omitempty"`
+	BareContainer  bool          `json:"bare_container,omitempty"`
+	WorktreeErr    string        `json:"worktree_error,omitempty"`
+	Collapsed      bool          `json:"collapsed"`
+	Pid            int           `json:"pid,omitempty"`
+	Pgid           int           `json:"pgid,omitempty"`
+	StartedAt      string        `json:"started_at,omitempty"`
+	ManifestError  string        `json:"manifest_error,omitempty"`
 }
 
 type RouteInfo struct {
@@ -70,6 +67,29 @@ type RouteInfo struct {
 	Url    string `json:"url,omitempty"`
 	Reason string `json:"reason,omitempty"`
 	Port   int    `json:"port,omitempty"`
+}
+
+// CommandsInfo mirrors the manifest's [commands] section verbatim — same structure, same names, no omission — so an agent reads one vocabulary across .vroom.toml, the Go fields and this JSON. There is no legacy alias: commands.start.run/commands.stop.run/... stopped existing with the hard rename.
+type CommandsInfo struct {
+	Start   StartCommandInfo `json:"start"`
+	Build   RunnableInfo     `json:"build"`
+	Install RunnableInfo     `json:"install"`
+	Stop    RunnableInfo     `json:"stop"`
+}
+
+type StartCommandInfo struct {
+	Run   string    `json:"run"`
+	Hooks HooksInfo `json:"hooks"`
+}
+
+// HooksInfo is always present and its keys always emitted: an agent must be able to tell "no hook" from "field not supported by this vroom version".
+type HooksInfo struct {
+	PreRun  string `json:"pre_run"`
+	PostRun string `json:"post_run"`
+}
+
+type RunnableInfo struct {
+	Run string `json:"run"`
 }
 
 type ActionResult struct {
@@ -276,11 +296,15 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 	}
 
 	m := p.Manifest
-	info.Command = m.Command
-	info.CommandPreStart = m.PreStart
-	info.CommandStop = m.Stop
-	info.CommandBuild = m.Build
-	info.CommandInstall = m.Install
+	info.Commands = &CommandsInfo{
+		Start: StartCommandInfo{
+			Run:   m.Commands.Start.Run,
+			Hooks: HooksInfo{PreRun: m.Commands.Start.Hooks.PreRun, PostRun: m.Commands.Start.Hooks.PostRun},
+		},
+		Build:   RunnableInfo{Run: m.Commands.Build.Run},
+		Install: RunnableInfo{Run: m.Commands.Install.Run},
+		Stop:    RunnableInfo{Run: m.Commands.Stop.Run},
+	}
 	info.ProcessPattern = m.ProcessPattern
 	info.PrimaryGroup = m.PrimaryGroup
 	info.SecondaryGroup = m.SecondaryGroup
@@ -568,9 +592,9 @@ func cmdStop(name, path string) (any, error) {
 		return nil, err
 	}
 
-	if p.Configured && p.Manifest.Stop != "" {
-		// A failing command_stop must not skip cleanup: dropping the PID without killing the process leaves an unowned orphan.
-		_, _, _ = runLogged("stop", p.Manifest.Stop, p.Path, s.store.StdoutLog(p.Path), s.store.StderrLog(p.Path))
+	if p.Configured && p.Manifest.Commands.Stop.Run != "" {
+		// A failing commands.stop.run must not skip cleanup: dropping the PID without killing the process leaves an unowned orphan.
+		_, _, _ = runLogged("stop", p.Manifest.Commands.Stop.Run, p.Path, s.store.StdoutLog(p.Path), s.store.StderrLog(p.Path))
 	}
 
 	if err := stopCleanup(s.store, s.manager, p.Path); err != nil {
@@ -645,9 +669,9 @@ func cmdOneShot(name, path, kind string) (any, error) {
 	var command string
 	switch kind {
 	case "build":
-		command = p.Manifest.Build
+		command = p.Manifest.Commands.Build.Run
 	case "install":
-		command = p.Manifest.Install
+		command = p.Manifest.Commands.Install.Run
 	default:
 		return nil, fmt.Errorf("unknown one-shot command %q", kind)
 	}
@@ -760,8 +784,8 @@ func cmdHelp() (any, error) {
 			"vroom status": "alias for list",
 			"vroom start <name|path> [--path <path>]":   "start a service by project name or path",
 			"vroom stop <name|path> [--path <path>]":    "stop a service by project name or path",
-			"vroom build <name|path> [--path <path>]":   "run command_build (synchronous)",
-			"vroom install <name|path> [--path <path>]": "run command_install (synchronous)",
+			"vroom build <name|path> [--path <path>]":   "run commands.build.run (synchronous)",
+			"vroom install <name|path> [--path <path>]": "run commands.install.run (synchronous)",
 			"vroom logs <name|path> [--path <path>]":    "show service logs (--tail N --stream merged|stdout|stderr)",
 			"vroom launch --list":                       "list all orchestration stacks",
 			"vroom launch <name>":                       "launch an orchestration stack",
@@ -837,7 +861,7 @@ func cmdLaunch(args []string) (any, error) {
 	return result, nil
 }
 
-// runLogged keeps the name this package's tests speak; the job itself is shared with the TUI and with the pre_start hook (internal/logrun), because a banner, an exit code and a footer mean the same thing in all three.
+// runLogged keeps the name this package's tests speak; the job itself is shared with the TUI and with the pre_run hook (internal/logrun), because a banner, an exit code and a footer mean the same thing in all three.
 func runLogged(kind, command, workDir, stdoutPath, stderrPath string) (time.Duration, int, error) {
 	return logrun.Run(kind, command, workDir, stdoutPath, stderrPath)
 }

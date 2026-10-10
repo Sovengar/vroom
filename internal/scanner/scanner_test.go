@@ -49,7 +49,7 @@ func find(projects []Project, name string) *Project {
 func TestScanDetectsVroomTomlProject(t *testing.T) {
 	tr := newTree(t).
 		mkdir("myapp").
-		file("myapp/.vroom.toml", "name = \"myapp\"\ncommand_start = \"go run main.go\"\n")
+		file("myapp/.vroom.toml", "name = \"myapp\"\ncommands.start.run = \"go run main.go\"\n")
 	result, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestScanIgnoresDirsWithoutManifest(t *testing.T) {
 
 func TestScanDepth2(t *testing.T) {
 	tr := newTree(t).
-		file("a/b/.vroom.toml", "name = \"b\"\ncommand_start = \"echo hi\"\n")
+		file("a/b/.vroom.toml", "name = \"b\"\ncommands.start.run = \"echo hi\"\n")
 	result, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +91,7 @@ func TestScanDepth2(t *testing.T) {
 
 func TestScanDepth3IgnoredWithDepth2(t *testing.T) {
 	tr := newTree(t).
-		file("a/b/c/.vroom.toml", "name = \"too-deep\"\ncommand_start = \"echo\"\n")
+		file("a/b/c/.vroom.toml", "name = \"too-deep\"\ncommands.start.run = \"echo\"\n")
 	result, err := Scan(tr.path(), 2)
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestScanDepth3IgnoredWithDepth2(t *testing.T) {
 
 func TestScanDepth3DetectedWithDepth4(t *testing.T) {
 	tr := newTree(t).
-		file("a/b/c/.vroom.toml", "name = \"c\"\ncommand_start = \"echo\"\n")
+		file("a/b/c/.vroom.toml", "name = \"c\"\ncommands.start.run = \"echo\"\n")
 	result, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
@@ -134,8 +134,8 @@ func TestScanMalformedManifest(t *testing.T) {
 
 func TestScanFindsVroomTomlInHiddenDirs(t *testing.T) {
 	tr := newTree(t).
-		file(".hidden/.vroom.toml", "name = \"h\"\ncommand_start = \"echo\"\n").
-		file("real/.vroom.toml", "name = \"real\"\ncommand_start = \"echo\"\n")
+		file(".hidden/.vroom.toml", "name = \"h\"\ncommands.start.run = \"echo\"\n").
+		file("real/.vroom.toml", "name = \"real\"\ncommands.start.run = \"echo\"\n")
 	result, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
@@ -147,8 +147,8 @@ func TestScanFindsVroomTomlInHiddenDirs(t *testing.T) {
 
 func TestScanSortsByPath(t *testing.T) {
 	tr := newTree(t).
-		file("zebra/.vroom.toml", "name = \"zebra\"\ncommand_start = \"echo z\"\n").
-		file("alpha/.vroom.toml", "name = \"alpha\"\ncommand_start = \"echo a\"\n")
+		file("zebra/.vroom.toml", "name = \"zebra\"\ncommands.start.run = \"echo z\"\n").
+		file("alpha/.vroom.toml", "name = \"alpha\"\ncommands.start.run = \"echo a\"\n")
 	result, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestScanSortsByPath(t *testing.T) {
 
 func TestScanManifestWithGroups(t *testing.T) {
 	tr := newTree(t).
-		file("api/.vroom.toml", "name = \"api\"\nprimary_group = \"shop\"\nsecondary_group = \"backend\"\ncommand_start = \"go run .\"\nport = 8080\n")
+		file("api/.vroom.toml", "name = \"api\"\nprimary_group = \"shop\"\nsecondary_group = \"backend\"\ncommands.start.run = \"go run .\"\nport = 8080\n")
 	result, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
@@ -200,7 +200,7 @@ func TestScanPlaygroundFixture(t *testing.T) {
 
 func TestScanResultIndicatesMethod(t *testing.T) {
 	tr := newTree(t).
-		file("proj/.vroom.toml", "name = \"proj\"\ncommand_start = \"echo\"\n")
+		file("proj/.vroom.toml", "name = \"proj\"\ncommands.start.run = \"echo\"\n")
 	result, err := Scan(tr.path(), 4)
 	if err != nil {
 		t.Fatal(err)
@@ -251,10 +251,10 @@ func porcelainRepo(main string, worktrees ...string) string {
 
 func TestScanAnnotatesWorktrees(t *testing.T) {
 	tr := newTree(t).
-		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo/.vroom.toml", "name = \"repo\"\ncommands.start.run = \"echo\"\n").
 		file("repo/.git/config", "[core]\n\tbare = false\n").
 		file("repo/.git/HEAD", "ref: refs/heads/main\n").
-		file("repo-wt-a/.vroom.toml", "name = \"api\"\ncommand_start = \"echo\"\n").
+		file("repo-wt-a/.vroom.toml", "name = \"api\"\ncommands.start.run = \"echo\"\n").
 		file("repo-wt-a/.git", "gitdir: /nowhere/.git/worktrees/a\n")
 	main := filepath.Join(tr.path(), "repo")
 	wtA := filepath.Join(tr.path(), "repo-wt-a")
@@ -278,7 +278,7 @@ func TestScanAnnotatesWorktrees(t *testing.T) {
 
 func TestScanSynthesizesUnconfiguredWorktree(t *testing.T) {
 	tr := newTree(t).
-		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo/.vroom.toml", "name = \"repo\"\ncommands.start.run = \"echo\"\n").
 		file("repo/.git/config", "[core]\n\tbare = false\n").
 		mkdir("repo-wt-no-mf")
 	main := filepath.Join(tr.path(), "repo")
@@ -300,7 +300,7 @@ func TestScanSynthesizesUnconfiguredWorktree(t *testing.T) {
 
 func TestScanSkipsPrunableWorktree(t *testing.T) {
 	tr := newTree(t).
-		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo/.vroom.toml", "name = \"repo\"\ncommands.start.run = \"echo\"\n").
 		file("repo/.git/config", "[core]\n\tbare = false\n")
 	main := filepath.Join(tr.path(), "repo")
 	gone := filepath.Join(tr.path(), "repo-wt-gone")
@@ -318,9 +318,9 @@ func TestScanSkipsPrunableWorktree(t *testing.T) {
 
 func TestScanKeepsPrunableWorktreeWhenDirExists(t *testing.T) {
 	tr := newTree(t).
-		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo/.vroom.toml", "name = \"repo\"\ncommands.start.run = \"echo\"\n").
 		file("repo/.git/config", "[core]\n\tbare = false\n").
-		file("repo-wt-a/.vroom.toml", "name = \"api\"\ncommand_start = \"echo\"\n").
+		file("repo-wt-a/.vroom.toml", "name = \"api\"\ncommands.start.run = \"echo\"\n").
 		file("repo-wt-a/.git", "gitdir: /nowhere/.git/worktrees/a\n")
 	main := filepath.Join(tr.path(), "repo")
 	wtA := filepath.Join(tr.path(), "repo-wt-a")
@@ -344,7 +344,7 @@ func TestScanDetectsBareRepo(t *testing.T) {
 		mkdir("bare/objects").
 		mkdir("bare/refs").
 		file("normal/.git/HEAD", "ref: refs/heads/main\n").
-		file("normal/.vroom.toml", "name = \"normal\"\ncommand_start = \"echo\"\n")
+		file("normal/.vroom.toml", "name = \"normal\"\ncommands.start.run = \"echo\"\n")
 	t.Setenv("PATH", fakeGitPATH(t, "", 0))
 
 	result, err := Scan(tr.path(), 4)
@@ -407,7 +407,7 @@ func TestScanBareRepoDiscoversManifestlessWorktree(t *testing.T) {
 
 func TestScanDegradesWhenGitUnavailable(t *testing.T) {
 	tr := newTree(t).
-		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo/.vroom.toml", "name = \"repo\"\ncommands.start.run = \"echo\"\n").
 		file("repo/.git/config", "[core]\n\tbare = false\n")
 	t.Setenv("PATH", t.TempDir()) // empty PATH means neither git nor fd is reachable
 
@@ -426,7 +426,7 @@ func TestScanDegradesWhenGitUnavailable(t *testing.T) {
 
 func TestScanWorktreeListFailure(t *testing.T) {
 	tr := newTree(t).
-		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo/.vroom.toml", "name = \"repo\"\ncommands.start.run = \"echo\"\n").
 		file("repo/.git/config", "[core]\n\tbare = false\n")
 	t.Setenv("PATH", fakeGitPATH(t, "boom\n", 1))
 
@@ -442,7 +442,7 @@ func TestScanWorktreeListFailure(t *testing.T) {
 
 func TestScanWorktreeListMalformed(t *testing.T) {
 	tr := newTree(t).
-		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo/.vroom.toml", "name = \"repo\"\ncommands.start.run = \"echo\"\n").
 		file("repo/.git/config", "[core]\n\tbare = false\n")
 	t.Setenv("PATH", fakeGitPATH(t, "not a porcelain\n", 0))
 
@@ -459,7 +459,7 @@ func TestScanWorktreeListMalformed(t *testing.T) {
 // RepoRoot may point outside the root; the container row for it is the TUI's job, not the scanner's.
 func TestScanWorktreeOutsideRoot(t *testing.T) {
 	tr := newTree(t).
-		file("repo-wt-a/.vroom.toml", "name = \"api\"\ncommand_start = \"echo\"\n").
+		file("repo-wt-a/.vroom.toml", "name = \"api\"\ncommands.start.run = \"echo\"\n").
 		file("repo-wt-a/.git", "gitdir: /elsewhere/.git/worktrees/a\n")
 	outside := "/outside/repo"
 	wtA := filepath.Join(tr.path(), "repo-wt-a")
@@ -482,7 +482,7 @@ func TestScanWithWalkDetectsBareWithoutExtraWalk(t *testing.T) {
 		file("bare/config", "[core]\n\tbare = true\n").
 		mkdir("bare/objects").
 		mkdir("bare/refs").
-		file("proj/.vroom.toml", "name = \"proj\"\ncommand_start = \"echo\"\n")
+		file("proj/.vroom.toml", "name = \"proj\"\ncommands.start.run = \"echo\"\n")
 
 	calls := 0
 	orig := walkDir
@@ -514,7 +514,7 @@ func TestScanWithFDUsesNoWalkForBare(t *testing.T) {
 		file("bare/config", "[core]\n\tbare = true\n").
 		mkdir("bare/objects").
 		mkdir("bare/refs").
-		file("proj/.vroom.toml", "name = \"proj\"\ncommand_start = \"echo\"\n")
+		file("proj/.vroom.toml", "name = \"proj\"\ncommands.start.run = \"echo\"\n")
 
 	manifest := filepath.Join(tr.path(), "proj", ".vroom.toml")
 	dirs := filepath.Join(tr.path(), "proj") + "\n" + filepath.Join(tr.path(), "bare")
@@ -573,13 +573,13 @@ func TestQueryWorktreeRelationsOneGitCallPerRepo(t *testing.T) {
 	wtA := filepath.Join(tr.path(), "repo-wt-a")
 	wtB := filepath.Join(tr.path(), "repo-wt-b")
 	tr.file("repo/.git/config", "[core]\n\tbare = false\n").
-		file("repo/.vroom.toml", "name = \"repo\"\ncommand_start = \"echo\"\n").
+		file("repo/.vroom.toml", "name = \"repo\"\ncommands.start.run = \"echo\"\n").
 		file("repo-wt-a/.git", "gitdir: "+filepath.Join(repo, ".git", "worktrees", "a")+"\n").
 		file("repo/.git/worktrees/a/commondir", "../..\n").
-		file("repo-wt-a/.vroom.toml", "name = \"api\"\ncommand_start = \"echo\"\n").
+		file("repo-wt-a/.vroom.toml", "name = \"api\"\ncommands.start.run = \"echo\"\n").
 		file("repo-wt-b/.git", "gitdir: "+filepath.Join(repo, ".git", "worktrees", "b")+"\n").
 		file("repo/.git/worktrees/b/commondir", "../..\n").
-		file("repo-wt-b/.vroom.toml", "name = \"api\"\ncommand_start = \"echo\"\n")
+		file("repo-wt-b/.vroom.toml", "name = \"api\"\ncommands.start.run = \"echo\"\n")
 
 	counter := filepath.Join(t.TempDir(), "count")
 	t.Setenv("PATH", countingGitPATH(t, counter, porcelainRepo(repo, wtA, wtB)))

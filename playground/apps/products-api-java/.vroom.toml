@@ -1,6 +1,6 @@
 name = "products-api-java"
 primary_group = "tienda"
 secondary_group = "backend"
-command_start = "java src/main/java/com/example/Main.java"
+commands.start.run = "java src/main/java/com/example/Main.java"
 port = 8081
 process_pattern = ""

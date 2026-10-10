@@ -383,7 +383,7 @@ func (e *Engine) stopService(p scanner.Project) {
 	if p.Manifest == nil {
 		return
 	}
-	// Manifest.Stop is deliberately ignored: graceful stop is not implemented in the engine.
+	// Manifest.Commands.Stop.Run is deliberately ignored: graceful stop is not implemented in the engine.
 	meta, err := e.store.LoadMeta(p.Path)
 	if err == nil {
 		if meta.Pid > 0 || meta.Pgid > 0 || meta.Port > 0 {
