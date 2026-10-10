@@ -68,6 +68,7 @@ design.
 | M16 | **`$PORTLESS_HOME` does not exist**: the CLI honors `$PORTLESS_STATE_DIR` and not `$PORTLESS_HOME` | The seam must resolve the same directory as the binary, or vroom reads `proxy.port` from one place and the binary writes `routes.json` in another |
 | M17 | A hostname with underscore, space, colon, or accents is **rejected** (exit 1), and one with a slash is **silently truncated** (`Feat/My_Branch.proj` → `feat.localhost`) | vroom must sanitize the derived name: a git branch is full of underscores and slashes |
 | M18 | The proxy responds **404 to a host it does not know** and **502 to one it routes with the backend down** | 404 and 502 are not the same category; 404 contradicts routing, 502 proves it |
+| M19 | A freshly written alias reaches the proxy **asynchronously**: through the `fs.watch` debounce (~100 ms) when the watcher works, or through a **3 s polling fallback** when it does not (the inotify-starved CI runner). *(Environment fact: the 3 s interval is measured on the CI runner, not a documented portless constant)* | A single immediate probe can read the stale cache and degrade a route the proxy is about to serve; verification must tolerate the propagation window |
 
 ## Decision
 
@@ -191,6 +192,23 @@ design.
    Per **M3**, registering with the proxy down is persistent and correct: the route is
    served when the proxy returns. Verification decides **what is published**, not
    whether it is **registered**.
+
+   > **CORRECTION (route propagation window).** The "**one** request" claim above
+   > stopped being true. Per **M19** a freshly written alias reaches the proxy
+   > asynchronously, so a single immediate probe can read the stale cache and
+   > degrade a route the proxy is about to serve — the deterministic CI failure
+   > where the inotify-starved runner falls back to portless's 3 s polling.
+   > `verify` now retries the probe for a **bounded window** (default 3.5 s,
+   > 250 ms poll; `WithVerifyWait` overrides it, `0` restoring the single
+   > immediate probe) and only then declares the route unserved. What is
+   > unchanged is the criterion and the reasons: **any** HTTP response,
+   > `502` included, still proves routing and publishes the URL; a route the
+   > proxy answered for and still does not serve degrades as
+   > `route_not_served` **after** the window, exactly as before; and a proxy
+   > whose declared port refuses connections degrades at once as
+   > `proxy_unreachable`, because a port that cannot serve never will and
+   > waiting the window for it is pointless. A route the proxy already serves
+   > is never delayed: the first probe returns.
 
 7. **The URL scheme is determined by probing, not assuming.** `https` is tried and,
    if it does not respond, `http`; the one that responded is published. **This way
