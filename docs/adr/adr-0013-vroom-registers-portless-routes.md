@@ -4,6 +4,16 @@
 - Date: 2026-09-30
 - Feature: `0001-feature-portless-alias-routes`
 - Closes: `adr-0012` limitation 6
+- Superseded in part by: `adr-0014-url-generation-single-axis.md`
+
+> **PARTIALLY SUPERSEDED by `adr-0014-url-generation-single-axis.md`.** The
+> `route_mode` enum and its `off` / `auto` / `named_with_auto_fallback` vocabulary
+> were replaced by `url_generation`'s hostname values, and `port_mode` was retired
+> as a manifest field. The route **mechanics** described below — vroom only
+> registers the route, ownership grant and revocation, read-back, live
+> verification, reconciliation, fail-closed cleanup — remain in force unchanged.
+> Read the mode names below as their `url_generation` equivalents: `auto` →
+> `by_workspace_hostname`, `named_with_auto_fallback` → `by_hostname_or_workspace`.
 
 ## Context
 

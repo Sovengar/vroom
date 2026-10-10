@@ -8,19 +8,44 @@ and this project follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
-- Stable URL for the changing port with `route_mode = "off" | "auto" | "named_with_auto_fallback"`
-  and `route_name` in `.vroom.toml`. vroom registers an alias route in portless per
-  service and removes it on stop; `off` is the default, does not look for the binary, and
-  no existing manifest changes behavior. `auto` derives the name from
-  the branch (`<branch>.<project>`), so two branches of the same repo do not share
-  an address; two worktrees on the same branch receive a conflict warning instead of
-  overwriting each other. `named_with_auto_fallback` is a claim ladder:
-  `route_name` (what a `redirect_uri` or a CORS origin list requires) is claimed first,
-  and only when another worktree already holds it does the service fall back to
-  `<branch>.<project>` — with a warning naming the port that holds the stable name —
-  so whoever starts first owns the stable URL and every other worktree still gets an
-  address instead of no URL at all. A service that later claims the stable name retires
-  its old branch-derived route in the same start.
+- **One start axis: `url_generation` replaces `port_mode` + `route_mode`** in
+  `.vroom.toml`. The five values are `by_port` (bind the declared port, no route;
+  refuses an occupied port), `by_hostname` (ephemeral port + `route_name`; refuses
+  only a proven foreign holder), `by_workspace_hostname` (ephemeral port +
+  `<branch>.<project>`), `by_hostname_or_workspace` (the claim ladder: `route_name`
+  first, branch hostname when taken) and `none` (headless). The port vocabulary is
+  derived from the generation, so the port can no longer contradict the address. A
+  manifest without the key keeps the historical behavior: a declared `port > 0`
+  means `by_port`, `port = 0` means `none`.
+- `[worktrees].url_generation` overrides the top-level value for a worktree copy
+  (absent = inherit), so one committed manifest serves `main` one way and every
+  worktree another.
+- The TUI `s` on a **stopped** service now **arms** a start-generation selector
+  (`p` = `by_port`, `u` = `by_hostname`, `w` = `by_workspace_hostname`,
+  `f` = `by_hostname_or_workspace`; any other key cancels) instead of starting
+  outright. The chosen generation is recorded in the service state and outranks the
+  manifest on every later start (TUI `R`, `vroom start`, stacks).
+- `url_generation` in the `vroom list` / `vroom status` JSON: the recorded choice,
+  else the worktree-aware manifest default. Switching a service to `by_port` or
+  `none` retires the route a previous hostname start left behind (only a clean
+  retirement clears the ownership handle, so a later start can still reconcile).
+- ADR-0014 documenting the single-axis decision, its five values, the derived port
+  vocabulary and the partial supersession of ADR-0013's `route_mode` vocabulary.
+- Stable URL for the changing port via the hostname generations of
+  `url_generation` (`by_hostname`, `by_workspace_hostname`,
+  `by_hostname_or_workspace`) and `route_name` in `.vroom.toml`. vroom registers an
+  alias route in portless per service and removes it on stop; `by_port` and `none`
+  do not look for the binary, and no existing manifest changes behavior.
+  `by_workspace_hostname` derives the name from the branch (`<branch>.<project>`), so
+  two branches of the same repo do not share an address; two worktrees on the same
+  branch receive a conflict warning instead of overwriting each other.
+  `by_hostname_or_workspace` is a claim ladder: `route_name` (what a `redirect_uri`
+  or a CORS origin list requires) is claimed first, and only when another worktree
+  already holds it does the service fall back to `<branch>.<project>` — with a
+  warning naming the port that holds the stable name — so whoever starts first owns
+  the stable URL and every other worktree still gets an address instead of no URL at
+  all. A service that later claims the stable name retires its old branch-derived
+  route in the same start.
 - **vroom only registers the route: it does not start, manage, supervise or show the
   proxy.** If there is no `portless`, it is not in `PATH`, its proxy is not running or its Node
   is too old, vroom warns once and the service starts anyway, healthy and on
@@ -36,8 +61,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
   service from the CLI or the TUI. `portless prune` does not touch alias routes, so
   vroom is the only thing that can clean them: routes left by a vroom that
   died without stopping it, and the old route of a renamed branch, are removed on their own.
-- `route_mode` (intention) and `route` (result) in the `vroom list` JSON, so
-  an agent can distinguish what the manifest asks for from what it achieved, and
+- `url_generation` (intention) and `route` (result) in the `vroom list` JSON, so
+  an agent can distinguish what the service will start as from what it achieved, and
   route ownership persisted in the service state to be able to
   reconcile it without touching foreign routes.
 - ADR-0013 documenting the route ownership model, the eleven measured
@@ -45,11 +70,12 @@ and this project follows [Semantic Versioning](https://semver.org/).
   steps instead of one.
 - README: portless is documented as an **optional dependency** (with its Node >= 24
   and how vroom resolves it), separated from `fd`, which is mandatory.
-- Dynamic ports per worktree with `port_mode = "fixed" | "dynamic" | "none"`
-  in `.vroom.toml`. In `dynamic` vroom reserves a port from the 4000-4999 range,
+- Ephemeral ports per worktree in the hostname generations of `url_generation`
+  (`by_hostname`, `by_workspace_hostname`, `by_hostname_or_workspace`).
+  vroom reserves a port from the 4000-4999 range,
   injects `PORT` and `HOST` into the process environment, discovers the real
   listening port and uses it as the single source of truth in the TUI, in the JSON output and in the
-  stack health gate. A manifest without `port_mode` behaves
+  stack health gate. A manifest without `url_generation` behaves
   exactly as before.
 - Deterministic selection of the main port when a service opens multiple
   listeners: first the reserved port, then the one that responds to the
@@ -135,6 +161,15 @@ and this project follows [Semantic Versioning](https://semver.org/).
   parsing, and ignore output blocks with empty path.
 
 ### Changed
+- **BREAKING (`.vroom.toml`): `port_mode` and `route_mode` are gone, replaced by
+  the single `url_generation` key.** This is a hard rename with no aliases: a
+  manifest that still declares `port_mode` or `route_mode` must migrate. Remove both
+  keys and declare `url_generation`: `fixed` → `by_port`,
+  `dynamic` with no route → `by_workspace_hostname`, `auto` →
+  `by_workspace_hostname`, `named_with_auto_fallback` →
+  `by_hostname_or_workspace`, `off` → drop the key. A service that used to be `none`
+  (via `port_mode = "none"` or `port = 0`) must now declare
+  `url_generation = "none"` explicitly if it wants that stated rather than inferred.
 - The dashboard is composed of four sections with rounded border and title
   (`Projects`, `Details`, `Output`, `Keybinds`) and no longer shows the
   `vroom — projects in …` header, which was out of sync since the scan root became configurable.
@@ -152,6 +187,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
   messages and errors.
 
 ### Removed
+- The `port_mode` and `route_mode` manifest fields and their `vroom list` JSON
+  counterparts; `url_generation` is the single axis that replaces them.
 - Dead code: `quickCheck`, `stacksEmitted`, the `services` parameter of
   `StopStack` and the `ServiceStatus` type.
 

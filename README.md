@@ -70,8 +70,9 @@ Other requirements: Linux (v1), POSIX shell.
 
 ### Optional dependency: portless
 
-Only needed if you use `route_mode = "auto"` or `"named_with_auto_fallback"` (see [`route_mode`](#route_mode-a-stable-url-for-the-changing-port)).
-With `route_mode = "off"` —the default— vroom **does not even look for the binary**.
+Only needed for the hostname generations — `by_hostname`, `by_workspace_hostname` or
+`by_hostname_or_workspace` (see [`url_generation`](#url_generation-how-the-service-is-addressed)).
+With `by_port` or `none` vroom **does not even look for the binary**.
 
 portless is a Node CLI and **requires Node >= 24**. It is resolved in this order:
 `$PORTLESS_BIN` → `exec.LookPath` → known mise shim directories (vroom runs
@@ -115,15 +116,18 @@ primary_group = "store"           # top-level grouping (optional)
 secondary_group = "backend"       # inner level, only with primary_group (optional)
 command_start = "go run main.go"
 port = 8080                       # default app port (0 = disabled)
-port_mode = "fixed"               # "fixed" | "dynamic" | "none" (default "fixed")
+url_generation = "by_port"        # "by_port" | "by_hostname" | "by_workspace_hostname" | "by_hostname_or_workspace" | "none"
+                                  # default: by_port when port > 0, else none
 process_pattern = ""              # pgrep pattern (optional)
 command_install = "npm install"    # one-shot with the i key (optional)
 command_build = "mise run build"  # one-shot with the b key (optional)
 command_pre_start = "fuser -k 5005/tcp || true"  # fail-fast hook before command_start (optional)
 command_stop = "docker stop x"    # graceful stop with the s key (optional)
 health_path = "/healthz"          # Health tab probe path (default "/")
-route_mode = "off"                # "off" | "auto" | "named_with_auto_fallback" (default "off")
-route_name = ""                   # stable route name (only with "named_with_auto_fallback")
+route_name = ""                   # stable hostname (required by by_hostname / by_hostname_or_workspace)
+
+[worktrees]
+url_generation = "by_hostname_or_workspace"  # optional per-copy override for worktrees (absent = inherit)
 ```
 
 Grouping is hierarchical: with `primary_group` + `secondary_group` the TUI
@@ -149,20 +153,44 @@ start path (`vroom start`, `s`, `R`, `vroom launch`) and never on
 `already_running`. Since the hook is plain `sh -c`, a best-effort step ends with
 `|| true` (`fuser` exits non-zero when nobody holds the port).
 
-### `port_mode`: the same manifest for multiple worktrees
+### `url_generation`: how the service is addressed
 
 `port` is not the detection mechanism: it is the **default port of your app**,
-the same value as `PORT=${PORT:-8080}`. `port_mode` decides what vroom does with it.
-Without `port_mode` (or with `port = 0`) the behavior is exactly as
-always.
+the same value as `PORT=${PORT:-8080}`. `url_generation` is the single key that
+decides what vroom does with it — the port and the address are two faces of one
+choice, so they are no longer declared separately (the former `port_mode` +
+`route_mode` pair is gone).
 
-| Mode | What vroom does |
+| `url_generation` | What vroom does |
 |---|---|
-| `fixed` (default) | Starts the service on `port`. This is the historical behavior. |
-| `none` | The service has no port by design. No port waiting. |
-| `dynamic` | vroom reserves a free port in `4000–4999`, injects it as `PORT` (and `HOST=127.0.0.1`), starts the service and **discovers and verifies** the real port before returning control. |
+| `by_port` | Binds the declared `port`; the address is `localhost:<port>`. Publishes no portless route. The start is **refused while the port is occupied**. |
+| `by_hostname` | Ephemeral port (injected as `PORT`, with `HOST=127.0.0.1`) + registers `route_name` in portless. Refused **only if a proven foreign holder keeps that name**; the service reclaims its own stale route. |
+| `by_workspace_hostname` | Ephemeral port + `<branch>.<project>` hostname; no `route_name` needed. |
+| `by_hostname_or_workspace` | Claim ladder: `route_name` first; if another worktree holds it, falls back to `<branch>.<project>` instead of failing. |
+| `none` | Headless: no port, no URL. vroom does not even look for portless. |
 
-With `dynamic`, the same `.vroom.toml` works for N worktrees at once: each one
+The port vocabulary is **derived** from the generation: `by_port` binds a fixed
+port, the hostname generations get an ephemeral one (their address is the
+hostname), `none` has none — there is no separate port mode to keep in sync.
+
+**Backwards compatible when absent:** a manifest that declares no
+`url_generation` keeps the historical behavior — a declared `port > 0` means
+`by_port`, `port = 0` (or absent) means `none`.
+
+**Per worktree:** `[worktrees].url_generation` overrides the top-level value for a
+worktree copy, so one committed manifest serves `main` one way and every worktree
+another; absent means the worktree inherits the top-level value.
+
+```toml
+url_generation = "by_hostname"               # main checkout: the stable URL
+[worktrees]
+url_generation = "by_hostname_or_workspace"  # each worktree: stable name, else branch
+```
+
+#### Ports: fixed vs ephemeral
+
+With a hostname generation the same `.vroom.toml` works for N worktrees at once:
+each one
 starts on its own port and the UI, the JSON and the health probe show
 **that same number**. The contract with your app is one line:
 
@@ -190,32 +218,29 @@ lowest-numbered one is chosen (deterministic) and the service is marked as **"po
 not verified"** (`port_verified: false` in the JSON, with visible warning). See `docs/adr/adr-0012-port-ownership-contract-and-dynamic-ports.md`
 for the complete port ownership contract.
 
-### `route_mode`: a stable URL for the changing port
+#### Routes: a stable URL for the changing port
 
-With dynamic ports, any external reference —an OAuth callback, a CORS
-rule, a README, a bookmark— is tied to a number that changes on every
-startup. `route_mode` gives each service a **stable name** in portless.
+With ephemeral ports, any external reference — an OAuth callback, a CORS rule, a
+README, a bookmark — is tied to a number that changes on every startup. The
+hostname generations give the service a **stable name** in portless.
 
 ```toml
-route_mode = "auto"                # "off" (default) | "auto" | "named_with_auto_fallback"
-route_name = "my-api"              # only with route_mode = "named_with_auto_fallback"
+url_generation = "by_hostname"    # claim route_name exactly
+route_name = "my-api"             # required by by_hostname / by_hostname_or_workspace
 ```
 
-| Mode | What vroom does |
-|---|---|
-| `off` (default) | Registers no route. **Does not even look for the binary.** |
-| `auto` | Name derived from the **branch**: `<branch>.<project>`, without writing anything. |
-| `named_with_auto_fallback` | **Claim ladder**: tries `route_name` first and, only if another worktree already holds it, `<branch>.<project>`. |
+`by_workspace_hostname` derives the name from the **branch**: `<branch>.<project>`,
+without writing anything.
 
-`auto` separates distinct **branches** of the same repo, which is what prevents two
-running branches from sharing an address. Watch the scope: the name comes from the
-branch, not from the worktree folder, so **two worktrees on the same branch
-derive the same name** (for example, two clones both on `main`, or a
+`by_workspace_hostname` separates distinct **branches** of the same repo, which is
+what prevents two running branches from sharing an address. Watch the scope: the
+name comes from the branch, not from the worktree folder, so **two worktrees on the
+same branch derive the same name** (for example, two clones both on `main`, or a
 `git worktree --force` on an already-used branch). When that happens, the second
 service does not get a second address but a **conflict warning**: the first
 one's route stays intact and this service keeps working on its port.
 
-`named_with_auto_fallback` is the mode for URLs that **cannot depend on a branch**
+`by_hostname_or_workspace` is the mode for URLs that **cannot depend on a branch**
 (`redirect_uri`, origin list): the first worktree to start claims `route_name`, so
 starting a worktree first is how you choose which one owns the stable URL. The
 worktrees that start later no longer degrade to nothing — they fall back to
@@ -225,6 +250,11 @@ every start, so a worktree that later finds `route_name` free claims it and its
 old branch-derived route is retired in the same start. Only when **both** names
 are taken does it degrade like before: no URL published, the other routes intact,
 the service healthy on its port.
+
+`by_hostname` claims `route_name` and nothing else: a name kept by another holder
+is a **refusal** (there is no branch rung to fall back to — that is what the ladder
+exists for). And `by_port` refuses a start while its port is occupied, before
+anything spawns.
 
 **vroom only registers the route. It does not start, manage, supervise or show the
 proxy.** portless is an *optional* dependency (see
@@ -237,16 +267,18 @@ dependency.
 
 When stopping the service, its route disappears. And routes left by a vroom that
 died without stopping it are cleaned by **the next startup's reconciliation**, because
-`portless prune` does **not** touch alias routes. If you rename a branch in `auto`
-mode, the old route is removed and the new one is registered; in
-`named_with_auto_fallback` the same retirement happens when the ladder switches
-names, because stop only ever revokes the name the service actually holds.
+`portless prune` does **not** touch alias routes. If you rename a branch in
+`by_workspace_hostname` mode, the old route is removed and the new one is
+registered; in `by_hostname_or_workspace` the same retirement happens when the
+ladder switches names, because stop only ever revokes the name the service actually
+holds. Switching a service to `by_port` or `none` retires the route a previous
+hostname start left behind.
 
-In the JSON, `route_mode` is the **intention** (what the manifest asks for) and `route`
-is the **result**:
+In the JSON, `url_generation` is the **intention** (the recorded choice, else the
+manifest's) and `route` is the **result**:
 
 ```json
-"route_mode": "named_with_auto_fallback",
+"url_generation": "by_hostname_or_workspace",
 "route": { "name": "my-api", "status": "registered", "url": "https://my-api.localhost", "port": 4321 }
 ```
 
@@ -261,10 +293,11 @@ route even if the proxy is off and exits successfully anyway, so **writing the
 route does not prove the URL resolves**: that is why, after registering it, vroom reads it back
 to confirm it belongs to that service and checks it against the live proxy. A `502`
 counts as "the proxy routes the route and your service does not respond"; only a
-refused connection or a timeout mean there is no proxy. A manifest without
-`route_mode` publishes none of this.
+refused connection or a timeout mean there is no proxy. `by_port` and `none`
+publish none of this.
 
-See `docs/adr/adr-0013-vroom-registers-portless-routes.md`.
+See `docs/adr/adr-0014-url-generation-single-axis.md` and
+`docs/adr/adr-0013-vroom-registers-portless-routes.md`.
 
 ## Keybindings
 
@@ -273,7 +306,7 @@ See `docs/adr/adr-0013-vroom-registers-portless-routes.md`.
 | `j`/`k` or arrows | Navigate the tree (cyclic, auto-scroll) |
 | `/` | **Filter**: live filter bar for the tree (matches name and `primary_group`/`secondary_group` groups, case-insensitive); `enter` applies and closes, `esc` clears and closes |
 | `enter` | Collapse/expand the selected group |
-| `s` | **Start/stop** (contextual toggle; on a group, all its members) |
+| `s` | **Start/stop** (contextual toggle; on a group, all its members). On a **stopped** service it **arms** a start-generation selector: `p` = `by_port`, `u` = `by_hostname`, `w` = `by_workspace_hostname`, `f` = `by_hostname_or_workspace`, any other key cancels |
 | `R` | Restart (stop → start with timeout) |
 | `b` | **Build**: one-shot manifest command (`command_build = "..."`) |
 | `i` | **Install**: one-shot manifest command (`command_install = "..."`) |
@@ -414,7 +447,7 @@ survive TUI close (same semantics as services).
 
 ```
 ~/.local/state/vroom/services/{hash}/   # hash = 8 hex of SHA-256 of the project path
-├── meta.json    # name, pid, pgid, port, status...
+├── meta.json    # name, pid, pgid, port, url_generation, status...
 ├── pid, pgid    # process credentials (cleared on stop)
 ├── stdout.log   # service stdout
 └── stderr.log   # service stderr (kept as history)
