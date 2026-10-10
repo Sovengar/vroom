@@ -121,7 +121,19 @@ func (f *fakePortless) client(t *testing.T) *Client {
 		WithExec(f.exec),
 		WithProbe(f.probe),
 		WithTimeout(2*time.Second),
+		// The deterministic fake answers at once, so the propagation window only slows the suite; the wait has its own tests.
+		WithVerifyWait(0),
 	)
+}
+
+// The wait is a default, not an opt-in: a real caller builds through New()/Default() and must get the propagation window without asking, while WithVerifyWait(0) restores the immediate single probe the deterministic fakes need.
+func TestNewInstallsTheDefaultPropagationWindow(t *testing.T) {
+	if got := New().verifyWait; got != DefaultVerifyWait {
+		t.Errorf("verifyWait = %v, want the default %v", got, DefaultVerifyWait)
+	}
+	if got := New(WithVerifyWait(0)).verifyWait; got != 0 {
+		t.Errorf("WithVerifyWait(0) did not override the default: %v", got)
+	}
 }
 
 func (f *fakePortless) writeProxyPort(t *testing.T, dir string, port int) {

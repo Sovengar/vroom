@@ -109,19 +109,29 @@ func TestLadderAgainstARealPortlessProxy(t *testing.T) {
 	assertRouted(t, stable, proxyPort, "beta")
 }
 
-// assertRouted proves the URL a user would actually open answers with THIS backend: the status alone is 200 for either of them, so only the body tells the two worktrees apart.
+// assertRouted proves the URL a user would actually open answers with THIS backend: the status alone is 200 for either of them, so only the body tells the two worktrees apart. It waits because a fresh `alias` reaches the proxy asynchronously (fs.watch debounce when the watcher works, the 3s polling fallback when it does not), and a single immediate request can still see the previous backend.
 func assertRouted(t *testing.T, name string, proxyPort int, want string) {
 	t.Helper()
-	status, body := routedBody(t, name, proxyPort)
-	if status != http.StatusOK || body != want {
-		t.Errorf("the proxy must serve %s from its own backend, got status=%d body=%q (want %q)",
-			portless.Hostname(name), status, body, want)
+	deadline := time.Now().Add(5 * time.Second)
+	var status int
+	var body string
+	for {
+		var err error
+		status, body, err = routedBody(name, proxyPort)
+		if err == nil && status == http.StatusOK && body == want {
+			return
+		}
+		if !time.Now().Before(deadline) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
+	t.Errorf("the proxy must serve %s from its own backend, got status=%d body=%q (want %q)",
+		portless.Hostname(name), status, body, want)
 }
 
 // routedBody dials loopback and sends the Host header instead of resolving the name, exactly like ProbeOnce: *.localhost resolution is not guaranteed under a runner or a service manager, and the proxy routes on the header.
-func routedBody(t *testing.T, name string, proxyPort int) (int, string) {
-	t.Helper()
+func routedBody(name string, proxyPort int) (int, string, error) {
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(proxyPort))
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -135,12 +145,12 @@ func routedBody(t *testing.T, name string, proxyPort int) (int, string) {
 	host := portless.Hostname(name)
 	resp, err := client.Get("http://" + host + "/")
 	if err != nil {
-		t.Fatalf("the proxy must answer for %s: %v", host, err)
+		return 0, "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		t.Fatalf("reading the answer for %s: %v", host, err)
+		return resp.StatusCode, "", err
 	}
-	return resp.StatusCode, string(data)
+	return resp.StatusCode, string(data), nil
 }

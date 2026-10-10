@@ -21,6 +21,17 @@ import (
 // DefaultTimeout bounds every binary call and probe because degradation must never be worse than not having the feature.
 const DefaultTimeout = 5 * time.Second
 
+// DefaultVerifyWait bounds how long Apply waits for a freshly written route to become served. portless exposes a new
+// route to its proxy either through an fs.watch debounce (100ms) or, when the watcher is unavailable, through a 3s
+// polling fallback; under CI's runner the watcher is unavailable, so a single immediate probe would always read the
+// stale cache and degrade a route the proxy is about to serve. Waiting past the polling interval turns that env fact
+// into a served url, and a proxy that already serves the route is never delayed (the first probe returns).
+const DefaultVerifyWait = 3500 * time.Millisecond
+
+// verifyPollInterval spaces the retries inside DefaultVerifyWait: small enough to catch the 100ms debounce quickly,
+// large enough not to spin the proxy while the polling fallback counts down its 3s.
+const verifyPollInterval = 250 * time.Millisecond
+
 // Route status as published in JSON: registered means the URL was actually seen working, nothing less.
 const (
 	StatusRegistered = "registered"
@@ -63,6 +74,8 @@ type Client struct {
 	exec     ExecFunc
 	probe    ProbeFunc
 	timeout  time.Duration
+	// verifyWait is how long Apply keeps probing a route the proxy answered 404 for: 0 keeps the old single-probe behaviour and lets the deterministic fakes assert the degradation without a delay.
+	verifyWait time.Duration
 }
 
 type ClientOption func(*Client)
@@ -77,9 +90,12 @@ func WithProbe(fn ProbeFunc) ClientOption { return func(c *Client) { c.probe = f
 
 func WithTimeout(d time.Duration) ClientOption { return func(c *Client) { c.timeout = d } }
 
+// WithVerifyWait overrides the propagation window Apply tolerates; 0 restores the single immediate probe the deterministic fakes rely on.
+func WithVerifyWait(d time.Duration) ClientOption { return func(c *Client) { c.verifyWait = d } }
+
 // New takes the binary and state dir already resolved by the caller and only defaults the seams, so path resolution stays in one place.
 func New(opts ...ClientOption) *Client {
-	c := &Client{timeout: DefaultTimeout}
+	c := &Client{timeout: DefaultTimeout, verifyWait: DefaultVerifyWait}
 	for _, o := range opts {
 		o(c)
 	}

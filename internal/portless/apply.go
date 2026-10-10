@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"vroom/internal/manifest"
 )
@@ -140,7 +141,7 @@ func (r Result) withReason(reason string) Result {
 	return r
 }
 
-// verify probes https then http instead of assuming a scheme, so the TLS/443 case needs no guess and the price is one extra probe.
+// verify probes https then http instead of assuming a scheme, so the TLS/443 case needs no guess and the price is one extra probe. It retries for verifyWait because a freshly written route reaches the proxy's cache asynchronously: through the fs.watch debounce when the watcher works, or through the 3s polling fallback when it does not, and a single immediate probe would read the stale cache and degrade a route the proxy is about to serve (the exact CI failure: an inotify-starved runner falls back to polling).
 func (c *Client) verify(name string, port int) Result {
 	host := Hostname(name)
 
@@ -152,26 +153,46 @@ func (c *Client) verify(name string, port int) Result {
 		return r
 	}
 
-	for _, scheme := range []string{"https", "http"} {
-		status, err := c.probeWithTimeout(scheme, host, proxyPort, probePath)
-		if err != nil {
-			continue
+	deadline := time.Now().Add(c.verifyWait)
+	// answered records that the proxy itself replied (a 404), which is already proof it is reachable: only a request that answers nothing reaches acceptsConnections.
+	answered := false
+	for {
+		replied := false
+		for _, scheme := range []string{"https", "http"} {
+			status, err := c.probeWithTimeout(scheme, host, proxyPort, probePath)
+			if err != nil {
+				continue
+			}
+			replied = true
+			if status == 404 {
+				// Measured: the proxy answers 404 when it does not know the host and 502 when it routes to a dead backend, so treating 404 as proof of routing would publish an address the proxy does not serve; it may still be a not-yet-served write, so keep probing until the window closes.
+				answered = true
+				continue
+			}
+			// Any other status, 502 included, proves the proxy routes this route; Registered lives in this literal so verify cannot forget it if it is ever called from elsewhere.
+			return Result{
+				Name:       name,
+				Host:       host,
+				Status:     StatusRegistered,
+				Url:        scheme + "://" + host,
+				Port:       port,
+				Registered: true,
+			}
 		}
-		if status == 404 {
-			// Measured: the proxy answers 404 when it does not know the host and 502 when it routes to a dead backend, so treating 404 as proof of routing would publish an address the proxy does not serve.
-			return Degraded(name, ReasonRouteNotServed)
+		// A proxy whose declared port refuses connections can never serve the route, so waiting the whole window is pointless; only a proxy that is up but slow to reload deserves it.
+		if !replied && !c.acceptsConnections(proxyPort) {
+			break
 		}
-		// Any other status, 502 included, proves the proxy routes this route; Registered lives in this literal so verify cannot forget it if it is ever called from elsewhere.
-		return Result{
-			Name:       name,
-			Host:       host,
-			Status:     StatusRegistered,
-			Url:        scheme + "://" + host,
-			Port:       port,
-			Registered: true,
+		if !time.Now().Before(deadline) {
+			break
 		}
+		time.Sleep(verifyPollInterval)
 	}
 
+	if answered {
+		// The proxy answered for the host and still does not route it, so this is the not-served degradation, exactly as before the wait.
+		return Degraded(name, ReasonRouteNotServed)
+	}
 	if !c.acceptsConnections(proxyPort) {
 		r := Degraded(name, ReasonProxyUnreachable)
 		r.Registered = true
