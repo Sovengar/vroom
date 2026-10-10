@@ -38,6 +38,14 @@ type Request struct {
 	IsWorktree bool
 }
 
+// context is Ctx normalised for the phases that cannot be handed nil: Request.Ctx documents nil as context.Background(), and the hook and discovery both need a non-nil context to observe cancellation.
+func (r Request) context() context.Context {
+	if r.Ctx == nil {
+		return context.Background()
+	}
+	return r.Ctx
+}
+
 // RegistrarFunc maps a resolved generation to a registrar; nil means "publishes no URL" (by_port, none).
 type RegistrarFunc func(gen string) RouteRegistrar
 
@@ -107,7 +115,7 @@ func Start(req Request) (Result, error) {
 	// The pre_run hook runs INSIDE Manager.Start (through PreSpawn) rather than here: the manager truncates the logs on every start, so anything written before it would leave no trace of a hook that succeeded.
 	var pre func() error
 	if req.Manifest.Commands.Start.Hooks.PreRun != "" {
-		pre = preRunHook(req.Manifest.Commands.Start.Hooks.PreRun, req.Path, req.StdoutPath, req.StderrPath)
+		pre = preRunHook(req.context(), req.Manifest.Commands.Start.Hooks.PreRun, req.Path, req.StdoutPath, req.StderrPath)
 	}
 
 	res, err := req.Manager.Start(process.StartSpec{
@@ -152,13 +160,13 @@ func Start(req Request) (Result, error) {
 			return Result{}, err
 		}
 		_ = req.Store.RegisterPid(req.Path, res.Pid, res.Pgid)
-		return postRun(req, out), nil
+		return postRun(req.context(), req, out), nil
 	}
 	dynamic, err := resolveDynamicPort(req, routes, base, reserved, gen)
 	if err != nil {
 		return Result{}, err
 	}
-	return postRun(req, dynamic), nil
+	return postRun(req.context(), req, dynamic), nil
 }
 
 // preflight refuses a start that could not honour its own address, BEFORE anything spawns: by_hostname on a name a foreign holder keeps (its URL must not move, so there is nothing to fall back to — the ladder generation is the one that exists for falling back), and by_port on an occupied port (the neighbour's listener is not yours, and vroom mistaking it for the service is exactly the bug that made two projects read as running).
@@ -231,11 +239,17 @@ func resolveDynamicPort(req Request, routes RouteRegistrar, attempt state.Meta, 
 	if timeout <= 0 {
 		timeout = process.DefaultDynamicPortTimeout
 	}
-	d := process.DiscoverPort(attempt.Pid, reserved, req.Manifest.HealthURLPath(), timeout)
+	d := process.DiscoverPortContext(req.context(), attempt.Pid, reserved, req.Manifest.HealthURLPath(), timeout)
 	if d.LineageDead {
 		// The lineage is gone, so the reserved port is a wasted slot and must go back to the set.
 		process.ReleasePort(reserved)
 		return Result{}, fmt.Errorf("service exited during startup (no port to resolve)")
+	}
+	if d.Cancelled {
+		// The caller walked away mid-discovery: the port_pending attempt was already persisted and its pid registered above, so unwind without applying a route or dressing an undiscovered port as resolved. The reserved slot is NOT released: the child is alive and may already hold it, and stop will return it.
+		out := Result{Meta: attempt, Pid: attempt.Pid, Port: reserved}
+		out.Warnings = append(out.Warnings, "start cancelled during port discovery")
+		return out, nil
 	}
 
 	final := attempt
@@ -281,7 +295,8 @@ func resolveDynamicPort(req Request, routes RouteRegistrar, attempt state.Meta, 
 }
 
 func applyRoute(req Request, routes RouteRegistrar, meta *state.Meta, port int, gen string, out *Result) {
-	ctx := req.Ctx
+	// Normalise the lifetime once here: a nil Ctx means "no cancellation" (Request.context), and ApplyContext must not be the only guard against it.
+	ctx := req.context()
 	if routes == nil {
 		return
 	}
@@ -365,23 +380,23 @@ func stopAfterPersistFailure(req Request, res process.StartResult) {
 	})
 }
 
-// preRunHook runs commands.start.hooks.pre_run exactly like any other job (banner, output and footer in the service log) and fails the whole start when it fails: an unmet prerequisite must not be papered over by a service that starts anyway.
-func preRunHook(command, workDir, stdoutPath, stderrPath string) func() error {
+// preRunHook runs commands.start.hooks.pre_run exactly like any other job (banner, output and footer in the service log) and fails the whole start when it fails: an unmet prerequisite must not be papered over by a service that starts anyway. It honours the command lifetime: a cancelled start cuts the hook and reaps its process group instead of orphaning the sh child.
+func preRunHook(ctx context.Context, command, workDir, stdoutPath, stderrPath string) func() error {
 	return func() error {
-		if _, _, err := logrun.Run("pre_run", command, workDir, stdoutPath, stderrPath); err != nil {
+		if _, _, err := logrun.RunContext(ctx, "pre_run", command, workDir, stdoutPath, stderrPath); err != nil {
 			return fmt.Errorf("commands.start.hooks.pre_run %q failed: %w (its output is in the service log)", command, err)
 		}
 		return nil
 	}
 }
 
-// postRun runs commands.start.hooks.post_run only once the start is COMMITTED: meta is persisted, the route is resolved and the child exists. That ordering is why a failure can only warn — the service is alive and killing it over a post-hook would surprise more than it protects — and the warning travels the way every other start warning does, through Result.Warnings into the service log.
-func postRun(req Request, out Result) Result {
+// postRun runs commands.start.hooks.post_run only once the start is COMMITTED: meta is persisted, the route is resolved and the child exists. That ordering is why a failure can only warn — the service is alive and killing it over a post-hook would surprise more than it protects — and the warning travels the way every other start warning does, through Result.Warnings into the service log. It honours the command lifetime like preRunHook: a cancelled start (Ctrl-C, a TUI quit) cuts the hook and reaps its process group instead of sitting out its unbounded duration, which is what keeps runStart's join-on-cancel from blocking CLI exit.
+func postRun(ctx context.Context, req Request, out Result) Result {
 	hook := req.Manifest.Commands.Start.Hooks.PostRun
 	if hook == "" {
 		return out
 	}
-	if _, _, err := logrun.Run("post_run", hook, req.Path, req.StdoutPath, req.StderrPath); err != nil {
+	if _, _, err := logrun.RunContext(ctx, "post_run", hook, req.Path, req.StdoutPath, req.StderrPath); err != nil {
 		out.Warnings = append(out.Warnings, fmt.Sprintf(
 			"commands.start.hooks.post_run %q failed: %v (its output is in the service log)", hook, err))
 	}

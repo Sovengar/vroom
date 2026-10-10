@@ -127,6 +127,23 @@ and this project follows [Semantic Versioning](https://semver.org/).
   process per run.
 
 ### Fixed
+- `Apply` now waits out the portless route propagation window (3.5 s default,
+  250 ms poll) before degrading a route the proxy is about to serve. A freshly
+  written alias is exposed asynchronously by portless — via `fs.watch` debounce
+  (~100 ms) or a 3 s polling fallback on inotify-starved CI runners — so the
+  single probe read the stale cache and misreported a served route as
+  `route_not_served`. The window is bounded, cancellable, and can be opted out
+  with `WithVerifyWait(0)`.
+- Ctrl-C now terminates `vroom start`: the command context is threaded through
+  every blocking phase (route verification, port discovery, pre_run/post_run
+  hooks), a cancelled start unwinds cleanly with the spawned daemon persisted
+  and the route owned, and the post_run hook's process group is reaped at once
+  instead of blocking exit for its full duration.
+- A cancelled verify is reported with reason `cancelled`, not `route_not_served`,
+  so the JSON output and TUI warning distinguish a user abort from a genuinely
+  unserved route.
+- `Apply` stamps `Registered` on every post-write verdict, so stop/Retain/
+  Reconcile can revoke a route even when the verify degrades after the write.
 - The portless state directory now matches what the CLI writes: `XDG_STATE_HOME` is
   ignored (measured on 0.15.6), so vroom no longer reads `proxy.port` from a directory
   that never exists and reports every route as `proxy_not_running`.

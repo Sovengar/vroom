@@ -2,6 +2,7 @@
 package logrun
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,12 @@ import (
 
 // Run executes command through sh -c in workDir and appends everything to the two log paths. The exit code is 0 unless the command really ran and failed, which keeps "the runner could not even start it" (unwritable log, no sh) apart from "the command returned non-zero": only the second one says something about the manifest.
 func Run(kind, command, workDir, stdoutPath, stderrPath string) (time.Duration, int, error) {
+	// A job with no caller lifetime cannot be cut mid-run; RunContext is the cancellation-capable form the start sequence uses for its command_pre_start hook.
+	return RunContext(context.Background(), kind, command, workDir, stdoutPath, stderrPath)
+}
+
+// RunContext is Run with a caller-owned lifetime: when ctx is done the hook's whole process group is terminated instead of being orphaned with the service log fds still open, so a Ctrl-C during command_pre_start does not leave a sh child reparented to init.
+func RunContext(ctx context.Context, kind, command, workDir, stdoutPath, stderrPath string) (time.Duration, int, error) {
 	if dir := filepath.Dir(stdoutPath); dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return 0, 0, err
@@ -32,7 +39,7 @@ func Run(kind, command, workDir, stdoutPath, stderrPath string) (time.Duration, 
 	}
 
 	start := time.Now()
-	cmd := exec.Command("sh", "-c", command)
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Dir = workDir
 	errF, err := os.OpenFile(stderrPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
@@ -41,6 +48,9 @@ func Run(kind, command, workDir, stdoutPath, stderrPath string) (time.Duration, 
 	defer func() { _ = errF.Close() }()
 	cmd.Stdout = out
 	cmd.Stderr = errF
+	// A cancelled caller must not orphan the hook: isolate puts the shell in its own process group and killGroup reaps the whole tree when ctx is done, because the default Cancel only signals the direct sh and leaves its children (npm install, a build) running with the log fds open.
+	isolate(cmd)
+	cmd.Cancel = func() error { return killGroup(cmd) }
 	runErr := cmd.Run()
 	elapsed := time.Since(start).Round(10 * time.Millisecond)
 	if runErr != nil {

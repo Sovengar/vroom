@@ -66,6 +66,11 @@ func TestWarnNombraCadaMotivoYPrometeElPuerto(t *testing.T) {
 			wantPortPromise: true,
 		},
 		{
+			reason:          ReasonCancelled,
+			mustContain:     []string{"cancelled before the portless route could be verified", "no URL was published"},
+			wantPortPromise: true,
+		},
+		{
 			reason:          "algo_raro_nuevo",
 			mustContain:     []string{"algo_raro_nuevo"},
 			wantPortPromise: true,

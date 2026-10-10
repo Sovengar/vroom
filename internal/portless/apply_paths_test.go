@@ -158,6 +158,10 @@ func TestVerifyDegradesWithoutPublishingURLWhenProxyDoesNotServeRoute(t *testing
 	if r.Url != "" {
 		t.Errorf("Url = %q: 404 proves the proxy does NOT route the route", r.Url)
 	}
+	// 404 is a degradation AFTER the write, so it must keep the handle like the other three: parity is what lets stop/Retire revoke the orphan route.
+	if !r.Registered {
+		t.Error("Registered was lost: the write happened before probing (M1/M8 parity)")
+	}
 }
 
 // The propagation window: portless exposes a freshly written route to its proxy asynchronously, so the first probes can see 404 while the route is already in routes.json. Apply must keep probing and publish the url once the proxy catches up, instead of degrading on the first stale read (the CI-only failure: an inotify-starved runner falls back to portless's 3s polling).
@@ -226,6 +230,10 @@ func TestVerifyDegradesAfterThePropagationWindowCloses(t *testing.T) {
 	}
 	if r.Url != "" {
 		t.Errorf("Url = %q: a route the proxy never serves must not publish an address", r.Url)
+	}
+	// The write happened before the window opened, so degrading must not drop the handle: without Registered the route is orphan — stop/Retire never revoke it and a later start on a moved port collides with it.
+	if !r.Registered {
+		t.Error("Registered was lost: the write happened before probing, exactly as the other degradation paths keep it")
 	}
 	if probes < 2 {
 		t.Errorf("probes = %d: a persistent 404 must be retried before it is declared final", probes)

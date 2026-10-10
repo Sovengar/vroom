@@ -208,7 +208,13 @@ design.
    > whose declared port refuses connections degrades at once as
    > `proxy_unreachable`, because a port that cannot serve never will and
    > waiting the window for it is pointless. A route the proxy already serves
-   > is never delayed: the first probe returns.
+   > is never delayed: the first probe returns. The window is **cancellable**:
+   > a command cancelled while it is open (Ctrl-C on `vroom start`, quitting
+   > the TUI) stops the wait at once and degrades with reason `cancelled` —
+   > nothing was proven, so it is neither `route_not_served` nor a published
+   > URL. Every degradation reached **after** the write keeps `Registered`:
+   > the answered-404 path included, so `stop`/`Retire`/reconciliation can
+   > revoke a route that was written but not served.
 
 7. **The URL scheme is determined by probing, not assuming.** `https` is tried and,
    if it does not respond, `http`; the one that responded is published. **This way

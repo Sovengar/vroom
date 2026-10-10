@@ -1,6 +1,7 @@
 package startsvc
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,6 +39,34 @@ func TestStartRunsThePostRunHookAfterTheStartIsCommitted(t *testing.T) {
 	}
 	if !strings.Contains(logBody, "── vroom ✓ post_run ok (") {
 		t.Errorf("service log = %q, want the ok footer", logBody)
+	}
+}
+
+// The post_run hook runs synchronously on the start goroutine after the start is committed, so it is the last blocking phase runStart joins on a cancelled start: it must honour the same command lifetime as commands.start.hooks.pre_run, or a Ctrl-C during the route verify sits out the hook's whole unbounded duration before the CLI can exit. Cancelled discovery is the reachable road onto this path — the service is alive with no TCP listener, so the caller walks away and the unwind then reaches the committed post_run.
+func TestCancelledStartCutsThePostRunHookAtOnce(t *testing.T) {
+	f := newFixture(t)
+	f.command(t, "udp-only") // alive, no TCP listener: discovery blocks until the context cuts it
+	f.manifest.Commands.Start.Hooks.PostRun = "sleep 8; echo listo > post_ran.txt"
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(200*time.Millisecond, cancel)
+	defer cancel()
+
+	started := time.Now()
+	out, err := f.startWithCtx(t, ctx, 10*time.Second)
+	elapsed := time.Since(started)
+
+	if err != nil {
+		t.Fatalf("a cancelled start must unwind, not fail: %v", err)
+	}
+	f.cleanup(t, out)
+	if elapsed > 4*time.Second {
+		t.Errorf("start took %v: a cancelled start must not sit out the post_run hook", elapsed)
+	}
+	if _, statErr := os.Stat(filepath.Join(f.dir, "post_ran.txt")); statErr == nil {
+		t.Error("the post_run hook ran to completion after cancellation; its process group must be cut")
+	}
+	if joined := strings.Join(out.Warnings, " | "); !strings.Contains(joined, "post_run") {
+		t.Errorf("warnings = %q, want the cut post_run hook reported", joined)
 	}
 }
 

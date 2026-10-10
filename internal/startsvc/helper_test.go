@@ -1,6 +1,7 @@
 package startsvc
 
 import (
+	"context"
 	"flag"
 	"net"
 	"net/http"
@@ -209,6 +210,21 @@ func (f *fixture) startWithGeneration(t *testing.T, timeout time.Duration, gener
 		StderrPath:       f.store.StderrLog(f.dir),
 		DiscoveryTimeout: timeout,
 		URLGeneration:    generation,
+	})
+}
+
+// startWithCtx threads a caller lifetime into Start, the seam a cancelled CLI/TUI start uses; leaving Ctx nil in the other helpers keeps meaning "no cancellation".
+func (f *fixture) startWithCtx(t *testing.T, ctx context.Context, timeout time.Duration) (Result, error) {
+	t.Helper()
+	return Start(Request{
+		Manifest:         f.manifest,
+		Path:             f.dir,
+		Store:            f.store,
+		Manager:          process.NewManager(),
+		StdoutPath:       f.store.StdoutLog(f.dir),
+		StderrPath:       f.store.StderrLog(f.dir),
+		DiscoveryTimeout: timeout,
+		Ctx:              ctx,
 	})
 }
 

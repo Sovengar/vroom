@@ -3,6 +3,7 @@
 package process
 
 import (
+	"context"
 	"net"
 	"os"
 	"strconv"
@@ -170,6 +171,45 @@ func TestDiscoverPortNoPortIsBounded(t *testing.T) {
 	budget := 1*time.Second + DefaultDynamicUnresolvedGrace
 	if elapsed > budget+3*time.Second {
 		t.Errorf("discovery must respect deadline+grace (%s): took %s", budget, elapsed)
+	}
+}
+
+// The exported seam must survive a caller that passes nil, like ApplyContext does: context.WithTimeout(nil, …) would panic and the poll select on a nil ctx would too, so nil degrades to "no cancellation" instead of crashing a start. A rootPid of 0 returns at once, so the nil path is exercised without spawning.
+func TestDiscoverPortContextTreatsNilContextAsBackground(t *testing.T) {
+	//nolint:staticcheck // deliberately exercises the exported nil-context guard.
+	d := DiscoverPortContext(nil, 0, 0, "/health", time.Second)
+	if !d.LineageDead {
+		t.Errorf("DiscoverPortContext(nil, rootPid=0) = %+v, want LineageDead", d)
+	}
+}
+
+// The discovery bout is a caller-owned wait: a cancelled start must stop at the next poll instead of reading /proc for the rest of the timeout, so DiscoverPortContext returns as soon as ctx is done.
+func TestDiscoverPortStopsAtOnceWhenTheContextIsCancelled(t *testing.T) {
+	requireProc(t)
+
+	m := newTestManager(t)
+	dir := t.TempDir()
+	res := startSleep(t, m, StartSpec{
+		Command:    "sleep 60",
+		WorkDir:    dir,
+		StdoutPath: dir + "/out.log",
+		StderrPath: dir + "/err.log",
+	})
+	t.Cleanup(func() { _ = m.Stop(StopSpec{Pid: res.Pid, Pgid: res.Pgid, Timeout: time.Second}) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(150*time.Millisecond, cancel)
+	defer cancel()
+
+	start := time.Now()
+	d := DiscoverPortContext(ctx, res.Pid, 0, "/health", 10*time.Second)
+	elapsed := time.Since(start)
+
+	if !d.Cancelled {
+		t.Errorf("DiscoverPortContext = %+v, want Cancelled", d)
+	}
+	if elapsed > 5*time.Second {
+		t.Errorf("discovery took %v: a cancelled context must cut the poll bout, not run the 10s timeout out", elapsed)
 	}
 }
 
