@@ -1,6 +1,7 @@
 package startsvc
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -29,7 +30,7 @@ type degradingRegistrar struct{ reconciled []string }
 
 func (r *degradingRegistrar) Lookup(string) (int, bool, error) { return 0, false, nil }
 
-func (r *degradingRegistrar) Apply(name string, port int, own portless.Ownership) portless.Result {
+func (r *degradingRegistrar) ApplyContext(ctx context.Context, name string, port int, own portless.Ownership) portless.Result {
 	return portless.Result{
 		Name:       name,
 		Port:       port,
@@ -238,7 +239,7 @@ type verifiedRegistrar struct{}
 
 func (verifiedRegistrar) Lookup(string) (int, bool, error) { return 0, false, nil }
 
-func (verifiedRegistrar) Apply(name string, port int, own portless.Ownership) portless.Result {
+func (verifiedRegistrar) ApplyContext(ctx context.Context, name string, port int, own portless.Ownership) portless.Result {
 	return portless.Result{
 		Name:       name,
 		Port:       port,

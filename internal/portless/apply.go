@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"vroom/internal/manifest"
 )
@@ -93,6 +94,15 @@ func (o Ownership) Authorises(existing int) bool {
 
 // Apply registers the route and reports what it could PROVE, never what was asked; no failure may reach startup, because service health never depends on its route.
 func (c *Client) Apply(name string, port int, prev Ownership) Result {
+	return c.ApplyContext(context.Background(), name, port, prev)
+}
+
+// ApplyContext is Apply with a caller-owned lifetime. Verification retries the probe for a bounded window (verifyWait), so an abandoned caller — a cancelled command, a TUI shutting down — must be able to stop at once instead of sleeping the rest of the window; without a context there is nothing to cut that wait. A nil context is treated as context.Background() rather than panicking inside context.WithTimeout.
+func (c *Client) ApplyContext(ctx context.Context, name string, port int, prev Ownership) Result {
+	if ctx == nil {
+		// Exported seam: a nil context from a caller must degrade to "no cancellation", not crash the start.
+		ctx = context.Background()
+	}
 	if !c.HasBinary() {
 		return Degraded(name, ReasonPortlessMissing)
 	}
@@ -129,7 +139,7 @@ func (c *Client) Apply(name string, port int, prev Ownership) Result {
 		return registered.withReason(ReasonRouteConflict)
 	}
 
-	return c.verify(name, port)
+	return c.verify(ctx, name, port)
 }
 
 // withReason degrades the state without undoing the fact: a route written while the proxy was down is still ours.
@@ -140,8 +150,8 @@ func (r Result) withReason(reason string) Result {
 	return r
 }
 
-// verify probes https then http instead of assuming a scheme, so the TLS/443 case needs no guess and the price is one extra probe.
-func (c *Client) verify(name string, port int) Result {
+// verify probes https then http instead of assuming a scheme, so the TLS/443 case needs no guess and the round cost is the two schemes. It retries for verifyWait because a freshly written route reaches the proxy's cache asynchronously: through the fs.watch debounce when the watcher works, or through the 3s polling fallback when it does not, and a single immediate probe would read the stale cache and degrade a route the proxy is about to serve (the exact CI failure: an inotify-starved runner falls back to polling). The wait is the caller's to cut: ctx cancellation stops the retries at once.
+func (c *Client) verify(ctx context.Context, name string, port int) Result {
 	host := Hostname(name)
 
 	// M6: a missing proxy.port is the no-proxy signal, never a hardcoded 1355; this degrades after Register, so the route stays ours.
@@ -152,26 +162,58 @@ func (c *Client) verify(name string, port int) Result {
 		return r
 	}
 
-	for _, scheme := range []string{"https", "http"} {
-		status, err := c.probeWithTimeout(scheme, host, proxyPort, probePath)
-		if err != nil {
-			continue
+	deadline := time.Now().Add(c.verifyWait)
+	// answered records that the proxy itself replied (a 404), which is already proof it is reachable: only a request that answers nothing reaches acceptsConnections.
+	answered := false
+	// cancelled records that the caller cut the propagation window: it is a third outcome, not proof the route is unserved.
+	cancelled := false
+	for {
+		replied := false
+		for _, scheme := range []string{"https", "http"} {
+			status, err := c.probeWithTimeout(ctx, scheme, host, proxyPort, probePath)
+			if err != nil {
+				continue
+			}
+			replied = true
+			if status == 404 {
+				// Measured: the proxy answers 404 when it does not know the host and 502 when it routes to a dead backend, so treating 404 as proof of routing would publish an address the proxy does not serve; it may still be a not-yet-served write, so keep probing until the window closes.
+				answered = true
+				continue
+			}
+			// Any other status, 502 included, proves the proxy routes this route; Registered lives in this literal so verify cannot forget it if it is ever called from elsewhere.
+			return Result{
+				Name:       name,
+				Host:       host,
+				Status:     StatusRegistered,
+				Url:        scheme + "://" + host,
+				Port:       port,
+				Registered: true,
+			}
 		}
-		if status == 404 {
-			// Measured: the proxy answers 404 when it does not know the host and 502 when it routes to a dead backend, so treating 404 as proof of routing would publish an address the proxy does not serve.
-			return Degraded(name, ReasonRouteNotServed)
+		// A proxy whose declared port refuses connections can never serve the route, so waiting the whole window is pointless; only a proxy that is up but slow to reload deserves it.
+		if !replied && !c.acceptsConnections(proxyPort) {
+			break
 		}
-		// Any other status, 502 included, proves the proxy routes this route; Registered lives in this literal so verify cannot forget it if it is ever called from elsewhere.
-		return Result{
-			Name:       name,
-			Host:       host,
-			Status:     StatusRegistered,
-			Url:        scheme + "://" + host,
-			Port:       port,
-			Registered: true,
+		if !time.Now().Before(deadline) {
+			break
+		}
+		// An abandoned caller stops here instead of sleeping: select cuts the bout as soon as ctx is done.
+		if !c.wait(ctx, verifyPollInterval) {
+			cancelled = true
+			break
 		}
 	}
 
+	if cancelled {
+		// Nothing about the route was proven because the caller walked away: publishing no url and claiming route_not_served would misreport an abandoned start as an unserved route.
+		r := Degraded(name, ReasonCancelled)
+		r.Registered = true
+		return r
+	}
+	if answered {
+		// The proxy answered for the host and still does not route it, so this is the not-served degradation, exactly as before the wait.
+		return Degraded(name, ReasonRouteNotServed)
+	}
 	if !c.acceptsConnections(proxyPort) {
 		r := Degraded(name, ReasonProxyUnreachable)
 		r.Registered = true
@@ -185,10 +227,22 @@ func (c *Client) verify(name string, port int) Result {
 // probePath is "/" because even a 404 from the app behind proves routing, and health_path is a TUI contract a route may not have.
 const probePath = "/"
 
-func (c *Client) probeWithTimeout(scheme, host string, proxyPort int, path string) (int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+func (c *Client) probeWithTimeout(ctx context.Context, scheme, host string, proxyPort int, path string) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 	return c.probe(ctx, scheme, host, proxyPort, path)
+}
+
+// wait sleeps at most d and reports whether the full bout elapsed; a done context cuts it short, so an abandoned caller never pays the rest of the propagation window.
+func (c *Client) wait(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 // acceptsConnections separates "the declared proxy port answers nobody" from "the proxy answers but does not know the route", which degrade with different reasons.
@@ -255,6 +309,9 @@ func Warn(r Result) string {
 	case ReasonRouteNotServed:
 		return "the portless proxy does not serve this route, so no URL was published; " +
 			"the service is running on its own port as usual"
+	case ReasonCancelled:
+		return "the start was cancelled before the portless route could be verified, so no URL was published; " +
+			"the service is running on its own port as usual"
 	default:
 		return "no portless route published (" + r.Reason + "); " +
 			"the service is running on its own port as usual"
@@ -313,7 +370,7 @@ func (c *Client) liveRoute(name string) (int, routeState) {
 		return 0, routeUnknown
 	}
 	for _, scheme := range []string{"https", "http"} {
-		status, err := c.probeWithTimeout(scheme, Hostname(name), proxyPort, probePath)
+		status, err := c.probeWithTimeout(context.Background(), scheme, Hostname(name), proxyPort, probePath)
 		if err != nil {
 			continue
 		}

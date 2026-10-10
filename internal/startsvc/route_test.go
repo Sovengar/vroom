@@ -1,6 +1,7 @@
 package startsvc
 
 import (
+	"context"
 	"errors"
 	"net"
 	"os"
@@ -33,12 +34,15 @@ type fakeRoutes struct {
 	heldPort  int
 	heldFound bool
 	lookupErr error
+	// appliedCtx records the context each ApplyContext received, so a test can prove the command lifetime reaches the route probe instead of being swallowed by a Background fallback.
+	appliedCtx []context.Context
 }
 
 // Apply always echoes the requested name, as the real client does: the intended name is input, never something the result decides.
-func (f *fakeRoutes) Apply(name string, port int, prev portless.Ownership) portless.Result {
+func (f *fakeRoutes) ApplyContext(ctx context.Context, name string, port int, prev portless.Ownership) portless.Result {
 	f.applied = append(f.applied, name+":"+itoaTest(port))
 	f.prevPorts = append(f.prevPorts, prev.Port)
+	f.appliedCtx = append(f.appliedCtx, ctx)
 	r := f.result
 	if len(f.seq) > 0 {
 		r = f.seq[0]
@@ -79,6 +83,24 @@ func itoaTest(n int) string {
 		n /= 10
 	}
 	return string(b)
+}
+
+// The command lifetime must reach the route probe: applyRoute hands the Request's context to the registrar, so a cancelled CLI start or TUI quit can cut the propagation window instead of the seam falling back to Background.
+func TestApplyRouteThreadsTheRequestContextIntoTheRegistrar(t *testing.T) {
+	type ctxKey struct{}
+	reg := &fakeRoutes{result: registeredRoute()}
+	req := Request{Manifest: ladderManifest(), Branch: "main", Ctx: context.WithValue(context.Background(), ctxKey{}, "lifetime")}
+	meta := state.Meta{Name: "api", Port: 8081}
+	out := Result{}
+
+	applyRoute(req, reg, &meta, 8081, manifest.URLGenByHostnameOrWorkspace, &out)
+
+	if len(reg.appliedCtx) == 0 {
+		t.Fatal("the registrar was never called")
+	}
+	if got := reg.appliedCtx[0].Value(ctxKey{}); got != "lifetime" {
+		t.Errorf("the registrar context carries %v, want the Request's command lifetime", got)
+	}
 }
 
 // registeredAt is a registered AND verified result; its port argument is a placeholder that Apply overwrites.

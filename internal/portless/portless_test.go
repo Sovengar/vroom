@@ -121,7 +121,27 @@ func (f *fakePortless) client(t *testing.T) *Client {
 		WithExec(f.exec),
 		WithProbe(f.probe),
 		WithTimeout(2*time.Second),
+		// The deterministic fake answers at once, so the propagation window only slows the suite; the wait has its own tests.
+		WithVerifyWait(0),
 	)
+}
+
+// The wait is a default, not an opt-in: a real caller builds through New()/Default() and must get the propagation window without asking, while WithVerifyWait(0) restores the immediate single probe the deterministic fakes need.
+func TestNewInstallsTheDefaultPropagationWindow(t *testing.T) {
+	if got := New().verifyWait; got != DefaultVerifyWait {
+		t.Errorf("verifyWait = %v, want the default %v", got, DefaultVerifyWait)
+	}
+	// Pin the literal 3.5s, not only the DefaultVerifyWait constant: a change to the constant would otherwise pass both this and the scenario contract.
+	if DefaultVerifyWait != 3500*time.Millisecond {
+		t.Errorf("DefaultVerifyWait = %v, want 3.5s", DefaultVerifyWait)
+	}
+	if got := New(WithVerifyWait(0)).verifyWait; got != 0 {
+		t.Errorf("WithVerifyWait(0) did not override the default: %v", got)
+	}
+	// The poll interval is part of the contract the scenario states: small enough to catch the fs.watch debounce, large enough not to spin the proxy during the 3s polling fallback.
+	if verifyPollInterval != 250*time.Millisecond {
+		t.Errorf("verifyPollInterval = %v, want 250ms", verifyPollInterval)
+	}
 }
 
 func (f *fakePortless) writeProxyPort(t *testing.T, dir string, port int) {
@@ -614,7 +634,7 @@ func TestRouteRegisteredWhileProxyDownIsServedWhenItReturns(t *testing.T) {
 	if port, found, _ := c.Lookup("app"); !found || port != 4321 {
 		t.Fatalf("when the proxy returns the route must still be there, got %d found=%v", port, found)
 	}
-	if res := c.verify("app", 4321); !res.Succeeded() {
+	if res := c.verify(context.Background(), "app", 4321); !res.Succeeded() {
 		t.Errorf("with the proxy back the route must verify: %+v", res)
 	}
 }

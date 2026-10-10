@@ -2,6 +2,7 @@
 package startsvc
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"time"
@@ -20,6 +21,9 @@ type Request struct {
 	Manager    process.Manager
 	StdoutPath string
 	StderrPath string
+
+	// Ctx is the command-lifetime context: route verification retries for a bounded propagation window, and an abandoned caller (Ctrl-C, a TUI quit) must be able to cut that wait at once. nil means context.Background().
+	Ctx context.Context
 
 	DiscoveryTimeout time.Duration
 
@@ -49,8 +53,8 @@ func RegistrarFor(gen string) RouteRegistrar {
 type RouteRegistrar interface {
 	// Lookup reports the port a name currently points at (the client parses `portless list`, never routes.json), for the by_hostname preflight: only a proven foreign holder may refuse a start.
 	Lookup(name string) (port int, found bool, err error)
-	// Apply registers the service route and reports only what it could prove; it never errors because an absent portless is a degradation, not a start failure.
-	Apply(name string, port int, prev portless.Ownership) portless.Result
+	// ApplyContext registers the service route and reports only what it could prove; it never errors because an absent portless is a degradation, not a start failure. ctx is the caller's command lifetime, so a cancelled start does not sit out the route propagation window.
+	ApplyContext(ctx context.Context, name string, port int, prev portless.Ownership) portless.Result
 	// Reconcile returns warnings, never errors; held is an Ownership handle rather than a port, because a live handle does not mean the name is still ours and a raw port would be authority to delete someone else's route. current is every candidate this start may claim: a persisted name still among them is not a rename, and deleting it would remove the route this very start is about to reuse.
 	Reconcile(prev string, held portless.Ownership, current ...string) []string
 	// Retire drops the previous name after the ladder claimed a different one, and returns warnings, never errors; it is a no-op without an unrevoked ownership lease, so a name taken by another worktree is never deleted.
@@ -277,6 +281,7 @@ func resolveDynamicPort(req Request, routes RouteRegistrar, attempt state.Meta, 
 }
 
 func applyRoute(req Request, routes RouteRegistrar, meta *state.Meta, port int, gen string, out *Result) {
+	ctx := req.Ctx
 	if routes == nil {
 		return
 	}
@@ -293,10 +298,10 @@ func applyRoute(req Request, routes RouteRegistrar, meta *state.Meta, port int, 
 	out.Warnings = append(out.Warnings, routes.Reconcile(prevName, prev, cands...)...)
 
 	// The ladder: only a pre-write route_conflict advances to the next candidate. Any other degradation is systemic (no binary, no proxy) and would fail identically for every rung, while a post-write conflict has Registered=true — we hold that name already and claiming a second one would leave a route nobody revokes.
-	res := routes.Apply(cands[0], port, prev)
+	res := routes.ApplyContext(ctx, cands[0], port, prev)
 	for i := 1; i < len(cands) && !res.Registered && res.Reason == portless.ReasonRouteConflict; i++ {
 		out.Warnings = append(out.Warnings, fallbackWarning(res, cands[i]))
-		res = routes.Apply(cands[i], port, prev)
+		res = routes.ApplyContext(ctx, cands[i], port, prev)
 	}
 
 	// The ladder left a previous name behind: retire it while the lease still proves it is ours, or stop will never revoke it (the handle has moved) and it would block the next worktree falling back to it.

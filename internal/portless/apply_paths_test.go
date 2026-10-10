@@ -44,6 +44,8 @@ func newClientWithProxy(t *testing.T, proxyPort int, exec func(context.Context, 
 		WithStateDir(dir),
 		WithExec(exec),
 		WithTimeout(2*time.Second),
+		// verifyWait 0: these tests assert the classification, not the propagation window, so the immediate probe keeps them fast and deterministic.
+		WithVerifyWait(0),
 	)
 }
 
@@ -80,6 +82,33 @@ func TestVerifyPublishesWhenProxyActuallyRoutes(t *testing.T) {
 	}
 	if !strings.Contains(r.Url, Hostname("svc")) {
 		t.Errorf("Url = %q does not contain the route hostname", r.Url)
+	}
+}
+
+// The window must never cost the COMMON case: a route the proxy already serves is answered on the first probe, so Apply returns without entering the wait. Asserting the elapsed time stays well under the window (not just that it eventually publishes) is what would go red if a regression started sleeping before probing.
+func TestVerifyPublishesAServedRouteWithoutPayingTheWindow(t *testing.T) {
+	srv := newHTTPServer(t, http.StatusOK)
+	dir := t.TempDir()
+	if err := writeFileIn(t, dir, proxyPortFile, itoa(srvPort(t, srv))); err != nil {
+		t.Fatal(err)
+	}
+	c := New(
+		WithBinary("/fake/portless"),
+		WithStateDir(dir),
+		WithExec(okExec(t)),
+		WithTimeout(2*time.Second),
+		WithVerifyWait(2*time.Second),
+	)
+
+	start := time.Now()
+	r := c.Apply("svc", 8080, Ownership{})
+	elapsed := time.Since(start)
+
+	if r.Status != StatusRegistered || r.Url == "" {
+		t.Fatalf("Status = %q url = %q (reason %q): a served route must publish on the first probe", r.Status, r.Url, r.Reason)
+	}
+	if elapsed >= c.verifyWait {
+		t.Errorf("elapsed %v >= the window %v: the first probe served the route, the window must not be paid", elapsed, c.verifyWait)
 	}
 }
 
@@ -131,6 +160,78 @@ func TestVerifyDegradesWithoutPublishingURLWhenProxyDoesNotServeRoute(t *testing
 	}
 }
 
+// The propagation window: portless exposes a freshly written route to its proxy asynchronously, so the first probes can see 404 while the route is already in routes.json. Apply must keep probing and publish the url once the proxy catches up, instead of degrading on the first stale read (the CI-only failure: an inotify-starved runner falls back to portless's 3s polling).
+func TestVerifyWaitsForTheProxyToPickUpAFreshlyWrittenRoute(t *testing.T) {
+	f := newFake()
+	dir := t.TempDir()
+	if err := writeFileIn(t, dir, proxyPortFile, itoa(1399)); err != nil {
+		t.Fatal(err)
+	}
+	c := New(
+		WithBinary("/fake/portless"),
+		WithStateDir(dir),
+		WithExec(f.exec),
+		WithTimeout(500*time.Millisecond),
+		WithVerifyWait(2*time.Second),
+	)
+	probes := 0
+	c.probe = func(context.Context, string, string, int, string) (int, error) {
+		probes++
+		if probes < 3 {
+			return http.StatusNotFound, nil
+		}
+		return http.StatusOK, nil
+	}
+
+	r := c.Apply("svc", 8080, Ownership{})
+
+	if r.Status != StatusRegistered {
+		t.Fatalf("Status = %q (reason %q): the proxy catches up inside the window, so the url must publish", r.Status, r.Reason)
+	}
+	if r.Url == "" {
+		t.Error("Url must be published once the proxy serves the route")
+	}
+	if probes < 3 {
+		t.Errorf("probes = %d: the 404 must be retried, not taken as final", probes)
+	}
+}
+
+// The other side of the contract: when the proxy never picks the route up, the wait must end and the degradation must be the same route_not_served as before, so a genuinely unserved route cannot hang Apply.
+func TestVerifyDegradesAfterThePropagationWindowCloses(t *testing.T) {
+	f := newFake()
+	dir := t.TempDir()
+	if err := writeFileIn(t, dir, proxyPortFile, itoa(1399)); err != nil {
+		t.Fatal(err)
+	}
+	c := New(
+		WithBinary("/fake/portless"),
+		WithStateDir(dir),
+		WithExec(f.exec),
+		WithTimeout(500*time.Millisecond),
+		WithVerifyWait(120*time.Millisecond),
+	)
+	probes := 0
+	c.probe = func(context.Context, string, string, int, string) (int, error) {
+		probes++
+		return http.StatusNotFound, nil
+	}
+
+	r := c.Apply("svc", 8080, Ownership{})
+
+	if r.Status != StatusDegraded {
+		t.Errorf("Status = %q, want degraded once the window closes", r.Status)
+	}
+	if r.Reason != ReasonRouteNotServed {
+		t.Errorf("Reason = %q, want %q", r.Reason, ReasonRouteNotServed)
+	}
+	if r.Url != "" {
+		t.Errorf("Url = %q: a route the proxy never serves must not publish an address", r.Url)
+	}
+	if probes < 2 {
+		t.Errorf("probes = %d: a persistent 404 must be retried before it is declared final", probes)
+	}
+}
+
 func TestVerifyAccepts502AsProofOfRouting(t *testing.T) {
 	srv := newHTTPServer(t, http.StatusBadGateway)
 	c := newClientWithProxy(t, srvPort(t, srv), okExec(t))
@@ -168,6 +269,103 @@ func TestVerifyDegradesWhenDeclaredPortDoesNotAcceptConnections(t *testing.T) {
 	}
 	if !r.Registered {
 		t.Error("Registered was lost: the write happened before probing")
+	}
+}
+
+// The other half of the dead-port contract: because a port nobody listens on can never serve the route, verify must return proxy_unreachable WITHOUT paying the whole window (the early break), not after it. With WithVerifyWait(0) the immediate break and the deadline break are indistinguishable; this test pins a window far larger than the connection-refused latency and asserts the call stays well under it, so dropping the early break (sleeping the window before degrading) goes red.
+func TestVerifyDoesNotPayTheWindowForADeclaredPortThatRefusesConnections(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadPort := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+
+	f := newFake()
+	f.noProxy = true
+	dir := t.TempDir()
+	if err := writeFileIn(t, dir, proxyPortFile, itoa(deadPort)); err != nil {
+		t.Fatal(err)
+	}
+	c := New(
+		WithBinary("/fake/portless"),
+		WithStateDir(dir),
+		WithExec(f.exec),
+		WithTimeout(200*time.Millisecond),
+		WithVerifyWait(2*time.Second),
+	)
+
+	start := time.Now()
+	r := c.Apply("svc", 8080, Ownership{})
+	elapsed := time.Since(start)
+
+	if r.Reason != ReasonProxyUnreachable {
+		t.Fatalf("Reason = %q, want %q: the declared port accepts no connections", r.Reason, ReasonProxyUnreachable)
+	}
+	if !r.Registered {
+		t.Error("Registered was lost: the write happened before probing")
+	}
+	if elapsed >= c.verifyWait {
+		t.Errorf("elapsed %v >= the window %v: a port that cannot serve must degrade at once, not after the wait", elapsed, c.verifyWait)
+	}
+}
+
+// The exported seam must survive a caller that passes nil: context.WithTimeout(nil, …) would panic on parent.Done(), so nil degrades to "no cancellation" instead of crashing a start.
+func TestApplyContextTreatsNilContextAsBackground(t *testing.T) {
+	srv := newHTTPServer(t, http.StatusOK)
+	c := newClientWithProxy(t, srvPort(t, srv), okExec(t))
+
+	//nolint:staticcheck // deliberately exercises the exported nil-context guard.
+	r := c.ApplyContext(nil, "svc", 8080, Ownership{})
+
+	if r.Status != StatusRegistered {
+		t.Fatalf("Status = %q (reason %q): a nil context must behave like context.Background()", r.Status, r.Reason)
+	}
+}
+
+// The propagation window is a caller-owned wait: a cancelled command or a TUI shutting down must stop at once instead of probing for the rest of the window. The context is already done, so verify must return well before the window and after exactly the first round, never sleeping the bout.
+func TestVerifyStopsAtOnceWhenTheCallerContextIsCancelled(t *testing.T) {
+	f := newFake()
+	dir := t.TempDir()
+	if err := writeFileIn(t, dir, proxyPortFile, itoa(1399)); err != nil {
+		t.Fatal(err)
+	}
+	c := New(
+		WithBinary("/fake/portless"),
+		WithStateDir(dir),
+		WithExec(f.exec),
+		WithTimeout(200*time.Millisecond),
+		WithVerifyWait(2*time.Second),
+	)
+	probes := 0
+	c.probe = func(context.Context, string, string, int, string) (int, error) {
+		probes++
+		return http.StatusNotFound, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	r := c.ApplyContext(ctx, "svc", 8080, Ownership{})
+	elapsed := time.Since(start)
+
+	if elapsed >= c.verifyWait {
+		t.Errorf("elapsed %v >= the window %v: a cancelled caller must not keep probing", elapsed, c.verifyWait)
+	}
+	if probes != 2 {
+		t.Errorf("probes = %d, want 2: the first round runs, then the cancelled wait must stop the loop", probes)
+	}
+	if r.Status != StatusDegraded {
+		t.Errorf("Status = %q: a cancelled verify cannot be reported registered", r.Status)
+	}
+	if r.Reason != ReasonCancelled {
+		t.Errorf("Reason = %q, want %q: an abandoned caller must not be told the route is not served", r.Reason, ReasonCancelled)
+	}
+	if !r.Registered {
+		t.Error("Registered was lost: the write happened before probing")
+	}
+	if r.Url != "" {
+		t.Errorf("Url = %q: nothing was proven, so nothing may be published", r.Url)
 	}
 }
 

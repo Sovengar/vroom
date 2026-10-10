@@ -2,8 +2,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -35,7 +37,7 @@ func runMain(args []string, tui func() error, exit func(int)) int {
 	return 0
 }
 
-// Errors carry no context because main already prints the "vroom:" prefix and all three are self-explanatory environment failures.
+// Errors carry no context because main already prints the "vroom:" prefix and all three are self-explanatory environment failures. The signal context threaded into the model is the program's command lifetime, so an in-flight start's route propagation window ends when the program does (quit or signal) instead of leaving an abandoned command sleeping.
 func runTUI(manager process.Manager) error {
 	store, err := state.NewStore()
 	if err != nil {
@@ -47,7 +49,10 @@ func runTUI(manager process.Manager) error {
 		return err
 	}
 
-	model := tui.New(store, manager, root)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	model := tui.New(store, manager, root).WithStartContext(ctx)
 	_, err = tea.NewProgram(model, opts...).Run()
 	return err
 }
