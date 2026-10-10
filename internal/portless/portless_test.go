@@ -630,7 +630,7 @@ func TestRouteRegisteredWhileProxyDownIsServedWhenItReturns(t *testing.T) {
 	if port, found, _ := c.Lookup("app"); !found || port != 4321 {
 		t.Fatalf("when the proxy returns the route must still be there, got %d found=%v", port, found)
 	}
-	if res := c.verify("app", 4321); !res.Succeeded() {
+	if res := c.verify(context.Background(), "app", 4321); !res.Succeeded() {
 		t.Errorf("with the proxy back the route must verify: %+v", res)
 	}
 }

@@ -307,6 +307,46 @@ func TestVerifyDoesNotPayTheWindowForADeclaredPortThatRefusesConnections(t *test
 	}
 }
 
+// The propagation window is a caller-owned wait: a cancelled command or a TUI shutting down must stop at once instead of probing for the rest of the window. The context is already done, so verify must return well before the window and after exactly the first round, never sleeping the bout.
+func TestVerifyStopsAtOnceWhenTheCallerContextIsCancelled(t *testing.T) {
+	f := newFake()
+	dir := t.TempDir()
+	if err := writeFileIn(t, dir, proxyPortFile, itoa(1399)); err != nil {
+		t.Fatal(err)
+	}
+	c := New(
+		WithBinary("/fake/portless"),
+		WithStateDir(dir),
+		WithExec(f.exec),
+		WithTimeout(200*time.Millisecond),
+		WithVerifyWait(2*time.Second),
+	)
+	probes := 0
+	c.probe = func(context.Context, string, string, int, string) (int, error) {
+		probes++
+		return http.StatusNotFound, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	r := c.ApplyContext(ctx, "svc", 8080, Ownership{})
+	elapsed := time.Since(start)
+
+	if elapsed >= c.verifyWait {
+		t.Errorf("elapsed %v >= the window %v: a cancelled caller must not keep probing", elapsed, c.verifyWait)
+	}
+	if probes != 2 {
+		t.Errorf("probes = %d, want 2: the first round runs, then the cancelled wait must stop the loop", probes)
+	}
+	if r.Succeeded() {
+		t.Errorf("Status = %q: nothing was proven, so the route cannot be published", r.Status)
+	}
+	if r.Url != "" {
+		t.Errorf("Url = %q: nothing was proven, so nothing may be published", r.Url)
+	}
+}
+
 // Both cases end in "no scheme answered" and are separated only by acceptsConnections; without it the user cannot tell a stopped portless from a missing route.
 func TestVerifyDistinguishesAliveProxyNotServingFromDeadPort(t *testing.T) {
 	srv := newHTTPServer(t, http.StatusNotFound)

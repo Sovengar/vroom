@@ -1,6 +1,7 @@
 package portless
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -116,7 +117,7 @@ func TestVerifyReportsRegisteredWhenTheRouteIsServed(t *testing.T) {
 	f := newFake()
 	f.routes[Hostname("sana")] = 4321
 
-	res := f.client(t).verify("sana", 4321)
+	res := f.client(t).verify(context.Background(), "sana", 4321)
 
 	if !res.Registered {
 		t.Error("a route that the proxy serves with 200 is registered by definition")
@@ -126,7 +127,7 @@ func TestVerifyReportsRegisteredWhenTheRouteIsServed(t *testing.T) {
 func TestVerifyDoesNotInventRegistrationForAnUnknownName(t *testing.T) {
 	f := newFake()
 
-	res := f.client(t).verify("nunca-registrada", 4321)
+	res := f.client(t).verify(context.Background(), "nunca-registrada", 4321)
 
 	if res.Registered {
 		t.Error("verify must not claim a write it did not do")
