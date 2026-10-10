@@ -49,6 +49,8 @@ const (
 	ReasonPortUnresolved   = "port_unresolved"
 	ReasonInvalidName      = "route_invalid_name"
 	ReasonRouteNotServed   = "route_not_served"
+	// ReasonCancelled: the caller cancelled the propagation window, so nothing about the route was proven — distinct from route_not_served, which is a route the proxy answered for and still does not serve.
+	ReasonCancelled = "cancelled"
 )
 
 // ErrProxyNotRunning: the proxy was there and stopped, a fact distinct from a declared port that refuses connections; both degrade without a url.
