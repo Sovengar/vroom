@@ -53,6 +53,13 @@ Feature: Apply waits out the portless route propagation window
     Then the propagation window defaults to 3.5 s with a 250 ms poll interval
     And WithVerifyWait(0) restores the single immediate probe the deterministic fakes pin
 
+  Scenario: A cancelled command stops the start and is not misreported
+    Given a command context that is cancelled while the propagation window is open
+    When vroom applies the route
+    Then Apply returns promptly, well before the window closes
+    And the result is "degraded" with reason "cancelled" and no Url
+    And the route is not misreported as "route_not_served"
+
   Scenario: The ladder e2e Url answers from its own backend
     Given a stable Url registered through a real portless proxy for a worktree
     When a client opens the Url

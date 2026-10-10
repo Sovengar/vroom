@@ -451,7 +451,9 @@ hostname; the proxy forwards to whatever port the service has today. Because a f
 written alias reaches the proxy's in-memory cache asynchronously — portless's `fs.watch`
 debounce normally, its 3 s polling fallback when the watcher is unavailable — the probe
 is retried for a short window before the route is declared unserved, so a route that is
-about to be served is not reported as missing.
+about to be served is not reported as missing. A command cancelled while that window is
+open (Ctrl-C on `vroom start`, quitting the TUI) stops the wait at once and reports the
+route with reason `cancelled` — never the misleading `route_not_served`.
 
 How the two sides actually talk, concretely:
 
