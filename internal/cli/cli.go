@@ -505,8 +505,27 @@ func cmdList() (any, error) {
 	return result, nil
 }
 
+// runStart returns as soon as the start finishes OR the command's context is cancelled: Ctrl-C cancels ctx (signal.NotifyContext in cmdStart), so runStart returns at once and the process exits instead of sitting out a discovery or propagation window. Cancellation is a real error the caller reports, never a silent success.
+func runStart(ctx context.Context, start func() (startsvc.Result, error)) (startsvc.Result, error) {
+	type outcome struct {
+		out startsvc.Result
+		err error
+	}
+	ch := make(chan outcome, 1)
+	go func() {
+		out, err := start()
+		ch <- outcome{out: out, err: err}
+	}()
+	select {
+	case r := <-ch:
+		return r.out, r.err
+	case <-ctx.Done():
+		return startsvc.Result{}, errors.New("start cancelled")
+	}
+}
+
 func cmdStart(name, path string) (any, error) {
-	// The command's own lifetime: Ctrl-C during the route propagation window aborts it instead of the command sitting out the full wait. stop() restores the default signal behaviour when the command ends.
+	// The command's own lifetime: Ctrl-C cancels ctx, which verify honours and runStart turns into an immediate exit; stop() restores the default signal behaviour when the command ends.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
@@ -537,17 +556,19 @@ func cmdStart(name, path string) (any, error) {
 		return nil, fmt.Errorf("could not create service dir: %w", err)
 	}
 
-	out, err := startsvc.Start(startsvc.Request{
-		Manifest:   p.Manifest,
-		Path:       p.Path,
-		Store:      s.store,
-		Manager:    s.manager,
-		StdoutPath: s.store.StdoutLog(p.Path),
-		StderrPath: s.store.StderrLog(p.Path),
-		Registrar:  startsvc.RegistrarFor,
-		Branch:     gitinfo.Branch(p.Path),
-		IsWorktree: p.IsWorktree,
-		Ctx:        ctx,
+	out, err := runStart(ctx, func() (startsvc.Result, error) {
+		return startsvc.Start(startsvc.Request{
+			Manifest:   p.Manifest,
+			Path:       p.Path,
+			Store:      s.store,
+			Manager:    s.manager,
+			StdoutPath: s.store.StdoutLog(p.Path),
+			StderrPath: s.store.StderrLog(p.Path),
+			Registrar:  startsvc.RegistrarFor,
+			Branch:     gitinfo.Branch(p.Path),
+			IsWorktree: p.IsWorktree,
+			Ctx:        ctx,
+		})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("start failed: %w", err)
