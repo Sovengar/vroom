@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -138,6 +139,8 @@ type Model struct {
 	root          string
 	store         *state.Store
 	manager       process.Manager
+	// startCtx is the program's command lifetime, threaded into every start so a route waiting out its propagation window ends when the program does instead of blocking an abandoned command. Never nil: New sets context.Background().
+	startCtx context.Context
 
 	projects []scanner.Project
 	entries  []group.Entry
@@ -279,6 +282,7 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 		root:           root,
 		store:          store,
 		manager:        manager,
+		startCtx:       context.Background(),
 		cfg:            cfg,
 		keyActions:     cfg.KeyByAction(),
 		askLauncher:    launcher.New(cfg.Ask),
@@ -482,7 +486,16 @@ func refreshCmd(store *state.Store, manager process.Manager, projects []scanner.
 	}
 }
 
-func startCmd(store *state.Store, manager process.Manager, p scanner.Project, generation string) tea.Cmd {
+// WithStartContext threads the program's command lifetime into every start, so a route waiting out its propagation window ends when the program does instead of blocking an abandoned command. Negligible for tests that never call it: New already installs a Background context.
+func (m Model) WithStartContext(ctx context.Context) Model {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.startCtx = ctx
+	return m
+}
+
+func startCmd(ctx context.Context, store *state.Store, manager process.Manager, p scanner.Project, generation string) tea.Cmd {
 	return func() tea.Msg {
 		if _, err := store.EnsureServiceDir(p.Path); err != nil {
 			return startedMsg{path: p.Path, err: err}
@@ -498,6 +511,7 @@ func startCmd(store *state.Store, manager process.Manager, p scanner.Project, ge
 			Branch:        gitinfo.Branch(p.Path),
 			URLGeneration: generation,
 			IsWorktree:    p.IsWorktree,
+			Ctx:           ctx,
 		})
 		if err != nil {
 			return startedMsg{path: p.Path, err: err}
@@ -793,7 +807,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.addEvent(msg.path, "restart", "", 0, true)
 			if p := m.projectByPath(msg.path); p != nil && sv != nil {
 				sv.Status = statusStarting
-				return m, startCmd(m.store, m.manager, *p, "")
+				return m, startCmd(m.startCtx, m.store, m.manager, *p, "")
 			}
 		}
 		if sv != nil {
@@ -1363,7 +1377,7 @@ func (m Model) startProjectSelected(generation string) (tea.Model, tea.Cmd) {
 	cs.off[0] = fileSizeOrZero(m.store.StdoutLog(p.Path))
 	cs.off[1] = fileSizeOrZero(m.store.StderrLog(p.Path))
 	m.setConsoleContent("")
-	return m, startCmd(m.store, m.manager, *p, generation)
+	return m, startCmd(m.startCtx, m.store, m.manager, *p, generation)
 }
 
 func (m Model) toggleNode(primary, secondary string) (tea.Model, tea.Cmd) {
@@ -1395,7 +1409,7 @@ func (m Model) toggleNode(primary, secondary string) (tea.Model, tea.Cmd) {
 			if sel != nil && sel.Path == p.Path {
 				m.setConsoleContent("")
 			}
-			cmds = append(cmds, startCmd(m.store, m.manager, p, ""))
+			cmds = append(cmds, startCmd(m.startCtx, m.store, m.manager, p, ""))
 		case !anyStopped && sv.Status.alive():
 			sv.Status = statusStopping
 			cmds = append(cmds, stopCmd(m.store, m.manager, p.Path, manifestStop(p)))

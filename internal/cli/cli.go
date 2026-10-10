@@ -2,11 +2,13 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -504,6 +506,10 @@ func cmdList() (any, error) {
 }
 
 func cmdStart(name, path string) (any, error) {
+	// The command's own lifetime: Ctrl-C during the route propagation window aborts it instead of the command sitting out the full wait. stop() restores the default signal behaviour when the command ends.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	s, err := newCliSession()
 	if err != nil {
 		return nil, err
@@ -541,6 +547,7 @@ func cmdStart(name, path string) (any, error) {
 		Registrar:  startsvc.RegistrarFor,
 		Branch:     gitinfo.Branch(p.Path),
 		IsWorktree: p.IsWorktree,
+		Ctx:        ctx,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("start failed: %w", err)
