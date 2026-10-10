@@ -216,7 +216,7 @@ design.
    TLS could refute, and it did not need to be measured. The cost is up to two
    probes per round (one scheme each) **per retry round**: with the propagation
    window (Decision 6 correction) a served route still stops on the first round,
-   while a genuinely unserved route can spend up to ~28 probes (2 schemes × 14
+   while a genuinely unserved route can spend up to ~30 probes (2 schemes × 15
    rounds of 250 ms in the 3.5 s window) before it degrades.
 
 8. **Reconciliation on every startup is mandatory.** Per **M5**, `prune` does not
