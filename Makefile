@@ -53,14 +53,10 @@ lint:
 
 check: build lint test
 
-# Mutation. scripts/mutate.sh owns the warm-up, the coefficient, the supervisor and the
-# verdict: local and CI measure through the same path. The per-mutant deadline derives
-# from ceil(cap / coverage pass); an expired mutant is absent from the totals and its
-# ceiling is judged against .mutation-timeouts inside the script.
-mutate: ## Whole-module mutation run, with the verdict (same wiring as CI)
+mutate:
 	@scripts/mutate.sh --run
 
-mutate-diff: ## Mutation run over the diff vs MUTATE_BASE, with the verdict
+mutate-diff:
 	@scripts/mutate.sh --diff
 
 COVER_PROFILE ?= coverage.out

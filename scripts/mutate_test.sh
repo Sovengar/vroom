@@ -49,6 +49,11 @@ trap 'rm -rf "$tmp"' EXIT
 # Space-separated files the engine walked WITHOUT measuring; empty except for the scope cases.
 SKIP_FILES=''
 
+# Structurally uncoverable mutants the fixtures carry (Go cover starts a case clause after the
+# colon); 0 unless a case pins the gate's behaviour when in-scope mutants are NOT COVERED.
+NOT_COVERED_REPORT=''
+NOT_COVERED=''
+
 # A report whose only survivors are the given "<TYPE> <file>:<line>" entries.
 # REPORT_STATUS overrides the literal in each entry, so a drifted gremlins status can be fabricated.
 make_report() { # make_report <path> <total> <lived_entries_csv...>
@@ -72,8 +77,8 @@ make_report() { # make_report <path> <total> <lived_entries_csv...>
 		"$total" "$killed" "$#" >"$path"
 	local efficacy
 	efficacy=$(awk -v k="$killed" -v t="$total" 'BEGIN{printf "%.2f", t?100*k/t:0}')
-	printf '"mutants_not_viable":0,"mutants_not_covered":0,"test_efficacy":%s,"mutations_coverage":%s,' \
-		"$efficacy" "$efficacy" >>"$path"
+	printf '"mutants_not_viable":0,"mutants_not_covered":%s,"test_efficacy":%s,"mutations_coverage":%s,' \
+		"${NOT_COVERED_REPORT:-0}" "$efficacy" "$efficacy" >>"$path"
 	printf '"elapsed_time":30.5,"mutator_statistics":{},"files":[%s]}' "${lived_files%,}" >>"$path"
 }
 
@@ -120,10 +125,18 @@ for a in "$@"; do
 	[[ $a == --dry-run ]] && dry=1
 	prev=$a
 done
+# Not every caller passes the knob (the guard cases reuse this engine with a bare env).
+STUB_NOT_COVERED=${STUB_NOT_COVERED:-0}
 emit_skipped() {
 	local i
 	for ((i = 1; i <= STUB_SKIPPED; i++)); do
 		printf '     SKIPPED ARITHMETIC_BASE at internal/tui/app.go:%d:9\n' "$i"
+	done
+}
+emit_notcovered() {
+	local i
+	for ((i = 1; i <= STUB_NOT_COVERED; i++)); do
+		printf ' NOT COVERED CONDITIONALS_BOUNDARY at %s:%d:7\n' "$STUB_FILE" "$i"
 	done
 }
 emit_inscope() {
@@ -139,28 +152,32 @@ emit_inscope() {
 if [[ $dry -eq 1 ]]; then
 	printf 'Starting...\nGathering coverage...\ndone in 2.5s\n'
 	emit_skipped
+	emit_notcovered
 	emit_inscope
 	printf '\nDry run completed in 2.5s\n'
-	printf 'Runnable: %d, Not covered: 0\n' "$STUB_IN_SCOPE"
+	printf 'Runnable: %d, Not covered: %d\n' "$STUB_IN_SCOPE" "$STUB_NOT_COVERED"
 	printf 'Mutator coverage: 100.00%%\n'
 	exit 0
 fi
 emit_skipped
+emit_notcovered
 emit_inscope
 printf '\nMutation testing completed in 3s\n'
-printf 'Killed: %d, Lived: 0, Not covered: 0\n' "$STUB_IN_SCOPE"
+printf 'Killed: %d, Lived: 0, Not covered: %d\n' "$STUB_IN_SCOPE" "$STUB_NOT_COVERED"
 printf 'Timed out: 0, Not viable: 0, Skipped: %d\n' "$STUB_SKIPPED"
 printf 'Test efficacy: 100.00%%\nMutator coverage: 100.00%%\n'
 printf '{"go_module":"gitdash","mutants_total":%d,"mutants_killed":%d,"mutants_lived":0,' \
 	"$STUB_IN_SCOPE" "$STUB_IN_SCOPE" > "$out"
-printf '"mutants_not_viable":0,"mutants_not_covered":0,"test_efficacy":100.00,' >> "$out"
+printf '"mutants_not_viable":0,"mutants_not_covered":%d,"test_efficacy":100.00,' \
+	"$STUB_NOT_COVERED" >> "$out"
 printf '"mutations_coverage":100.00,"elapsed_time":3.0,"mutator_statistics":{},' >> "$out"
 printf '"files":[{"file_name":"%s","mutations":[{"type":"CONDITIONALS_NEGATION","line":1,"column":7,"status":"KILLED"}]}]}' \
 	"$STUB_FILE" >> "$out"
 exit 0
 EOS
 	chmod +x "$1"
-	printf 'STUB_IN_SCOPE=%s\nSTUB_SKIPPED=%s\nSTUB_FILE=%s\n' "$2" "$3" "$4" >"$1.env"
+	printf 'STUB_IN_SCOPE=%s\nSTUB_SKIPPED=%s\nSTUB_NOT_COVERED=%s\nSTUB_FILE=%s\n' \
+		"$2" "$3" "${NOT_COVERED:-0}" "$4" >"$1.env"
 }
 
 # A repo with the REAL vendored supervisor, so warm, dry-run, the two counts and the verdict run for real.
@@ -839,7 +856,7 @@ echo "=== 13b. SKIPPED counts for the supervisor and not for the verdict ==="
 out=$(run_with_stub 4 1090)
 rc=$?
 check "4 in scope of 1090 considered: green" 0 $rc
-contains "4 in scope of 1090 considered: stderr names both counts" "4 in scope of 1094 considered" "$out"
+contains "4 in scope of 1090 considered: stderr names both counts" "4 measurable of 1094 considered" "$out"
 check "4 in scope of 1090 considered: the supervisor watches all 1094" \
 	"watch_lines=1094" "$(grep '^watch_lines=' "$gr4/out.txt")"
 check "4 in scope of 1090 considered: the verdict expects 4" \
@@ -1084,7 +1101,7 @@ check "engine with a bare shorthand: refused" 2 $?
 # A clean engine string must still run, or the guard is a blanket refusal worse than none.
 out=$(engine_guard "$gr4/stub-engine")
 check "clean engine string: not refused" 0 $?
-contains "clean engine string: enumerated" "in scope of" "$out"
+contains "clean engine string: enumerated" "measurable of" "$out"
 
 echo
 echo "=== 19. the dry-run is a measurement or it is a hard error ==="
@@ -1296,6 +1313,105 @@ check "gated files are not excluded (0 matches)" 0 "$gated"
 
 excluded=$(printf '%s\n' ".worktrees/wt-x/internal/tui/app.go" | grep -cEvE "$exclude" || true)
 check "excluded files stay out of the gate (0 left in)" 0 "$excluded"
+
+
+echo
+echo "=== 24. NOT COVERED never inflates the denominator ==="
+# ============================================================================
+
+# The red this pins: a mutant on a case condition sits in NO cover block (Go cover starts the
+# clause's block after the colon), so gremlins reports it NOT COVERED forever and the run measures
+# nothing. Counted as expected, that made such a diff an impossible red: pre-count 3, measured none,
+# and no lever -- the allowlist only knows LIVED, so there was nothing to record or kill.
+
+NOT_COVERED=3
+out=$(run_with_stub 4 1090)
+rc=$?
+unset NOT_COVERED
+check "4 runnable with 3 uncoverable and 1090 skipped: green" 0 $rc
+contains "uncoverable beside runnable: the denominator counts only the runnable" \
+	"4 measurable of 1097 considered" "$out"
+check "uncoverable beside runnable: the verdict expects 4" \
+	"expected_total=4" "$(grep '^expected_total=' "$gr4/out.txt")"
+check "uncoverable beside runnable: the supervisor still watches every considered line" \
+	"watch_lines=1097" "$(grep '^watch_lines=' "$gr4/out.txt")"
+contains "uncoverable beside runnable: the verdict says what it excluded" \
+	"excluded from the denominator" "$out"
+contains "uncoverable beside runnable: the survivor verdict is untouched" "measured and clean" "$out"
+
+# Every in-scope mutant uncoverable: the report exists, measures none, and says so truthfully.
+NOT_COVERED=3
+out=$(run_with_stub 0 1090)
+rc=$?
+unset NOT_COVERED
+check "only uncoverable mutants in scope: green" 0 $rc
+contains "only uncoverable: says nothing is measurable" "nothing measurable" "$out"
+contains "only uncoverable: admits nothing was measured" "no mutation was measured" "$out"
+lacks "only uncoverable: never claims there were no mutable statements" "no mutable statements" "$out"
+check "only uncoverable: the verdict expected 0" "expected_total=0" "$(grep '^expected_total=' "$gr4/out.txt")"
+
+# The same verdict from fabricated paths: the wording is the verdict's, not the run phase's.
+NOT_COVERED_REPORT=3
+d=$(new_case only-uncoverable-verdict)
+make_report "$d/report.json" 0
+make_log "$d/run.log" 0 0
+verdict "$d" 0 0
+rc=$?
+unset NOT_COVERED_REPORT
+check "fabricated all-uncoverable: green" 0 $rc
+out=$(cat "$d/verdict.out")
+contains "fabricated all-uncoverable: names the state" "nothing measurable" "$out"
+contains "fabricated all-uncoverable: gives the structural reason" "Go cover starts a case clause" "$out"
+lacks "fabricated all-uncoverable: not the mutable-statements claim" "no mutable statements" "$out"
+
+# A measured verdict with uncoverable siblings still judges survivors; the note is informational.
+NOT_COVERED_REPORT=2
+d=$(new_case uncoverable-beside-measured)
+make_report "$d/report.json" 46 'CONDITIONALS_BOUNDARY internal/tui/table.go:292'
+make_log "$d/run.log" 45 0
+printf 'CONDITIONALS_BOUNDARY internal/tui/table.go:292\n' >>"$d/allowlist"
+verdict "$d" 46 0
+rc=$?
+unset NOT_COVERED_REPORT
+check "uncoverable beside a measured scope: green" 0 $rc
+out=$(cat "$d/verdict.out")
+contains "uncoverable beside measured: still judges the survivors" "measured and clean" "$out"
+contains "uncoverable beside measured: publishes the exclusion" "2 in-scope mutant(s) are not covered" "$out"
+
+echo
+echo "=== 25. the ambient gitconfig cannot change what is measured ==="
+# ============================================================================
+
+# gremlins computes its --diff ranges with a plain `git diff` run with the AMBIENT config, so a
+# dev's diff.algorithm/diff.interhunkcontext decides which hunks the scope covers and the local
+# loop measures a different mutant set than CI. The probe engine asks git the same way gremlins
+# does; any answer reaching it means the config leaked in and local stopped predicting CI.
+
+printf '[diff]\n\talgorithm = patience\n\tinterhunkcontext = 10\n' >"$tmp/global.gitconfig"
+cat >"$gr4/probe-engine" <<'EOS'
+#!/usr/bin/env bash
+dry=0
+for a in "$@"; do [[ $a == --dry-run ]] && dry=1; done
+git config --get diff.algorithm >"$PWD/gitconfig-probe" 2>&1 || true
+if [[ $dry -eq 1 ]]; then
+	printf 'Starting...\nGathering coverage...\ndone in 2.5s\n'
+	printf '  RUNNABLE CONDITIONALS_BOUNDARY at pkg/gate.go:1:7\n'
+	printf '\nDry run completed in 2.5s\nRunnable: 1, Not covered: 0\n'
+	printf 'Mutator coverage: 100.00%%\n'
+fi
+exit 0
+EOS
+chmod +x "$gr4/probe-engine"
+rm -f "$gr4/gitconfig-probe" "$gr4/run.log" "$gr4/report.json"
+out=$(cd "$gr4" && GIT_CONFIG_GLOBAL="$tmp/global.gitconfig" MUTATE_ENGINE="$gr4/probe-engine" \
+	MUTATE_RUN_LOG=run.log MUTATE_SCOPE_FILE=scope.txt MUTATE_BUDGET_FILE=budget.txt \
+	bash scripts/mutate.sh --run --dry 2>&1)
+rc=$?
+check "ambient diff config: the dry-run completes" 0 $rc
+check "ambient diff config: the fixture really carries a dev's settings" "patience" \
+	"$(git config --file "$tmp/global.gitconfig" --get diff.algorithm)"
+check "ambient diff config: the engine's git never sees it" "" "$(cat "$gr4/gitconfig-probe" 2>/dev/null)"
+contains "ambient diff config: the run is still enumerated" "1 measurable of 1 considered" "$out"
 
 echo
 printf '%d/%d passed\n' "$pass" "$((pass + fail))"

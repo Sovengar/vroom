@@ -6,6 +6,12 @@
 
 set -uo pipefail
 
+# Hermetic git config: gremlins computes its --diff ranges with a plain `git diff` run with the
+# AMBIENT config, so a dev's diff.algorithm/diff.interhunkcontext merges hunks differently and the
+# local loop would measure a different mutant set than CI, whose runners have no user config to inherit.
+# Dropping both files reproduces CI's defaults by construction, so no env prefix has to be remembered.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_NOSYSTEM=1
+
 # The single definition of "one unit of progress", counted by both the numerator and the denominator.
 # The trailing [^[:space:]] tolerates the CR a terminal line discipline adds.
 PROGRESS_RE='at [^[:space:]]+:[[:digit:]]+:[[:digit:]]+[^[:space:]]*$'
@@ -265,6 +271,15 @@ _verdict() { # <report> <run_log> <allowlist> <expected_total> <engine_rc> [anno
 	_out "  - test efficacy: $(jq -r '.test_efficacy' "$report")%"
 	_out "  - mutator coverage: $(jq -r '.mutations_coverage' "$report")%"
 
+	# The denominator excludes NOT COVERED (EXPECTED_MEASURED counts RUNNABLE only), and a verdict
+	# that drops mutants without saying so is the silence this gate exists to refuse.
+	local not_covered
+	not_covered=$(jq -r '.mutants_not_covered // 0' "$report")
+	if [[ $not_covered =~ ^[0-9]+$ && $not_covered -gt 0 ]]; then
+		_out "- $not_covered in-scope mutant(s) are not covered by any test, so the engine cannot measure them and the verdict's denominator excludes them."
+		_out '- A case clause is the structural reason: Go cover starts a case clause after the colon, so a mutant on its condition sits in no block at any test count.'
+	fi
+
 	# A verdict about a set other than the announced one is a verdict about something else.
 	# SKIPPED is excluded: with --diff both files[] and the progress lines carry the whole module.
 	if [[ -n $announced && -f $announced ]]; then
@@ -299,7 +314,7 @@ _verdict() { # <report> <run_log> <allowlist> <expected_total> <engine_rc> [anno
 # Split out so the "was there a measurement" half stops sharing a scope and a scratch directory.
 _verdict_survivors() { # <report> <allowlist> <expected_total> <budget>
 	local report=$1 allowlist=$2 expected=$3 budget=${4:-}
-	local tmp total new survivor reported
+	local tmp total new survivor reported not_covered
 
 	tmp=$(mktemp -d "${TMPDIR:-/tmp}/gitdash-mutate-verdict.XXXXXX") || return 1
 	jq -r '.files[] | .file_name as $f | .mutations[] | select(.status=="LIVED") | "\(.type) \($f):\(.line)"' "$report" |
@@ -341,9 +356,17 @@ _verdict_survivors() { # <report> <allowlist> <expected_total> <budget>
 
 	if [[ $expected -eq 0 ]]; then
 		# A _test.go-only diff arrives HERE, not through "No results to report": SKIPPED mutants are results too.
-		_out '- **nothing to mutate**: the diff has Go files but no mutable statements, so the engine generated no mutants for it.'
-		_out "- **no mutation was measured, and that is a result, not a failure.**"
-		_out "- Source of this verdict: the pre-count of in-scope mutants was 0, not an absent report."
+		# The uncoverable case is the other honest green, and it must not claim there were no mutants.
+		not_covered=$(jq -r '.mutants_not_covered // 0' "$report")
+		if [[ $not_covered =~ ^[0-9]+$ && $not_covered -gt 0 ]]; then
+			_out '- **nothing measurable**: every in-scope mutant is not covered by any test, so the engine measured none of them.'
+			_out "- **no mutation was measured, and that is a result, not a failure.**"
+			_out "- Source of this verdict: the pre-count of measurable mutants was 0 ($not_covered uncoverable, listed above), not an absent report."
+		else
+			_out '- **nothing to mutate**: the diff has Go files but no mutable statements, so the engine generated no mutants for it.'
+			_out "- **no mutation was measured, and that is a result, not a failure.**"
+			_out "- Source of this verdict: the pre-count of in-scope mutants was 0, not an absent report."
+		fi
 	else
 		_out '- **measured and clean**: every surviving mutant is allowlisted, so this change introduced no new gap.'
 	fi
@@ -441,7 +464,8 @@ while [[ $# -gt 0 ]]; do
 		shift
 		;;
 	-h | --help)
-		sed -n '3,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+		# Anchored on the banner, not on a line count: fixed ranges silently print code once the header grows.
+		sed -n '3,/^# --- output:/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 		exit 0
 		;;
 	-*)
@@ -679,17 +703,24 @@ if [[ -z $cov_secs ]]; then
 	die 2 "the dry-run reported no measurable coverage time, so the per-mutant cap cannot be derived (dry-run exit $DRY_RC)"
 fi
 
-# Two counts: WATCH_LINES is every mutant CONSIDERED (the supervisor's denominator, SKIPPED included).
-# EXPECTED_MEASURED is the in-scope subset the verdict compares against. See AGENTS.md.
+# Two counts: WATCH_LINES is every mutant CONSIDERED (the supervisor's denominator, all statuses).
+# EXPECTED_MEASURED counts only the RUNNABLE ones: they are what the full run executes and what
+# report.json's mutants_total (killed + lived + notViable) can contain. SKIPPED leaves the scope and
+# NOT COVERED sits in no cover block (Go cover starts a case clause's block after the colon), so
+# counting either made any diff touching a case condition an impossible red with no lever.
 WATCH_LINES=$(grep -cE "$PROGRESS_RE" "$DRY_OUT" || true)
-EXPECTED_MEASURED=$(grep -E "$PROGRESS_RE" "$DRY_OUT" | grep -cvE '^[[:space:]]*SKIPPED ' || true)
+EXPECTED_MEASURED=$(grep -E "$PROGRESS_RE" "$DRY_OUT" | grep -cE '^[[:space:]]*RUNNABLE ' || true)
+NOT_COVERED_COUNT=$(grep -E "$PROGRESS_RE" "$DRY_OUT" | grep -cE '^[[:space:]]*NOT COVERED ' || true)
 
 # ceil(cap / elapsed) as an integer: it is the only per-mutant lever gremlins has.
 COEF=$(awk -v cap="$CAP_SECS" -v el="$cov_secs" 'BEGIN{printf "%d", (cap/el==int(cap/el)) ? cap/el : int(cap/el)+1}')
 PER_MUTANT=$(awk -v el="$cov_secs" -v k="$COEF" 'BEGIN{printf "%d", el*k+2}')
 
 echo "mutate: coverage ${cov_secs}s -> coefficient $COEF (per-mutant ceiling ~${PER_MUTANT}s, cap $CAP)" >&2
-echo "mutate: $WORKERS workers, $EXPECTED_MEASURED in scope of $WATCH_LINES considered, $ANNOUNCED_COUNT files in the announced scope" >&2
+echo "mutate: $WORKERS workers, $EXPECTED_MEASURED measurable of $WATCH_LINES considered, $ANNOUNCED_COUNT files in the announced scope" >&2
+if [[ $NOT_COVERED_COUNT -gt 0 ]]; then
+	echo "mutate: $NOT_COVERED_COUNT in-scope mutant(s) are not covered by any test, so they are excluded from the denominator (the verdict says why)" >&2
+fi
 
 if [[ $DRY -eq 1 ]]; then
 	echo "mutate: --dry: warmed and enumerated, nothing mutated" >&2
