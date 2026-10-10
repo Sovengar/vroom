@@ -20,13 +20,19 @@ Without this step, any verification the user does on the TUI uses the
 old version. Run it ALWAYS at the end of a code task, after
 verification (`make check`).
 
-## New feature → docs/FEATURES.md
+## New feature → docs/FEATURES.md + skill
 
 Any **new feature** — and any user-visible change to an existing one — must be
 documented in `docs/FEATURES.md` **in the same change**: add or update its entry with
 what it does and how it is triggered (key, flag or command). A feature that is
 not in `docs/FEATURES.md` does not exist for the next reader. Keep it a concise
 inventory, not a tutorial: the details live in `README.md` and `docs/adr/`.
+
+The same change must also update the global skill
+**`~/.agents/skills/vroom/SKILL.md`** — trigger, commands/flags, JSON shapes,
+`.vroom.toml` keys and TUI behavior that changed. The skill is the runtime
+contract agents load before working on vroom; a feature absent from it does not
+exist for them.
 
 ## CI and `main` protection
 
