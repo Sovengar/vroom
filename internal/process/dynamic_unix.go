@@ -4,6 +4,7 @@ package process
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,10 +29,20 @@ type DiscoveryResult struct {
 	LineageDead bool
 	// The deadline expired with no decidable main port; calling that "no port" would label a slow service forever, since nothing rediscovers later.
 	Unresolved bool
+	// The caller's context was cancelled: the attempt is abandoned mid-discovery, distinct from Unresolved (a deadline with no decidable port) because nothing about the port was actually decided.
+	Cancelled bool
 }
 
 // Ambiguity exists only when vroom has to guess: R1 the reserved port is among the listeners, R2 the best health_path response, R3 the lowest port with Verified=false (see docs/adr/adr-0012-port-ownership-contract-and-dynamic-ports.md).
 func DiscoverPort(rootPid int, reserved int, healthPath string, timeout time.Duration) DiscoveryResult {
+	return DiscoverPortContext(context.Background(), rootPid, reserved, healthPath, timeout)
+}
+
+// DiscoverPortContext is DiscoverPort with a caller-owned lifetime: the poll bout returns as soon as ctx is done instead of waiting out the whole timeout, so a cancelled start does not keep reading /proc for seconds after the user walked away.
+func DiscoverPortContext(ctx context.Context, rootPid int, reserved int, healthPath string, timeout time.Duration) DiscoveryResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	deadline := time.Now().Add(timeout)
 	graceDeadline := deadline.Add(DefaultDynamicUnresolvedGrace)
 	var prev []int
@@ -68,7 +79,12 @@ func DiscoverPort(rootPid int, reserved int, healthPath string, timeout time.Dur
 			// Only after deadline plus grace may "no listener" be reported as "no TCP port".
 			return DiscoveryResult{}
 		}
-		time.Sleep(discoverInterval)
+		// The bout is cut the moment ctx is done, so a cancelled start stops here instead of sleeping out the interval; with a never-cancelled context this is the same wait as a plain sleep.
+		select {
+		case <-ctx.Done():
+			return DiscoveryResult{Cancelled: true}
+		case <-time.After(discoverInterval):
+		}
 	}
 }
 

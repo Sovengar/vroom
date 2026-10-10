@@ -124,7 +124,7 @@ func (c *Client) ApplyContext(ctx context.Context, name string, port int, prev O
 		return Degraded(name, classify(err))
 	}
 
-	// From here the write happened; later degradation must not undo it, so Registered is set here and not in the final return.
+	// From here the write happened; later degradation must not undo it, so Registered is set here for the read-back branches and stamped in Apply on whatever verify returns.
 	registered := Result{Name: name, Host: Hostname(name), Port: port, Registered: true}
 
 	// Read-back confirms the write and covers the window between the lookup and the write, when another actor can take the name (M8).
@@ -139,7 +139,10 @@ func (c *Client) ApplyContext(ctx context.Context, name string, port int, prev O
 		return registered.withReason(ReasonRouteConflict)
 	}
 
-	return c.verify(ctx, name, port)
+	// The write happened just above, so EVERY degradation verify can return is a post-write verdict: Apply, which did the write, is the one that stamps ownership on it. verify stays a pure probe (reconcile also calls it read-only), so it does not claim a write it did not do; stamping here is what keeps the answered-404 path's handle, so stop/Retire/reconcile can revoke a route that was written but not served.
+	res := c.verify(ctx, name, port)
+	res.Registered = true
+	return res
 }
 
 // withReason degrades the state without undoing the fact: a route written while the proxy was down is still ours.
@@ -154,12 +157,10 @@ func (r Result) withReason(reason string) Result {
 func (c *Client) verify(ctx context.Context, name string, port int) Result {
 	host := Hostname(name)
 
-	// M6: a missing proxy.port is the no-proxy signal, never a hardcoded 1355; this degrades after Register, so the route stays ours.
+	// M6: a missing proxy.port is the no-proxy signal, never a hardcoded 1355; this degrades after Register, so the route stays ours. Registered is stamped by Apply, which is the caller that wrote.
 	proxyPort, err := c.ProxyPort()
 	if err != nil {
-		r := Degraded(name, ReasonProxyNotRunning)
-		r.Registered = true
-		return r
+		return Degraded(name, ReasonProxyNotRunning)
 	}
 
 	deadline := time.Now().Add(c.verifyWait)
@@ -206,22 +207,16 @@ func (c *Client) verify(ctx context.Context, name string, port int) Result {
 
 	if cancelled {
 		// Nothing about the route was proven because the caller walked away: publishing no url and claiming route_not_served would misreport an abandoned start as an unserved route.
-		r := Degraded(name, ReasonCancelled)
-		r.Registered = true
-		return r
+		return Degraded(name, ReasonCancelled)
 	}
 	if answered {
 		// The proxy answered for the host and still does not route it, so this is the not-served degradation, exactly as before the wait.
 		return Degraded(name, ReasonRouteNotServed)
 	}
 	if !c.acceptsConnections(proxyPort) {
-		r := Degraded(name, ReasonProxyUnreachable)
-		r.Registered = true
-		return r
+		return Degraded(name, ReasonProxyUnreachable)
 	}
-	r := Degraded(name, ReasonRouteNotServed)
-	r.Registered = true
-	return r
+	return Degraded(name, ReasonRouteNotServed)
 }
 
 // probePath is "/" because even a 404 from the app behind proves routing, and health_path is a TUI contract a route may not have.

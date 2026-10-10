@@ -471,7 +471,14 @@ hostname; the proxy forwards to whatever port the service has today. Because a f
 written alias reaches the proxy's in-memory cache asynchronously — portless's `fs.watch`
 debounce normally, its 3 s polling fallback when the watcher is unavailable — the probe
 is retried for a short window before the route is declared unserved, so a route that is
-about to be served is not reported as missing.
+about to be served is not reported as missing. A command cancelled while that window is
+open (Ctrl-C on `vroom start`, quitting the TUI) stops the wait at once and records the
+route as degraded with reason `cancelled` — never the misleading `route_not_served`. The
+cancel unwinds cleanly before the command exits: a `commands.start.hooks` hook in flight —
+`pre_run` or `post_run` — is killed with its process group, port discovery stops at the next poll, and the daemon the
+start already spawned is persisted (meta + pid) so a later `vroom stop` still finds it.
+The write's ownership handle is kept on every degradation, `cancelled` and a genuine
+`route_not_served` included, so `stop`/reconciliation can revoke the route.
 
 How the two sides actually talk, concretely:
 

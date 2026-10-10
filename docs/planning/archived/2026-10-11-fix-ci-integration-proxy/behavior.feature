@@ -24,6 +24,7 @@ Feature: Apply waits out the portless route propagation window
     Given a proxy that keeps answering 404 for the route for the whole window
     When the propagation window closes
     Then the result is "degraded" with reason "route_not_served" and no Url
+    And the write is not undone (Registered stays true, so stop/Retire can revoke it)
     # Degradation semantics unchanged; only the moment moves past the window.
 
   Scenario: A declared proxy port that refuses connections degrades at once
@@ -52,6 +53,25 @@ Feature: Apply waits out the portless route propagation window
     Given a client built with New()
     Then the propagation window defaults to 3.5 s with a 250 ms poll interval
     And WithVerifyWait(0) restores the single immediate probe the deterministic fakes pin
+
+  Scenario: A cancelled command stops the start and is not misreported
+    Given a command context that is cancelled while the propagation window is open
+    When vroom applies the route
+    Then Apply returns promptly, well before the window closes
+    And the result is "degraded" with reason "cancelled" and no Url
+    And the route is not misreported as "route_not_served"
+
+  Scenario: A cancelled start unwinds before the command exits
+    Given a start whose command context is cancelled after the service is spawned
+    When the start unwinds
+    Then the start the command runner was awaiting is joined, never abandoned
+    And the daemon it spawned is persisted (meta + pid) so a later stop can find it
+    And a cancelled port discovery stops at once instead of running its timeout out
+
+  Scenario: A cancelled commands.start.hooks.pre_run leaves no orphan
+    Given a commands.start.hooks.pre_run hook running when the command context is cancelled
+    When the hook is cut
+    Then the hook's process is not left running after the host process exits
 
   Scenario: The ladder e2e Url answers from its own backend
     Given a stable Url registered through a real portless proxy for a worktree
