@@ -228,7 +228,7 @@ func TestDeadAtStartupFailsFast(t *testing.T) {
 
 func TestFixedModeBehavesExactlyAsBefore(t *testing.T) {
 	f := newFixture(t)
-	f.manifest.PortMode = "" // an existing manifest, without the new field
+	f.manifest.URLGeneration = "" // an existing manifest, without the new field
 	own := freePort(t)
 	f.command(t, "fixed-port", "VROOM_HELPER_PORT="+strconv.Itoa(own))
 
@@ -252,7 +252,7 @@ func TestFixedModeBehavesExactlyAsBefore(t *testing.T) {
 
 func TestNoneModeStartsWithoutPort(t *testing.T) {
 	f := newFixture(t)
-	f.manifest.PortMode = manifest.PortModeNone
+	f.manifest.URLGeneration = manifest.URLGenNone
 	f.manifest.Port = 0
 	f.command(t, "udp-only")
 
@@ -276,11 +276,11 @@ func TestNoneModeStartsWithoutPort(t *testing.T) {
 // An explicit per-start override outranks the manifest: sd on a fixed manifest must reserve and inject.
 func TestExplicitPortModeDynamicOverridesFixedManifest(t *testing.T) {
 	f := newFixture(t)
-	f.manifest.PortMode = manifest.PortModeFixed
+	f.manifest.URLGeneration = manifest.URLGenByPort
 	f.manifest.Port = 8081
 	f.command(t, "hold-port") // default mode: holds the injected PORT
 
-	out, err := f.startWithMode(t, 30*time.Second, manifest.PortModeDynamic)
+	out, err := f.startWithGeneration(t, 30*time.Second, manifest.URLGenByWorkspaceHostname)
 	if err != nil {
 		t.Fatalf("dynamic override start: %v", err)
 	}
@@ -290,19 +290,19 @@ func TestExplicitPortModeDynamicOverridesFixedManifest(t *testing.T) {
 		t.Errorf("an explicit dynamic start must inject PORT, got %q", env["PORT_SEEN"])
 	}
 	meta, _ := f.store.LoadMeta(f.dir)
-	if meta.PortMode != manifest.PortModeDynamic {
-		t.Errorf("the recorded mode must be the chosen one (%q), got %q", manifest.PortModeDynamic, meta.PortMode)
+	if meta.URLGeneration != manifest.URLGenByWorkspaceHostname {
+		t.Errorf("the recorded mode must be the chosen one (%q), got %q", manifest.URLGenByWorkspaceHostname, meta.URLGeneration)
 	}
 }
 
 // The other direction: ss on a dynamic manifest must not reserve nor inject.
 func TestExplicitPortModeFixedOverridesDynamicManifest(t *testing.T) {
 	f := newFixture(t)
-	f.manifest.PortMode = manifest.PortModeDynamic
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 	f.manifest.Port = 8081
 	f.command(t, "fixed-port", "VROOM_HELPER_PORT=8081")
 
-	out, err := f.startWithMode(t, 30*time.Second, manifest.PortModeFixed)
+	out, err := f.startWithGeneration(t, 30*time.Second, manifest.URLGenByPort)
 	if err != nil {
 		t.Fatalf("fixed override start: %v", err)
 	}
@@ -312,20 +312,20 @@ func TestExplicitPortModeFixedOverridesDynamicManifest(t *testing.T) {
 		t.Errorf("an explicit fixed start must not inject PORT, got %q", env["PORT_SEEN"])
 	}
 	meta, _ := f.store.LoadMeta(f.dir)
-	if meta.PortMode != manifest.PortModeFixed {
-		t.Errorf("the recorded mode must be the chosen one (%q), got %q", manifest.PortModeFixed, meta.PortMode)
+	if meta.URLGeneration != manifest.URLGenByPort {
+		t.Errorf("the recorded mode must be the chosen one (%q), got %q", manifest.URLGenByPort, meta.URLGeneration)
 	}
 }
 
 // With no explicit override the recorded mode is inherited, so a CLI/agent start agrees with the last ss/sd.
 func TestRecordedPortModeIsInheritedWhenNoOverride(t *testing.T) {
 	f := newFixture(t)
-	f.manifest.PortMode = manifest.PortModeFixed
+	f.manifest.URLGeneration = manifest.URLGenByPort
 	f.manifest.Port = 8081
 	f.command(t, "hold-port") // default mode: holds the injected PORT
 
 	// First start chooses dynamic explicitly.
-	out, err := f.startWithMode(t, 30*time.Second, manifest.PortModeDynamic)
+	out, err := f.startWithGeneration(t, 30*time.Second, manifest.URLGenByWorkspaceHostname)
 	if err != nil {
 		t.Fatalf("first start: %v", err)
 	}
@@ -511,14 +511,6 @@ func TestStopReleasesTheReservation(t *testing.T) {
 
 	if got := process.ReservedPortCount(); got != baseline {
 		t.Errorf("after stopping, the set measures %d, want %d: the reservation did not return", got, baseline)
-	}
-}
-
-// dynamic needs a default port because the app contract is PORT=${PORT:-N}.
-func TestDynamicRequiresDefaultPort(t *testing.T) {
-	m := &manifest.Manifest{Name: "x", Command: "true", PortMode: manifest.PortModeDynamic}
-	if err := m.Validate(); err == nil {
-		t.Error("dynamic without a default port must be rejected in validation")
 	}
 }
 

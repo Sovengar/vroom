@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"vroom/internal/manifest"
 )
 
 // MEASURED: `portless alias` rejects underscores, spaces, colons and accents and silently truncates at a slash, so a git branch would register the wrong name or collide with the twin worktree.
@@ -37,7 +38,7 @@ func TestHostnameDoesNotTruncateAtSlash(t *testing.T) {
 
 func TestDeriveName(t *testing.T) {
 	t.Run("auto uses branch and project", func(t *testing.T) {
-		got, err := DeriveName(RouteModeAuto, "", "feat/mi_app", "api")
+		got, err := DeriveName(manifest.URLGenByWorkspaceHostname, "", "feat/mi_app", "api")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -47,7 +48,7 @@ func TestDeriveName(t *testing.T) {
 	})
 
 	t.Run("auto without branch falls back to project", func(t *testing.T) {
-		got, err := DeriveName(RouteModeAuto, "", "", "api")
+		got, err := DeriveName(manifest.URLGenByWorkspaceHostname, "", "", "api")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -57,7 +58,7 @@ func TestDeriveName(t *testing.T) {
 	})
 
 	t.Run("named uses route_name and sanitizes", func(t *testing.T) {
-		got, err := DeriveName(RouteModeNamedWithAutoFallback, "My_OAuth_Callback", "feat/x", "api")
+		got, err := DeriveName(manifest.URLGenByHostnameOrWorkspace, "My_OAuth_Callback", "feat/x", "api")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -67,7 +68,7 @@ func TestDeriveName(t *testing.T) {
 	})
 
 	t.Run("named with unusable name is error", func(t *testing.T) {
-		if _, err := DeriveName(RouteModeNamedWithAutoFallback, "///", "", "api"); err == nil {
+		if _, err := DeriveName(manifest.URLGenByHostnameOrWorkspace, "///", "", "api"); err == nil {
 			t.Error("an unusable route_name must be rejected, not degenerate into an empty name")
 		}
 	})
@@ -79,15 +80,25 @@ func TestDeriveName(t *testing.T) {
 	})
 }
 
-func TestRouteModeEnabled(t *testing.T) {
-	for _, m := range []string{RouteModeOff, ""} {
-		if RouteModeEnabled(m) {
-			t.Errorf("mode %q must not look for portless", m)
+func TestClientForSoloResuelveGeneracionesQuePublican(t *testing.T) {
+	for _, gen := range []string{"", manifest.URLGenByPort, manifest.URLGenNone, "inventado"} {
+		if ClientFor(gen) != nil {
+			t.Errorf("ClientFor(%q) must be nil (no portless resolution)", gen)
 		}
 	}
-	for _, m := range []string{RouteModeAuto, RouteModeNamedWithAutoFallback} {
-		if !RouteModeEnabled(m) {
-			t.Errorf("mode %q must work with portless", m)
+	for _, gen := range []string{
+		manifest.URLGenByHostname,
+		manifest.URLGenByWorkspaceHostname,
+		manifest.URLGenByHostnameOrWorkspace,
+	} {
+		c := ClientFor(gen)
+		if c == nil {
+			t.Errorf("ClientFor(%q) must return a client", gen)
+			continue
+		}
+		// A test binary degrades to a bin-less client, never the real portless.
+		if IsTestBinary() && c.HasBinary() {
+			t.Errorf("ClientFor(%q) in a test binary must not resolve a real binary", gen)
 		}
 	}
 }

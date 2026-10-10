@@ -37,12 +37,11 @@ type ProjectInfo struct {
 	// Never the declared port, which may belong to a twin worktree; 0 means vroom confirmed no listener.
 	Port int `json:"port"`
 	// Published apart so "no real port" is not read as "no port in the manifest".
-	DeclaredPort int    `json:"declared_port,omitempty"`
-	PortMode     string `json:"port_mode,omitempty"`
+	DeclaredPort int `json:"declared_port,omitempty"`
+	// URLGeneration is the ONE start axis (by_port | by_hostname | by_workspace_hostname | by_hostname_or_workspace | none): the recorded s choice outranks the manifest's, worktree-aware, so it shows how the service actually starts. It replaces the former port_mode + route_mode pair.
+	URLGeneration string `json:"url_generation,omitempty"`
 	// *bool on purpose: absent = no port contract at all, false = contract exists but nothing was confirmed, which bool+omitempty cannot emit.
 	PortVerified *bool `json:"port_verified,omitempty"`
-	// Intent, not outcome, and omitted when the manifest has no route contract so a legacy manifest still emits byte-identical JSON.
-	RouteMode string `json:"route_mode,omitempty"`
 	// Pointer because absence is itself a state: a manifest with no route contract neither claims nor denies one.
 	Route           *RouteInfo `json:"route,omitempty"`
 	Command         string     `json:"command,omitempty"`
@@ -285,9 +284,6 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 	info.ProcessPattern = m.ProcessPattern
 	info.PrimaryGroup = m.PrimaryGroup
 	info.SecondaryGroup = m.SecondaryGroup
-	if m.EffectiveRouteMode() != manifest.RouteModeOff {
-		info.RouteMode = m.EffectiveRouteMode()
-	}
 
 	if m.PrimaryGroup != "" {
 		key := m.PrimaryGroup
@@ -299,11 +295,10 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 
 	status, meta := evaluateStatus(manager, store, p.Path)
 	info.Status = status
-	// The recorded mode (the agent's ss/sd choice) outranks the manifest's, so the JSON shows how the service actually starts.
-	if meta.PortMode != "" {
-		info.PortMode = meta.PortMode
-	} else {
-		info.PortMode = m.EffectivePortMode()
+	// The recorded generation (the agent's s choice) outranks the manifest's, so the JSON shows how the service actually starts; the worktree-aware manifest value is the fallback, exactly what startsvc would resolve.
+	info.URLGeneration = meta.URLGeneration
+	if info.URLGeneration == "" {
+		info.URLGeneration = m.EffectiveURLGeneration(p.IsWorktree)
 	}
 	if meta.Pid > 0 {
 		info.Pid = meta.Pid
@@ -321,7 +316,7 @@ func buildProjectInfo(manager process.Manager, store *state.Store, collapsed map
 	}
 
 	// Taken from the persisted meta, never a live portless call, so `vroom list` cannot shell out and a degraded route carries no url.
-	if info.RouteMode != "" {
+	if manifest.PublishesURL(info.URLGeneration) {
 		r := RouteInfo{Name: meta.RouteName, Port: meta.RoutePort}
 		switch meta.RouteStatus {
 		case portless.StatusRegistered:
@@ -543,8 +538,9 @@ func cmdStart(name, path string) (any, error) {
 		Manager:    s.manager,
 		StdoutPath: s.store.StdoutLog(p.Path),
 		StderrPath: s.store.StderrLog(p.Path),
-		Routes:     startsvc.RegistrarFor(p.Manifest),
+		Registrar:  startsvc.RegistrarFor,
 		Branch:     gitinfo.Branch(p.Path),
+		IsWorktree: p.IsWorktree,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("start failed: %w", err)

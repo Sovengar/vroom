@@ -59,7 +59,7 @@ func TestStartAfterStopDoesNotEvictForeignRouteInOurOldPort(t *testing.T) {
 	f.dir = dir
 	f.store = store
 	f.command(t, "honor-port")
-	f.manifest.RouteMode = manifest.RouteModeAuto
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 
 	routes := &ownershipSpy{}
 	out, err := f.startWithRoutes(t, 8*time.Second, routes)
@@ -76,7 +76,7 @@ func TestStartAfterStopDoesNotEvictForeignRouteInOurOldPort(t *testing.T) {
 func TestStartGrantsRouteOwnership(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
-	f.manifest.RouteMode = manifest.RouteModeAuto
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 	routes := &ownershipSpy{}
 
 	out, err := f.startWithRoutes(t, 8*time.Second, routes)
@@ -107,6 +107,8 @@ func (o *ownershipSpy) Apply(name string, port int, prev portless.Ownership) por
 		Registered: true,
 	}
 }
+
+func (o *ownershipSpy) Lookup(string) (int, bool, error) { return 0, false, nil }
 
 func (o *ownershipSpy) Reconcile(_ string, _ portless.Ownership, _ ...string) []string {
 	return nil

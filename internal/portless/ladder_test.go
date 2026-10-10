@@ -3,6 +3,7 @@ package portless
 import (
 	"slices"
 	"testing"
+	"vroom/internal/manifest"
 )
 
 // The ladder is the whole feature: named_with_auto_fallback claims the stable name first and only then the branch name, so whoever starts first keeps the URL a frontend or OAuth callback hardcodes while every other worktree still gets an address.
@@ -18,7 +19,7 @@ func TestRouteCandidatesIsTheClaimLadder(t *testing.T) {
 	}{
 		{
 			name:      "the stable name first, the branch name as fallback",
-			mode:      RouteModeNamedWithAutoFallback,
+			mode:      manifest.URLGenByHostnameOrWorkspace,
 			routeName: "api",
 			branch:    "feature/x",
 			project:   "svc",
@@ -26,14 +27,14 @@ func TestRouteCandidatesIsTheClaimLadder(t *testing.T) {
 		},
 		{
 			name:    "auto has a single candidate: its value is that the hostname does not depend on who started first",
-			mode:    RouteModeAuto,
+			mode:    manifest.URLGenByWorkspaceHostname,
 			branch:  "feature/x",
 			project: "svc",
 			want:    []string{"feature-x.svc"},
 		},
 		{
 			name:      "a fallback equal to the primary is not a second rung",
-			mode:      RouteModeNamedWithAutoFallback,
+			mode:      manifest.URLGenByHostnameOrWorkspace,
 			routeName: "feature-x.svc",
 			branch:    "feature/x",
 			project:   "svc",
@@ -41,14 +42,14 @@ func TestRouteCandidatesIsTheClaimLadder(t *testing.T) {
 		},
 		{
 			name:      "without a branch the fallback is the project name",
-			mode:      RouteModeNamedWithAutoFallback,
+			mode:      manifest.URLGenByHostnameOrWorkspace,
 			routeName: "api",
 			project:   "svc",
 			want:      []string{"api", "svc"},
 		},
 		{
 			name:      "a branch that sanitizes still yields a usable second rung",
-			mode:      RouteModeNamedWithAutoFallback,
+			mode:      manifest.URLGenByHostnameOrWorkspace,
 			routeName: "api",
 			branch:    "Feat/My_Branch",
 			project:   "svc",
@@ -73,7 +74,7 @@ func TestRouteCandidatesRejectsWhatDeriveNameRejects(t *testing.T) {
 	if _, err := RouteCandidates("inventado", "", "main", "svc"); err == nil {
 		t.Error("an unknown route_mode must be rejected")
 	}
-	if _, err := RouteCandidates(RouteModeNamedWithAutoFallback, "///", "main", "svc"); err == nil {
+	if _, err := RouteCandidates(manifest.URLGenByHostnameOrWorkspace, "///", "main", "svc"); err == nil {
 		t.Error("an unusable route_name must be rejected, not fall back into an empty name")
 	}
 }

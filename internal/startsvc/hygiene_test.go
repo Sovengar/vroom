@@ -1,6 +1,7 @@
 package startsvc
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -87,7 +88,11 @@ func TestMain(m *testing.M) {
 }
 
 // The guard's only real logic, factored out so a test can exercise it against a process it owns, with no spawn and no shell.
+// A ZOMBIE is not a survivor: /proc/<pid>/exe keeps resolving after the process exits (measured 2026-10-09: a helper that exited(2) in milliseconds lingered as state Z, unreaped, and every executable-matching guard reported it as "remained alive"), so only the state field separates a live leak from an unreaped corpse.
 func isTestBinary(root, self string, pid int) bool {
+	if isZombie(root, pid) {
+		return false
+	}
 	exe, err := os.Readlink(filepath.Join(root, strconv.Itoa(pid), "exe"))
 	if err != nil {
 		return false
@@ -97,6 +102,20 @@ func isTestBinary(root, self string, pid int) bool {
 		return false
 	}
 	return resolved == self
+}
+
+// isZombie reads /proc/<pid>/stat's state: a process the kernel still lists but that already exited. An unreadable stat means "not a zombie" — the file disappears the moment the pid is reaped, and the readlink in the caller discriminates for real.
+func isZombie(root string, pid int) bool {
+	data, err := os.ReadFile(filepath.Join(root, strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return false
+	}
+	// State is field 3, but field 2 (comm) is parenthesised and may contain spaces and parens: skip to the LAST ')' instead of splitting naively.
+	i := bytes.LastIndexByte(data, ')')
+	if i < 0 || i+2 >= len(data) {
+		return false
+	}
+	return data[i+2] == 'Z'
 }
 
 // Fails instead of returning an empty string: a guard that cannot resolve its binary finds nothing and looks like a passing guard, which is worse than no guard.
@@ -138,4 +157,42 @@ func containsInt(xs []int, x int) bool {
 		}
 	}
 	return false
+}
+
+// MEASURED: stat's comm field is parenthesised and may carry spaces and parens ("1 (a)b) Z 1"), so a naive Fields() split reads the wrong token as the state; the parse goes to the last ')'.
+func TestIsZombieLeeElEstadoDelProc(t *testing.T) {
+	root := t.TempDir()
+	writeStat := func(name, stat string) string {
+		t.Helper()
+		d := filepath.Join(root, name)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "stat"), []byte(stat), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return root
+	}
+
+	if !isZombie(writeStat("10", "10 (svc worker) Z 1"), 10) {
+		t.Error("state Z must read as zombie even with spaces in comm")
+	}
+	if !isZombie(writeStat("11", "11 (a)b) Z 1"), 11) {
+		t.Error("state Z must read as zombie even with a ')' inside comm")
+	}
+	if isZombie(writeStat("12", "12 (svc) S 1"), 12) {
+		t.Error("a live process (state S) is not a zombie")
+	}
+	if isZombie(writeStat("13", "13 (svc) X 1"), 13) {
+		t.Error("only Z is a zombie")
+	}
+	if isZombie(writeStat("14", "14 (svc)"), 14) {
+		t.Error("a truncated stat with no state field cannot prove a zombie")
+	}
+	if isZombie(writeStat("15", "nocomma"), 15) {
+		t.Error("a garbage stat cannot prove a zombie")
+	}
+	if isZombie(root, 999999999) {
+		t.Error("a reaped pid has no stat: it cannot be a zombie")
+	}
 }

@@ -252,8 +252,8 @@ func TestToggleUnknownStops(t *testing.T) {
 	}
 }
 
-// A stopped project arms the port-mode selector instead of starting outright (gitdash's p pattern).
-func TestToggleStoppedArmsPortMode(t *testing.T) {
+// A stopped project arms the start-generation selector instead of starting outright (gitdash's p pattern).
+func TestToggleStoppedArmsStartMode(t *testing.T) {
 	m, _ := newTestModel(t)
 	m = moveCursorTo(t, m, "tienda-api")
 
@@ -261,46 +261,34 @@ func TestToggleStoppedArmsPortMode(t *testing.T) {
 	if cmd != nil {
 		t.Error("arming must not emit a start command")
 	}
-	if !m2.portModeArmed {
-		t.Error("a stopped project must arm the port-mode selector")
+	if !m2.startModeArmed {
+		t.Error("a stopped project must arm the start-generation selector")
 	}
 	if got := m2.services[pathOfSelected(t, m2)].Status; got != statusStopped {
 		t.Errorf("status = %s, want stopped (not started yet)", got)
 	}
 }
 
-// ss starts fixed: the second key chooses and the start command is emitted.
-func TestArmedSecondKeySStartsFixed(t *testing.T) {
-	m, _ := newTestModel(t)
-	m = moveCursorTo(t, m, "tienda-api")
-	path := pathOfSelected(t, m)
+// The second key is the whole choice: p, u, w and f are the four generations the manifest can express.
+func TestArmedSecondKeyChoosesGeneration(t *testing.T) {
+	for _, key := range []string{"p", "u", "w", "f"} {
+		t.Run(key, func(t *testing.T) {
+			m, _ := newTestModel(t)
+			m = moveCursorTo(t, m, "tienda-api")
+			path := pathOfSelected(t, m)
 
-	m, _ = press(m, "s") // arm
-	m2, cmd := press(m, "s") // choose fixed
-	if cmd == nil {
-		t.Fatal("ss must emit a start command")
-	}
-	if got := m2.services[path].Status; got != statusStarting {
-		t.Errorf("status = %s, want starting", got)
-	}
-	if m2.portModeArmed {
-		t.Error("the arm must be consumed by the choice")
-	}
-}
-
-// sd starts dynamic.
-func TestArmedSecondKeyDStartsDynamic(t *testing.T) {
-	m, _ := newTestModel(t)
-	m = moveCursorTo(t, m, "tienda-api")
-	path := pathOfSelected(t, m)
-
-	m, _ = press(m, "s") // arm
-	m2, cmd := press(m, "d") // choose dynamic
-	if cmd == nil {
-		t.Fatal("sd must emit a start command")
-	}
-	if got := m2.services[path].Status; got != statusStarting {
-		t.Errorf("status = %s, want starting", got)
+			m, _ = press(m, "s")     // arm
+			m2, cmd := press(m, key) // choose generation
+			if cmd == nil {
+				t.Fatalf("s%s must emit a start command", key)
+			}
+			if got := m2.services[path].Status; got != statusStarting {
+				t.Errorf("status = %s, want starting", got)
+			}
+			if m2.startModeArmed {
+				t.Error("the arm must be consumed by the choice")
+			}
+		})
 	}
 }
 
@@ -310,12 +298,12 @@ func TestArmedSecondKeyOtherCancels(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
 
-	m, _ = press(m, "s") // arm
+	m, _ = press(m, "s")     // arm
 	m2, cmd := press(m, "x") // cancel
 	if cmd != nil {
 		t.Error("a non-variant second key must not emit a command")
 	}
-	if m2.portModeArmed {
+	if m2.startModeArmed {
 		t.Error("the arm must be cleared by a cancel")
 	}
 	if got := m2.services[path].Status; got != statusStopped {
@@ -328,7 +316,7 @@ func TestStartProjectSelectedGuards(t *testing.T) {
 	// No selection (cursor out of range) → p == nil.
 	m, _ := newTestModel(t)
 	m.cursor = -1
-	if _, cmd := m.startProjectSelected(manifest.PortModeFixed); cmd != nil {
+	if _, cmd := m.startProjectSelected(manifest.URLGenByPort); cmd != nil {
 		t.Error("no selection must not emit a command")
 	}
 
@@ -337,7 +325,7 @@ func TestStartProjectSelectedGuards(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
 	delete(m.services, path)
-	if _, cmd := m.startProjectSelected(manifest.PortModeFixed); cmd != nil {
+	if _, cmd := m.startProjectSelected(manifest.URLGenByPort); cmd != nil {
 		t.Error("a project without state must not emit a command")
 	}
 
@@ -349,7 +337,7 @@ func TestStartProjectSelectedGuards(t *testing.T) {
 			m.tree[i].project.Configured = false
 		}
 	}
-	if _, cmd := m.startProjectSelected(manifest.PortModeFixed); cmd != nil {
+	if _, cmd := m.startProjectSelected(manifest.URLGenByPort); cmd != nil {
 		t.Error("an unconfigured project must not emit a command")
 	}
 }
@@ -1031,12 +1019,12 @@ func TestHelpResponsive(t *testing.T) {
 	}
 }
 
-// The badge shows the real resolved port, never the declared one: in dynamic mode the declared port may belong to another worktree.
+// The badge shows the real resolved port, never the declared one: under a hostname generation the declared port may belong to another worktree.
 func TestBadgeShowsPort(t *testing.T) {
 	p := scanner.Project{
 		Path: "/tmp/x", Name: "x",
 		Configured: true,
-		Manifest:   &manifest.Manifest{Name: "x", Command: "run", Port: 8081, PortMode: manifest.PortModeDynamic},
+		Manifest:   &manifest.Manifest{Name: "x", Command: "run", Port: 8081, URLGeneration: manifest.URLGenByWorkspaceHostname},
 	}
 	sv := &ServiceState{Status: statusRunning, Meta: state.Meta{Port: 41501}}
 	if badge := statusBadge(p, sv, "·", "·"); !strings.Contains(badge, ":41501") {
@@ -1059,54 +1047,54 @@ func TestBadgeShowsPort(t *testing.T) {
 	}
 }
 
-// The badge labels where the shown number came from: a port vroom reserved is (Dynamic), the manifest's own is (Fixed).
+// The badge labels where the shown number came from: a port vroom resolved under a hostname generation is (by_<generation>), the manifest's own is (by_port).
 func TestBadgeLabelsPortOrigin(t *testing.T) {
-	proj := func(mode string) scanner.Project {
+	proj := func(gen string) scanner.Project {
 		return scanner.Project{Path: "/tmp/x", Name: "x", Configured: true,
-			Manifest: &manifest.Manifest{Name: "x", Command: "run", Port: 8081, PortMode: mode}}
+			Manifest: &manifest.Manifest{Name: "x", Command: "run", Port: 8081, URLGeneration: gen}}
 	}
 	running := func(metaPort int) *ServiceState {
 		return &ServiceState{Status: statusRunning, Meta: state.Meta{Port: metaPort}}
 	}
 
-	if badge := statusBadge(proj(manifest.PortModeDynamic), running(41501), "·", "·"); !strings.Contains(badge, ":41501 (Dynamic)") {
-		t.Errorf("a discovered port must say it was dynamic: %q", badge)
+	if badge := statusBadge(proj(manifest.URLGenByWorkspaceHostname), running(41501), "·", "·"); !strings.Contains(badge, ":41501 (by_workspace_hostname)") {
+		t.Errorf("a discovered port must name the generation that resolved it: %q", badge)
 	}
-	if badge := statusBadge(proj(manifest.PortModeFixed), running(8081), "·", "·"); !strings.Contains(badge, ":8081 (Fixed)") {
-		t.Errorf("the manifest's own port must say it is fixed: %q", badge)
+	if badge := statusBadge(proj(manifest.URLGenByPort), running(8081), "·", "·"); !strings.Contains(badge, ":8081 (by_port)") {
+		t.Errorf("the manifest's own port must say it is by_port: %q", badge)
 	}
-	// Dynamic without a discovered port falls back to the declared one, and that number has not proved anything dynamic.
-	if badge := statusBadge(proj(manifest.PortModeDynamic), running(0), "·", "·"); !strings.Contains(badge, ":8081 (Fixed)") {
-		t.Errorf("the declared fallback must not be labelled dynamic: %q", badge)
+	// A hostname generation without a resolved port falls back to the declared one, and that number is not the address.
+	if badge := statusBadge(proj(manifest.URLGenByWorkspaceHostname), running(0), "·", "·"); !strings.Contains(badge, ":8081 (by_port)") {
+		t.Errorf("the declared fallback must not be labelled with the generation: %q", badge)
 	}
 	none := scanner.Project{Path: "/tmp/y", Name: "y", Configured: true,
 		Manifest: &manifest.Manifest{Name: "y", Command: "run"}}
-	if badge := statusBadge(none, running(0), "·", "·"); strings.Contains(badge, "(Fixed)") || strings.Contains(badge, "(Dynamic)") {
+	if badge := statusBadge(none, running(0), "·", "·"); strings.Contains(badge, "(by_") {
 		t.Errorf("without a port there is no origin to label: %q", badge)
 	}
 }
 
-// The label follows the effective mode (the recorded ss/sd choice), not the manifest's: ss on a dynamic manifest is a fixed start.
-func TestBadgeLabelsEffectiveModeNotManifest(t *testing.T) {
+// The label follows the effective generation (the recorded choice of the s menu), not the manifest's: a recorded by_port wins over a hostname manifest.
+func TestBadgeLabelsEffectiveGenerationNotManifest(t *testing.T) {
 	dyn := scanner.Project{Path: "/tmp/x", Name: "x", Configured: true,
-		Manifest: &manifest.Manifest{Name: "x", Command: "run", Port: 8080, PortMode: manifest.PortModeDynamic}}
+		Manifest: &manifest.Manifest{Name: "x", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname}}
 
-	// ss: the recorded fixed wins over the dynamic manifest.
-	svFixed := &ServiceState{Status: statusRunning, Meta: state.Meta{Port: 8080, PortMode: manifest.PortModeFixed}}
-	if badge := statusBadge(dyn, svFixed, "·", "·"); !strings.Contains(badge, ":8080 (Fixed)") {
-		t.Errorf("ss on a dynamic manifest must read (Fixed): %q", badge)
+	// A recorded by_port: it wins over the hostname manifest.
+	svFixed := &ServiceState{Status: statusRunning, Meta: state.Meta{Port: 8080, URLGeneration: manifest.URLGenByPort}}
+	if badge := statusBadge(dyn, svFixed, "·", "·"); !strings.Contains(badge, ":8080 (by_port)") {
+		t.Errorf("a recorded by_port on a hostname manifest must read (by_port): %q", badge)
 	}
 
-	// sd: the recorded dynamic wins.
-	svDyn := &ServiceState{Status: statusRunning, Meta: state.Meta{Port: 4001, PortMode: manifest.PortModeDynamic}}
-	if badge := statusBadge(dyn, svDyn, "·", "·"); !strings.Contains(badge, ":4001 (Dynamic)") {
-		t.Errorf("sd must read (Dynamic): %q", badge)
+	// A recorded hostname generation: it wins.
+	svDyn := &ServiceState{Status: statusRunning, Meta: state.Meta{Port: 4001, URLGeneration: manifest.URLGenByHostname}}
+	if badge := statusBadge(dyn, svDyn, "·", "·"); !strings.Contains(badge, ":4001 (by_hostname)") {
+		t.Errorf("a recorded by_hostname must read (by_hostname): %q", badge)
 	}
 
-	// No recorded mode: the manifest decides.
+	// No recorded generation: the manifest decides.
 	svNone := &ServiceState{Status: statusRunning, Meta: state.Meta{Port: 4001}}
-	if badge := statusBadge(dyn, svNone, "·", "·"); !strings.Contains(badge, ":4001 (Dynamic)") {
-		t.Errorf("without a recorded mode the dynamic manifest must read (Dynamic): %q", badge)
+	if badge := statusBadge(dyn, svNone, "·", "·"); !strings.Contains(badge, ":4001 (by_workspace_hostname)") {
+		t.Errorf("without a recorded generation the hostname manifest must decide: %q", badge)
 	}
 }
 
@@ -1114,7 +1102,7 @@ func TestBadgeLabelsEffectiveModeNotManifest(t *testing.T) {
 func TestBadgePortPendingIsItsOwnState(t *testing.T) {
 	p := scanner.Project{
 		Path: "/tmp/x", Name: "x", Configured: true,
-		Manifest: &manifest.Manifest{Name: "x", Command: "run", Port: 8081, PortMode: manifest.PortModeDynamic},
+		Manifest: &manifest.Manifest{Name: "x", Command: "run", Port: 8081, URLGeneration: manifest.URLGenByWorkspaceHostname},
 	}
 	sv := &ServiceState{Status: statusPortPending, Meta: state.Meta{Port: 41501, Pid: 4242}}
 
@@ -1232,18 +1220,18 @@ func TestRemappedStartStop(t *testing.T) {
 	m = moveCursorTo(t, m, "tienda-api")
 	path := pathOfSelected(t, m)
 
-	// The remapped key arms like s does; the second key still chooses the mode.
+	// The remapped key arms like s does; the second key still chooses the generation.
 	m2, cmd := press(m, "x")
 	if cmd != nil {
 		t.Error("the remapped start key must arm, not start directly")
 	}
-	if !m2.portModeArmed {
-		t.Fatal("the remapped start key must arm the port-mode selector")
+	if !m2.startModeArmed {
+		t.Fatal("the remapped start key must arm the start-generation selector")
 	}
 
-	m3, cmd2 := press(m2, "s")
+	m3, cmd2 := press(m2, "p")
 	if cmd2 == nil {
-		t.Fatal("the second key must start (fixed)")
+		t.Fatal("the second key must start (by_port)")
 	}
 	if m3.services[path].Status != statusStarting {
 		t.Errorf("status = %q, want starting", m3.services[path].Status)
@@ -2409,7 +2397,7 @@ func TestRefreshEvaluatesResolvedPortWithoutPending(t *testing.T) {
 	dir := t.TempDir()
 	p := scanner.Project{
 		Path: dir, Name: "a", Configured: true,
-		Manifest: &manifest.Manifest{Name: "a", Command: "run", Port: 8080, PortMode: manifest.PortModeDynamic},
+		Manifest: &manifest.Manifest{Name: "a", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname},
 	}
 	if err := store.SaveMeta(dir, state.Meta{
 		Port: 41501, Pid: 1, CreationTimeMs: 2, State: state.StateRunning,
@@ -2438,7 +2426,7 @@ func TestHealthTabDoesNotProbeUnresolvedDeclaredPort(t *testing.T) {
 	p := scanner.Project{
 		Path: "/tmp/x", Name: "x", Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "x", Command: "run", Port: 8080, PortMode: manifest.PortModeDynamic,
+			Name: "x", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname,
 		},
 	}
 	sv := &ServiceState{
@@ -2483,7 +2471,7 @@ func TestHealthTabStillProbesResolvedPort(t *testing.T) {
 	p := scanner.Project{
 		Path: "/tmp/x", Name: "x", Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "x", Command: "run", Port: 8080, PortMode: manifest.PortModeDynamic,
+			Name: "x", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname,
 		},
 	}
 	sv := &ServiceState{

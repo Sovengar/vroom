@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"vroom/internal/manifest"
 	"vroom/internal/portless"
 	"vroom/internal/startsvc"
 	"vroom/internal/state"
@@ -13,8 +12,8 @@ var (
 	tuiReleaseStub     portless.ReleaserFunc // in production, not _test.go, because releaseRoute must read it: without an injectable seam, deleting the Release call sites left the suite green and ADR 13's removal verified nothing
 )
 
-func portlessClient(m *manifest.Manifest) startsvc.RouteRegistrar {
-	return startsvc.RegistrarFor(m)
+func portlessRegistrar(gen string) startsvc.RouteRegistrar {
+	return startsvc.RegistrarFor(gen)
 }
 
 // The stub check tests flag AND pointer, because a test that sets only the flag leaves a Releaser wrapping a nil func and the first Remove panics.

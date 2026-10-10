@@ -23,18 +23,23 @@ type Request struct {
 
 	DiscoveryTimeout time.Duration
 
-	// Routes is the seam to portless; nil means this service registers no routes (route_mode = "off") and keeps the suite hermetic on a CI runner with no portless, no Node 24 and no proxy.
-	Routes RouteRegistrar
+	// Registrar is the seam to portless; nil means this service registers no routes and keeps the suite hermetic on a CI runner with no portless, no Node 24 and no proxy. It is a FACTORY because the generation is not known to the caller: the armed choice and the last recorded one outrank the manifest, so only Start can resolve it and ask for the matching registrar.
+	Registrar RegistrarFunc
 
 	Branch string
 
-	// PortMode is an explicit per-start override (the TUI's ss/sd). Empty means "inherit": the recorded mode wins over the manifest's, so a CLI/agent start agrees with the last TUI choice.
-	PortMode string
+	// URLGeneration is an explicit per-start override (the TUI's s menu). Empty means "inherit": the recorded generation wins over the manifest's, so a CLI/agent start agrees with the last TUI choice.
+	URLGeneration string
+	// IsWorktree selects the manifest's [worktrees] policy when no override applies.
+	IsWorktree bool
 }
 
-// RegistrarFor normalises to the interface here because a typed-nil *portless.Client is not a nil RouteRegistrar, which would silently defeat the Routes == nil check.
-func RegistrarFor(m *manifest.Manifest) RouteRegistrar {
-	c := portless.ClientFor(m)
+// RegistrarFunc maps a resolved generation to a registrar; nil means "publishes no URL" (by_port, none).
+type RegistrarFunc func(gen string) RouteRegistrar
+
+// RegistrarFor normalises to the interface here because a typed-nil *portless.Client is not a nil RouteRegistrar, which would silently defeat the nil check.
+func RegistrarFor(gen string) RouteRegistrar {
+	c := portless.ClientFor(gen)
 	if c == nil {
 		return nil
 	}
@@ -42,6 +47,8 @@ func RegistrarFor(m *manifest.Manifest) RouteRegistrar {
 }
 
 type RouteRegistrar interface {
+	// Lookup reports the port a name currently points at (the client parses `portless list`, never routes.json), for the by_hostname preflight: only a proven foreign holder may refuse a start.
+	Lookup(name string) (port int, found bool, err error)
 	// Apply registers the service route and reports only what it could prove; it never errors because an absent portless is a degradation, not a start failure.
 	Apply(name string, port int, prev portless.Ownership) portless.Result
 	// Reconcile returns warnings, never errors; held is an Ownership handle rather than a port, because a live handle does not mean the name is still ours and a raw port would be authority to delete someone else's route. current is every candidate this start may claim: a persisted name still among them is not a rename, and deleting it would remove the route this very start is about to reuse.
@@ -58,20 +65,30 @@ type Result struct {
 }
 
 func Start(req Request) (Result, error) {
-	// The recorded mode outranks the manifest because the agent chose it for this service (ss/sd); an explicit
-	// req.PortMode outranks the recorded one. Loading prev first is what makes the recorded mode reachable.
+	// The recorded generation outranks the manifest because the agent chose it for this service (the s menu); an explicit
+	// req.URLGeneration outranks the recorded one. Loading prev first is what makes the recorded generation reachable.
 	var prev state.Meta
 	if p, err := req.Store.LoadMeta(req.Path); err == nil {
 		prev = p
 	}
-	mode := req.PortMode
-	if mode == "" {
-		mode = prev.PortMode
+	gen := req.URLGeneration
+	if gen == "" {
+		gen = prev.URLGeneration
 	}
-	if mode == "" {
-		mode = req.Manifest.EffectivePortMode()
+	if gen == "" {
+		gen = req.Manifest.EffectiveURLGeneration(req.IsWorktree)
 	}
 
+	var routes RouteRegistrar
+	if req.Registrar != nil {
+		routes = req.Registrar(gen)
+	}
+
+	if err := preflight(req, gen, routes, prev); err != nil {
+		return Result{}, err
+	}
+
+	mode := manifest.PortMode(gen)
 	reserved, env := 0, []string(nil)
 	if mode == manifest.PortModeDynamic {
 		p, err := process.ReservePort()
@@ -113,7 +130,7 @@ func Start(req Request) (Result, error) {
 		CreationTimeMs: res.CreationTimeMs,
 		StartedAt:      time.Now().Format(time.RFC3339),
 		State:          state.StateRunning,
-		PortMode:       mode,
+		URLGeneration:  gen,
 	}
 
 	// All three route facts are inherited or none: copying name and port but not ownership silently loses the grant on every start.
@@ -123,21 +140,76 @@ func Start(req Request) (Result, error) {
 
 	if mode != manifest.PortModeDynamic {
 		out := Result{Meta: base, Pid: res.Pid, Port: req.Manifest.Port}
-		if mode == manifest.PortModeFixed {
-			applyRoute(req, &base, req.Manifest.Port, &out)
-			// Hand the route result back to the caller: out.Meta was copied BEFORE applyRoute, and the TUI renders that copy (startedMsg.meta) while the store already holds the new one — so without this line a fixed-port start shows the PREVIOUS start's route, empty on a cold one. The dynamic path below does the same with `out.Meta = final`.
-			out.Meta = base
-		}
+		// The fixed generations (by_port, none) publish no URL and every publishing generation is dynamic: this branch has no route to apply and only retires one a previous hostname start may have left behind.
+		retireUnpublishedRoute(req, routes, &base, prev, &out)
+		// Hand the route result back to the caller: out.Meta was copied BEFORE the route bookkeeping, and the TUI renders that copy (startedMsg.meta) while the store already holds the new one — so without this line a start would show the PREVIOUS start's route, empty on a cold one. The dynamic path below does the same with `out.Meta = final`.
+		out.Meta = base
 		if err := persistOrKill(req, base, res); err != nil {
 			return Result{}, err
 		}
 		_ = req.Store.RegisterPid(req.Path, res.Pid, res.Pgid)
 		return out, nil
 	}
-	return resolveDynamicPort(req, base, reserved)
+	return resolveDynamicPort(req, routes, base, reserved, gen)
 }
 
-func resolveDynamicPort(req Request, attempt state.Meta, reserved int) (Result, error) {
+// preflight refuses a start that could not honour its own address, BEFORE anything spawns: by_hostname on a name a foreign holder keeps (its URL must not move, so there is nothing to fall back to — the ladder generation is the one that exists for falling back), and by_port on an occupied port (the neighbour's listener is not yours, and vroom mistaking it for the service is exactly the bug that made two projects read as running).
+func preflight(req Request, gen string, routes RouteRegistrar, prev state.Meta) error {
+	switch gen {
+	case manifest.URLGenByHostname:
+		if routes == nil || req.Manifest.RouteName == "" {
+			return nil // no portless: the degradation warning at Apply time is the documented contract, not a start failure
+		}
+		held, found, err := routes.Lookup(req.Manifest.RouteName)
+		if err != nil || !found {
+			return nil // the holder cannot be proven (binary broken, name free): Apply reports the degradation, and only a proven foreign holder may refuse a start
+		}
+		if !((portless.Ownership{Owned: prev.RouteOwned, Port: prev.RoutePort}).Authorises(held)) {
+			return fmt.Errorf("the hostname %q is held by port %d; url_generation = %q claims it or nothing — stop the holder, or switch to %q to fall back to the branch hostname",
+				portless.Hostname(req.Manifest.RouteName), held, manifest.URLGenByHostname, manifest.URLGenByHostnameOrWorkspace)
+		}
+	case manifest.URLGenByPort:
+		if req.Manifest.Port > 0 && process.PortOpen(req.Manifest.Port) {
+			return fmt.Errorf("port %d is already in use and url_generation = %q binds it exactly; stop the occupant or switch generation",
+				req.Manifest.Port, manifest.URLGenByPort)
+		}
+	}
+	return nil
+}
+
+// retireUnpublishedRoute drops the route a previous start left behind when this start publishes none (a switch to by_port or none): Retire is fail-closed and no-ops without an unrevoked lease, so a name taken by another worktree is never deleted. Only a clean retirement clears the handle — a warning means something is still registered and a later start must be able to reconcile it.
+func retireUnpublishedRoute(req Request, routes RouteRegistrar, meta *state.Meta, prev state.Meta, out *Result) {
+	if meta.RouteName == "" {
+		return
+	}
+	if routes == nil && req.Registrar != nil {
+		// The generation publishes nothing, but the PREVIOUS one did leave a route to revoke; any publishing generation maps to the same real client.
+		routes = req.Registrar(staleRouteGeneration(prev))
+	}
+	if routes == nil {
+		return
+	}
+	warns := routes.Retire(meta.RouteName, portless.Ownership{Owned: meta.RouteOwned, Port: meta.RoutePort})
+	out.Warnings = append(out.Warnings, warns...)
+	if len(warns) == 0 {
+		meta.RouteName = ""
+		meta.RoutePort = 0
+		meta.RouteOwned = false
+		meta.RouteURL = ""
+		meta.RouteStatus = ""
+		meta.RouteReason = ""
+	}
+}
+
+// staleRouteGeneration picks a generation that makes the factory return a client: the one that registered the route, or the ladder for metas recorded before generations existed.
+func staleRouteGeneration(prev state.Meta) string {
+	if manifest.PublishesURL(prev.URLGeneration) {
+		return prev.URLGeneration
+	}
+	return manifest.URLGenByHostnameOrWorkspace
+}
+
+func resolveDynamicPort(req Request, routes RouteRegistrar, attempt state.Meta, reserved int, gen string) (Result, error) {
 	// The attempt lands on disk BEFORE discovery: a concurrent tick then reads this, never the previous run's meta whose CreationTimeMs no longer describes anything.
 	attempt.Port = reserved
 	attempt.ReservedPort = reserved
@@ -171,8 +243,7 @@ func resolveDynamicPort(req Request, attempt state.Meta, reserved int) (Result, 
 	case d.Port == 0 && len(d.All) == 0:
 		final.State = state.StateNoPort
 		out.Warnings = append(out.Warnings,
-			fmt.Sprintf("service has no TCP port (mode %q); port health checks are disabled",
-				req.Manifest.EffectivePortMode()))
+			fmt.Sprintf("service has no TCP port (generation %q); port health checks are disabled", gen))
 	default:
 		final.State = state.StateRunning
 		final.PortVerified = d.Verified
@@ -191,7 +262,8 @@ func resolveDynamicPort(req Request, attempt state.Meta, reserved int) (Result, 
 	out.Meta = final
 	// The route goes in after discovery and before the final SaveMeta: the real port is confirmed, and with an unresolved port nothing is registered, which is what rules out the ADR's 502 window.
 	if final.State == state.StateRunning && final.Port > 0 {
-		applyRoute(req, &final, final.Port, &out)
+		// Only the hostname generations resolve an ephemeral port, and they are exactly the publishing ones: there is no route to retire on this path.
+		applyRoute(req, routes, &final, final.Port, gen, &out)
 		out.Meta = final
 	}
 	if err := persistOrKill(req, final, process.StartResult{Pid: final.Pid, Pgid: final.Pgid}); err != nil {
@@ -200,12 +272,12 @@ func resolveDynamicPort(req Request, attempt state.Meta, reserved int) (Result, 
 	return out, nil
 }
 
-func applyRoute(req Request, meta *state.Meta, port int, out *Result) {
-	if req.Routes == nil {
+func applyRoute(req Request, routes RouteRegistrar, meta *state.Meta, port int, gen string, out *Result) {
+	if routes == nil {
 		return
 	}
 
-	cands, err := routeCandidates(req)
+	cands, err := routeCandidates(gen, req)
 	if err != nil {
 		out.Warnings = append(out.Warnings, err.Error())
 		return
@@ -214,18 +286,18 @@ func applyRoute(req Request, meta *state.Meta, port int, out *Result) {
 	prevName, prev := meta.RouteName, portless.Ownership{Owned: meta.RouteOwned, Port: meta.RoutePort}
 
 	// Reconcile first: prune never touches alias routes (M5), so a renamed branch would leave the old route pointing at a dead port forever.
-	out.Warnings = append(out.Warnings, req.Routes.Reconcile(prevName, prev, cands...)...)
+	out.Warnings = append(out.Warnings, routes.Reconcile(prevName, prev, cands...)...)
 
 	// The ladder: only a pre-write route_conflict advances to the next candidate. Any other degradation is systemic (no binary, no proxy) and would fail identically for every rung, while a post-write conflict has Registered=true — we hold that name already and claiming a second one would leave a route nobody revokes.
-	res := req.Routes.Apply(cands[0], port, prev)
+	res := routes.Apply(cands[0], port, prev)
 	for i := 1; i < len(cands) && !res.Registered && res.Reason == portless.ReasonRouteConflict; i++ {
 		out.Warnings = append(out.Warnings, fallbackWarning(res, cands[i]))
-		res = req.Routes.Apply(cands[i], port, prev)
+		res = routes.Apply(cands[i], port, prev)
 	}
 
 	// The ladder left a previous name behind: retire it while the lease still proves it is ours, or stop will never revoke it (the handle has moved) and it would block the next worktree falling back to it.
 	if res.Registered && prevName != "" && prevName != res.Name && prev.Owned && slices.Contains(cands, prevName) {
-		out.Warnings = append(out.Warnings, req.Routes.Retire(prevName, prev)...)
+		out.Warnings = append(out.Warnings, routes.Retire(prevName, prev)...)
 	}
 
 	switch {
@@ -294,9 +366,8 @@ func preStartHook(command, workDir, stdoutPath, stderrPath string) func() error 
 	}
 }
 
-func routeCandidates(req Request) ([]string, error) {
-	cands, err := portless.RouteCandidates(
-		req.Manifest.EffectiveRouteMode(), req.Manifest.RouteName, req.Branch, req.Manifest.Name)
+func routeCandidates(gen string, req Request) ([]string, error) {
+	cands, err := portless.RouteCandidates(gen, req.Manifest.RouteName, req.Branch, req.Manifest.Name)
 	if err != nil {
 		return nil, fmt.Errorf("portless route: %w", err)
 	}

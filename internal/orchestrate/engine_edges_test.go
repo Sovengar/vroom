@@ -24,7 +24,7 @@ func TestLaunchAsyncEntregaElResultadoYCierraElCanal(t *testing.T) {
 	}}
 	projects := []scanner.Project{
 		{Path: "/dev/api", Name: "api", Configured: true, Manifest: &manifest.Manifest{
-			Name: "api", Command: "./api", PortMode: manifest.PortModeNone,
+			Name: "api", Command: "./api", URLGeneration: manifest.URLGenNone,
 		}},
 	}
 
@@ -114,7 +114,7 @@ func TestStopServiceConMetaAusenteNoFalla(t *testing.T) {
 		Path:       t.TempDir(),
 		Name:       "never-started",
 		Configured: true,
-		Manifest:   &manifest.Manifest{Name: "never-started", Command: "./x", PortMode: manifest.PortModeNone},
+		Manifest:   &manifest.Manifest{Name: "never-started", Command: "./x", URLGeneration: manifest.URLGenNone},
 	}
 	engine.stopService(p)
 
@@ -145,7 +145,7 @@ func TestStopServiceRetiraLaRutaYElPuertoDeUnServicioYaMuerto(t *testing.T) {
 	engine.stopService(scanner.Project{
 		Path:     path,
 		Name:     "dead",
-		Manifest: &manifest.Manifest{Name: "dead", Command: "./x", PortMode: manifest.PortModeNone},
+		Manifest: &manifest.Manifest{Name: "dead", Command: "./x", URLGeneration: manifest.URLGenNone},
 	})
 
 	got, err := store.LoadMeta(path)
@@ -180,7 +180,7 @@ func TestStopServiceNoRetiraUnaRutaQueNoEraSuya(t *testing.T) {
 	engine.stopService(scanner.Project{
 		Path:     path,
 		Name:     "foreign",
-		Manifest: &manifest.Manifest{Name: "foreign", Command: "./x", PortMode: manifest.PortModeNone},
+		Manifest: &manifest.Manifest{Name: "foreign", Command: "./x", URLGeneration: manifest.URLGenNone},
 	})
 
 	got, err := store.LoadMeta(path)

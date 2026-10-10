@@ -27,6 +27,8 @@ func (m failingManager) Start(process.StartSpec) (process.StartResult, error) {
 // degradingRegistrar is an Apply that was written but never verified (stopped proxy), so Registered and Succeeded stay distinct.
 type degradingRegistrar struct{ reconciled []string }
 
+func (r *degradingRegistrar) Lookup(string) (int, bool, error) { return 0, false, nil }
+
 func (r *degradingRegistrar) Apply(name string, port int, own portless.Ownership) portless.Result {
 	return portless.Result{
 		Name:       name,
@@ -50,7 +52,7 @@ func TestStartDevuelveElPuertoReservadoSiElHijoNuncaLlego(t *testing.T) {
 
 	m := failingManager{err: errors.New("no such file or directory")}
 	_, err := Start(Request{
-		Manifest:   &manifest.Manifest{Name: "svc", Command: "./no-existe", PortMode: manifest.PortModeDynamic},
+		Manifest:   &manifest.Manifest{Name: "svc", Command: "./no-existe", URLGeneration: manifest.URLGenByWorkspaceHostname},
 		Path:       root,
 		Store:      store,
 		Manager:    m,
@@ -106,7 +108,7 @@ func TestStartPropagaElFalloDeGuardarElIntentoConPuertoReservado(t *testing.T) {
 	}
 
 	_, err := Start(Request{
-		Manifest:   &manifest.Manifest{Name: "svc", Command: "sleep 30", PortMode: manifest.PortModeDynamic},
+		Manifest:   &manifest.Manifest{Name: "svc", Command: "sleep 30", URLGeneration: manifest.URLGenByWorkspaceHostname},
 		Path:       root,
 		Store:      store,
 		Manager:    process.NewManager(),
@@ -132,17 +134,15 @@ func TestStartPropagaElFalloDeGuardarElIntentoConPuertoReservado(t *testing.T) {
 func TestApplyRouteConNombreNoUtilizableAvisaYNoPropagaElError(t *testing.T) {
 	req := Request{
 		Manifest: &manifest.Manifest{
-			Name: "svc", RouteMode: manifest.RouteModeNamedWithAutoFallback,
+			Name: "svc", URLGeneration: manifest.URLGenByHostnameOrWorkspace,
 			RouteName: "!!!", // not a usable hostname
 		},
 		Branch: "main",
-		// Routes must not be nil: without it applyRoute exits before deriving the name and this would test the route_mode="off" guard instead.
-		Routes: verifiedRegistrar{},
 	}
 	meta := state.Meta{Name: "svc", Port: 8081}
 	out := Result{}
 
-	applyRoute(req, &meta, 8081, &out)
+	applyRoute(req, verifiedRegistrar{}, &meta, 8081, manifest.URLGenByHostnameOrWorkspace, &out)
 
 	if len(out.Warnings) == 0 {
 		t.Fatal("an invalid route name must produce a warning: otherwise, the user will not know why they have no route")
@@ -159,12 +159,12 @@ func TestApplyRouteConNombreNoUtilizableAvisaYNoPropagaElError(t *testing.T) {
 func TestApplyRouteSinRegistrarNoAbrePortless(t *testing.T) {
 	req := Request{
 		Manifest: &manifest.Manifest{Name: "svc", Port: 8081},
-		// Routes nil is what ClientFor yields when there is no route contract.
 	}
 	meta := state.Meta{Name: "svc", Port: 8081}
 	out := Result{}
 
-	applyRoute(req, &meta, 8081, &out)
+	// A nil registrar is what RegistrarFor yields for a generation that publishes no URL (by_port, none).
+	applyRoute(req, nil, &meta, 8081, manifest.URLGenByPort, &out)
 
 	if len(out.Warnings) != 0 {
 		t.Errorf("without a route contract there should be no warnings: %v", out.Warnings)
@@ -179,14 +179,14 @@ func TestApplyRouteEscribeLaUrlSoloSiLaVerifico(t *testing.T) {
 	t.Run("registered without verification", func(t *testing.T) {
 		reg := &degradingRegistrar{}
 		req := Request{
-			Manifest: &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeNamedWithAutoFallback, RouteName: "svc"},
-			Branch:   "main",
-			Routes:   reg,
+			Manifest:  &manifest.Manifest{Name: "svc", URLGeneration: manifest.URLGenByHostnameOrWorkspace, RouteName: "svc"},
+			Branch:    "main",
+			Registrar: func(string) RouteRegistrar { return reg },
 		}
 		meta := state.Meta{Name: "svc", Port: 8081}
 		out := Result{}
 
-		applyRoute(req, &meta, 8081, &out)
+		applyRoute(req, reg, &meta, 8081, manifest.URLGenByHostnameOrWorkspace, &out)
 
 		if meta.RouteURL != "" {
 			t.Errorf("RouteURL = %q without verification: it would publish a false address", meta.RouteURL)
@@ -213,14 +213,13 @@ func TestApplyRouteEscribeLaUrlSoloSiLaVerifico(t *testing.T) {
 
 	t.Run("registered and verified", func(t *testing.T) {
 		req := Request{
-			Manifest: &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeNamedWithAutoFallback, RouteName: "svc"},
+			Manifest: &manifest.Manifest{Name: "svc", URLGeneration: manifest.URLGenByHostnameOrWorkspace, RouteName: "svc"},
 			Branch:   "main",
-			Routes:   verifiedRegistrar{},
 		}
 		meta := state.Meta{Name: "svc", Port: 8081}
 		out := Result{}
 
-		applyRoute(req, &meta, 8081, &out)
+		applyRoute(req, verifiedRegistrar{}, &meta, 8081, manifest.URLGenByHostnameOrWorkspace, &out)
 
 		if meta.RouteURL == "" {
 			t.Errorf("a verified route must publish its URL: %+v", meta)
@@ -236,6 +235,8 @@ func TestApplyRouteEscribeLaUrlSoloSiLaVerifico(t *testing.T) {
 
 // verifiedRegistrar is an Apply that was written and then seen working, so its result carries a URL.
 type verifiedRegistrar struct{}
+
+func (verifiedRegistrar) Lookup(string) (int, bool, error) { return 0, false, nil }
 
 func (verifiedRegistrar) Apply(name string, port int, own portless.Ownership) portless.Result {
 	return portless.Result{
@@ -260,27 +261,27 @@ func TestRouteNameDerivaDeLaRamaEnAutoYDelNombreEnNamed(t *testing.T) {
 		want     string
 	}{
 		{
-			name:     "auto with branch",
-			manifest: &manifest.Manifest{Name: "api", RouteMode: manifest.RouteModeAuto},
+			name:     "workspace keys on the branch because that separates two worktrees of one repo",
+			manifest: &manifest.Manifest{Name: "api", URLGeneration: manifest.URLGenByWorkspaceHostname},
 			branch:   "feature/login",
 			want:     "feature-login.api",
 		},
 		{
-			name:     "auto without branch uses the project",
-			manifest: &manifest.Manifest{Name: "api", RouteMode: manifest.RouteModeAuto},
+			name:     "workspace without branch uses the project",
+			manifest: &manifest.Manifest{Name: "api", URLGeneration: manifest.URLGenByWorkspaceHostname},
 			branch:   "",
 			want:     "api",
 		},
 		{
-			name:     "named ladder ignores the branch on its first rung",
-			manifest: &manifest.Manifest{Name: "api", RouteMode: manifest.RouteModeNamedWithAutoFallback, RouteName: "tienda"},
+			name:     "ladder ignores the branch on its first rung",
+			manifest: &manifest.Manifest{Name: "api", URLGeneration: manifest.URLGenByHostnameOrWorkspace, RouteName: "tienda"},
 			branch:   "cualquier-rama",
 			want:     "tienda",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := routeCandidates(Request{Manifest: tt.manifest, Branch: tt.branch})
+			got, err := routeCandidates(tt.manifest.URLGeneration, Request{Manifest: tt.manifest, Branch: tt.branch})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -290,11 +291,11 @@ func TestRouteNameDerivaDeLaRamaEnAutoYDelNombreEnNamed(t *testing.T) {
 		})
 	}
 
-	if _, err := routeCandidates(Request{
-		Manifest: &manifest.Manifest{Name: "api", RouteMode: "inventado"},
+	if _, err := routeCandidates("inventado", Request{
+		Manifest: &manifest.Manifest{Name: "api", URLGeneration: "inventado"},
 		Branch:   "main",
 	}); err == nil {
-		t.Error("an unknown route_mode should give an error: an invented name would be a route that collides with another's")
+		t.Error("an unknown generation should give an error: an invented name would be a route that collides with another's")
 	}
 }
 
@@ -304,7 +305,7 @@ func TestDiscoveryTimeoutPorDefectoCuandoNoSeDaUno(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 
 	res, err := Start(Request{
-		Manifest: &manifest.Manifest{Name: "svc", Command: "sleep 30", PortMode: manifest.PortModeDynamic},
+		Manifest: &manifest.Manifest{Name: "svc", Command: "sleep 30", URLGeneration: manifest.URLGenByWorkspaceHostname},
 		Path:     root,
 		Store:    store,
 		Manager:  process.NewManager(),

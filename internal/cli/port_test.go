@@ -17,7 +17,7 @@ func TestBuildProjectInfoEmitsResolvedPort(t *testing.T) {
 	p := scanner.Project{
 		Path: dir, Name: "a", Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "api", Command: "run", Port: 8080, PortMode: manifest.PortModeDynamic,
+			Name: "api", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname,
 		},
 	}
 	if err := store.SaveMeta(dir, state.Meta{
@@ -36,8 +36,8 @@ func TestBuildProjectInfoEmitsResolvedPort(t *testing.T) {
 	if info.PortVerified == nil || !*info.PortVerified {
 		t.Errorf("PortVerified = %v, want un puntero a true", info.PortVerified)
 	}
-	if info.PortMode != manifest.PortModeDynamic {
-		t.Errorf("PortMode = %q, want dynamic", info.PortMode)
+	if info.URLGeneration != manifest.URLGenByWorkspaceHostname {
+		t.Errorf("URLGeneration = %q, want the workspace generation the meta recorded", info.URLGeneration)
 	}
 
 	data, err := json.Marshal(info)
@@ -64,7 +64,7 @@ func TestBuildProjectInfoFallsBackToDeclaredPort(t *testing.T) {
 	if info.Port != 8080 {
 		t.Errorf("Port = %d, want el declarado 8080", info.Port)
 	}
-	if info.PortMode != manifest.PortModeFixed {
-		t.Errorf("PortMode = %q, want fixed (port_mode ausente)", info.PortMode)
+	if info.URLGeneration != manifest.URLGenByPort {
+		t.Errorf("URLGeneration = %q, want by_port (sin url_generation, el default de un puerto declarado)", info.URLGeneration)
 	}
 }

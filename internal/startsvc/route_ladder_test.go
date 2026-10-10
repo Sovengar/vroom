@@ -14,7 +14,7 @@ import (
 func ladderManifest() *manifest.Manifest {
 	return &manifest.Manifest{
 		Name: "api", Port: 8081,
-		RouteMode: manifest.RouteModeNamedWithAutoFallback, RouteName: "api",
+		URLGeneration: manifest.URLGenByHostnameOrWorkspace, RouteName: "api",
 	}
 }
 
@@ -40,11 +40,11 @@ func TestLadderFallsBackWhenTheStableNameIsHeld(t *testing.T) {
 		conflictOn(4001),
 		{Status: portless.StatusRegistered, Url: "http://feature-x.api.localhost", Registered: true},
 	}}
-	req := Request{Manifest: ladderManifest(), Branch: "feature/x", Routes: reg}
+	req := Request{Manifest: ladderManifest(), Branch: "feature/x"}
 	meta := state.Meta{Name: "api", Port: 8081}
 	out := Result{}
 
-	applyRoute(req, &meta, 8081, &out)
+	applyRoute(req, reg, &meta, 8081, manifest.URLGenByHostnameOrWorkspace, &out)
 
 	if len(reg.applied) != 2 {
 		t.Fatalf("the ladder must try both rungs, applied = %v", reg.applied)
@@ -83,11 +83,11 @@ func TestLadderFallsBackWhenTheStableNameIsHeld(t *testing.T) {
 // When the fallback is taken too, the ladder ends where the old behaviour did: no URL, the first route intact, the service healthy on its own port.
 func TestLadderDegradesWhenBothRungsAreHeld(t *testing.T) {
 	reg := &fakeRoutes{seq: []portless.Result{conflictOn(4001), conflictOn(4002)}}
-	req := Request{Manifest: ladderManifest(), Branch: "feature/x", Routes: reg}
+	req := Request{Manifest: ladderManifest(), Branch: "feature/x"}
 	meta := state.Meta{Name: "api", Port: 8081}
 	out := Result{}
 
-	applyRoute(req, &meta, 8081, &out)
+	applyRoute(req, reg, &meta, 8081, manifest.URLGenByHostnameOrWorkspace, &out)
 
 	if len(reg.applied) != 2 {
 		t.Fatalf("both rungs must be attempted before degrading, applied = %v", reg.applied)
@@ -111,14 +111,14 @@ func TestLadderDegradesWhenBothRungsAreHeld(t *testing.T) {
 // The upgrade path: the primary became free, so this worktree claims it — and must drop its old fallback route, or stop will never revoke it (the handle moved) and it would block the next same-branch worktree.
 func TestLadderUpgradeRetiresTheOldFallbackRoute(t *testing.T) {
 	reg := &fakeRoutes{result: registeredRoute()}
-	req := Request{Manifest: ladderManifest(), Branch: "feature/x", Routes: reg}
+	req := Request{Manifest: ladderManifest(), Branch: "feature/x"}
 	meta := state.Meta{
 		Name: "api", Port: 8081,
 		RouteName: "feature-x.api", RoutePort: 4321, RouteOwned: true,
 	}
 	out := Result{}
 
-	applyRoute(req, &meta, 8081, &out)
+	applyRoute(req, reg, &meta, 8081, manifest.URLGenByHostnameOrWorkspace, &out)
 
 	if len(reg.retired) != 1 || reg.retired[0] != "feature-x.api" {
 		t.Fatalf("the abandoned fallback route must be retired, got %v", reg.retired)
@@ -134,14 +134,14 @@ func TestLadderUpgradeRetiresTheOldFallbackRoute(t *testing.T) {
 // Without an unrevoked lease the old name may now belong to another worktree, so retirement must not run at all.
 func TestLadderUpgradeWithoutOwnershipRetiresNothing(t *testing.T) {
 	reg := &fakeRoutes{result: registeredRoute()}
-	req := Request{Manifest: ladderManifest(), Branch: "feature/x", Routes: reg}
+	req := Request{Manifest: ladderManifest(), Branch: "feature/x"}
 	meta := state.Meta{
 		Name: "api", Port: 8081,
 		RouteName: "feature-x.api", RoutePort: 4321, RouteOwned: false,
 	}
 	out := Result{}
 
-	applyRoute(req, &meta, 8081, &out)
+	applyRoute(req, reg, &meta, 8081, manifest.URLGenByHostnameOrWorkspace, &out)
 
 	if len(reg.retired) != 0 {
 		t.Errorf("a revoked lease is not authority to delete: %v", reg.retired)
@@ -157,11 +157,11 @@ func TestLadderFallbackWarningWithoutAKnownHolder(t *testing.T) {
 		portless.Degraded("api", portless.ReasonRouteConflict),
 		{Status: portless.StatusRegistered, Url: "http://feature-x.api.localhost", Registered: true},
 	}}
-	req := Request{Manifest: ladderManifest(), Branch: "feature/x", Routes: reg}
+	req := Request{Manifest: ladderManifest(), Branch: "feature/x"}
 	meta := state.Meta{Name: "api", Port: 8081}
 	out := Result{}
 
-	applyRoute(req, &meta, 8081, &out)
+	applyRoute(req, reg, &meta, 8081, manifest.URLGenByHostnameOrWorkspace, &out)
 
 	joined := strings.Join(out.Warnings, " | ")
 	if !strings.Contains(joined, "taken by another service") {
@@ -175,14 +175,14 @@ func TestLadderFallbackWarningWithoutAKnownHolder(t *testing.T) {
 // Nothing claimed and the old name is still a candidate: the handle must stay on it, because it names a route this service may still own — moving it to a merely attempted name would orphan a real one.
 func TestLadderFailureKeepsTheHandleOnTheNameWeMayStillOwn(t *testing.T) {
 	reg := &fakeRoutes{seq: []portless.Result{conflictOn(4001), conflictOn(4002)}}
-	req := Request{Manifest: ladderManifest(), Branch: "feature/x", Routes: reg}
+	req := Request{Manifest: ladderManifest(), Branch: "feature/x"}
 	meta := state.Meta{
 		Name: "api", Port: 8081,
 		RouteName: "feature-x.api", RoutePort: 4321, RouteOwned: true,
 	}
 	out := Result{}
 
-	applyRoute(req, &meta, 8081, &out)
+	applyRoute(req, reg, &meta, 8081, manifest.URLGenByHostnameOrWorkspace, &out)
 
 	if meta.RouteName != "feature-x.api" {
 		t.Errorf("the handle must stay on the name we may still own, got %q", meta.RouteName)

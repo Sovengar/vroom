@@ -417,20 +417,21 @@ func TestClientForDevuelveNilSinContratoDeRuta(t *testing.T) {
 
 	tests := []struct {
 		name string
-		m    *manifest.Manifest
+		gen  string
 		want bool
 	}{
-		{"nil", nil, false},
-		{"without route_mode (default off)", &manifest.Manifest{Name: "svc"}, false},
-		{"route_mode off", &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeOff}, false},
-		{"invalid route_mode", &manifest.Manifest{Name: "svc", RouteMode: "invented"}, false},
-		{"route_mode named", &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeNamedWithAutoFallback, RouteName: "svc"}, true},
-		{"route_mode auto", &manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeAuto}, true},
+		{"empty generation (default by_port)", "", false},
+		{"by_port", manifest.URLGenByPort, false},
+		{"none", manifest.URLGenNone, false},
+		{"invalid generation", "invented", false},
+		{"by_hostname", manifest.URLGenByHostname, true},
+		{"by_hostname_or_workspace", manifest.URLGenByHostnameOrWorkspace, true},
+		{"by_workspace_hostname", manifest.URLGenByWorkspaceHostname, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ClientFor(tt.m)
+			got := ClientFor(tt.gen)
 			if tt.want && got == nil {
 				t.Error("ClientFor returned nil with an active route contract")
 			}
@@ -450,7 +451,7 @@ func TestClientForNeverResolvesTheRealBinaryInATestBinary(t *testing.T) {
 	t.Setenv("PORTLESS_BIN", "/usr/bin/portless")
 	t.Setenv("PORTLESS_STATE_DIR", t.TempDir())
 
-	c := ClientFor(&manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeAuto})
+	c := ClientFor(manifest.URLGenByWorkspaceHostname)
 	if c == nil {
 		t.Fatal("an active route contract must return a client, not nil")
 	}
@@ -466,7 +467,7 @@ func TestClientForNeverResolvesTheRealBinaryInATestBinary(t *testing.T) {
 	t.Cleanup(func() { os.Args[0] = orig })
 	os.Args[0] = "/usr/local/bin/vroom"
 
-	prod := ClientFor(&manifest.Manifest{Name: "svc", RouteMode: manifest.RouteModeAuto})
+	prod := ClientFor(manifest.URLGenByWorkspaceHostname)
 	if prod == nil || !prod.HasBinary() || prod.Binary() != "/usr/bin/portless" {
 		t.Errorf("outside a test binary ClientFor must resolve the binary, got %+v", prod)
 	}

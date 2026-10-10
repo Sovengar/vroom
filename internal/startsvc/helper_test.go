@@ -41,6 +41,10 @@ func TestHelperService(t *testing.T) {
 	switch mode {
 	case "fixed-port":
 		hold(mustAtoi(os.Getenv("VROOM_HELPER_PORT")))
+	case "honor-port-now":
+		// Binds the injected PORT immediately: the workspace generations hand out an ephemeral port, so a
+		// test that must reach applyRoute needs a service that resolves discovery on the first probe.
+		hold(mustAtoi(os.Getenv("PORT")))
 	case "udp-only":
 		time.Sleep(60 * time.Second)
 	case "two-http-ports":
@@ -172,7 +176,7 @@ func newFixture(t *testing.T) *fixture {
 		store:    state.NewStoreAt(t.TempDir()),
 		dir:      dir,
 		outFile:  dir + "/helper.env",
-		manifest: &manifest.Manifest{Name: "svc", Port: 8080, PortMode: manifest.PortModeDynamic},
+		manifest: &manifest.Manifest{Name: "svc", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname},
 	}
 }
 
@@ -190,11 +194,11 @@ func (f *fixture) command(t *testing.T, mode string, extraEnv ...string) {
 
 func (f *fixture) start(t *testing.T, timeout time.Duration) (Result, error) {
 	t.Helper()
-	return f.startWithMode(t, timeout, "")
+	return f.startWithGeneration(t, timeout, "")
 }
 
-// startWithMode is start with the explicit per-start override (the TUI's ss/sd).
-func (f *fixture) startWithMode(t *testing.T, timeout time.Duration, portMode string) (Result, error) {
+// startWithGeneration is start with the explicit per-start override (the TUI's s menu).
+func (f *fixture) startWithGeneration(t *testing.T, timeout time.Duration, generation string) (Result, error) {
 	t.Helper()
 	return Start(Request{
 		Manifest:         f.manifest,
@@ -204,11 +208,11 @@ func (f *fixture) startWithMode(t *testing.T, timeout time.Duration, portMode st
 		StdoutPath:       f.store.StdoutLog(f.dir),
 		StderrPath:       f.store.StderrLog(f.dir),
 		DiscoveryTimeout: timeout,
-		PortMode:         portMode,
+		URLGeneration:    generation,
 	})
 }
 
-// A nil routes means no seam at all, which is exactly what route_mode = "off" produces.
+// A nil registrar means no seam at all, which is exactly what by_port and none produce.
 func (f *fixture) startWithRoutes(t *testing.T, timeout time.Duration, routes RouteRegistrar) (Result, error) {
 	t.Helper()
 	return f.startWithRoutesBranch(t, timeout, routes, "")
@@ -224,8 +228,9 @@ func (f *fixture) startWithRoutesBranch(t *testing.T, timeout time.Duration, rou
 		StdoutPath:       f.store.StdoutLog(f.dir),
 		StderrPath:       f.store.StderrLog(f.dir),
 		DiscoveryTimeout: timeout,
-		Routes:           routes,
-		Branch:           branch,
+		// The factory always returns the same seam registrar: the seam replaces portless regardless of generation, which is what lets a test drive the ladder without a real binary.
+		Registrar: func(string) RouteRegistrar { return routes },
+		Branch:    branch,
 	})
 }
 

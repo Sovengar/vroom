@@ -305,7 +305,7 @@ func TestCmdListPublishesEachScanRow(t *testing.T) {
 	if web == nil {
 		t.Fatal("web is not in the list")
 	}
-	for _, absent := range []string{"command_build", "command_install", "route", "route_mode"} {
+	for _, absent := range []string{"command_build", "command_install", "route"} {
 		if _, ok := web[absent]; ok {
 			t.Errorf("web does not define %s yet publishes it: omitempty must omit it", absent)
 		}
@@ -523,11 +523,13 @@ func TestCmdStartOfAlreadyRunningServiceIsIdempotent(t *testing.T) {
 	root := cliEnv(t)
 	store := chdirTree(t, root)
 	// The declared port must be really listening: a live PID with a closed port evaluates as unknown, not running.
-	listeningService(t, root, "api", `name = "api"
+	port := listeningService(t, root, "api", `name = "api"
 `)
 
 	first_v, first_e := cmdStart("api", "")
 	first := mustAction(t, first_v, first_e)
+	// The helper binds after the start returns; without this wait the second start races a still-closed port.
+	waitPortOpen(t, port)
 	second_v, second_e := cmdStart("api", "")
 	second := mustAction(t, second_v, second_e)
 

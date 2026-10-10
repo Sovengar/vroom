@@ -30,12 +30,12 @@ func projectWith(dir string, m *manifest.Manifest) scanner.Project {
 	return scanner.Project{Path: dir, Name: "proyecto", Configured: true, Manifest: m}
 }
 
-// route_mode is what the manifest asked for and the route object is what vroom achieved: conflating them makes a degraded route look like the one the user requested.
+// url_generation is what the manifest asked for and the route object is what vroom achieved: conflating them makes a degraded route look like the one the user requested.
 func TestJSONSeparatesIntentFromOutcome(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
 	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080,
-		PortMode: manifest.PortModeDynamic, RouteMode: manifest.RouteModeNamedWithAutoFallback, RouteName: "mi-url"}
+		URLGeneration: manifest.URLGenByHostnameOrWorkspace, RouteName: "mi-url"}
 	if err := store.SaveMeta(dir, state.Meta{
 		Name: "p", Pid: 42, Port: 8080, State: state.StateRunning,
 		RouteName: "mi-url", RoutePort: 8080,
@@ -47,8 +47,8 @@ func TestJSONSeparatesIntentFromOutcome(t *testing.T) {
 	info := buildProjectInfo(&stubManager{}, store, nil, projectWith(dir, m))
 	out := marshalInfo(t, info)
 
-	if out["route_mode"] != manifest.RouteModeNamedWithAutoFallback {
-		t.Errorf("route_mode must publish the INTENT, got %v", out["route_mode"])
+	if out["url_generation"] != manifest.URLGenByHostnameOrWorkspace {
+		t.Errorf("url_generation must publish the INTENT, got %v", out["url_generation"])
 	}
 	route, ok := out["route"].(map[string]any)
 	if !ok {
@@ -66,7 +66,7 @@ func TestJSONSeparatesIntentFromOutcome(t *testing.T) {
 func TestPublishedRouteNameIsNeverAURL(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
-	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080, RouteMode: manifest.RouteModeAuto}
+	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname}
 	if err := store.SaveMeta(dir, state.Meta{
 		Name: "p", Pid: 1, Port: 8080, State: state.StateRunning,
 		RouteName: "feat.api", RouteStatus: portless.StatusRegistered, RouteURL: "https://feat.api.localhost",
@@ -91,7 +91,7 @@ func TestDegradedRoutePublishesNoURL(t *testing.T) {
 	} {
 		store := state.NewStoreAt(t.TempDir())
 		dir := t.TempDir()
-		m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080, RouteMode: manifest.RouteModeAuto}
+		m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname}
 		if err := store.SaveMeta(dir, state.Meta{
 			Name: "p", Pid: 1, Port: 8080, State: state.StateRunning,
 			RouteName: "p", RouteStatus: portless.StatusDegraded, RouteReason: reason,
@@ -120,7 +120,7 @@ func TestDegradedRoutePublishesNoURL(t *testing.T) {
 func TestRegisteredRoutePublishesItsURL(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
-	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080, RouteMode: manifest.RouteModeAuto}
+	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname}
 	if err := store.SaveMeta(dir, state.Meta{
 		Name: "p", Pid: 1, Port: 8080, State: state.StateRunning,
 		RouteName: "p", RoutePort: 8080,
@@ -137,7 +137,7 @@ func TestRegisteredRoutePublishesItsURL(t *testing.T) {
 	}
 }
 
-// The ABSENT is a state too: a manifest with no route_mode neither affirms nor denies, since claiming "no route" would invent a contract nobody asked for.
+// A by_port service neither affirms nor denies a route: the route object stays ABSENT, since claiming "no route" would invent a contract nobody asked for. url_generation still publishes, because it is the one start axis and by_port is a real answer to "how does this start".
 func TestNoRouteContractPublishesNoRouteObject(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
@@ -146,12 +146,12 @@ func TestNoRouteContractPublishesNoRouteObject(t *testing.T) {
 	if _, has := out["route"]; has {
 		t.Error("without a route contract the route object must be ABSENT")
 	}
-	if _, has := out["route_mode"]; has {
-		t.Error("route_mode = off is not information: it is omitted")
+	if out["url_generation"] != manifest.URLGenByPort {
+		t.Errorf("url_generation = %v, want by_port: the axis is always answered", out["url_generation"])
 	}
 }
 
-// The backwards-compatibility gate, in JSON: a manifest that never heard of portless produces EXACTLY the same JSON as before.
+// The backwards-compatibility gate, in JSON: a manifest that never heard of portless publishes no route object and no dead route_mode/vocabulary keys — only the ONE axis, always answered (url_generation is the deliberate contract change that replaced port_mode + route_mode).
 func TestLegacyManifestJSONIsUnchanged(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
@@ -160,10 +160,13 @@ func TestLegacyManifestJSONIsUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := marshalInfo(t, buildProjectInfo(&stubManager{}, store, nil, projectWith(dir, m)))
-	for _, forbidden := range []string{"route", "route_mode", "route_name", "route_url"} {
+	for _, forbidden := range []string{"route", "route_name", "route_url", "port_mode"} {
 		if _, has := out[forbidden]; has {
 			t.Errorf("a legacy manifest must not publish %q", forbidden)
 		}
+	}
+	if out["url_generation"] != manifest.URLGenByPort {
+		t.Errorf("url_generation = %v, want by_port", out["url_generation"])
 	}
 	if out["port"].(float64) != 8080 {
 		t.Errorf("the port must keep being published the same: %v", out["port"])
@@ -174,7 +177,7 @@ func TestLegacyManifestJSONIsUnchanged(t *testing.T) {
 func TestJSONDoesNotAssertRouteJustBecauseItIsWritten(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	dir := t.TempDir()
-	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080, RouteMode: manifest.RouteModeAuto}
+	m := &manifest.Manifest{Name: "p", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname}
 	if err := store.SaveMeta(dir, state.Meta{
 		Name: "p", Pid: 1, Port: 8080, State: state.StateRunning,
 		RouteName: "p", RouteStatus: "", RouteReason: "",

@@ -69,16 +69,17 @@ func TestAwaitPortFixedZeroMatchesLegacy(t *testing.T) {
 	}
 }
 
-func TestAwaitPortFixedWithoutPortModeDeclaration(t *testing.T) {
+// A manifest with no url_generation and no port is the legacy headless door: it resolves to none, which the health gate must treat exactly like "no port to wait for".
+func TestAwaitPortSinDeclaracionResuelveNone(t *testing.T) {
 	m := &manifest.Manifest{Name: "x", Command: "run", Port: 0}
-	mode := m.EffectivePortMode()
+	mode := manifest.PortMode(m.EffectiveURLGeneration(false))
 
 	start := time.Now()
 	if err := AwaitPort(PortWait{Port: 0, Mode: mode}, 30*time.Second); err != nil {
-		t.Errorf("without port_mode it must behave like fixed: %v", err)
+		t.Errorf("without url_generation it must resolve to none and not hold: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
-		t.Errorf("without port_mode it must not hold: took %s", elapsed)
+		t.Errorf("without url_generation it must not hold: took %s", elapsed)
 	}
 }
 

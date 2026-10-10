@@ -2,14 +2,16 @@ package portless
 
 import "testing"
 
+import "vroom/internal/manifest"
+
 // DeriveName never sees the worktree path, only branch and project, so auto's real scope is the branch: two clones on main derive the same name.
 
 func TestAutoSeparatesDistinctBranches(t *testing.T) {
-	one, err := DeriveName(RouteModeAuto, "", "feat/a", "miapp")
+	one, err := DeriveName(manifest.URLGenByWorkspaceHostname, "", "feat/a", "miapp")
 	if err != nil {
 		t.Fatal(err)
 	}
-	two, err := DeriveName(RouteModeAuto, "", "feat/b", "miapp")
+	two, err := DeriveName(manifest.URLGenByWorkspaceHostname, "", "feat/b", "miapp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,11 +21,11 @@ func TestAutoSeparatesDistinctBranches(t *testing.T) {
 }
 
 func TestAutoCannotSeparateSameBranchWorktrees(t *testing.T) {
-	a, err := DeriveName(RouteModeAuto, "", "main", "miapp")
+	a, err := DeriveName(manifest.URLGenByWorkspaceHostname, "", "main", "miapp")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := DeriveName(RouteModeAuto, "", "main", "miapp")
+	b, err := DeriveName(manifest.URLGenByWorkspaceHostname, "", "main", "miapp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,14 +57,14 @@ func TestSameBranchCollisionDegradesWithoutEvicting(t *testing.T) {
 
 // named is the documented answer to the collision: a name that does not depend on the branch.
 func TestNamedIsTheEscapeFromBranchScopedNames(t *testing.T) {
-	got, err := DeriveName(RouteModeNamedWithAutoFallback, "mi-api", "main", "miapp")
+	got, err := DeriveName(manifest.URLGenByHostnameOrWorkspace, "mi-api", "main", "miapp")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != "mi-api" {
 		t.Errorf("named ignores the branch on purpose, got %q", got)
 	}
-	again, _ := DeriveName(RouteModeNamedWithAutoFallback, "mi-api", "otra-rama", "otro-proyecto")
+	again, _ := DeriveName(manifest.URLGenByHostnameOrWorkspace, "mi-api", "otra-rama", "otro-proyecto")
 	if again != got {
 		t.Errorf("named must be stable across branches, %q != %q", got, again)
 	}

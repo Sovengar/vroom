@@ -15,17 +15,6 @@ import (
 	"vroom/internal/manifest"
 )
 
-// Route mode defaults to off so a manifest that declares nothing behaves exactly as before, and with off vroom does not even look for the binary.
-const (
-	RouteModeOff = "off"
-	// RouteModeAuto derives the name from the branch, so worktrees sharing a branch collide into a clean conflict instead of a second address.
-	RouteModeAuto = "auto"
-	// RouteModeNamedWithAutoFallback is the claim ladder: route_name first, <branch>.<project> when the stable name is already held by another worktree.
-	RouteModeNamedWithAutoFallback = "named_with_auto_fallback"
-)
-
-func RouteModeEnabled(mode string) bool { return mode != "" && mode != RouteModeOff }
-
 // Releaser exists because Release builds its own client, so without an injection point deleting its call sites left the suite green.
 type Releaser interface {
 	// RemoveAbsent, not Remove: Remove is benign by contract, and revoking ownership must tell "was not there" from "really failed".
@@ -43,9 +32,9 @@ func InertReleaser() Releaser { return inertReleaser }
 
 func IsTestBinary() bool { return strings.HasSuffix(os.Args[0], ".test") }
 
-// ClientFor returns nil before resolving anything when route_mode is off, because that early return is the backwards-compatibility gate and three copies of it would drift.
-func ClientFor(m *manifest.Manifest) *Client {
-	if m == nil || !RouteModeEnabled(m.EffectiveRouteMode()) {
+// ClientFor returns nil before resolving anything when the generation publishes no URL, because that early return is the backwards-compatibility gate and three copies of it would drift.
+func ClientFor(gen string) *Client {
+	if !manifest.PublishesURL(gen) {
 		return nil
 	}
 	// A test binary must behave as if portless were not installed: this gateway is where every repo caller (TUI, CLI,

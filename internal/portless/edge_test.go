@@ -88,7 +88,7 @@ func TestDeriveNameAutoSinRamaUsaElProyecto(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := DeriveName(manifest.RouteModeAuto, "", tt.branch, "tienda-api")
+			got, err := DeriveName(manifest.URLGenByWorkspaceHostname, "", tt.branch, "tienda-api")
 			if err != nil {
 				t.Fatalf("DeriveName fallo: %v", err)
 			}
@@ -100,7 +100,7 @@ func TestDeriveNameAutoSinRamaUsaElProyecto(t *testing.T) {
 }
 
 func TestDeriveNameAutoSinRamaNiProyectoUtilizableFalla(t *testing.T) {
-	got, err := DeriveName(manifest.RouteModeAuto, "", "", "!!!")
+	got, err := DeriveName(manifest.URLGenByWorkspaceHostname, "", "", "!!!")
 
 	if err == nil {
 		t.Fatalf("DeriveName devolvio %q, want error: no hay nada de quoi derivar un nombre", got)
@@ -111,7 +111,7 @@ func TestDeriveNameAutoSinRamaNiProyectoUtilizableFalla(t *testing.T) {
 }
 
 func TestDeriveNameAutoPrefiereLaRama(t *testing.T) {
-	got, err := DeriveName(manifest.RouteModeAuto, "", "feature/login", "tienda-api")
+	got, err := DeriveName(manifest.URLGenByWorkspaceHostname, "", "feature/login", "tienda-api")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestAcceptsConnectionsConUnPuertoRealYCerrado(t *testing.T) {
 
 func TestDeriveNamedRechazaUnNombreNoUtilizable(t *testing.T) {
 	for _, name := range []string{"", "   ", "!!!", ".localhost", "-"} {
-		got, err := DeriveName(manifest.RouteModeNamedWithAutoFallback, name, "", "proyecto")
+		got, err := DeriveName(manifest.URLGenByHostnameOrWorkspace, name, "", "proyecto")
 		if err == nil {
 			t.Errorf("DeriveName(named, %q) = %q, want error", name, got)
 		}
@@ -247,7 +247,7 @@ func TestDeriveNamedRechazaUnNombreNoUtilizable(t *testing.T) {
 
 // named must ignore the branch: OAuth and CORS callbacks are configured ahead of time, so a `git branch -m` would move the URL.
 func TestDeriveNamedIgnoraLaRama(t *testing.T) {
-	got, err := DeriveName(manifest.RouteModeNamedWithAutoFallback, "tienda", "cualquier-rama", "proyecto")
+	got, err := DeriveName(manifest.URLGenByHostnameOrWorkspace, "tienda", "cualquier-rama", "proyecto")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,46 +256,12 @@ func TestDeriveNamedIgnoraLaRama(t *testing.T) {
 	}
 }
 
-// DeriveName is public and can get the raw string, so it must reject what EffectiveRouteMode already turned into off.
+// DeriveName is public and can get the raw string, so it must reject anything that is not a URL-publishing generation.
 func TestDeriveNameRechazaUnModoDesconocido(t *testing.T) {
 	for _, mode := range []string{"", "OFF", "auto ", "inventado"} {
 		got, err := DeriveName(mode, "tienda", "rama", "proyecto")
 		if err == nil {
 			t.Errorf("DeriveName(%q) = %q, want error", mode, got)
-		}
-	}
-}
-
-// An absent route_mode must be off: that is the backward-compatibility gate for manifests written before routes existed.
-func TestRouteModeEnabledPuertaDeCompatibilidad(t *testing.T) {
-	tests := []struct {
-		mode string
-		want bool
-	}{
-		{"", false},
-		{manifest.RouteModeOff, false},
-		{manifest.RouteModeAuto, true},
-		{manifest.RouteModeNamedWithAutoFallback, true},
-	}
-
-	for _, tt := range tests {
-		if got := RouteModeEnabled(tt.mode); got != tt.want {
-			t.Errorf("RouteModeEnabled(%q) = %v, want %v", tt.mode, got, tt.want)
-		}
-	}
-}
-
-func TestEffectiveRouteModeCaeAOff(t *testing.T) {
-	for _, mode := range []string{"", "OFF", "Auto", "inventado", "auto "} {
-		m := &manifest.Manifest{Name: "svc", RouteMode: mode}
-		if got := m.EffectiveRouteMode(); got != manifest.RouteModeOff {
-			t.Errorf("EffectiveRouteMode(%q) = %q, want %q", mode, got, manifest.RouteModeOff)
-		}
-	}
-	for _, mode := range []string{manifest.RouteModeAuto, manifest.RouteModeNamedWithAutoFallback, manifest.RouteModeOff} {
-		m := &manifest.Manifest{Name: "svc", RouteMode: mode}
-		if got := m.EffectiveRouteMode(); got != mode {
-			t.Errorf("EffectiveRouteMode(%q) = %q, want %q (debe preservarse)", mode, got, mode)
 		}
 	}
 }

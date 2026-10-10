@@ -2,8 +2,11 @@ package cli
 
 import (
 	"errors"
+	"flag"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -158,14 +161,74 @@ func (m *aliveManager) Evaluate(process.EvalSpec) process.Status {
 
 var _ process.Manager = (*aliveManager)(nil)
 
-// process.Evaluate demands the declared port be open, so a sleep with a port set and nothing listening is alive but not running; a real loopback listener exercises that verdict without writing a server that lies.
+// The service the fixture starts is this same test binary re-executed as a child: nothing weaker proves the declared port is
+// bound by the service's own process. A test-held listener cannot stand in, because by_port's preflight (correctly) refuses an
+// occupied port, and a child that never binds (a bare sleep) makes Evaluate report unknown instead of running.
+const (
+	cliHelperEnv     = "VROOM_CLI_HELPER"
+	cliHelperPortEnv = "VROOM_CLI_HELPER_PORT"
+)
+
+// Not a test: this is the service listeningService starts, and the -test.run guard keeps the parent process out of helper mode.
+func TestCLIHelperService(t *testing.T) {
+	if os.Getenv(cliHelperEnv) == "" || flag.Lookup("test.run").Value.String() != "^TestCLIHelperService$" {
+		t.Skip("helper process, not a test")
+	}
+	port, err := strconv.Atoi(os.Getenv(cliHelperPortEnv))
+	if err != nil || port == 0 {
+		os.Exit(2)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
+	if err != nil {
+		os.Exit(3)
+	}
+	defer func() { _ = ln.Close() }()
+	for {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		_ = c.Close()
+	}
+}
+
+// listeningService is the only fixture whose child really binds the declared port: by_port's preflight sees it free before
+// spawning, and Evaluate later confirms running against the child's listener, which is the only path to already_running.
 func listeningService(t *testing.T, root, dir string, extraTOML string) int {
 	t.Helper()
-	port := openPort(t)
-	body := "command_start = \"sleep 300\"\nport = " + itoa(port) + "\n" + extraTOML
+	port := freePort(t)
+	t.Setenv(cliHelperEnv, "hold")
+	body := "command_start = \"" + cliHelperPortEnv + "=" + itoa(port) + " " + shellQuote(os.Args[0]) + " -test.run=^TestCLIHelperService$\"\nport = " + itoa(port) + "\nurl_generation = \"by_port\"\n" + extraTOML
 	writeFile(t, filepath.Join(root, dir, ".vroom.toml"), body)
 	return port
 }
+
+// The child binds asynchronously after cmdStart returns, so whoever reads the service state waits for the real listener.
+func waitPortOpen(t *testing.T, port int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if process.PortOpen(port) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("port %d never opened: the helper service did not bind it", port)
+}
+
+// Closed before returning: the preflight must see the port free, and only the child binds it.
+func freePort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	return port
+}
+
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 // Always fails, standing in for a closed stdout or a broken pipe.
 type failingWriter struct{}

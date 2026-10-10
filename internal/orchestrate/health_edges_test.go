@@ -189,7 +189,7 @@ func TestStartServiceConStoreNoEscribibleReportaElError(t *testing.T) {
 		Name:       "api",
 		Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "api", Command: "./api", PortMode: manifest.PortModeNone,
+			Name: "api", Command: "./api", URLGeneration: manifest.URLGenNone,
 		},
 	}}
 
@@ -216,7 +216,7 @@ func TestLaunchConServicioQueArrancaPeroNoAbreElPuertoFallaLaEtapaYLoDejaMuerto(
 		Name:       "api",
 		Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "api", Command: "sleep 300 # vroom-marker", Port: port, PortMode: manifest.PortModeFixed,
+			Name: "api", Command: "sleep 300 # vroom-marker", Port: port, URLGeneration: manifest.URLGenByPort,
 		},
 	}
 	stack := &Stack{Name: "app", Stages: []Stage{

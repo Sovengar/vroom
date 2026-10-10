@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"vroom/internal/manifest"
 )
 
 const HostSuffix = ".localhost"
@@ -39,16 +41,16 @@ func sanitizeName(name string) string {
 	return n
 }
 
-// DeriveName returns the PRIMARY candidate of the ladder: named_with_auto_fallback gives the stable URL that OAuth callbacks and CORS need, auto gives the branch-derived one; auto is branch scope and never sees the worktree path, so two worktrees on one branch derive the same name and the second gets a clean conflict with the first route intact instead of a second address; and deriving from the branch means `git branch -m` renames the route, which is why Reconcile is mandatory, though portless's own convention derives from the branch too (M13).
-func DeriveName(mode, routeName, branch, project string) (string, error) {
-	switch mode {
-	case RouteModeNamedWithAutoFallback:
+// DeriveName returns the PRIMARY candidate of the ladder: by_hostname gives the stable URL that OAuth callbacks and CORS need, by_workspace_hostname gives the branch-derived one; the workspace generation is branch scope and never sees the worktree path, so two worktrees on one branch derive the same name and the second gets a clean conflict with the first route intact instead of a second address; and deriving from the branch means `git branch -m` renames the route, which is why Reconcile is mandatory, though portless's own convention derives from the branch too (M13).
+func DeriveName(gen, routeName, branch, project string) (string, error) {
+	switch gen {
+	case manifest.URLGenByHostname, manifest.URLGenByHostnameOrWorkspace:
 		n := sanitizeName(routeName)
 		if n == "" {
 			return "", fmt.Errorf("route_name %q is not a usable hostname (portless accepts only lowercase letters, digits, hyphens and dots)", routeName)
 		}
 		return n, nil
-	case RouteModeAuto:
+	case manifest.URLGenByWorkspaceHostname:
 		if b := sanitizeName(branch); b != "" {
 			return b + "." + sanitizeName(project), nil
 		}
@@ -58,20 +60,20 @@ func DeriveName(mode, routeName, branch, project string) (string, error) {
 		}
 		return n, nil
 	default:
-		return "", fmt.Errorf("unknown route_mode %q", mode)
+		return "", fmt.Errorf("url_generation %q publishes no hostname", gen)
 	}
 }
 
-// RouteCandidates is the claim ladder: named_with_auto_fallback tries route_name first and only when another worktree already holds it falls back to <branch>.<project>, so whoever starts first keeps the stable URL and every other worktree still gets an address instead of a bare route_conflict. auto returns its single candidate on purpose — its value is that the hostname does NOT depend on who ran first. A fallback that would equal the primary, or that cannot be derived at all, collapses to the single primary: that is exactly the pre-ladder behaviour.
-func RouteCandidates(mode, routeName, branch, project string) ([]string, error) {
-	primary, err := DeriveName(mode, routeName, branch, project)
+// RouteCandidates is the claim ladder: by_hostname_or_workspace tries route_name first and only when another worktree already holds it falls back to <branch>.<project>, so whoever starts first keeps the stable URL and every other worktree still gets an address instead of a bare route_conflict. by_hostname and by_workspace_hostname return their single candidate on purpose — by_hostname's value is that a foreign holder is an ERROR instead of a silent move, and by_workspace_hostname's is that the hostname does NOT depend on who ran first. A fallback that would equal the primary, or that cannot be derived at all, collapses to the single primary: that is exactly the pre-ladder behaviour.
+func RouteCandidates(gen, routeName, branch, project string) ([]string, error) {
+	primary, err := DeriveName(gen, routeName, branch, project)
 	if err != nil {
 		return nil, err
 	}
-	if mode != RouteModeNamedWithAutoFallback {
+	if gen != manifest.URLGenByHostnameOrWorkspace {
 		return []string{primary}, nil
 	}
-	fallback, err := DeriveName(RouteModeAuto, "", branch, project)
+	fallback, err := DeriveName(manifest.URLGenByWorkspaceHostname, "", branch, project)
 	if err != nil || fallback == primary {
 		return []string{primary}, nil
 	}

@@ -56,10 +56,10 @@ func noportFixture(t *testing.T) (scanner.Project, string) {
 	return scanner.Project{
 		Path: dir, Name: "worker", Configured: true,
 		Manifest: &manifest.Manifest{
-			Name:     "worker",
-			Command:  shellQuote(os.Args[0]) + " -test.run=^TestHelperNoPort$",
-			Port:     8080,
-			PortMode: manifest.PortModeDynamic,
+			Name:          "worker",
+			Command:       shellQuote(os.Args[0]) + " -test.run=^TestHelperNoPort$",
+			Port:          8080,
+			URLGeneration: manifest.URLGenByWorkspaceHostname,
 		},
 	}, dir
 }
@@ -86,7 +86,7 @@ func TestLaunchNoPortServiceDoesNotAbortStack(t *testing.T) {
 	sibling := scanner.Project{
 		Path: t.TempDir(), Name: "api", Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "api", Command: "sleep 120", Port: 0, PortMode: manifest.PortModeNone,
+			Name: "api", Command: "sleep 120", Port: 0, URLGeneration: manifest.URLGenNone,
 		},
 	}
 	projects := []scanner.Project{sibling, worker}
@@ -174,7 +174,7 @@ func TestLaunchAlreadyRunningNoPortServiceDoesNotAbort(t *testing.T) {
 	sibling := scanner.Project{
 		Path: t.TempDir(), Name: "api", Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "api", Command: "sleep 120", Port: 0, PortMode: manifest.PortModeNone,
+			Name: "api", Command: "sleep 120", Port: 0, URLGeneration: manifest.URLGenNone,
 		},
 	}
 	projects := []scanner.Project{sibling, worker}
@@ -226,7 +226,7 @@ func TestLaunchPortPendingServiceStillFails(t *testing.T) {
 		Path: t.TempDir(), Name: "api", Configured: true,
 		Manifest: &manifest.Manifest{
 			Name: "api", Command: "sleep 120",
-			Port: 8080, PortMode: manifest.PortModeDynamic,
+			Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname,
 		},
 	}
 	// The process is alive, the port is reserved and nobody has bound yet.
@@ -285,7 +285,7 @@ func TestLaunchPortUnresolvedDoesNotAbortStack(t *testing.T) {
 		Path: dir, Name: "slow", Configured: true,
 		Manifest: &manifest.Manifest{
 			Name: "slow", Command: "sleep 120",
-			Port: 8080, PortMode: manifest.PortModeDynamic,
+			Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname,
 		},
 	}
 
@@ -293,7 +293,7 @@ func TestLaunchPortUnresolvedDoesNotAbortStack(t *testing.T) {
 	sibling := scanner.Project{
 		Path: t.TempDir(), Name: "api", Configured: true,
 		Manifest: &manifest.Manifest{
-			Name: "api", Command: "sleep 120", Port: 0, PortMode: manifest.PortModeNone,
+			Name: "api", Command: "sleep 120", Port: 0, URLGeneration: manifest.URLGenNone,
 		},
 	}
 	projects := []scanner.Project{sibling, slow}

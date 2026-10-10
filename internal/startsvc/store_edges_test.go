@@ -2,9 +2,7 @@ package startsvc
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -18,7 +16,7 @@ import (
 // Meta is written after the spawn and before discovery, so a failure here leaves a live unregistered process that vroom list shows stopped and the next start duplicates the port.
 func TestStartConElMetaBloqueadoDevuelveElErrorYNoDejaElProcesoSinRegistrar(t *testing.T) {
 	f := newFixture(t)
-	f.manifest.PortMode = manifest.PortModeFixed
+	f.manifest.URLGeneration = manifest.URLGenByPort
 	f.manifest.Port = freePort(t)
 	f.command(t, "sleep")
 
@@ -32,8 +30,8 @@ func TestStartConElMetaBloqueadoDevuelveElErrorYNoDejaElProcesoSinRegistrar(t *t
 		t.Errorf("err = %q, want it to name the file that could not be written", err)
 	}
 
-	// MEDIDO: Start used to return Result{} with no PID, leaving the child alive and unkillable by the caller; it now stops the child before propagating the error.
-	if pids := procesosDelHelper(t); len(pids) != 0 {
+	// MEDIDO: Start used to return Result{} with no PID, leaving the child alive and unkillable by the caller; it now stops the child before propagating the error. Matched by executable like every guard in this repo, and only against LIVE processes: the child is our own setsid'd descendant that exits(2) in milliseconds (by_port injects no PORT), and Manager never Waits a daemonized child — so it lingered as an unreaped zombie whose /proc/<pid>/exe still resolves, which a `pgrep -f` reported as "remained alive" only while its cmdline had not yet gone blank.
+	if pids := leakedTestBinaries(); len(pids) != 0 {
 		for _, pid := range pids {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
@@ -57,7 +55,7 @@ func TestStartEnDynamicConElMetaBloqueadoTambienDejaElHijoSinRegistrar(t *testin
 		t.Errorf("err = %q, want it to name the file that could not be written", err)
 	}
 
-	if pids := procesosDelHelper(t); len(pids) != 0 {
+	if pids := leakedTestBinaries(); len(pids) != 0 {
 		for _, pid := range pids {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
@@ -131,7 +129,7 @@ func TestReservePortAgotadoDevuelveElErrorAntesDeTocarNada(t *testing.T) {
 
 func TestApplyRouteSinRegistrarNoAbrePortlessNiFallaElArranque(t *testing.T) {
 	f := newFixture(t)
-	f.manifest.PortMode = manifest.PortModeFixed
+	f.manifest.URLGeneration = manifest.URLGenByPort
 	f.manifest.Port = freePort(t)
 	f.command(t, "sleep")
 
@@ -161,21 +159,4 @@ func bloquearMeta(t *testing.T, store *state.Store, projectPath string) {
 	if err := os.MkdirAll(filepath.Join(dir, "meta.json"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-}
-
-// procesosDelHelper is the hygiene guard: with no PID to check (Start returned Result{}), the unique cmdline pattern is the only handle on the child.
-func procesosDelHelper(t *testing.T) []int {
-	t.Helper()
-	out, err := exec.Command("pgrep", "-f", "VROOM_NOPORT_HELPER|TestHelperService").Output()
-	if err != nil {
-		return nil // no match is the expected case, and pgrep exits non-zero then
-	}
-	var pids []int
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		pid, convErr := strconv.Atoi(strings.TrimSpace(line))
-		if convErr == nil && pid > 0 {
-			pids = append(pids, pid)
-		}
-	}
-	return pids
 }

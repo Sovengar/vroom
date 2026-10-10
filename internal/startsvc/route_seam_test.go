@@ -1,6 +1,7 @@
 package startsvc
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -13,17 +14,17 @@ import (
 func TestRegistrarForDevuelveNilDeVerdadYNoUnPunteriorDentroDeUnaInterfaz(t *testing.T) {
 	casos := []struct {
 		nombre     string
-		manifiesto *manifest.Manifest
+		generacion string
 		quiereNil  bool
 	}{
-		{"no manifest", nil, true},
-		{"route_mode absent (the default)", &manifest.Manifest{Name: "api", Command: "./api"}, true},
-		{"explicit route_mode off", &manifest.Manifest{Name: "api", Command: "./api", RouteMode: manifest.RouteModeOff}, true},
-		{"invalid route_mode", &manifest.Manifest{Name: "api", Command: "./api", RouteMode: "invented"}, true},
+		{"empty generation (the default by_port)", "", true},
+		{"by_port", manifest.URLGenByPort, true},
+		{"none", manifest.URLGenNone, true},
+		{"invalid generation", "invented", true},
 	}
 	for _, tt := range casos {
 		t.Run(tt.nombre, func(t *testing.T) {
-			reg := RegistrarFor(tt.manifiesto)
+			reg := RegistrarFor(tt.generacion)
 			if reg != nil && tt.quiereNil {
 				t.Errorf("RegistrarFor = %T non-nil, want nil interface: the consumer cannot distinguish it from an active route", reg)
 			}
@@ -35,18 +36,25 @@ func TestRegistrarForDevuelveNilDeVerdadYNoUnPunteriorDentroDeUnaInterfaz(t *tes
 		})
 	}
 
-	t.Run("active route_mode returns a real client", func(t *testing.T) {
-		reg := RegistrarFor(&manifest.Manifest{Name: "api", Command: "./api", RouteMode: manifest.RouteModeAuto})
-		if reg == nil {
-			t.Error("with route_mode = auto there must be a seam: otherwise, the service starts without a route without warning")
-		}
-		if _, ok := reg.(*portless.Client); !ok {
-			t.Errorf("expected a *portless.Client, got %T", reg)
+	t.Run("a URL-publishing generation returns a real client", func(t *testing.T) {
+		for _, gen := range []string{
+			manifest.URLGenByHostname,
+			manifest.URLGenByWorkspaceHostname,
+			manifest.URLGenByHostnameOrWorkspace,
+		} {
+			reg := RegistrarFor(gen)
+			if reg == nil {
+				t.Errorf("with url_generation = %q there must be a seam: otherwise, the service starts without a route without warning", gen)
+			}
+			if _, ok := reg.(*portless.Client); !ok {
+				t.Errorf("expected a *portless.Client, got %T", reg)
+			}
 		}
 	})
 }
 
-func TestArrancarSinRouteModeNoEscribeElAvisoDeRutaEnElLog(t *testing.T) {
+// A start that publishes no URL must not emit a route warning: the registrar seam stays untouched.
+func TestArrancarEnByPortNoEscribeElAvisoDeRutaEnElLog(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	path := t.TempDir()
 	if _, err := store.EnsureServiceDir(path); err != nil {
@@ -54,10 +62,10 @@ func TestArrancarSinRouteModeNoEscribeElAvisoDeRutaEnElLog(t *testing.T) {
 	}
 
 	m := manifest.Manifest{
-		Name:     "api",
-		Command:  "sleep 30",
-		Port:     freePort(t),
-		PortMode: manifest.PortModeFixed,
+		Name:          "api",
+		Command:       "sleep 30",
+		Port:          freePort(t),
+		URLGeneration: manifest.URLGenByPort,
 	}
 
 	out, err := Start(Request{
@@ -67,23 +75,26 @@ func TestArrancarSinRouteModeNoEscribeElAvisoDeRutaEnElLog(t *testing.T) {
 		Manager:    &pararAntesDeSalir{},
 		StdoutPath: store.StdoutLog(path),
 		StderrPath: store.StderrLog(path),
-		Routes:     RegistrarFor(&m), // The repo callers pass RegistrarFor's result straight through, so the test wires the seam exactly as production does.
-		Branch:     "main",
+		// The repo callers pass the factory straight through, so the test wires the seam exactly as production does.
+		Registrar: RegistrarFor,
+		Branch:    "main",
 	})
-	t.Cleanup(func() { _ = out.Pid })
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
+	defer stopOne(t, store, path)
 
 	for _, w := range out.Warnings {
-		if strings.Contains(w, "route_mode") {
-			t.Errorf("a service without route_mode cannot receive a route warning: %q", w)
+		if strings.Contains(w, "route") {
+			t.Errorf("a by_port service cannot receive a route warning: %q", w)
 		}
 	}
 }
 
 // With no portless binary in a test environment the documented degradation is a warning, not a start failure.
-func TestConRouteModeAutoSeIntentaLaRuta(t *testing.T) {
+// The generation publishes a URL, so the registrar resolves; the helper never binds a port, which the
+// discovery window reports rather than failing the start.
+func TestConGeneracionQuePublicaSeIntentaLaRuta(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 	path := t.TempDir()
 	if _, err := store.EnsureServiceDir(path); err != nil {
@@ -91,30 +102,30 @@ func TestConRouteModeAutoSeIntentaLaRuta(t *testing.T) {
 	}
 
 	m := manifest.Manifest{
-		Name:      "api",
-		Command:   "sleep 30",
-		Port:      freePort(t),
-		PortMode:  manifest.PortModeFixed,
-		RouteMode: manifest.RouteModeAuto,
+		Name:          "api",
+		Command:       shellQuote(os.Args[0]) + " -test.run=^TestHelperService$",
+		Port:          freePort(t),
+		URLGeneration: manifest.URLGenByWorkspaceHostname,
 	}
+	t.Setenv(helperEnv, "honor-port-now")
 
 	out, err := Start(Request{
 		Manifest:   &m,
 		Path:       path,
 		Store:      store,
-		Manager:    &pararAntesDeSalir{},
+		Manager:    process.NewManager(),
 		StdoutPath: store.StdoutLog(path),
 		StderrPath: store.StderrLog(path),
-		Routes:     RegistrarFor(&m),
+		Registrar:  RegistrarFor,
 		Branch:     "main",
 	})
-	t.Cleanup(func() { _ = out.Pid })
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
+	defer stopOne(t, store, path)
 
 	// The route result must reach the CALLER, not only the store: out.Meta used to be
-	// copied before applyRoute, so a fixed-port start returned the previous start's
+	// copied before applyRoute, so a workspace start returned the previous start's
 	// route (empty on a cold one) and the assertion that was here could never fail.
 	if out.Meta.RouteName == "" || out.Meta.RouteStatus == "" {
 		t.Errorf("the returned Meta must carry THIS start's route result, got RouteName=%q RouteStatus=%q",
@@ -122,12 +133,12 @@ func TestConRouteModeAutoSeIntentaLaRuta(t *testing.T) {
 	}
 	for _, w := range out.Warnings {
 		if strings.Contains(w, `unknown route_mode "off"`) {
-			t.Errorf("the bug warning appeared with route_mode = auto: %q", w)
+			t.Errorf("the bug warning appeared with a URL-publishing generation: %q", w)
 		}
 	}
 }
 
-// A fixed-port start must hand the caller the route it just resolved. out.Meta was copied before
+// A publishing start must hand the caller the route it just resolved. out.Meta was copied before
 // applyRoute, so the TUI painted the PREVIOUS start's route (empty on a cold one) while the store
 // already held the new one; the dynamic path always re-assigns out.Meta after applyRoute, which is
 // why only this branch drifted.
@@ -139,29 +150,31 @@ func TestFixedPortStartHandsTheRouteResultToTheCaller(t *testing.T) {
 	}
 
 	m := manifest.Manifest{
-		Name:      "api",
-		Command:   "sleep 30",
-		Port:      freePort(t),
-		PortMode:  manifest.PortModeFixed,
-		RouteMode: manifest.RouteModeAuto,
+		Name:          "api",
+		Command:       shellQuote(os.Args[0]) + " -test.run=^TestHelperService$",
+		Port:          freePort(t),
+		URLGeneration: manifest.URLGenByWorkspaceHostname,
 	}
+	t.Setenv(helperEnv, "honor-port-now")
 	routes := &resultSpy{result: registeredRoute()}
 
 	out, err := Start(Request{
 		Manifest:   &m,
 		Path:       path,
 		Store:      store,
-		Manager:    &pararAntesDeSalir{},
+		Manager:    process.NewManager(),
 		StdoutPath: store.StdoutLog(path),
 		StderrPath: store.StderrLog(path),
-		Routes:     routes,
+		Registrar:  func(string) RouteRegistrar { return routes },
 		Branch:     "main",
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
+	// Spawning for real means cleaning up for real: without this the helper (and its reserved port) outlived the test and the NEXT test's hygiene assertion failed.
+	defer stopOne(t, store, path)
 
-	// auto on branch main derives main.api, and that name is what the caller must see.
+	// by_workspace_hostname on branch main derives main.api, and that name is what the caller must see.
 	if out.Meta.RouteName != "main.api" {
 		t.Errorf("RouteName = %q, want %q", out.Meta.RouteName, "main.api")
 	}

@@ -1,6 +1,8 @@
 package startsvc
 
 import (
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +25,14 @@ type fakeRoutes struct {
 	// reconciledCands records the candidate set each Reconcile received, because a set where the test expected a single name is the whole point of the ladder.
 	reconciledCands []string
 	retired         []string
+	// retireWarns is what Retire reports, so a test can prove a warned retirement keeps the handle while a clean one clears it.
+	retireWarns []string
+	// lookups records the names the by_hostname preflight asked about, so a test can prove the pre-check ran (or did not).
+	lookups []string
+	// heldPort/heldFound/lookupErr are what Lookup reports: found+port is a foreign holder, err is the degradation that must NOT refuse a start.
+	heldPort  int
+	heldFound bool
+	lookupErr error
 }
 
 // Apply always echoes the requested name, as the real client does: the intended name is input, never something the result decides.
@@ -45,14 +55,18 @@ func (f *fakeRoutes) Apply(name string, port int, prev portless.Ownership) portl
 	return r
 }
 
+func (f *fakeRoutes) Lookup(name string) (int, bool, error) {
+	f.lookups = append(f.lookups, name)
+	return f.heldPort, f.heldFound, f.lookupErr
+}
+
 func (f *fakeRoutes) Reconcile(_ string, _ portless.Ownership, current ...string) []string {
 	f.reconciledCands = append(f.reconciledCands, strings.Join(current, "|"))
 	return f.warns
 }
-
 func (f *fakeRoutes) Retire(name string, _ portless.Ownership) []string {
 	f.retired = append(f.retired, name)
-	return nil
+	return f.retireWarns
 }
 
 func itoaTest(n int) string {
@@ -95,7 +109,7 @@ func TestHealthNeverDependsOnTheRoute(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
 			f.command(t, "honor-port")
-			f.manifest.RouteMode = manifest.RouteModeAuto
+			f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 
 			out, err := f.startWithRoutes(t, 8*time.Second, tc.routes)
 			if err != nil {
@@ -137,10 +151,104 @@ func TestRouteModeOffNeverInvokesPortless(t *testing.T) {
 	}
 }
 
+// The by_hostname preflight is the one refusal that must happen before anything spawns: only a PROVEN foreign holder stops the start, and a service's own stale route is reclaimed.
+func TestByHostnamePreflight(t *testing.T) {
+	t.Run("a foreign holder refuses before spawning", func(t *testing.T) {
+		f := newFixture(t)
+		f.command(t, "honor-port")
+		f.manifest.URLGeneration = manifest.URLGenByHostname
+		f.manifest.RouteName = "tienda"
+		routes := &fakeRoutes{heldPort: 4444, heldFound: true}
+
+		_, err := f.startWithRoutes(t, 2*time.Second, routes)
+		if err == nil {
+			t.Fatal("a name a foreign holder keeps must refuse the start")
+		}
+		if !strings.Contains(err.Error(), "held by port 4444") {
+			t.Errorf("the refusal must name the holder's port: %v", err)
+		}
+		if len(routes.lookups) != 1 || routes.lookups[0] != "tienda" {
+			t.Errorf("the pre-check must ask about the claimed name: %v", routes.lookups)
+		}
+		if len(routes.applied) != 0 {
+			t.Errorf("nothing may be registered for a refused start: %v", routes.applied)
+		}
+	})
+
+	t.Run("our own stale route is reclaimed", func(t *testing.T) {
+		f := newFixture(t)
+		f.command(t, "honor-port")
+		f.manifest.URLGeneration = manifest.URLGenByHostname
+		f.manifest.RouteName = "tienda"
+		if err := f.store.SaveMeta(f.dir, state.Meta{RouteName: "tienda", RoutePort: 4444, RouteOwned: true, URLGeneration: manifest.URLGenByHostname}); err != nil {
+			t.Fatal(err)
+		}
+		routes := &fakeRoutes{heldPort: 4444, heldFound: true, result: registeredAt(0)}
+
+		out, err := f.startWithRoutes(t, 8*time.Second, routes)
+		if err != nil {
+			t.Fatalf("a service must reclaim the name it still owns: %v", err)
+		}
+		f.cleanup(t, out)
+
+		if len(routes.applied) != 1 {
+			t.Errorf("the reclaimed route must be re-registered: %v", routes.applied)
+		}
+	})
+
+	t.Run("an unprovable holder degrades instead of refusing", func(t *testing.T) {
+		f := newFixture(t)
+		f.command(t, "honor-port")
+		f.manifest.URLGeneration = manifest.URLGenByHostname
+		f.manifest.RouteName = "tienda"
+		routes := &fakeRoutes{lookupErr: errors.New("no portless binary")}
+
+		out, err := f.startWithRoutes(t, 8*time.Second, routes)
+		if err != nil {
+			t.Fatalf("a holder that cannot be proven must not refuse the start: %v", err)
+		}
+		f.cleanup(t, out)
+	})
+
+	t.Run("without a seam the check is a no-op", func(t *testing.T) {
+		f := newFixture(t)
+		f.command(t, "honor-port")
+		f.manifest.URLGeneration = manifest.URLGenByHostname
+		f.manifest.RouteName = "tienda"
+
+		out, err := f.start(t, 8*time.Second) // no Registrar at all: routes == nil
+		if err != nil {
+			t.Fatalf("without portless the start must proceed: %v", err)
+		}
+		f.cleanup(t, out)
+	})
+}
+
+// An occupied port refuses the by_port start before anything spawns: the declared port is the address, and a neighbour's listener is not ours to reuse.
+func TestByPortPreflightRefusesAnOccupiedPort(t *testing.T) {
+	f := newFixture(t)
+	ln, err := listen(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	port := ln.Addr().(*net.TCPAddr).Port
+	f.manifest.URLGeneration = manifest.URLGenByPort
+	f.manifest.Port = port
+
+	_, err = f.start(t, 2*time.Second)
+	if err == nil {
+		t.Fatal("a by_port start on an occupied port must be refused")
+	}
+	if !strings.Contains(err.Error(), "already in use") || !strings.Contains(err.Error(), itoaTest(port)) {
+		t.Errorf("the refusal must name the occupied port %d: %v", port, err)
+	}
+}
+
 func TestRouteIsRegisteredAfterDiscoveryAndPointsAtTheRealPort(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
-	f.manifest.RouteMode = manifest.RouteModeAuto
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 	routes := &fakeRoutes{result: registeredAt(0)}
 
 	out, err := f.startWithRoutes(t, 8*time.Second, routes)
@@ -168,7 +276,7 @@ func TestRoutePointsAtWhereTheAppActuallyListens(t *testing.T) {
 	f := newFixture(t)
 	own := freePort(t)
 	f.command(t, "fixed-port", "VROOM_HELPER_PORT="+itoaTest(own))
-	f.manifest.RouteMode = manifest.RouteModeAuto
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 	routes := &fakeRoutes{result: registeredAt(0)}
 
 	out, err := f.startWithRoutes(t, 8*time.Second, routes)
@@ -191,7 +299,7 @@ func TestRoutePointsAtWhereTheAppActuallyListens(t *testing.T) {
 func TestNoRouteWithoutAResolvedPort(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "udp-only")
-	f.manifest.RouteMode = manifest.RouteModeAuto
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 	routes := &fakeRoutes{result: registeredAt(0)}
 
 	out, err := f.startWithRoutes(t, 2*time.Second, routes)
@@ -214,7 +322,7 @@ func TestNoRouteWithoutAResolvedPort(t *testing.T) {
 func TestNoRouteWhenPortUnresolved(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "churn")
-	f.manifest.RouteMode = manifest.RouteModeAuto
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 	routes := &fakeRoutes{result: registeredAt(0)}
 
 	out, err := f.startWithRoutes(t, 900*time.Millisecond, routes)
@@ -237,7 +345,7 @@ func TestNoRouteWhenPortUnresolved(t *testing.T) {
 func TestDegradedRouteNeverPersistsAURL(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
-	f.manifest.RouteMode = manifest.RouteModeAuto
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 	routes := &fakeRoutes{
 		result: portless.Degraded("x", portless.ReasonRouteNotServed),
 	}
@@ -273,7 +381,7 @@ func TestDegradedRouteNeverPersistsAURL(t *testing.T) {
 func TestReconcileWarningsSurfaceAsWarnings(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
-	f.manifest.RouteMode = manifest.RouteModeAuto
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 	routes := &fakeRoutes{
 		result: registeredAt(0),
 		warns:  []string{"a portless route named \"otro\" is already serving another port (9999); it was left untouched"},
@@ -299,7 +407,7 @@ func TestReconcileWarningsSurfaceAsWarnings(t *testing.T) {
 func TestRouteNameDerivedFromBranchInAutoMode(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
-	f.manifest.RouteMode = manifest.RouteModeAuto
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 	routes := &fakeRoutes{result: registeredAt(0)}
 
 	out, err := f.startWithRoutesBranch(t, 8*time.Second, routes, "feat/mi_app")
@@ -316,7 +424,7 @@ func TestRouteNameDerivedFromBranchInAutoMode(t *testing.T) {
 func TestRouteNameUsesRouteNameInNamedMode(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
-	f.manifest.RouteMode = manifest.RouteModeNamedWithAutoFallback
+	f.manifest.URLGeneration = manifest.URLGenByHostnameOrWorkspace
 	f.manifest.RouteName = "My_OAuth_Callback"
 	routes := &fakeRoutes{result: registeredAt(0)}
 
@@ -334,7 +442,7 @@ func TestRouteNameUsesRouteNameInNamedMode(t *testing.T) {
 func TestRouteStatusDoesNotAffectServiceState(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
-	f.manifest.RouteMode = manifest.RouteModeAuto
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 	routes := &fakeRoutes{
 		result: portless.Degraded("x", portless.ReasonPortlessMissing),
 	}
@@ -357,7 +465,7 @@ func TestRouteNeverUsesTheReservedPort(t *testing.T) {
 	f := newFixture(t)
 	own := freePort(t)
 	f.command(t, "fixed-port", "VROOM_HELPER_PORT="+itoaTest(own))
-	f.manifest.RouteMode = manifest.RouteModeAuto
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 	routes := &fakeRoutes{result: registeredAt(0)}
 
 	out, err := f.startWithRoutes(t, 8*time.Second, routes)

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"vroom/internal/manifest"
 	"vroom/internal/portless"
 )
 
@@ -27,7 +28,7 @@ func TestLadderAgainstARealPortlessProxy(t *testing.T) {
 	)
 
 	// Derived, never hardcoded: the rungs under test must be the ones a manifest with route_mode = "named_with_auto_fallback" really produces.
-	cands, err := portless.RouteCandidates(portless.RouteModeNamedWithAutoFallback, "vroom.ladder", "feature/x", "ladder")
+	cands, err := portless.RouteCandidates(manifest.URLGenByHostnameOrWorkspace, "vroom.ladder", "feature/x", "ladder")
 	if err != nil {
 		t.Fatalf("the ladder must derive: %v", err)
 	}

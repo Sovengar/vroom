@@ -106,7 +106,7 @@ func closedPort(t *testing.T) int {
 
 func dynamicManifest() *manifest.Manifest {
 	return &manifest.Manifest{
-		Name: "svc", Command: "run", Port: 8080, PortMode: manifest.PortModeDynamic,
+		Name: "svc", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByWorkspaceHostname,
 	}
 }
 
@@ -155,27 +155,27 @@ func TestJSONResolvedDynamicEmitsRealPort(t *testing.T) {
 	}
 }
 
-// The recorded mode (the agent's ss/sd choice) outranks the manifest's, so the JSON shows how the service actually starts.
-func TestJSONRecordedPortModeOutranksManifest(t *testing.T) {
+// The recorded generation (the agent's s choice) outranks the manifest's, so the JSON shows how the service actually starts.
+func TestJSONRecordedGenerationOutranksManifest(t *testing.T) {
 	port := openPort(t)
 	meta := liveMetaWithState(t, state.StateRunning, port, true)
-	meta.PortMode = manifest.PortModeDynamic
+	meta.URLGeneration = manifest.URLGenByWorkspaceHostname
 
-	row := jsonRow(t, &manifest.Manifest{Name: "svc", Command: "run", Port: 8080, PortMode: manifest.PortModeFixed}, meta, true)
+	row := jsonRow(t, &manifest.Manifest{Name: "svc", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByPort}, meta, true)
 
-	if row["port_mode"] != "dynamic" {
-		t.Errorf("port_mode = %v, want the recorded dynamic", row["port_mode"])
+	if row["url_generation"] != manifest.URLGenByWorkspaceHostname {
+		t.Errorf("url_generation = %v, want the recorded %q", row["url_generation"], manifest.URLGenByWorkspaceHostname)
 	}
 }
 
-// Without a recorded mode the manifest decides, as before.
-func TestJSONPortModeFallsBackToManifest(t *testing.T) {
+// Without a recorded generation the manifest decides, as before.
+func TestJSONGenerationFallsBackToManifest(t *testing.T) {
 	port := openPort(t)
-	row := jsonRow(t, &manifest.Manifest{Name: "svc", Command: "run", Port: 8080, PortMode: manifest.PortModeFixed},
+	row := jsonRow(t, &manifest.Manifest{Name: "svc", Command: "run", Port: 8080, URLGeneration: manifest.URLGenByPort},
 		liveMetaWithState(t, state.StateRunning, port, true), true)
 
-	if row["port_mode"] != "fixed" {
-		t.Errorf("port_mode = %v, want the manifest's fixed", row["port_mode"])
+	if row["url_generation"] != manifest.URLGenByPort {
+		t.Errorf("url_generation = %v, want the manifest's %q", row["url_generation"], manifest.URLGenByPort)
 	}
 }
 
@@ -216,11 +216,11 @@ func TestJSONPortPendingIsDistinctFromUnresolved(t *testing.T) {
 	}
 }
 
-// Regression gate: a legacy manifest with no port_mode and port = 0 must behave exactly as before.
+// Regression gate: a legacy manifest with no url_generation and port = 0 must behave exactly as before (the headless door resolves to none).
 func TestJSONLegacyFixedZeroPortIsUnchanged(t *testing.T) {
 	m := &manifest.Manifest{Name: "svc", Command: "run"}
-	if mode := m.EffectivePortMode(); mode != manifest.PortModeNone {
-		t.Fatalf("EffectivePortMode = %q, want none", mode)
+	if gen := m.EffectiveURLGeneration(false); gen != manifest.URLGenNone {
+		t.Fatalf("EffectiveURLGeneration = %q, want none", gen)
 	}
 
 	stopped := jsonRow(t, m, state.Meta{}, false)
@@ -241,8 +241,8 @@ func TestJSONLegacyFixedZeroPortIsUnchanged(t *testing.T) {
 	if live["status"] != string(process.StatusRunning) {
 		t.Errorf("status = %v, want running: without a port contract the status does not change", live["status"])
 	}
-	if live["port_mode"] != manifest.PortModeNone {
-		t.Errorf("port_mode = %v, want none", live["port_mode"])
+	if live["url_generation"] != manifest.URLGenNone {
+		t.Errorf("url_generation = %v, want none", live["url_generation"])
 	}
 }
 
@@ -253,8 +253,8 @@ func TestJSONStoppedFixedKeepsDeclaredPort(t *testing.T) {
 	if row["port"] != float64(8080) {
 		t.Errorf("port = %v, want 8080: stopped, the declared one is all there is", row["port"])
 	}
-	if row["port_mode"] != manifest.PortModeFixed {
-		t.Errorf("port_mode = %v, want fixed", row["port_mode"])
+	if row["url_generation"] != manifest.URLGenByPort {
+		t.Errorf("url_generation = %v, want by_port", row["url_generation"])
 	}
 	if _, present := row["port_verified"]; present {
 		t.Error("without a PID there is no port contract to assert")

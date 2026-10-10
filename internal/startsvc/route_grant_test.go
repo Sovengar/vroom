@@ -12,7 +12,7 @@ import (
 func TestConflictDoesNotGrantOwnership(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
-	f.manifest.RouteMode = manifest.RouteModeAuto
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 	routes := &resultSpy{result: portless.Result{
 		Name: "svc", Host: "svc.localhost",
 		Status: portless.StatusDegraded, Reason: portless.ReasonRouteConflict,
@@ -33,7 +33,7 @@ func TestConflictDoesNotGrantOwnership(t *testing.T) {
 func TestRegisteredButUnverifiedStillGrantsOwnership(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
-	f.manifest.RouteMode = manifest.RouteModeAuto
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 	// ReasonsProxyNotRunning carries Registered, meaning written to disk but unverified, which is still ours.
 	routes := &resultSpy{result: portless.Result{
 		Name: "svc", Host: "svc.localhost",
@@ -58,7 +58,7 @@ func TestRegisteredButUnverifiedStillGrantsOwnership(t *testing.T) {
 func TestRenamedBranchDoesNotRemoveRevokedRoute(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
-	f.manifest.RouteMode = manifest.RouteModeAuto
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 	if err := f.store.SaveMeta(f.dir, state.Meta{
 		Name: "svc", Port: 4000, RouteName: "svc", RoutePort: 4321, RouteOwned: false,
 		State: state.StateStopped,
@@ -85,7 +85,7 @@ func TestRenamedBranchDoesNotRemoveRevokedRoute(t *testing.T) {
 func TestRenamedBranchStillRemovesOurOwnDeadRoute(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
-	f.manifest.RouteMode = manifest.RouteModeAuto
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 	if err := f.store.SaveMeta(f.dir, state.Meta{
 		Name: "svc", Port: 4000, RouteName: "svc", RoutePort: 4321, RouteOwned: true,
 		State: state.StateStopped,
@@ -110,7 +110,7 @@ func TestRenamedBranchStillRemovesOurOwnDeadRoute(t *testing.T) {
 func TestInheritedRouteStateIsAllOrNothing(t *testing.T) {
 	f := newFixture(t)
 	f.command(t, "honor-port")
-	f.manifest.RouteMode = manifest.RouteModeAuto
+	f.manifest.URLGeneration = manifest.URLGenByWorkspaceHostname
 	if err := f.store.SaveMeta(f.dir, state.Meta{
 		Name: "svc", Port: 4000, RouteName: "svc", RoutePort: 4321, RouteOwned: true,
 		State: state.StateStopped,
@@ -146,6 +146,8 @@ func (r *resultSpy) Apply(name string, port int, prev portless.Ownership) portle
 	return res
 }
 
+func (r *resultSpy) Lookup(string) (int, bool, error) { return 0, false, nil }
+
 func (r *resultSpy) Reconcile(_ string, _ portless.Ownership, _ ...string) []string {
 	return nil
 }
@@ -157,6 +159,8 @@ type reconcileSpy struct {
 	sawPrev                 portless.Ownership
 	removedPrev             bool
 }
+
+func (r *reconcileSpy) Lookup(string) (int, bool, error) { return 0, false, nil }
 
 func (r *reconcileSpy) Apply(name string, port int, prev portless.Ownership) portless.Result {
 	r.sawPrev = prev

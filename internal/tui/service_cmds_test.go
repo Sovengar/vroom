@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -51,7 +54,7 @@ func TestStartCmdPropagaElErrorDelStoreAntesDeArrancar(t *testing.T) {
 func TestStartCmdTraeLosAvisosAlLogDeStderr(t *testing.T) {
 	store := state.NewStoreAt(t.TempDir())
 
-	arranca := func(t *testing.T, port int, mode string) string {
+	arranca := func(t *testing.T, mgr process.Manager, port int, generation string) string {
 		t.Helper()
 		path := t.TempDir()
 		if _, err := store.EnsureServiceDir(path); err != nil {
@@ -59,40 +62,74 @@ func TestStartCmdTraeLosAvisosAlLogDeStderr(t *testing.T) {
 		}
 		m := manifest.Manifest{
 			Name: "api", Command: "sleep 30", Port: port,
-			PortMode: manifest.PortModeFixed, RouteMode: mode,
+			URLGeneration: generation, RouteName: "api",
 		}
 		p := scanner.Project{Path: path, Name: "api", Configured: true, Manifest: &m}
-		startCmd(store, &contadorManager{}, p, "")()
+		startCmd(store, mgr, p, "")()
 		return store.StderrLog(path)
 	}
 
-	t.Run("without route_mode there is nothing to write", func(t *testing.T) {
-		// MEASURED (bug): this same service used to write `portless route: unknown route_mode "off"` on every start, because portless's nil pointer travelled inside an interface and the `req.Routes == nil` guard never fired.
-		log := arranca(t, 4321, "")
+	t.Run("without a published url there is nothing to write", func(t *testing.T) {
+		log := arranca(t, &contadorManager{}, 4321, manifest.URLGenByPort)
 		if data, err := os.ReadFile(log); err == nil {
-			t.Errorf("a service without route_mode wrote to its stderr log:\n%s", data)
+			t.Errorf("a by_port service wrote to its stderr log:\n%s", data)
 		} else if !os.IsNotExist(err) {
 			t.Fatalf("could not check the log: %v", err)
 		}
 	})
 
-	t.Run("with route_mode auto the attempt is visible", func(t *testing.T) {
+	t.Run("with by_hostname the portless attempt is visible", func(t *testing.T) {
 		// A service that asks for a route must leave a trace of what happened to it; with no portless in a test environment the documented degradation is a warning, not a failed start.
-		log := arranca(t, 4321, manifest.RouteModeAuto)
+		mgr := &bindingManager{}
+		t.Cleanup(func() {
+			if mgr.ln != nil {
+				_ = mgr.ln.Close()
+			}
+			if mgr.port > 0 {
+				process.ReleasePort(mgr.port)
+			}
+		})
+		log := arranca(t, mgr, 4321, manifest.URLGenByHostname)
 		data, err := os.ReadFile(log)
 		if err != nil {
-			t.Fatalf("with route_mode = auto there must be a warning in the log: %v", err)
+			t.Fatalf("with url_generation = by_hostname there must be a warning in the log: %v", err)
 		}
 		if !strings.Contains(strings.ToLower(string(data)), "portless") &&
 			!strings.Contains(strings.ToLower(string(data)), "route") {
 			t.Errorf("the route warning does not say what it is about:\n%s", data)
 		}
-		// The bug's own warning never appears, since it only made sense for mode off.
-		if strings.Contains(string(data), `unknown route_mode "off"`) {
-			t.Errorf("the bug's warning appeared with route_mode = auto:\n%s", data)
-		}
 	})
 }
+
+// bindingManager stands in for the service in the one start test that must reach the route attempt: it opens the PORT the
+// offer names (a real listener this process owns) and reports this process as the service, because discovery reads /proc of
+// the reported pid. Spawning a child would be the alternative, and it would prove nothing about the warning copy loop.
+type bindingManager struct {
+	ln   net.Listener
+	port int
+}
+
+func (m *bindingManager) Start(spec process.StartSpec) (process.StartResult, error) {
+	port := 0
+	for _, kv := range spec.Env {
+		if v, ok := strings.CutPrefix(kv, "PORT="); ok {
+			port, _ = strconv.Atoi(v)
+		}
+	}
+	if port <= 0 {
+		return process.StartResult{}, errors.New("the start offered no PORT to bind")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
+	if err != nil {
+		return process.StartResult{}, err
+	}
+	m.ln, m.port = ln, port
+	return process.StartResult{Pid: os.Getpid(), CreationTimeMs: 1}, nil
+}
+
+func (m *bindingManager) Stop(process.StopSpec) error { return nil }
+
+func (m *bindingManager) Evaluate(process.EvalSpec) process.Status { return process.StatusRunning }
 
 // The graceful stop runs first because killing the PGID is not always enough: `docker compose down` also leaves the network, the volumes and the container behind.
 func TestStopCmdEjecutaElCommandStopAntesDeLaLimpieza(t *testing.T) {
@@ -433,7 +470,7 @@ func proyectoConManifiesto(t *testing.T, path string, port int) scanner.Project 
 }
 
 func manifestConPuerto(port int) *manifest.Manifest {
-	return &manifest.Manifest{Name: "api", Command: "sleep 30", Port: port, PortMode: manifest.PortModeFixed}
+	return &manifest.Manifest{Name: "api", Command: "sleep 30", Port: port, URLGeneration: manifest.URLGenByPort}
 }
 
 func membersDelStack(t *testing.T, s *orchestrate.Stack, m Model) []string {
@@ -462,8 +499,7 @@ func stackModeloBarato(t *testing.T) Model {
 		}
 		p.Manifest.Command = "true"
 		p.Manifest.Port = 0
-		p.Manifest.PortMode = manifest.PortModeNone
-		p.Manifest.RouteMode = manifest.RouteModeOff
+		p.Manifest.URLGeneration = manifest.URLGenNone
 	}
 	// The tree carries its own copy of the manifests.
 	m.tree = m.buildTree()

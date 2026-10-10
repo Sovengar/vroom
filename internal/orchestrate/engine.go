@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"vroom/internal/gitinfo"
+	"vroom/internal/manifest"
 	"vroom/internal/portless"
 	"vroom/internal/process"
 	"vroom/internal/scanner"
@@ -309,8 +310,9 @@ func (e *Engine) startService(svc ResolvedService, timeout time.Duration) Servic
 		Manager:    e.manager,
 		StdoutPath: e.store.StdoutLog(p.Path),
 		StderrPath: e.store.StderrLog(p.Path),
-		Routes:     startsvc.RegistrarFor(p.Manifest),
+		Registrar:  startsvc.RegistrarFor,
 		Branch:     gitinfo.Branch(p.Path),
+		IsWorktree: p.IsWorktree,
 	})
 	if err != nil {
 		return ServiceResult{Name: svc.Name, Error: err.Error()}
@@ -350,11 +352,19 @@ const (
 	PortUnresolved
 )
 
+// effectiveGeneration mirrors startsvc's resolution for the health gate: the recorded generation (the last armed s choice) outranks the manifest's, worktree-aware. An empty meta falls back to the manifest, which is also what a start would have resolved.
+func effectiveGeneration(p scanner.Project, meta state.Meta) string {
+	if meta.URLGeneration != "" {
+		return meta.URLGeneration
+	}
+	return p.Manifest.EffectiveURLGeneration(p.IsWorktree)
+}
+
 // no_port and port_unresolved are results, not errors; only port_pending is fatal, because an in-flight discovery means the stage was never actually verified.
 func (e *Engine) awaitPortOutcome(p scanner.Project, meta state.Meta, timeout time.Duration) (PortOutcome, error) {
 	err := AwaitPort(PortWait{
 		Port:        meta.Port,
-		Mode:        p.Manifest.EffectivePortMode(),
+		Mode:        manifest.PortMode(effectiveGeneration(p, meta)),
 		PortPending: meta.State == state.StatePortPending,
 		NoPort:      meta.State == state.StateNoPort,
 		Unresolved:  meta.State == state.StatePortUnresolved,
