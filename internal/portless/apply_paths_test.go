@@ -85,6 +85,33 @@ func TestVerifyPublishesWhenProxyActuallyRoutes(t *testing.T) {
 	}
 }
 
+// The window must never cost the COMMON case: a route the proxy already serves is answered on the first probe, so Apply returns without entering the wait. Asserting the elapsed time stays well under the window (not just that it eventually publishes) is what would go red if a regression started sleeping before probing.
+func TestVerifyPublishesAServedRouteWithoutPayingTheWindow(t *testing.T) {
+	srv := newHTTPServer(t, http.StatusOK)
+	dir := t.TempDir()
+	if err := writeFileIn(t, dir, proxyPortFile, itoa(srvPort(t, srv))); err != nil {
+		t.Fatal(err)
+	}
+	c := New(
+		WithBinary("/fake/portless"),
+		WithStateDir(dir),
+		WithExec(okExec(t)),
+		WithTimeout(2*time.Second),
+		WithVerifyWait(2*time.Second),
+	)
+
+	start := time.Now()
+	r := c.Apply("svc", 8080, Ownership{})
+	elapsed := time.Since(start)
+
+	if r.Status != StatusRegistered || r.Url == "" {
+		t.Fatalf("Status = %q url = %q (reason %q): a served route must publish on the first probe", r.Status, r.Url, r.Reason)
+	}
+	if elapsed >= c.verifyWait {
+		t.Errorf("elapsed %v >= the window %v: the first probe served the route, the window must not be paid", elapsed, c.verifyWait)
+	}
+}
+
 // verify must degrade BEFORE probing (M6): probing without a proxy means a request to an assumed port, the very constant this seam must not introduce.
 func TestVerifyDoesNotProbeWithProxyDown(t *testing.T) {
 	f := newFake()
@@ -239,6 +266,44 @@ func TestVerifyDegradesWhenDeclaredPortDoesNotAcceptConnections(t *testing.T) {
 	}
 	if !r.Registered {
 		t.Error("Registered was lost: the write happened before probing")
+	}
+}
+
+// The other half of the dead-port contract: because a port nobody listens on can never serve the route, verify must return proxy_unreachable WITHOUT paying the whole window (the early break), not after it. With WithVerifyWait(0) the immediate break and the deadline break are indistinguishable; this test pins a window far larger than the connection-refused latency and asserts the call stays well under it, so dropping the early break (sleeping the window before degrading) goes red.
+func TestVerifyDoesNotPayTheWindowForADeclaredPortThatRefusesConnections(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadPort := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+
+	f := newFake()
+	f.noProxy = true
+	dir := t.TempDir()
+	if err := writeFileIn(t, dir, proxyPortFile, itoa(deadPort)); err != nil {
+		t.Fatal(err)
+	}
+	c := New(
+		WithBinary("/fake/portless"),
+		WithStateDir(dir),
+		WithExec(f.exec),
+		WithTimeout(200*time.Millisecond),
+		WithVerifyWait(2*time.Second),
+	)
+
+	start := time.Now()
+	r := c.Apply("svc", 8080, Ownership{})
+	elapsed := time.Since(start)
+
+	if r.Reason != ReasonProxyUnreachable {
+		t.Fatalf("Reason = %q, want %q: the declared port accepts no connections", r.Reason, ReasonProxyUnreachable)
+	}
+	if !r.Registered {
+		t.Error("Registered was lost: the write happened before probing")
+	}
+	if elapsed >= c.verifyWait {
+		t.Errorf("elapsed %v >= the window %v: a port that cannot serve must degrade at once, not after the wait", elapsed, c.verifyWait)
 	}
 }
 
