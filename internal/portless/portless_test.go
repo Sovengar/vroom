@@ -134,6 +134,10 @@ func TestNewInstallsTheDefaultPropagationWindow(t *testing.T) {
 	if got := New(WithVerifyWait(0)).verifyWait; got != 0 {
 		t.Errorf("WithVerifyWait(0) did not override the default: %v", got)
 	}
+	// The poll interval is part of the contract the scenario states: small enough to catch the fs.watch debounce, large enough not to spin the proxy during the 3s polling fallback.
+	if verifyPollInterval != 250*time.Millisecond {
+		t.Errorf("verifyPollInterval = %v, want 250ms", verifyPollInterval)
+	}
 }
 
 func (f *fakePortless) writeProxyPort(t *testing.T, dir string, port int) {
