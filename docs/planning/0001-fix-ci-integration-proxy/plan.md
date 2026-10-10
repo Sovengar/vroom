@@ -34,17 +34,23 @@ The fix is already committed (`7c1ab05`) and **is the change under test — veri
 
 ## Progress
 
-Phase: planning
+Phase: review
+
+Review: 2026-08-24 — verdict **fix**: 0 CRITICAL, 0 HIGH, 2 MEDIUM, 8 LOW across five parallel reviews (behavior 2 LOW · code 4 LOW · security 0 · performance 1 MEDIUM + 2 LOW · docs 1 MEDIUM). Verification: passing (Lint, CI fast, Test, Integration green; Mutation skipped).
+
+Fix pass: MEDIUM-1 (verify's retry window is now cancellable — `ApplyContext` + `select` on `ctx.Done()`, commit 2bc5f2a) and MEDIUM-2 (ADR Decision 7 probe cost under the retry window, commit 428991c) resolved. Re-verified: `make check` green, diff coverage 100% (69/69), total 100%, Mutation 4 killed / 0 survived.
+
+Review 2: 2026-08-24 (tip 694b6c7) — verdict **fix**: 0 CRITICAL, 0 HIGH, 2 MEDIUM, 8 LOW (behavior 1 MEDIUM + 3 LOW · code 1 MEDIUM · security 0 · performance 0 MEDIUM + 3 LOW · docs 2 LOW). Both prior MEDIUMs confirmed resolved. New MEDIUMs, both on the `ApplyContext` seam: (1) exported method panics on a nil context (doc-comment-only guard, apply.go:101); (2) no production caller — `startsvc` still routes through `Apply` → `context.Background()`, so the TUI/CLI never benefit from the cancellation they motivated the fix (apply.go:96-101, startsvc.go:292-295). Verification: passing (Lint, CI fast, Test, Integration green; Mutation skipped). Change left unopened.
 
 | Scenario (behavior.feature) | Status | Commit |
 | --- | --- | --- |
-| A route the proxy picks up inside the window is published | ⬜ | |
-| A genuinely unserved route still degrades when the window closes | ⬜ | |
-| A declared proxy port that refuses connections degrades at once | ⬜ | |
-| A routed-but-dead backend still publishes its Url | ⬜ | |
-| A served route never pays the window | ⬜ | |
-| No proxy running degrades without probing | ⬜ | |
-| The window is on by default and can be opted out | ⬜ | |
-| The ladder e2e Url answers from its own backend | ⬜ | |
-| A route survives a proxy restart | ⬜ | |
-| Live portless routes are not evicted | ⬜ | |
+| A route the proxy picks up inside the window is published | ✅ | 7c1ab05 |
+| A genuinely unserved route still degrades when the window closes | ✅ | 7c1ab05 |
+| A declared proxy port that refuses connections degrades at once | ✅ | f806c8e |
+| A routed-but-dead backend still publishes its Url | ✅ | 7c1ab05 |
+| A served route never pays the window | ✅ | f806c8e |
+| No proxy running degrades without probing | ✅ | 7c1ab05 |
+| The window is on by default and can be opted out | ✅ | f806c8e |
+| The ladder e2e Url answers from its own backend | ✅ | 7c1ab05 |
+| A route survives a proxy restart | ✅ | 7c1ab05 |
+| Live portless routes are not evicted | ✅ | 7c1ab05 |

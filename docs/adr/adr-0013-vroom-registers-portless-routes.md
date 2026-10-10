@@ -213,7 +213,11 @@ design.
 7. **The URL scheme is determined by probing, not assuming.** `https` is tried and,
    if it does not respond, `http`; the one that responded is published. **This way
    the TLS / port 443 case is not a risk**: the design contains no assumption that
-   TLS could refute, and it did not need to be measured. The cost is one probe.
+   TLS could refute, and it did not need to be measured. The cost is up to two
+   probes per round (one scheme each) **per retry round**: with the propagation
+   window (Decision 6 correction) a served route still stops on the first round,
+   while a genuinely unserved route can spend up to ~28 probes (2 schemes × 14
+   rounds of 250 ms in the 3.5 s window) before it degrades.
 
 8. **Reconciliation on every startup is mandatory.** Per **M5**, `prune` does not
    touch alias routes, so **vroom is the only thing that can clean them**. On

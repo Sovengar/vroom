@@ -224,6 +224,9 @@ func TestVerifyDegradesAfterThePropagationWindowCloses(t *testing.T) {
 	if r.Reason != ReasonRouteNotServed {
 		t.Errorf("Reason = %q, want %q", r.Reason, ReasonRouteNotServed)
 	}
+	if r.Url != "" {
+		t.Errorf("Url = %q: a route the proxy never serves must not publish an address", r.Url)
+	}
 	if probes < 2 {
 		t.Errorf("probes = %d: a persistent 404 must be retried before it is declared final", probes)
 	}
@@ -304,6 +307,59 @@ func TestVerifyDoesNotPayTheWindowForADeclaredPortThatRefusesConnections(t *test
 	}
 	if elapsed >= c.verifyWait {
 		t.Errorf("elapsed %v >= the window %v: a port that cannot serve must degrade at once, not after the wait", elapsed, c.verifyWait)
+	}
+}
+
+// The exported seam must survive a caller that passes nil: context.WithTimeout(nil, …) would panic on parent.Done(), so nil degrades to "no cancellation" instead of crashing a start.
+func TestApplyContextTreatsNilContextAsBackground(t *testing.T) {
+	srv := newHTTPServer(t, http.StatusOK)
+	c := newClientWithProxy(t, srvPort(t, srv), okExec(t))
+
+	//nolint:staticcheck // deliberately exercises the exported nil-context guard.
+	r := c.ApplyContext(nil, "svc", 8080, Ownership{})
+
+	if r.Status != StatusRegistered {
+		t.Fatalf("Status = %q (reason %q): a nil context must behave like context.Background()", r.Status, r.Reason)
+	}
+}
+
+// The propagation window is a caller-owned wait: a cancelled command or a TUI shutting down must stop at once instead of probing for the rest of the window. The context is already done, so verify must return well before the window and after exactly the first round, never sleeping the bout.
+func TestVerifyStopsAtOnceWhenTheCallerContextIsCancelled(t *testing.T) {
+	f := newFake()
+	dir := t.TempDir()
+	if err := writeFileIn(t, dir, proxyPortFile, itoa(1399)); err != nil {
+		t.Fatal(err)
+	}
+	c := New(
+		WithBinary("/fake/portless"),
+		WithStateDir(dir),
+		WithExec(f.exec),
+		WithTimeout(200*time.Millisecond),
+		WithVerifyWait(2*time.Second),
+	)
+	probes := 0
+	c.probe = func(context.Context, string, string, int, string) (int, error) {
+		probes++
+		return http.StatusNotFound, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	r := c.ApplyContext(ctx, "svc", 8080, Ownership{})
+	elapsed := time.Since(start)
+
+	if elapsed >= c.verifyWait {
+		t.Errorf("elapsed %v >= the window %v: a cancelled caller must not keep probing", elapsed, c.verifyWait)
+	}
+	if probes != 2 {
+		t.Errorf("probes = %d, want 2: the first round runs, then the cancelled wait must stop the loop", probes)
+	}
+	if r.Succeeded() {
+		t.Errorf("Status = %q: nothing was proven, so the route cannot be published", r.Status)
+	}
+	if r.Url != "" {
+		t.Errorf("Url = %q: nothing was proven, so nothing may be published", r.Url)
 	}
 }
 
