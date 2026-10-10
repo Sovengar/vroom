@@ -44,6 +44,8 @@ func newClientWithProxy(t *testing.T, proxyPort int, exec func(context.Context, 
 		WithStateDir(dir),
 		WithExec(exec),
 		WithTimeout(2*time.Second),
+		// verifyWait 0: these tests assert the classification, not the propagation window, so the immediate probe keeps them fast and deterministic.
+		WithVerifyWait(0),
 	)
 }
 
@@ -128,6 +130,75 @@ func TestVerifyDegradesWithoutPublishingURLWhenProxyDoesNotServeRoute(t *testing
 	}
 	if r.Url != "" {
 		t.Errorf("Url = %q: 404 proves the proxy does NOT route the route", r.Url)
+	}
+}
+
+// The propagation window: portless exposes a freshly written route to its proxy asynchronously, so the first probes can see 404 while the route is already in routes.json. Apply must keep probing and publish the url once the proxy catches up, instead of degrading on the first stale read (the CI-only failure: an inotify-starved runner falls back to portless's 3s polling).
+func TestVerifyWaitsForTheProxyToPickUpAFreshlyWrittenRoute(t *testing.T) {
+	f := newFake()
+	dir := t.TempDir()
+	if err := writeFileIn(t, dir, proxyPortFile, itoa(1399)); err != nil {
+		t.Fatal(err)
+	}
+	c := New(
+		WithBinary("/fake/portless"),
+		WithStateDir(dir),
+		WithExec(f.exec),
+		WithTimeout(500*time.Millisecond),
+		WithVerifyWait(2*time.Second),
+	)
+	probes := 0
+	c.probe = func(context.Context, string, string, int, string) (int, error) {
+		probes++
+		if probes < 3 {
+			return http.StatusNotFound, nil
+		}
+		return http.StatusOK, nil
+	}
+
+	r := c.Apply("svc", 8080, Ownership{})
+
+	if r.Status != StatusRegistered {
+		t.Fatalf("Status = %q (reason %q): the proxy catches up inside the window, so the url must publish", r.Status, r.Reason)
+	}
+	if r.Url == "" {
+		t.Error("Url must be published once the proxy serves the route")
+	}
+	if probes < 3 {
+		t.Errorf("probes = %d: the 404 must be retried, not taken as final", probes)
+	}
+}
+
+// The other side of the contract: when the proxy never picks the route up, the wait must end and the degradation must be the same route_not_served as before, so a genuinely unserved route cannot hang Apply.
+func TestVerifyDegradesAfterThePropagationWindowCloses(t *testing.T) {
+	f := newFake()
+	dir := t.TempDir()
+	if err := writeFileIn(t, dir, proxyPortFile, itoa(1399)); err != nil {
+		t.Fatal(err)
+	}
+	c := New(
+		WithBinary("/fake/portless"),
+		WithStateDir(dir),
+		WithExec(f.exec),
+		WithTimeout(500*time.Millisecond),
+		WithVerifyWait(120*time.Millisecond),
+	)
+	probes := 0
+	c.probe = func(context.Context, string, string, int, string) (int, error) {
+		probes++
+		return http.StatusNotFound, nil
+	}
+
+	r := c.Apply("svc", 8080, Ownership{})
+
+	if r.Status != StatusDegraded {
+		t.Errorf("Status = %q, want degraded once the window closes", r.Status)
+	}
+	if r.Reason != ReasonRouteNotServed {
+		t.Errorf("Reason = %q, want %q", r.Reason, ReasonRouteNotServed)
+	}
+	if probes < 2 {
+		t.Errorf("probes = %d: a persistent 404 must be retried before it is declared final", probes)
 	}
 }
 
