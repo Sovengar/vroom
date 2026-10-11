@@ -79,25 +79,25 @@ func TestFindProjectUnknownPath(t *testing.T) {
 
 func TestFindProjectResolvesSymlink(t *testing.T) {
 	root := t.TempDir()
-	real := filepath.Join(root, "proj")
-	if err := os.MkdirAll(real, 0o755); err != nil {
+	target := filepath.Join(root, "proj")
+	if err := os.MkdirAll(target, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	link := filepath.Join(root, "link")
-	if err := os.Symlink(real, link); err != nil {
+	if err := os.Symlink(target, link); err != nil {
 		t.Skipf("could not create symlink: %v", err)
 	}
 
 	projects := []scanner.Project{
-		{Path: real, Name: "proj", Configured: true, Manifest: &manifest.Manifest{Name: "proj"}},
+		{Path: target, Name: "proj", Configured: true, Manifest: &manifest.Manifest{Name: "proj"}},
 	}
-	if p, err := findByPath(projects, link); err != nil || p.Path != real {
-		t.Errorf("findByPath(%q) = (%+v, %v), want path %q", link, p, err, real)
+	if p, err := findByPath(projects, link); err != nil || p.Path != target {
+		t.Errorf("findByPath(%q) = (%+v, %v), want path %q", link, p, err, target)
 	}
 
 	symProjects := []scanner.Project{{Path: link, Name: "proj", Configured: true}}
-	if p, err := findByPath(symProjects, real); err != nil || p.Path != link {
-		t.Errorf("findByPath(%q) = (%+v, %v), want path %q", real, p, err, link)
+	if p, err := findByPath(symProjects, target); err != nil || p.Path != link {
+		t.Errorf("findByPath(%q) = (%+v, %v), want path %q", target, p, err, link)
 	}
 }
 

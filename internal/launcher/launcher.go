@@ -94,7 +94,7 @@ func (l *Launcher) launchHerdr(req Request) (string, error) {
 	if l.cfg.Target == "tab" {
 		out, err := l.run("herdr", "tab", "create", "--workspace", l.env("HERDR_WORKSPACE_ID"))
 		if err != nil {
-			return "", fmt.Errorf("herdr tab create: %v (%s)", err, strings.TrimSpace(out))
+			return "", fmt.Errorf("herdr tab create: %w (%s)", err, strings.TrimSpace(out))
 		}
 		paneID = parsePaneID(out, "result.root_pane.pane_id")
 	} else {
@@ -104,7 +104,7 @@ func (l *Launcher) launchHerdr(req Request) (string, error) {
 		}
 		out, err := l.run("herdr", args...)
 		if err != nil {
-			return "", fmt.Errorf("herdr pane split: %v (%s)", err, strings.TrimSpace(out))
+			return "", fmt.Errorf("herdr pane split: %w (%s)", err, strings.TrimSpace(out))
 		}
 		paneID = parsePaneID(out, "result.pane.pane_id")
 	}
@@ -114,7 +114,7 @@ func (l *Launcher) launchHerdr(req Request) (string, error) {
 
 	cmdStr := shellQuote(req.Args)
 	if out, err := l.run("herdr", "pane", "run", paneID, cmdStr); err != nil {
-		return "", fmt.Errorf("herdr pane run: %v (%s)", err, strings.TrimSpace(out))
+		return "", fmt.Errorf("herdr pane run: %w (%s)", err, strings.TrimSpace(out))
 	}
 	return fmt.Sprintf("%s → herdr %s %s", req.Agent, l.cfg.Target, paneID), nil
 }
@@ -129,7 +129,7 @@ func (l *Launcher) launchCustom(req Request) (string, error) {
 	)
 	script := repl.Replace(tpl)
 	if out, err := l.run("sh", "-c", script); err != nil {
-		return "", fmt.Errorf("launcher_cmd: %v (%s)", err, strings.TrimSpace(out))
+		return "", fmt.Errorf("launcher_cmd: %w (%s)", err, strings.TrimSpace(out))
 	}
 	return fmt.Sprintf("%s launched (custom)", req.Agent), nil
 }

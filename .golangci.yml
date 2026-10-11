@@ -1,0 +1,23 @@
+# The default set (errcheck, govet, ineffassign, staticcheck, unused) plus linters
+# the rest of the family (gitdash, dbx, prdash, tsk) shares. Comments in this repo are
+# English by policy, so misspell belongs here too.
+# Skipped on purpose: gosec (G204 fires on every exec.Command and G301/G306 on 0o755/0o644,
+# all by design), gocritic (style churn), forcetypeassert (a panic in a test helper is the
+# wanted failure), dupword (no ignore-rules in v2.13.2 and every hit family-wide is an
+# intended repetition in a comment or in test data).
+version: "2"
+output:
+  # The defaults (3 same / 50 total) hide findings behind each other: a repo with
+  # thirty repeated findings reports three, and a green after three fixes means nothing.
+  max-same-issues: 0
+  max-issues-per-linter: 0
+linters:
+  enable:
+    - asasalint
+    - errorlint
+    - makezero
+    - misspell
+    - nakedret
+    - nolintlint
+    - predeclared
+    - unconvert

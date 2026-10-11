@@ -116,8 +116,8 @@ func TestWindowSizeReencajaElArbolCuandoElCursorQuedaFuera(t *testing.T) {
 	if got.treeTop > cursorLine {
 		t.Errorf("treeTop = %d with cursor on line %d: the tree window ended up below the cursor", got.treeTop, cursorLine)
 	}
-	if max := cursorLine; got.treeTop > max {
-		t.Errorf("treeTop = %d cannot exceed the cursor line %d", got.treeTop, max)
+	if limit := cursorLine; got.treeTop > limit {
+		t.Errorf("treeTop = %d cannot exceed the cursor line %d", got.treeTop, limit)
 	}
 }
 

@@ -261,14 +261,14 @@ func TestAppendLineAnexaYSobreviveAUnLogQueNoExiste(t *testing.T) {
 		t.Errorf("err = %v, want NotExist", err)
 	}
 
-	real := filepath.Join(dir, "log")
-	if err := appendLine(real, "primera"); err != nil {
+	logPath := filepath.Join(dir, "log")
+	if err := appendLine(logPath, "primera"); err != nil {
 		t.Fatal(err)
 	}
-	if err := appendLine(real, "segunda"); err != nil {
+	if err := appendLine(logPath, "segunda"); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(real)
+	data, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatal(err)
 	}

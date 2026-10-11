@@ -90,7 +90,7 @@ func startSessionWith(w, h int, dir string, argv []string, openPty func(int, int
 	}
 	emu := vt.NewEmulator(w, h)
 	emu.SetScrollbackSize(1000)
-	cmd := exec.Command(argv[0], argv[1:]...) // nolint:gosec // argv is deliberately the user's own shell
+	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // argv is deliberately the user's own shell
 	cmd.Dir = dir
 	cmd.Env = termEnv()
 	setSessionLeader(cmd)

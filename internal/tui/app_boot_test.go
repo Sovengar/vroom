@@ -164,8 +164,8 @@ func TestNewUsesConfigRootAndExpandsTilde(t *testing.T) {
 
 	t.Run("config root with tilde", func(t *testing.T) {
 		home := t.TempDir()
-		real := filepath.Join(home, "workspace")
-		writeStr(t, filepath.Join(real, "api", ".vroom.toml"), "name = \"api-from-home\"\ncommands.start.run = \"./x\"\n")
+		workspace := filepath.Join(home, "workspace")
+		writeStr(t, filepath.Join(workspace, "api", ".vroom.toml"), "name = \"api-from-home\"\ncommands.start.run = \"./x\"\n")
 
 		// The tilde resolves through the process HOME, which t.Setenv does change for os.UserHomeDir unlike /proc/self/environ.
 		t.Setenv("HOME", home)
@@ -314,12 +314,12 @@ func TestUpdateWithConsoleMessageResetsOffsetsToEOF(t *testing.T) {
 	cs.stdout, cs.stderr, cs.merged = "old in memory\n", "old in memory\n", "old in memory\n"
 
 	got := updateMsg(t, m, startedMsg{path: path, res: process.StartResult{Pid: 4321}})
-	new := got.consoleStateFor(path)
+	cleared := got.consoleStateFor(path)
 
-	if new.stdout != "" || new.stderr != "" || new.merged != "" {
-		t.Errorf("in-memory buffers were not cleared: %q / %q / %q", new.stdout, new.stderr, new.merged)
+	if cleared.stdout != "" || cleared.stderr != "" || cleared.merged != "" {
+		t.Errorf("in-memory buffers were not cleared: %q / %q / %q", cleared.stdout, cleared.stderr, cleared.merged)
 	}
-	for i, off := range new.off {
+	for i, off := range cleared.off {
 		if off == 0 {
 			t.Errorf("offset %d stayed at 0: the next tail would reinsert the old log", i)
 		}

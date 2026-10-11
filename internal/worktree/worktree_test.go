@@ -199,7 +199,7 @@ func TestIsBareRepoScopesMarkerToCore(t *testing.T) {
 
 func TestListGitUnavailable(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	if _, err := List(t.TempDir()); err != ErrGitUnavailable {
+	if _, err := List(t.TempDir()); !errors.Is(err, ErrGitUnavailable) {
 		t.Fatalf("err = %v, want ErrGitUnavailable", err)
 	}
 }

@@ -276,14 +276,14 @@ func (m Model) pickerTitle() string {
 }
 
 func (m Model) pickerMaxRows() int {
-	max := m.bodyH - 7 // title + blank + hint + borders + margin
-	if max < 3 {
-		max = 3
+	rows := m.bodyH - 7 // title + blank + hint + borders + margin
+	if rows < 3 {
+		rows = 3
 	}
-	if max > len(m.pickerItems) {
-		max = len(m.pickerItems)
+	if rows > len(m.pickerItems) {
+		rows = len(m.pickerItems)
 	}
-	return max
+	return rows
 }
 
 func (m Model) pickerInnerW() int {

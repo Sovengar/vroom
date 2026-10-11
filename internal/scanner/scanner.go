@@ -129,7 +129,7 @@ func scanWithFD(fd string, root string, depth int) (projects, bare []Project, er
 	cmd := exec.Command(fd, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, nil, fmt.Errorf("fd failed: %s\n%s", err, string(output))
+		return nil, nil, fmt.Errorf("fd failed: %w\n%s", err, string(output))
 	}
 
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
@@ -164,7 +164,7 @@ func scanBareReposWithFD(fd string, root string, depth int) ([]Project, error) {
 	cmd := exec.Command(fd, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("fd (dirs) failed: %s\n%s", err, string(output))
+		return nil, fmt.Errorf("fd (dirs) failed: %w\n%s", err, string(output))
 	}
 
 	var bare []Project

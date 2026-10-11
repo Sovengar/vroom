@@ -22,14 +22,14 @@ func TestUpdateWithUnknownMessageReturnsModelIntact(t *testing.T) {
 	m, _ := newTestModel(t)
 	before := m
 
-	new, cmd := m.Update(unknownMsg{something: 1})
+	result, cmd := m.Update(unknownMsg{something: 1})
 	if cmd != nil {
 		t.Error("an unknown message cannot return a command: the command would be the TUI's, " +
 			"not ours, and there is none")
 	}
-	got, ok := new.(Model)
+	got, ok := result.(Model)
 	if !ok {
-		t.Fatalf("Update returned %T, want Model", new)
+		t.Fatalf("Update returned %T, want Model", result)
 	}
 	if got.message != before.message {
 		t.Errorf("message changed from %q to %q: a message that is not ours cannot speak", before.message, got.message)
@@ -66,13 +66,13 @@ func TestRefreshActionLaunchesRefreshWithoutChangingView(t *testing.T) {
 	m.activeTab = tabThreads
 	before := m.activeTab
 
-	new, cmd := m.Update(key("y"))
+	result, cmd := m.Update(key("y"))
 	if cmd == nil {
 		t.Fatal("refresh must return the refresh batch")
 	}
-	got, ok := new.(Model)
+	got, ok := result.(Model)
 	if !ok {
-		t.Fatalf("Update returned %T, want Model", new)
+		t.Fatalf("Update returned %T, want Model", result)
 	}
 	if got.activeTab != before {
 		t.Errorf("refresh changed the tab from %d to %d: refreshing is not switching views", before, got.activeTab)
@@ -103,11 +103,11 @@ func TestToggleOnStackWithoutStackDoesNotPanic(t *testing.T) {
 	m.tree = []treeItem{{kind: itemStack, primary: "empty"}}
 	m.cursor = 0
 
-	new, cmd := m.toggleSelected()
+	result, cmd := m.toggleSelected()
 	if cmd != nil {
 		t.Error("a stack without a stack cannot start anything")
 	}
-	if new == nil {
+	if result == nil {
 		t.Fatal("Update returned nil")
 	}
 }
@@ -120,10 +120,10 @@ func TestRestartOnProjectWithBrokenManifestSaysSo(t *testing.T) {
 	m = selectProject(t, m, broken.Path)
 
 	// The default restart key is capital "R" because it is the only stop-then-start action, so it stays apart from "r".
-	new, _ := m.Update(tea.KeyPressMsg{Code: 'R', Text: "R"})
-	got, ok := new.(Model)
+	result, _ := m.Update(tea.KeyPressMsg{Code: 'R', Text: "R"})
+	got, ok := result.(Model)
 	if !ok {
-		t.Fatalf("Update returned %T, want Model", new)
+		t.Fatalf("Update returned %T, want Model", result)
 	}
 	if !strings.Contains(got.message, "No manifest") {
 		t.Errorf("message = %q, want it to say the manifest is missing: the message has to "+
@@ -202,8 +202,8 @@ func TestToggleGroupIgnoresMembersWithoutKnownState(t *testing.T) {
 	}
 	delete(m.services, target)
 
-	new, _ := m.toggleSelected()
-	if new == nil {
+	result, _ := m.toggleSelected()
+	if result == nil {
 		t.Fatal("toggleSelected returned nil: a member without state cannot take down the group")
 	}
 }

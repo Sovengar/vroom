@@ -90,7 +90,7 @@ func TestMetricsCmdMuestreaElProcesoRealYLoIntegra(t *testing.T) {
 
 	v := m.metrics[path]
 	if v == nil {
-		t.Fatal("applyMetrics no dejo metricas para el path del servicio")
+		t.Fatal("applyMetrics left no metrics for the service path")
 	}
 	if v.Threads != msg.m.Threads {
 		t.Errorf("v.Threads = %d, want %d", v.Threads, msg.m.Threads)
@@ -99,7 +99,7 @@ func TestMetricsCmdMuestreaElProcesoRealYLoIntegra(t *testing.T) {
 		t.Error("v.At sinAssignar: la vista no lleva la hora del muestreo")
 	}
 	if m.metricsPrev[path] == nil {
-		t.Error("applyMetrics no guardo la muestra previa, el CPU% nunca se podria calcular")
+		t.Error("applyMetrics did not keep the previous sample, the CPU% could never be calculated")
 	}
 
 	if got := strings.Join(m.metricsLines(80), "\n"); strings.Contains(got, "sampling metrics") {

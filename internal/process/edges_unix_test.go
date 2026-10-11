@@ -598,7 +598,7 @@ func TestReadMetricsOfANonexistentPidGivesError(t *testing.T) {
 
 // The kernel freezes this block at execve, which is why a later t.Setenv never appears here and the Env tab cannot read os.Environ instead.
 func TestReadEnvironOfTheLiveProcess(t *testing.T) {
-	real := pickRealEnvVar(t)
+	marker := pickRealEnvVar(t)
 
 	got, err := ReadEnviron(os.Getpid())
 	if err != nil {
@@ -606,12 +606,12 @@ func TestReadEnvironOfTheLiveProcess(t *testing.T) {
 	}
 	var found bool
 	for _, kv := range got {
-		if strings.HasPrefix(kv, real+"=") {
+		if strings.HasPrefix(kv, marker+"=") {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("%s is not in the process environment (%d variables)", real, len(got))
+		t.Errorf("%s is not in the process environment (%d variables)", marker, len(got))
 	}
 
 	t.Setenv("VROOM_TEST_MARKER_THAT_IS_NOT_SEEN", "1")

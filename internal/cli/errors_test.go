@@ -643,13 +643,13 @@ func TestNormalizePathConUnDirectorioBorradoNoFalla(t *testing.T) {
 	if got := normalizePath("api"); got != full {
 		t.Errorf("normalizePath = %q with valid CWD, want %q", got, full)
 	}
-	real := t.TempDir()
-	link := filepath.Join(filepath.Dir(real), "link")
-	if err := os.Symlink(real, link); err != nil {
+	dest := t.TempDir()
+	link := filepath.Join(filepath.Dir(dest), "link")
+	if err := os.Symlink(dest, link); err != nil {
 		t.Fatal(err)
 	}
-	if got := normalizePath(link); got != real {
-		t.Errorf("normalizePath(symlink) = %q, want the destination %q", got, real)
+	if got := normalizePath(link); got != dest {
+		t.Errorf("normalizePath(symlink) = %q, want the destination %q", got, dest)
 	}
 
 }

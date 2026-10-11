@@ -117,7 +117,7 @@ func TestNewStoreEsIdempotente(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const path = "/home/user/dev/persistente"
+	const path = "/home/user/dev/persistence"
 	if err := first.SaveMeta(path, Meta{Name: "p", State: StateRunning}); err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestDefaultBaseDirCaeAlHomeSinXDG(t *testing.T) {
 
 func TestDefaultBaseDirSinHomeNiXDG(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("la resolucion del home en windows no depende de HOME")
+		t.Skip("home resolution on windows does not depend on HOME")
 	}
 	t.Setenv("XDG_STATE_HOME", "")
 	t.Setenv("HOME", "")
@@ -197,7 +197,7 @@ func TestBaseDevuelveLaRaizDelStore(t *testing.T) {
 // Propagate DefaultBaseDir's error verbatim: a generic "could not create state directory" blames permissions when the real cause is a missing home.
 func TestNewStorePropagaElErrorDeResolucion(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("la resolucion del home en windows no depende de HOME")
+		t.Skip("home resolution on windows does not depend on HOME")
 	}
 	t.Setenv("XDG_STATE_HOME", "")
 	t.Setenv("HOME", "")
@@ -210,7 +210,7 @@ func TestNewStorePropagaElErrorDeResolucion(t *testing.T) {
 		t.Errorf("NewStore devolvio un store no nil junto al error: %+v", s)
 	}
 	if !strings.Contains(err.Error(), "home") {
-		t.Errorf("el error %q no menciona la resolucion del home, y esa es la causa", err)
+		t.Errorf("the error %q does not mention the home resolution, and that is the cause", err)
 	}
 }
 

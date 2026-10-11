@@ -144,7 +144,7 @@ func TestEvaluateDeadPIDPortOpenSameService(t *testing.T) {
 	if ownerPID == 0 {
 		t.Fatal("could not get the PID of the listener")
 	}
-	p, err := gopsprocess.NewProcess(int32(ownerPID))
+	p, err := gopsprocess.NewProcess(ownerPID)
 	if err != nil {
 		t.Fatalf("gopsutil: %v", err)
 	}

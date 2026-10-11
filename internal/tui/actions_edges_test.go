@@ -230,7 +230,7 @@ func TestStatusBadgeCoversEightStatesPlusUnconfigured(t *testing.T) {
 		Path: "/p", Name: "p", Configured: true,
 		Manifest: manifestWithPort(4321),
 	}
-	new := func(s uiStatus) *ServiceState {
+	mk := func(s uiStatus) *ServiceState {
 		return &ServiceState{Status: s, Meta: state.Meta{Pid: 4321, Pgid: 4321, Port: 4321, State: state.StateRunning}}
 	}
 
@@ -250,7 +250,7 @@ func TestStatusBadgeCoversEightStatesPlusUnconfigured(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tail.StripANSI(statusBadge(p, new(tt.status), "◐", "◌"))
+			got := tail.StripANSI(statusBadge(p, mk(tt.status), "◐", "◌"))
 			if !strings.Contains(got, tt.wants) {
 				t.Errorf("statusBadge(%s) = %q, want %q", tt.name, got, tt.wants)
 			}

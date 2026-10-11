@@ -101,13 +101,13 @@ func TestEvaluateDegradaAUnknownConElPropietarioDelPuertoIndeterminado(t *testin
 func TestAliveConUnCreationTimeQueNoCoincideEsUnPidReciclado(t *testing.T) {
 	mio := os.Getpid()
 
-	real := creationTimeDe(t, mio)
+	own := creationTimeDe(t, mio)
 
-	if !Alive(mio, real) {
+	if !Alive(mio, own) {
 		t.Error("the test process itself is not recognized as alive with its real creationTime")
 	}
 
-	if Alive(mio, real+12345) {
+	if Alive(mio, own+12345) {
 		t.Error("a creationTime that does not match gave alive: it is the recycled PID of another process, " +
 			"and vroom would kill it unintentionally")
 	}

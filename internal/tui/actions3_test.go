@@ -125,10 +125,10 @@ primary_group = "tienda"
 		}
 	}
 
-	new, cmd := m.toggleComposers("tienda")
-	got, ok := new.(Model)
+	result, cmd := m.toggleComposers("tienda")
+	got, ok := result.(Model)
 	if !ok {
-		t.Fatalf("toggleComposers returned %T, want Model", new)
+		t.Fatalf("toggleComposers returned %T, want Model", result)
 	}
 	if cmd != nil {
 		t.Error("a stack that does not resolve cannot launch anything: not even the other one")
@@ -163,10 +163,10 @@ func TestToggleOnRealStackGoesThroughStackBranch(t *testing.T) {
 	}
 	m.cursor = idx
 
-	new, cmd := m.toggleSelected()
-	got, ok := new.(Model)
+	result, cmd := m.toggleSelected()
+	got, ok := result.(Model)
 	if !ok {
-		t.Fatalf("toggleSelected returned %T, want Model", new)
+		t.Fatalf("toggleSelected returned %T, want Model", result)
 	}
 	if cmd == nil {
 		t.Error("pressing the key on a stopped stack must launch the orchestration")
@@ -208,10 +208,10 @@ func TestToggleGroupSkipsMemberWithoutKnownStateInSelectedGroup(t *testing.T) {
 	delete(m.services, lost)
 
 	m.cursor = idx
-	new, _ := m.toggleSelected()
-	got, ok := new.(Model)
+	result, _ := m.toggleSelected()
+	got, ok := result.(Model)
 	if !ok {
-		t.Fatalf("toggleSelected returned %T, want Model", new)
+		t.Fatalf("toggleSelected returned %T, want Model", result)
 	}
 	if sv := got.services[lost]; sv != nil {
 		t.Errorf("the member without state %s reappeared with state %v", lost, sv.Status)
