@@ -29,6 +29,8 @@ var (
 	styleMsg   = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	styleLabel = lipgloss.NewStyle().Foreground(accentFg)
 
+	styleHelpKey = lipgloss.NewStyle().Bold(true).Foreground(accentFg)
+
 	styleTabActive   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("12"))
 	styleTabInactive = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
 
