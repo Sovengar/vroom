@@ -139,7 +139,7 @@ func (m Model) keybindsBox() string {
 	help1 := truncANSI(dashboardHelp1(innerW, m.cfg.Keybindings), innerW)
 	help2 := truncANSI(dashboardHelp2(max(1, innerW-scanW-2), m.cfg.Keybindings), max(1, innerW-scanW-1))
 	padding := strings.Repeat(" ", max(0, innerW-lipglossWidth(help2)-scanW-1))
-	line2 := styleHelp.Render(help2) + padding + styleDim.Render(scanMethod)
+	line2 := renderHelp(help2) + padding + styleDim.Render(scanMethod)
 
 	bottom := ""
 	if m.message != "" {
@@ -150,7 +150,7 @@ func (m Model) keybindsBox() string {
 		borderFg,
 		frameTitle("Keybinds"), bordered.AlignLeft,
 		bottom, bordered.AlignRight,
-		styleHelp.Render(help1)+"\n"+line2,
+		renderHelp(help1)+"\n"+line2,
 		m.width,
 	)
 }

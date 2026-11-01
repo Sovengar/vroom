@@ -2096,6 +2096,20 @@ func helpSeg(kb map[string]string, action, label string) string {
 	return kbKey(kb, action) + " " + label
 }
 
+// Styles the plain hints after truncation so the width arithmetic stays ANSI-free.
+func renderHelp(line string) string {
+	segments := strings.Split(line, " · ")
+	for i, seg := range segments {
+		key, desc, ok := strings.Cut(seg, " ")
+		if !ok {
+			segments[i] = styleHelp.Render(seg)
+			continue
+		}
+		segments[i] = styleHelpKey.Render(key) + " " + styleHelp.Render(desc)
+	}
+	return strings.Join(segments, styleHelp.Render(" · "))
+}
+
 func dashboardHelp1(width int, kb map[string]string) string {
 	line := strings.Join([]string{
 		"/ filter",
