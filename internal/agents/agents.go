@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/sovengar/ai"
+	"github.com/sovengar/agentbridge"
 
 	"vroom/internal/config"
 )
@@ -80,18 +80,18 @@ func (a Agent) BuildArgs(prompt string) []string {
 	if len(a.Cmd) > 0 {
 		return expand(a.Cmd, prompt)
 	}
-	req := ai.Request{
-		Agent:  ai.Agent{Name: a.Name, Binary: a.Name},
+	req := agentbridge.Request{
+		Agent:  agentbridge.Agent{Name: a.Name, Binary: a.Name},
 		Prompt: prompt,
 	}
 	if a.Headless {
-		argv, err := ai.HeadlessArgs(req)
+		argv, err := agentbridge.HeadlessArgs(req)
 		if err != nil {
 			return []string{a.Name}
 		}
 		return argv
 	}
-	argv := ai.InteractiveArgs(req)
+	argv := agentbridge.InteractiveArgs(req)
 	if prompt == "" {
 		return trimTrailingEmpty(argv)
 	}
