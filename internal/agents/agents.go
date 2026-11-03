@@ -1,5 +1,5 @@
 // Package agents resolves the agent list for the ask AI action. The argv of a
-// builtin agent comes from github.com/sovengar/ai, so this package holds no
+// builtin agent comes from github.com/sovengar/agentbridge, so this package holds no
 // per-agent flag knowledge; only a user override keeps an explicit command.
 package agents
 

@@ -1,1 +1,2 @@
 primary_group = "projects/mine"
+sync_branch = "origin/main"
