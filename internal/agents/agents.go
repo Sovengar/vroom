@@ -1,27 +1,36 @@
-// Package agents resolves the agent list for the ask AI action; {prompt} expands to exactly one argv element so prompts with spaces or quotes need no shell.
+// Package agents resolves the agent list for the ask AI action. The argv of a
+// builtin agent comes from github.com/sovengar/ai, so this package holds no
+// per-agent flag knowledge; only a user override keeps an explicit command.
 package agents
 
 import (
 	"os/exec"
 	"strings"
 
+	"github.com/sovengar/ai"
+
 	"vroom/internal/config"
 )
 
 type Agent struct {
 	Name string
-	Cmd  []string
+	// Cmd is a user override. When empty the argv is built from the shared ai
+	// capability table.
+	Cmd []string
+	// Headless marks an agent whose interactive UI takes no initial prompt
+	// (hermes chat, jcode), so the prompt goes to the one-shot form instead.
+	Headless bool
 }
 
 const promptPlaceholder = "{prompt}"
 
-// jcode uses run because its interactive TUI rejects an initial prompt.
+// Builtins returns the agents vroom knows without any config.
 func Builtins() []Agent {
 	return []Agent{
-		{Name: "opencode", Cmd: []string{"opencode", "--prompt", promptPlaceholder}},
-		{Name: "pi", Cmd: []string{"pi", promptPlaceholder}},
-		{Name: "hermes", Cmd: []string{"hermes", "chat", "-q", promptPlaceholder}},
-		{Name: "jcode", Cmd: []string{"jcode", "run", promptPlaceholder}},
+		{Name: "opencode"},
+		{Name: "pi"},
+		{Name: "hermes", Headless: true},
+		{Name: "jcode", Headless: true},
 	}
 }
 
@@ -42,23 +51,58 @@ func Resolve(overrides map[string]config.AgentConfig) []Agent {
 	return out
 }
 
+// Binary is the executable the agent runs, from its override or its name.
+func (a Agent) Binary() string {
+	if len(a.Cmd) > 0 {
+		return a.Cmd[0]
+	}
+	return a.Name
+}
+
 func Available(list []Agent) []Agent {
 	var out []Agent
 	for _, a := range list {
-		if len(a.Cmd) == 0 {
+		binary := a.Binary()
+		if binary == "" {
 			continue
 		}
-		if _, err := exec.LookPath(a.Cmd[0]); err == nil {
+		if _, err := exec.LookPath(binary); err == nil {
 			out = append(out, a)
 		}
 	}
 	return out
 }
 
-// An empty prompt drops the preceding flag too, else the agent gets a dangling flag.
+// BuildArgs returns the argv for one run. An override is expanded around
+// {prompt}; a builtin is resolved by the ai module, and an empty prompt never
+// leaves a dangling flag or an empty argument behind.
 func (a Agent) BuildArgs(prompt string) []string {
-	args := make([]string, 0, len(a.Cmd))
-	for _, part := range a.Cmd {
+	if len(a.Cmd) > 0 {
+		return expand(a.Cmd, prompt)
+	}
+	req := ai.Request{
+		Agent:  ai.Agent{Name: a.Name, Binary: a.Name},
+		Prompt: prompt,
+	}
+	if a.Headless {
+		argv, err := ai.HeadlessArgs(req)
+		if err != nil {
+			return []string{a.Name}
+		}
+		return argv
+	}
+	argv := ai.InteractiveArgs(req)
+	if prompt == "" {
+		return trimTrailingEmpty(argv)
+	}
+	return argv
+}
+
+// expand fills the {prompt} placeholder. An empty prompt drops the preceding
+// flag too, else the agent gets a dangling flag.
+func expand(cmd []string, prompt string) []string {
+	args := make([]string, 0, len(cmd))
+	for _, part := range cmd {
 		if part == promptPlaceholder {
 			if prompt == "" && len(args) > 0 && strings.HasPrefix(args[len(args)-1], "-") {
 				args = args[:len(args)-1]
@@ -71,6 +115,15 @@ func (a Agent) BuildArgs(prompt string) []string {
 		args = append(args, part)
 	}
 	return args
+}
+
+// trimTrailingEmpty removes the empty prompt argument the shared builder adds
+// for a positional-prompt agent.
+func trimTrailingEmpty(argv []string) []string {
+	if len(argv) > 0 && argv[len(argv)-1] == "" {
+		return argv[:len(argv)-1]
+	}
+	return argv
 }
 
 // Insertion sort instead of sort.Slice, to keep the import list empty.

@@ -17,12 +17,13 @@ func TestResolveBuiltins(t *testing.T) {
 	if got[0].Name != "opencode" || got[1].Name != "pi" || got[2].Name != "hermes" || got[3].Name != "jcode" {
 		t.Errorf("wrong order/identity: %+v", got)
 	}
-	if !reflect.DeepEqual(got[2].Cmd, []string{"hermes", "chat", "-q", "{prompt}"}) {
-		t.Errorf("cmd hermes = %v", got[2].Cmd)
+	// hermes and jcode take no initial prompt in their interactive UI, so they
+	// are marked headless and the argv comes from the shared ai module.
+	if !got[2].Headless || !got[3].Headless {
+		t.Errorf("hermes and jcode must be headless: %+v", got)
 	}
-	// jcode is a TUI with no initial prompt, so it needs the one-shot run form to receive it.
-	if !reflect.DeepEqual(got[3].Cmd, []string{"jcode", "run", "{prompt}"}) {
-		t.Errorf("cmd jcode = %v", got[3].Cmd)
+	if got[2].BuildArgs("p")[0] != "hermes" || got[3].BuildArgs("p")[0] != "jcode" {
+		t.Errorf("builtin argv = %v / %v", got[2].BuildArgs("p"), got[3].BuildArgs("p"))
 	}
 }
 
@@ -50,7 +51,7 @@ func TestAvailable(t *testing.T) {
 	t.Setenv("PATH", bin)
 
 	list := []Agent{
-		{Name: "fake-agent", Cmd: []string{"fake-agent", "{prompt}"}},
+		{Name: "fake-agent"},
 		{Name: "ghost", Cmd: []string{"does-not-exist-xyz", "{prompt}"}},
 	}
 	got := Available(list)
