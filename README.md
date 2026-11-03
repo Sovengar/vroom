@@ -408,14 +408,28 @@ prompt as argument, in the project directory):
 - `auto` (default) — herdr if available; if not, inline.
 
 Built-in agents (only those installed in PATH are shown; with only one the picker is
-skipped):
+skipped). The argv is **not** in vroom: it comes from
+[`github.com/sovengar/agentbridge`](https://github.com/Sovengar/agentbridge), the
+same capability table every other tool uses. vroom only decides where the
+process appears.
 
-| Agent | Invocation |
+| Agent | Mode |
 |---|---|
-| opencode | `opencode --prompt "<prompt>"` |
-| pi | `pi "<prompt>"` |
-| hermes | `hermes chat -q "<prompt>"` (in TTY the session becomes interactive) |
-| jcode | `jcode run "<prompt>"` (one-shot: responds and exits; its TUI does not accept an initial prompt) |
+| opencode | interactive, prompt via `--prompt` |
+| pi | interactive, prompt positional |
+| hermes | one-shot (`hermes chat -q`): its interactive UI takes no initial prompt |
+| jcode | one-shot (`jcode run`): its TUI takes no initial prompt |
+
+A custom agent is declared once, with its own command. Declaring any
+`[ask.agents.*]` **replaces** the built-in list instead of extending it:
+
+```toml
+[ask.agents.claude]
+cmd = "claude {prompt}"
+```
+
+The prompt is always **one argv element**, so quotes, `&&` or `$` in a request
+never reach a shell.
 
 **Prompt prefill**: when opening the ask input, vroom assumes the request is
 about the selected app and prefills the `[ask] prompt` template with the
