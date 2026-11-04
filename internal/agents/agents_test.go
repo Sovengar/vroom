@@ -6,24 +6,37 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/sovengar/agentbridge"
+
 	"vroom/internal/config"
 )
 
-func TestResolveBuiltins(t *testing.T) {
+func TestResolveBuiltinsComeFromTheSharedCatalog(t *testing.T) {
 	got := Resolve(nil)
-	if len(got) != 4 {
-		t.Fatalf("agents = %d, want 4", len(got))
+	catalog := agentbridge.Builtins()
+	if len(got) != len(catalog) {
+		t.Fatalf("agents = %d, want the %d agentbridge builtins", len(got), len(catalog))
 	}
-	if got[0].Name != "opencode" || got[1].Name != "pi" || got[2].Name != "hermes" || got[3].Name != "jcode" {
-		t.Errorf("wrong order/identity: %+v", got)
+	byName := map[string]Agent{}
+	for _, a := range got {
+		byName[a.Name] = a
 	}
-	// hermes and jcode take no initial prompt in their interactive UI, so they
-	// are marked headless and the argv comes from the shared ai module.
-	if !got[2].Headless || !got[3].Headless {
-		t.Errorf("hermes and jcode must be headless: %+v", got)
+	for _, a := range got {
+		// The mode is derived, not declared: an agent with no interactive prompt
+		// runs in its one-shot form, and both facts come from the shared table.
+		want := agentbridge.CapabilitiesFor(a.Name).NoInteractivePrompt
+		if a.Headless != want {
+			t.Errorf("%s: headless = %v, want %v", a.Name, a.Headless, want)
+		}
+		if argv := a.BuildArgs("p"); len(argv) == 0 || argv[0] != a.Name {
+			t.Errorf("%s: argv = %v", a.Name, argv)
+		}
 	}
-	if got[2].BuildArgs("p")[0] != "hermes" || got[3].BuildArgs("p")[0] != "jcode" {
-		t.Errorf("builtin argv = %v / %v", got[2].BuildArgs("p"), got[3].BuildArgs("p"))
+	// The two agents whose interactive UI takes no initial prompt stay headless.
+	for _, name := range []string{"hermes", "jcode"} {
+		if a, ok := byName[name]; !ok || !a.Headless {
+			t.Errorf("%s must be headless: %+v", name, byName[name])
+		}
 	}
 }
 

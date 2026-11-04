@@ -24,14 +24,20 @@ type Agent struct {
 
 const promptPlaceholder = "{prompt}"
 
-// Builtins returns the agents vroom knows without any config.
+// Builtins returns the shared agentbridge catalog as vroom agents. Neither the
+// name list nor the mode is vroom's: an agent whose interactive UI takes no
+// initial prompt (hermes, jcode) is started in its one-shot form, and vroom only
+// learns that from the capability table.
 func Builtins() []Agent {
-	return []Agent{
-		{Name: "opencode"},
-		{Name: "pi"},
-		{Name: "hermes", Headless: true},
-		{Name: "jcode", Headless: true},
+	catalog := agentbridge.Builtins()
+	agents := make([]Agent, 0, len(catalog))
+	for _, agent := range catalog {
+		agents = append(agents, Agent{
+			Name:     agent.Name,
+			Headless: agentbridge.CapabilitiesFor(agent.Name).NoInteractivePrompt,
+		})
 	}
+	return agents
 }
 
 func Resolve(overrides map[string]config.AgentConfig) []Agent {

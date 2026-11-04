@@ -1965,10 +1965,13 @@ func TestAskPickerFlow(t *testing.T) {
 	if len(m2.pickerItems) != 3 {
 		t.Errorf("items = %d, want 3", len(m2.pickerItems))
 	}
+	// The picker follows the shared catalog order (hermes, opencode, pi for the
+	// three installed above), so one step lands on opencode and two on pi.
 	m3, _ := press(m2, "j")
-	m4, _ := press(m3, "enter")
-	if m4.pickerOpen || !m4.askPromptOpen || m4.askAgent.Name != "pi" {
-		t.Errorf("picker enter: open=%v prompt=%v agent=%q", m4.pickerOpen, m4.askPromptOpen, m4.askAgent.Name)
+	m4, _ := press(m3, "j")
+	m5, _ := press(m4, "enter")
+	if m5.pickerOpen || !m5.askPromptOpen || m5.askAgent.Name != "pi" {
+		t.Errorf("picker enter: open=%v prompt=%v agent=%q", m5.pickerOpen, m5.askPromptOpen, m5.askAgent.Name)
 	}
 }
 

@@ -1747,6 +1747,17 @@ func (m Model) applyFilter(q string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// agentCatalog names the builtins for the "nothing installed" message. The list
+// is the shared catalog's, so it cannot drift from what vroom would offer.
+func agentCatalog() string {
+	builtins := agents.Builtins()
+	names := make([]string, 0, len(builtins))
+	for _, agent := range builtins {
+		names = append(names, agent.Name)
+	}
+	return strings.Join(names, ", ")
+}
+
 func (m Model) openAsk() (tea.Model, tea.Cmd) {
 	p := m.selected()
 	if p == nil {
@@ -1757,7 +1768,7 @@ func (m Model) openAsk() (tea.Model, tea.Cmd) {
 	}
 	m.askAgents = agents.Available(agents.Resolve(m.cfg.Ask.Agents))
 	if len(m.askAgents) == 0 {
-		m.notify("no AI agent found in PATH (opencode, pi, hermes, jcode)")
+		m.notify("no AI agent found in PATH (" + agentCatalog() + ")")
 		return m, nil
 	}
 	if len(m.askAgents) == 1 {
