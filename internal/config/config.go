@@ -9,6 +9,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
+
+	"vroom/internal/manifest"
 )
 
 const FileName = "config.toml"
@@ -37,9 +39,11 @@ type ScannerConfig struct {
 }
 
 type Config struct {
-	Ask         AskConfig         `toml:"ask"`
-	Scanner     ScannerConfig     `toml:"scanner"`
-	Keybindings map[string]string `toml:"keybindings"`
+	Ask     AskConfig     `toml:"ask"`
+	Scanner ScannerConfig `toml:"scanner"`
+	// Repos holds whole manifests keyed by absolute directory, so a project can be declared (or corrected) without committing .vroom.toml — the case of a public repo. The key wins over the file: presence of an entry REPLACES the manifest, it does not merge field by field, because a half-merged manifest is a manifest nobody can read off a single file.
+	Repos       map[string]manifest.Manifest `toml:"repos"`
+	Keybindings map[string]string            `toml:"keybindings"`
 
 	Err error
 }
@@ -139,9 +143,18 @@ func Load() Config {
 	if _, err := os.Stat(path); err != nil {
 		return cfg
 	}
-	if _, err := toml.DecodeFile(path, &cfg); err != nil {
+	md, err := toml.DecodeFile(path, &cfg)
+	if err != nil {
 		return withDefaults(Config{Err: fmt.Errorf("invalid config %s: %w", path, err)})
 	}
+	if err := checkRepoKeys(md); err != nil {
+		return withDefaults(Config{Err: fmt.Errorf("invalid config %s: %w", path, err)})
+	}
+	repos, err := normalizeRepos(cfg.Repos)
+	if err != nil {
+		return withDefaults(Config{Err: fmt.Errorf("invalid config %s: %w", path, err)})
+	}
+	cfg.Repos = repos
 	if err := cfg.Validate(); err != nil {
 		return withDefaults(Config{Err: fmt.Errorf("invalid config %s: %w", path, err)})
 	}
@@ -170,7 +183,76 @@ func withDefaults(cfg Config) Config {
 	return cfg
 }
 
+// normalizeRepos resolves the directory keys once, at load time: `~` is expanded and a relative path is made absolute against the CWD, so every later comparison with a scanned project path is a plain string equality. Two keys that resolve to the same directory are an error instead of last-one-wins, because the loser would silently lose its manifest.
+func normalizeRepos(repos map[string]manifest.Manifest) (map[string]manifest.Manifest, error) {
+	if len(repos) == 0 {
+		return repos, nil
+	}
+	out := make(map[string]manifest.Manifest, len(repos))
+	for key, m := range repos {
+		abs, err := resolveDir(key)
+		if err != nil {
+			return nil, fmt.Errorf("repos.%q: %w", key, err)
+		}
+		if _, dup := out[abs]; dup {
+			return nil, fmt.Errorf("repos: %q and another key both resolve to %s", key, abs)
+		}
+		out[abs] = m
+	}
+	return out, nil
+}
+
+func resolveDir(key string) (string, error) {
+	if !filepath.IsAbs(key) {
+		if key == "~" || strings.HasPrefix(key, "~/") {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", fmt.Errorf("could not resolve home directory: %w", err)
+			}
+			key = filepath.Join(home, strings.TrimPrefix(key, "~"))
+		} else {
+			abs, err := filepath.Abs(key)
+			if err != nil {
+				return "", fmt.Errorf("could not resolve path: %w", err)
+			}
+			key = abs
+		}
+	}
+	return filepath.Clean(key), nil
+}
+
+// checkRepoKeys rejects the keys TOML would swallow silently inside a [repos] entry: a typo, or a top-level field written after a [repos."<dir>".commands.*] header (it becomes commands.start.port and the port visually present in the file disappears). Same trap the manifest rejects, one level deeper.
+func checkRepoKeys(md toml.MetaData) error {
+	for _, key := range md.Undecoded() {
+		name := key.String()
+		if !strings.HasPrefix(name, "repos.") {
+			continue
+		}
+		return fmt.Errorf("repos: unknown key %q (check the spelling; a field written after a [repos.\"<dir>\".commands.*] header lands inside that table — put the [commands] tables last)", name)
+	}
+	return nil
+}
+
+// RepoManifests is the scanner's view of [repos]: the pointer map it overrides .vroom.toml with.
+func (c Config) RepoManifests() map[string]*manifest.Manifest {
+	if len(c.Repos) == 0 {
+		return nil
+	}
+	out := make(map[string]*manifest.Manifest, len(c.Repos))
+	for dir, m := range c.Repos {
+		entry := m
+		out[dir] = &entry
+	}
+	return out
+}
+
 func (c *Config) Validate() error {
+	for dir, m := range c.Repos {
+		entry := m
+		if err := entry.Validate(); err != nil {
+			return fmt.Errorf("repos.%q: %w", dir, err)
+		}
+	}
 	switch c.Ask.Launcher {
 	case "auto", "herdr", "inline", "custom":
 	default:

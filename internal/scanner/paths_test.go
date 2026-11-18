@@ -80,7 +80,7 @@ func TestScanSinFdDaLaMismaRespuestaQueConFd(t *testing.T) {
 	}
 
 	// scanWith with fd == "" forces the WalkDir path; t.Setenv cannot reach the absolute fallbacks fdPath also checks.
-	sinFD, err := scanWith(root, 3, "")
+	sinFD, err := scanWith(root, 3, "", nil)
 	if err != nil {
 		t.Fatalf("without fd: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestScanRespetaLaProfundidad(t *testing.T) {
 		{0, nil},
 	}
 	for _, tt := range tests {
-		got, err := scanWith(root, tt.depth, "")
+		got, err := scanWith(root, tt.depth, "", nil)
 		if err != nil {
 			t.Fatalf("depth %d: %v", tt.depth, err)
 		}
@@ -142,7 +142,7 @@ func TestScanSaltaDirectoriosOcultosYDeDependencias(t *testing.T) {
 	}
 	root := writeTree(t, files)
 
-	res, err := scanWith(root, 4, "")
+	res, err := scanWith(root, 4, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +424,7 @@ func TestScanConFdQueFallaDaErrorConSuSalida(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := scanWith(root, 3, failing)
+	_, err := scanWith(root, 3, failing, nil)
 	if err == nil {
 		t.Fatal("with fd failing the scan should fail, not silently degrade to WalkDir")
 	}
@@ -450,7 +450,7 @@ func TestScanConFdQueNoEncuentraNadaDaUnaListaVacia(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := scanWith(root, 3, empty)
+	res, err := scanWith(root, 3, empty, nil)
 	if err != nil {
 		t.Fatalf("fd that finds nothing is not an error: %v", err)
 	}
@@ -483,7 +483,7 @@ func TestScanPorWalkConBareRepoYProfundidad(t *testing.T) {
 	wt := filepath.Join(root, "feature")
 	runGit(t, repo, "worktree", "add", "-q", wt, "-b", "feature")
 
-	res, err := scanWith(root, 4, "")
+	res, err := scanWith(root, 4, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -503,7 +503,7 @@ func TestScanPorWalkConBareRepoYProfundidad(t *testing.T) {
 		t.Errorf("there are %d worktrees, want 1: the walk must recognize .git as a file", worktrees)
 	}
 
-	shallow, err := scanWith(root, 0, "")
+	shallow, err := scanWith(root, 0, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -526,7 +526,7 @@ func TestScanPorWalkFallaSiElWalkFalla(t *testing.T) {
 	}
 
 	root := writeTree(t, map[string]string{"api/.vroom.toml": "name = \"api\"\n"})
-	res, err := scanWith(root, 3, "")
+	res, err := scanWith(root, 3, "", nil)
 	if calls != 1 {
 		t.Errorf("the walk was called %d times, want 1: the scan must not retry", calls)
 	}
@@ -577,7 +577,7 @@ func TestFinalizeNoDuplicaLaFilaDeUnBareQueTambienEsProyecto(t *testing.T) {
 	projects := []Project{{Path: dir, Name: "double", Configured: true}}
 	bare := []Project{{Path: dir, Name: "double", IsBareContainer: true}}
 
-	got := finalize(projects, bare, "/srv")
+	got, _ := finalize(projects, bare, "/srv", nil)
 	if len(got) != 1 {
 		t.Fatalf("there are %d rows, want 1: the same path cannot appear twice", len(got))
 	}
@@ -587,7 +587,7 @@ func TestFinalizeNoDuplicaLaFilaDeUnBareQueTambienEsProyecto(t *testing.T) {
 	}
 
 	dup := []Project{{Path: dir, IsBareContainer: true}, {Path: dir, IsBareContainer: true}}
-	if got := finalize(nil, dup, "/srv"); len(got) != 1 {
+	if got, _ := finalize(nil, dup, "/srv", nil); len(got) != 1 {
 		t.Errorf("there are %d rows with two bares of the same path, want 1", len(got))
 	}
 }
@@ -599,7 +599,7 @@ func TestFinalizeDedupsProyectosRepetidos(t *testing.T) {
 		{Path: dir, Name: "double", Configured: true},
 		{Path: dir, Name: "double", Configured: true},
 	}
-	if got := finalize(dup, nil, "/srv"); len(got) != 1 {
+	if got, _ := finalize(dup, nil, "/srv", nil); len(got) != 1 {
 		t.Errorf("there are %d rows with two projects of the same path, want 1", len(got))
 	}
 }
@@ -611,7 +611,7 @@ func TestScanCortaElRecorridoCuandoSePasaDeProfundidad(t *testing.T) {
 		"a/.vroom.toml":       "name = \"a\"\ncommands.start.run = \"./x\"\n",
 	})
 
-	res, err := scanWith(root, 2, "")
+	res, err := scanWith(root, 2, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -620,7 +620,7 @@ func TestScanCortaElRecorridoCuandoSePasaDeProfundidad(t *testing.T) {
 		t.Errorf("found %v with depth 2, want only a: the traversal must be cut short", names)
 	}
 
-	zero, err := scanWith(root, 0, "")
+	zero, err := scanWith(root, 0, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -629,7 +629,7 @@ func TestScanCortaElRecorridoCuandoSePasaDeProfundidad(t *testing.T) {
 	}
 
 	// The row name is the directory, not the manifest; both scan paths do that and findProject has a second pass.
-	more, err := scanWith(root, 5, "")
+	more, err := scanWith(root, 5, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -647,7 +647,7 @@ func TestScanConElCwdBorradoDaError(t *testing.T) {
 	}
 	t.Cleanup(func() { t.Chdir(t.TempDir()) })
 
-	if _, err := scanWith("relativo", 3, ""); err == nil {
+	if _, err := scanWith("relativo", 3, "", nil); err == nil {
 		t.Error("without CWD, a relative path cannot be resolved: it should produce an error, not scan another directory")
 	}
 }

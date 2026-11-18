@@ -266,7 +266,7 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 			scanRoot = filepath.Join(root, scanRoot)
 		}
 	}
-	scanResult, err := scanner.Scan(scanRoot, cfg.Scanner.Depth)
+	scanResult, err := scanner.ScanWith(scanRoot, cfg.Scanner.Depth, cfg.RepoManifests())
 	projects := scanResult.Projects
 	ta := textarea.New()
 	ta.Placeholder = "what should the agent do?"
@@ -323,6 +323,9 @@ func New(store *state.Store, manager process.Manager, root string) Model {
 	}
 	if cfg.Err != nil {
 		m.notify(cfg.Err.Error())
+	}
+	for _, notice := range scanResult.Notices {
+		m.notify(notice)
 	}
 	m.projects = projects
 	for _, p := range projects {

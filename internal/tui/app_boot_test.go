@@ -871,3 +871,48 @@ func askRequest() launcher.Request {
 func fakeAgent() agents.Agent {
 	return agents.Agent{Name: "fake-agent", Cmd: []string{"fake-agent"}}
 }
+
+// The TUI is where [repos] is read on every boot, so a repo declared only in the config must be a configured row with no .vroom.toml on disk, and a dead entry must reach the message bar instead of vanishing.
+func TestNewAppliesConfigRepos(t *testing.T) {
+	isolateConfig(t)
+	root := writeTestTree(t, false)
+	private := filepath.Join(t.TempDir(), "private-thing")
+	if err := os.MkdirAll(private, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(t.TempDir(), "gone")
+
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	writeStr(t, cfgPath, `
+[repos."`+private+`"]
+name = "private-thing"
+port = 4321
+commands.start.run = "mise run start"
+
+[repos."`+missing+`"]
+name = "gone"
+commands.start.run = "mise run start"
+`)
+	t.Setenv("VROOM_CONFIG", cfgPath)
+
+	m := New(state.NewStoreAt(t.TempDir()), &stubManager{}, root)
+
+	var found *scanner.Project
+	for i := range m.projects {
+		if m.projects[i].Path == private {
+			found = &m.projects[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("the config-declared project is missing from %+v", m.projects)
+	}
+	if !found.Configured || found.Manifest == nil || found.Manifest.Port != 4321 {
+		t.Errorf("project = %+v, want it configured from the config", found)
+	}
+	if st := m.services[private]; st == nil || st.Status != statusStopped {
+		t.Errorf("service state = %+v, want stopped: a configured project is startable", st)
+	}
+	if !strings.Contains(m.message, missing) {
+		t.Errorf("message = %q, want the skipped [repos] entry named", m.message)
+	}
+}

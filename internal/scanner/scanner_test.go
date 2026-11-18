@@ -367,7 +367,7 @@ func TestFinalizeDedupsBareContainer(t *testing.T) {
 	dir := t.TempDir()
 	project := Project{Path: dir, Name: "bare", Configured: true}
 	bare := Project{Path: dir, Name: "bare", IsBareContainer: true}
-	got := finalize([]Project{project}, []Project{bare}, t.TempDir())
+	got, _ := finalize([]Project{project}, []Project{bare}, t.TempDir(), nil)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 row, got %d: %+v", len(got), got)
 	}

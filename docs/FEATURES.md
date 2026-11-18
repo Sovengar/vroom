@@ -15,6 +15,7 @@ Concise reference of vroom's features. Detailed contracts live in `../README.md`
 | [Ask AI](#ask-ai) | Send a prompt to an agent with app context prefilled | `a` |
 | [Orchestration stacks](#orchestration-stacks) | Staged launch/stop of several services | `vroom launch`; `Composers` group |
 | [Scanning, groups & filter](#scanning-groups--filter) | Find manifests, group them, filter the tree | `/`, `enter` |
+| [Manifests in the config](#manifests-in-the-config-repos) | Declare a project without committing `.vroom.toml` | `[repos]` in `config.toml` |
 | [Worktree topology](#worktree-topology) | Show a repo's worktrees and bare repos as one row | `enter` on a repo row |
 | [Embedded terminal](#embedded-terminal) | A shell inside the TUI, in the selected project | `!` |
 | [Status detection](#status-detection) | PID + creation time + port + pattern → a trustworthy badge | — |
@@ -213,6 +214,40 @@ staging guarantees infrastructure is up before the services that need it.
 
 **Why it matters:** the tree is the index — you find a service by name or group,
 and a bad manifest can never hide a project from you.
+
+---
+
+## Manifests in the config (`[repos]`)
+
+A `.vroom.toml` can live in the config file instead of the repository, for repos
+where you do not want to commit one (a public repo) or where it must differ per
+machine. The key is the **absolute directory** (`~` expanded, relative resolved
+against the CWD); the value is a **whole manifest**, same keys as `.vroom.toml`:
+
+```toml
+[repos."~/dev/work/vsocial/agenda-api-vsocial"]
+name = "agenda-api"
+primary_group = "vsocial"
+secondary_group = "backend"
+port = 8080
+
+commands.start.run = "mise run start"
+```
+
+- **Priority: the config wins.** An entry for a directory found by the scan
+  **replaces** that directory's `.vroom.toml` entirely — it does not merge field
+  by field, so the manifest you read in one place is the manifest vroom runs. It
+  also replaces a malformed `.vroom.toml` (the file stops mattering).
+- **An entry is a project.** A directory with no `.vroom.toml` at all still shows
+  up, configured and startable, as long as the directory exists.
+- Every entry is validated like a manifest: `name` and `commands.start.run` are
+  required, an unknown key inside an entry is an error (a field written after a
+  `[repos."<dir>".commands.*]` header lands inside that table).
+- An entry whose directory is missing or is not a directory is **skipped as a
+  notice** (TUI message bar, `notices` in `vroom list`), never silently dropped.
+
+**Why it matters:** the same repo runs with the same manifest on every machine
+without committing anything, and a private port/route stays private.
 
 ---
 

@@ -366,6 +366,15 @@ special keys (`q`, `Esc`, `enter`, `tab`/`shift+tab`, `j`/`k`, arrows, `pgup`/`p
 `$VROOM_CONFIG`). Without a file, everything works with defaults.
 
 ```toml
+# ── Manifests outside the repo ────────────────────────
+# A whole manifest per directory, keyed by absolute path;
+# it REPLACES that directory's .vroom.toml and needs no
+# file at all. Same keys as .vroom.toml.
+# [repos."~/dev/work/api"]
+# name = "api"
+# port = 8080
+# commands.start.run = "mise run start"
+
 [ask]
 launcher = "auto"     # auto | herdr | inline | custom
 direction = "right"   # herdr split: right | down

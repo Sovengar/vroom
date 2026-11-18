@@ -21,6 +21,23 @@ Load for vroom services, stacks, lifecycle, logs, status, or `.vroom.toml`.
 3. Use `--path` for duplicate worktrees.
 4. Report command, project path, JSON result, route, and warnings.
 
+## Config File
+
+`~/.config/vroom/config.toml` (`$XDG_CONFIG_HOME` honoured, `$VROOM_CONFIG` overrides).
+Keys: `[ask]` (launcher/direction/target/prompt/agents), `[scanner]` (`root`, `depth`), `[keybindings]`, `[repos]`.
+
+- `[repos."<absolute dir>"]` is a WHOLE manifest (same keys as `.vroom.toml`:
+  `name`, `port`, `primary_group`, `secondary_group`, `url_generation`,
+  `route_name`, `commands.start.run`, `[commands.*]`, `[worktrees]`).
+- It **replaces** that directory's `.vroom.toml` (no field merge) and creates the
+  project when no `.vroom.toml` exists. `~` expands; relative paths resolve
+  against the CWD.
+- Validation is the manifest's: `name` and `commands.start.run` required, unknown
+  keys rejected. A missing/non-directory entry is skipped and reported.
+- `vroom list` carries those skips as `notices` (top-level array, omitted when
+  empty); a config-declared project appears like any other row
+  (`configured: true`, `declared_port`).
+
 ## Stack Rule
 
 Run `vroom launch --list` before an unfamiliar stack. Stages run in order and services inside a stage run concurrently. Use `--dry` to inspect a stack before starting it.

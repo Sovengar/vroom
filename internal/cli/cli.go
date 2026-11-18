@@ -29,6 +29,8 @@ import (
 
 type ListResult struct {
 	Projects []ProjectInfo `json:"projects"`
+	// Notices carries the scan's non-fatal findings (a [repos] entry whose directory is missing) so an agent learns the config entry was ignored instead of counting one project fewer for no visible reason.
+	Notices []string `json:"notices,omitempty"`
 }
 
 type ProjectInfo struct {
@@ -490,7 +492,7 @@ func newCliSession() (cliSession, error) {
 
 // Separate from newCliSession because `launch --list` needs the store but not the scan: a disk error must not stop it from listing stacks.
 func (s cliSession) scan() (scanner.ScanResult, error) {
-	res, err := scanner.Scan(s.root, s.cfg.Scanner.Depth)
+	res, err := scanner.ScanWith(s.root, s.cfg.Scanner.Depth, s.cfg.RepoManifests())
 	if err != nil {
 		return res, fmt.Errorf("scan error: %w", err)
 	}
@@ -521,6 +523,7 @@ func cmdList() (any, error) {
 
 	result := ListResult{
 		Projects: make([]ProjectInfo, 0, len(scanResult.Projects)),
+		Notices:  scanResult.Notices,
 	}
 	for _, p := range scanResult.Projects {
 		result.Projects = append(result.Projects, buildProjectInfo(s.manager, s.store, collapsed, p))

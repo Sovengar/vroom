@@ -38,14 +38,22 @@ func (p Project) IsNestedRow() bool {
 type ScanResult struct {
 	Projects []Project
 	UsedFD   bool
+	// Notices are the non-fatal facts a scan cannot encode as a project (a [repos] entry pointing at a directory that is not there), so a typo in the config is reported instead of silently producing one project fewer.
+	Notices []string
 }
 
+// Scan is ScanWith without config [repos] overrides.
 func Scan(root string, depth int) (ScanResult, error) {
-	return scanWith(root, depth, fdPath())
+	return ScanWith(root, depth, nil)
+}
+
+// ScanWith takes the config's [repos] manifests keyed by absolute directory: an entry REPLACES the .vroom.toml of that directory, and an entry for a directory without one creates the project, which is how a manifest stays out of a public repo. A nil map scans exactly like Scan.
+func ScanWith(root string, depth int, repos map[string]*manifest.Manifest) (ScanResult, error) {
+	return scanWith(root, depth, fdPath(), repos)
 }
 
 // scanWith takes the resolved fd ("" forces WalkDir) because resolving the tool inside the scan made half the code unreachable from tests: clearing PATH is not enough, the absolute fallbacks remain.
-func scanWith(root string, depth int, fd string) (ScanResult, error) {
+func scanWith(root string, depth int, fd string, repos map[string]*manifest.Manifest) (ScanResult, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return ScanResult{}, fmt.Errorf("could not resolve CWD: %w", err)
@@ -63,16 +71,18 @@ func scanWith(root string, depth int, fd string) (ScanResult, error) {
 		if err != nil {
 			return ScanResult{Projects: projects, UsedFD: true}, err
 		}
-		return ScanResult{Projects: finalize(projects, bare, absRoot), UsedFD: true}, nil
+		merged, notices := finalize(projects, bare, absRoot, repos)
+		return ScanResult{Projects: merged, UsedFD: true, Notices: notices}, nil
 	}
 	projects, bare, err := scanWithWalk(absRoot, depth)
 	if err != nil {
 		return ScanResult{Projects: projects, UsedFD: false}, err
 	}
-	return ScanResult{Projects: finalize(projects, bare, absRoot), UsedFD: false}, nil
+	merged, notices := finalize(projects, bare, absRoot, repos)
+	return ScanResult{Projects: merged, UsedFD: false, Notices: notices}, nil
 }
 
-func finalize(projects, bare []Project, root string) []Project {
+func finalize(projects, bare []Project, root string, repos map[string]*manifest.Manifest) ([]Project, []string) {
 	seen := make(map[string]bool, len(projects)+len(bare))
 	merged := make([]Project, 0, len(projects)+len(bare))
 	for _, p := range projects {
@@ -89,11 +99,50 @@ func finalize(projects, bare []Project, root string) []Project {
 		seen[p.Path] = true
 		merged = append(merged, p)
 	}
+	merged, notices := applyRepos(merged, repos)
 	merged = annotateTopology(merged, root)
 	sort.Slice(merged, func(i, j int) bool {
 		return merged[i].Path < merged[j].Path
 	})
-	return merged
+	return merged, notices
+}
+
+// applyRepos is the whole priority rule in one place: an entry for a directory the walk already found replaces its manifest (and clears a parse error, because the config never needed that file), and an entry for a directory the walk did not find becomes the project. Entries nobody can reach are notices, never silent drops.
+func applyRepos(projects []Project, repos map[string]*manifest.Manifest) ([]Project, []string) {
+	if len(repos) == 0 {
+		return projects, nil
+	}
+	dirs := make([]string, 0, len(repos))
+	for dir := range repos {
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+
+	index := make(map[string]int, len(projects))
+	for i, p := range projects {
+		index[filepath.Clean(p.Path)] = i
+	}
+	var notices []string
+	for _, dir := range dirs {
+		m := repos[dir]
+		if i, found := index[dir]; found {
+			projects[i].Configured = true
+			projects[i].Manifest = m
+			projects[i].ManifestErr = ""
+			continue
+		}
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			notices = append(notices, fmt.Sprintf("repos.%q skipped: not a directory", dir))
+			continue
+		}
+		projects = append(projects, Project{
+			Path:       dir,
+			Name:       filepath.Base(dir),
+			Configured: true,
+			Manifest:   m,
+		})
+	}
+	return projects, notices
 }
 
 // fdPath searches PATH and then the absolute fallbacks (the CI runner, and systems where fd is packaged but off the service PATH); the fallbacks are data in defaultFDFallbacks, not a mutable global, so tests pass nonexistent paths without contaminating parallel runs.

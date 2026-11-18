@@ -1298,3 +1298,51 @@ func TestCmdStartWithUnusableServiceDirStartsNothingAndSaysSo(t *testing.T) {
 		t.Error("meta was written despite not being able to create the service directory")
 	}
 }
+
+// [repos] is the reason a project can exist with no .vroom.toml, and the JSON is what an agent reads: the declared port must come through, and a dead entry must be visible as a notice instead of a project that silently disappeared.
+func TestCmdListServesConfigRepos(t *testing.T) {
+	root := cliEnv(t)
+	_ = chdirTree(t, root)
+	private := filepath.Join(t.TempDir(), "private-thing")
+	if err := os.MkdirAll(private, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(t.TempDir(), "gone")
+
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	writeFile(t, cfgPath, `
+[repos."`+private+`"]
+name = "private-thing"
+port = 4321
+commands.start.run = "sleep 30"
+
+[repos."`+missing+`"]
+name = "gone"
+commands.start.run = "sleep 30"
+`)
+	t.Setenv("VROOM_CONFIG", cfgPath)
+
+	payload, err := cmdList()
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, ok := payload.(ListResult)
+	if !ok {
+		t.Fatalf("list returned %T, want ListResult", payload)
+	}
+	var found *ProjectInfo
+	for i := range list.Projects {
+		if list.Projects[i].Name == "private-thing" {
+			found = &list.Projects[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("the config-declared project is missing from %v", namesOf(list.Projects))
+	}
+	if !found.Configured || found.DeclaredPort != 4321 {
+		t.Errorf("project = %+v, want configured with declared_port 4321", found)
+	}
+	if len(list.Notices) != 1 || !strings.Contains(list.Notices[0], missing) {
+		t.Errorf("Notices = %v, want one naming %s", list.Notices, missing)
+	}
+}
